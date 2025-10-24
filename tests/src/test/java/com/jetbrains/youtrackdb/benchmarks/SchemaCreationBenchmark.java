@@ -3,10 +3,11 @@ package com.jetbrains.youtrackdb.benchmarks;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
+
 
 public class SchemaCreationBenchmark {
 
@@ -33,7 +34,7 @@ public class SchemaCreationBenchmark {
 
                 traversal.createSchemaClass("TestClass" + i);
                 for (var j = 0; j < 20; j++) {
-                  traversal.sideEffect(__.addSchemaProperty("TestProperty" + j,
+                  traversal.sideEffect(__.createSchemaProperty("TestProperty" + j,
                       PropertyType.STRING));
                 }
               }
@@ -63,11 +64,10 @@ public class SchemaCreationBenchmark {
                   }
 
                   counter++;
-                  traversal.schemaClass("TestClass" + i).addClassIndex(
+                  traversal.schemaClass("TestClass" + i).createClassIndex(
                       "TestIndex" + (i * 1_000) + j, IndexType.UNIQUE, "TestProperty" + j);
                 }
               }
-
               traversal.iterate();
             }
         );

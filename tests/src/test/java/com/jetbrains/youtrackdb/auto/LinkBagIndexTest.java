@@ -1,12 +1,11 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -19,17 +18,12 @@ import org.testng.annotations.Test;
  */
 @Test
 public class LinkBagIndexTest extends BaseDBTest {
+
   @BeforeClass
   public void setupSchema() {
-    final var ridBagIndexTestClass =
-        session.getMetadata().getSlowMutableSchema().createClass("RidBagIndexTestClass");
-
-    ridBagIndexTestClass.createProperty("ridBag", PropertyType.LINKBAG);
-
-    ridBagIndexTestClass.createIndex("ridBagIndex", IndexType.NOT_UNIQUE,
-        "ridBag");
-
-    session.close();
+    graph.autoExecuteInTx(g -> g.createSchemaClass("RidBagIndexTestClass").
+        createSchemaProperty("ridBag", PropertyType.LINKBAG)
+        .createPropertyIndex("ridBagIndex", IndexType.NOT_UNIQUE));
   }
 
   @AfterClass
@@ -80,10 +74,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -118,10 +109,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -167,10 +155,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -219,10 +204,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -265,10 +247,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -309,10 +288,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 3);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -358,10 +334,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 3);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -402,10 +375,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
 
     Assert.assertEquals(index.size(session), 2);
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -445,10 +415,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())) {
@@ -482,10 +449,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -522,10 +486,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())) {
@@ -612,10 +573,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var index = getIndex("ridBagIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
 

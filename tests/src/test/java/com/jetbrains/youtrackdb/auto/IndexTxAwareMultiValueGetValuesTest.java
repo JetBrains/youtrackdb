@@ -2,13 +2,13 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.SkipException;
 import org.testng.annotations.Test;
@@ -35,8 +35,8 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    var stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultOne);
+    var iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
     session.begin();
@@ -45,15 +45,15 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
 
     verifyTxIndexPut(Map.of(2, Set.of(doc4.getIdentity())));
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultTwo);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultTwo);
     Assert.assertEquals(resultTwo.size(), 4);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultThree);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
 
@@ -76,9 +76,9 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultOne);
+    iteratorToSet(iterator, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
     final var tx = session.begin();
@@ -94,15 +94,15 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultTwo);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultTwo);
     Assert.assertEquals(resultTwo.size(), 1);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultThree);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
 
@@ -124,9 +124,9 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultOne);
+    iteratorToSet(iterator, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
     final var tx = session.begin();
@@ -139,15 +139,15 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultTwo);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultTwo);
     Assert.assertEquals(resultTwo.size(), 2);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultThree);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
 
@@ -171,15 +171,15 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
         2, Set.of(doc2.getIdentity())
     ));
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 2);
   }
 
@@ -198,9 +198,9 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
         2, Set.of(doc2.getIdentity())
     ));
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 2);
     session.commit();
 
@@ -209,8 +209,8 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 3);
   }
 
@@ -228,15 +228,15 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     verifyTxIndexPut(Map.of(2, Set.of(doc2.getIdentity())));
 
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
   }
 
@@ -254,15 +254,15 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
     verifyTxIndexPut(Map.of(2, Set.of(doc2.getIdentity())));
 
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
   }
 
@@ -285,22 +285,22 @@ public class IndexTxAwareMultiValueGetValuesTest extends IndexTxAwareBaseTest {
         2, Set.of(doc2.getIdentity())
     ));
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 2);
   }
 
-  private static void streamToSet(
-      Stream<RawPair<Object, RID>> stream, Set<Identifiable> result) {
+  private static void iteratorToSet(
+      Iterator<RawPair<Object, RID>> iterator, Set<Identifiable> result) {
     result.clear();
-    result.addAll(stream.map((entry) -> entry.second()).collect(Collectors.toSet()));
+    result.addAll(YTDBIteratorUtils.list(YTDBIteratorUtils.map(iterator, RawPair::second)));
   }
 }

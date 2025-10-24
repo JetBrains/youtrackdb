@@ -17,13 +17,13 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -346,24 +346,21 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.close();
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void createLinkInTx() {
     session = createSessionInstance();
 
-    var profile = session.getMetadata().getSlowMutableSchema().createClass("MyProfile");
-    var edge = session.getMetadata().getSlowMutableSchema().createClass("MyEdge");
-    profile
-        .createProperty("name", PropertyType.STRING)
-        .setMin("3")
-        .setMax("30")
-        .createIndex(IndexType.NOT_UNIQUE);
-    profile.createProperty("surname", PropertyType.STRING).setMin("3")
-        .setMax("30");
-    profile.createProperty("in", PropertyType.LINKSET, edge);
-    profile.createProperty("out", PropertyType.LINKSET, edge);
-    edge.createProperty("in", PropertyType.LINK, profile);
-    edge.createProperty("out", PropertyType.LINK, profile);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("MyProfile").createSchemaClass("MyEdge",
+            __.createSchemaProperty("in", PropertyType.LINK, "MyProfile"),
+            __.createSchemaProperty("out", PropertyType.LINK, "MyProfile")
+        ).schemaClass("MyProfile").insertSchemaProperties(
+            __.createSchemaProperty("name", PropertyType.STRING).minAttr("3").maxAttr("30")
+                .createPropertyIndex(
+                    YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("surname", PropertyType.STRING).minAttr("3").maxAttr("30")
+        )
+    );
 
     session.begin();
 
@@ -392,7 +389,6 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.commit();
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void loadRecordTest() {
     session.begin();
@@ -415,7 +411,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     teri.getOrCreateLinkSet("following").addAll(List.of(jack, kim));
     chloe.getOrCreateLinkSet("following").addAll(List.of(jack, teri, kim));
 
-    var schema = session.getSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var profileCollectionIds =
         Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getCollectionIds()));
 
@@ -437,31 +433,17 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   @Test
   public void testTransactionPopulateDelete() {
-    if (!session.getMetadata().getSlowMutableSchema().existsClass("MyFruit")) {
-      var fruitClass = session.getMetadata().getSlowMutableSchema().createClass("MyFruit");
-      fruitClass.createProperty("name", PropertyType.STRING);
-      fruitClass.createProperty("color", PropertyType.STRING);
-      fruitClass.createProperty("flavor", PropertyType.STRING);
-
-      session
-          .getMetadata()
-          .getSlowMutableSchema()
-          .getClass("MyFruit")
-          .getProperty("name")
-          .createIndex(IndexType.NOT_UNIQUE);
-      session
-          .getMetadata()
-          .getSlowMutableSchema()
-          .getClass("MyFruit")
-          .getProperty("color")
-          .createIndex(IndexType.NOT_UNIQUE);
-      session
-          .getMetadata()
-          .getSlowMutableSchema()
-          .getClass("MyFruit")
-          .getProperty("flavor")
-          .createIndex(IndexType.NOT_UNIQUE);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("MyFruit").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("MyFruit",
+            __.createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("color", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("flavor", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.NOT_UNIQUE)
+        )
+    ));
 
     var chunkSize = 10;
     for (var initialValue = 0; initialValue < 10; initialValue++) {
@@ -517,9 +499,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   @Test
   public void testConsistencyOnDelete() {
-    if (session.getMetadata().getSlowMutableSchema().getClass("Foo") == null) {
-      session.createVertexClass("Foo");
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("Foo").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Foo")
+    ));
 
     session.begin();
     // Step 1
@@ -572,15 +555,16 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   @Test
   public void deletesWithinTransactionArentWorking() {
-    if (session.getClass("Foo") == null) {
-      session.createVertexClass("Foo");
-    }
-    if (session.getClass("Bar") == null) {
-      session.createVertexClass("Bar");
-    }
-    if (session.getClass("Sees") == null) {
-      session.createEdgeClass("Sees");
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("Foo").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Foo")
+    ).schemaClass("Bar").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Bar")
+    ).schemaClass("Sees").fold().coalesce(
+        __.unfold(),
+        __.createStateFullEdgeClass("Sees")
+    ));
 
     session.begin();
     // Commenting out the transaction will result in the test succeeding.
@@ -617,20 +601,21 @@ public class TransactionConsistencyTest extends BaseDBTest {
   }
 
   public void transactionRollbackConstistencyTest() {
-    var vertexClass = session.getMetadata().getSlowMutableSchema().createClass("TRVertex");
-    var edgeClass = session.getMetadata().getSlowMutableSchema().createClass("TREdge");
-    vertexClass.createProperty("in", PropertyType.LINKSET, edgeClass);
-    vertexClass.createProperty("out", PropertyType.LINKSET, edgeClass);
-    edgeClass.createProperty("in", PropertyType.LINK, vertexClass);
-    edgeClass.createProperty("out", PropertyType.LINK, vertexClass);
-
-    var personClass = session.getMetadata().getSlowMutableSchema()
-        .createClass("TRPerson", vertexClass);
-    personClass.createProperty("name", PropertyType.STRING)
-        .createIndex(IndexType.UNIQUE);
-    personClass.createProperty("surname", PropertyType.STRING)
-        .createIndex(IndexType.NOT_UNIQUE);
-    personClass.createProperty("version", PropertyType.INTEGER);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("TRVertex").createStateFullEdgeClass("TREdge",
+            __.createSchemaProperty("in", PropertyType.LINK, "TRVertex"),
+            __.createSchemaProperty("out", PropertyType.LINK, "TRVertex")
+        ).schemaClass("TRVertex").insertSchemaProperties(
+            __.createSchemaProperty("in", PropertyType.LINKSET, "TREdge"),
+            __.createSchemaProperty("out", PropertyType.LINKSET, "TREdge")
+        ).createSchemaClass("TRPerson", "TRVertex",
+            __.createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.UNIQUE),
+            __.createSchemaProperty("surname", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("version", PropertyType.INTEGER)
+        )
+    );
 
     session.close();
 
@@ -820,12 +805,15 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   public void testTransactionsCache() {
     Assert.assertFalse(session.getTransactionInternal().isActive());
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("TransA");
-    classA.createProperty("name", PropertyType.STRING);
+
+    graph.autoExecuteInTx(
+        g ->
+            g.createSchemaClass("TransA").
+                createSchemaProperty("name", PropertyType.STRING)
+    );
 
     session.begin();
-    var doc = ((EntityImpl) session.newEntity(classA));
+    var doc = ((EntityImpl) session.newEntity("TransA"));
     doc.setProperty("name", "test1");
     session.commit();
 

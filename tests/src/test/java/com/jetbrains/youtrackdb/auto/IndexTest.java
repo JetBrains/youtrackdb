@@ -16,28 +16,28 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaPropertyInToken;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -85,9 +85,9 @@ public class IndexTest extends BaseDBTest {
   public void testIndexInUniqueIndex() {
     session.begin();
     Assert.assertEquals(
-        session.getMetadata().getSlowMutableSchema().getClassInternal("Profile")
-            .getInvolvedIndexesInternal(session, "nick").iterator().next().getType(),
-        IndexType.UNIQUE.toString());
+        session.getMetadata().getFastImmutableSchemaSnapshot().getClass("Profile")
+            .getInvolvedIndexes("nick").iterator().next().getType(),
+        ImmutableSchema.IndexType.UNIQUE);
     try (var resultSet =
         session.query(
             "SELECT * FROM Profile WHERE nick in ['ZZZJayLongNickIndex0'"
@@ -129,7 +129,7 @@ public class IndexTest extends BaseDBTest {
     var resultSet = executeQuery("select * from Profile where nick is not null");
 
     var idx =
-        session.getSharedContext().getIndexManager().getIndex("Profile.nick");
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("Profile.nick");
 
     Assert.assertEquals(idx.size(session), resultSet.size());
   }
@@ -144,8 +144,8 @@ public class IndexTest extends BaseDBTest {
 
     Assert.assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("Profile.nick")
 
             .size(session),
@@ -159,14 +159,14 @@ public class IndexTest extends BaseDBTest {
       session.commit();
 
       profileSize++;
-      try (var stream =
+      try (var iterator =
           session
-              .getSharedContext()
-              .getIndexManager()
+              .getMetadata()
+              .getFastImmutableSchemaSnapshot()
               .getIndex("Profile.nick")
 
               .getRids(session, "Yay-" + i)) {
-        Assert.assertTrue(stream.findAny().isPresent());
+        Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
       }
     }
   }
@@ -175,19 +175,17 @@ public class IndexTest extends BaseDBTest {
   public void testChangeOfIndexToNotUnique() {
     dropIndexes();
 
-    session
-        .getMetadata()
-        .getSlowMutableSchema()
-        .getClass("Profile")
-        .getProperty("nick")
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Profile").schemaClassProperty("nick")
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
+    );
   }
 
   private void dropIndexes() {
-    for (var indexName : session.getMetadata().getSlowMutableSchema().getClass("Profile")
-        .getProperty("nick").getIndexNames()) {
-      session.getSharedContext().getIndexManager().dropIndex(session, indexName);
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Profile").schemaClassProperty("nick").
+            in(YTDBSchemaPropertyInToken.propertyToIndex).drop()
+    );
   }
 
   @Test(dependsOnMethods = "testChangeOfIndexToNotUnique")
@@ -205,12 +203,12 @@ public class IndexTest extends BaseDBTest {
   public void testChangeOfIndexToUnique() {
     try {
       dropIndexes();
-      session
-          .getMetadata()
-          .getSlowMutableSchema()
-          .getClass("Profile")
-          .getProperty("nick")
-          .createIndex(IndexType.UNIQUE);
+
+      graph.autoExecuteInTx(g -> g.schemaClass("Profile").
+          schemaClassProperty("nick")
+          .createPropertyIndex(IndexType.UNIQUE)
+      );
+
       Assert.fail();
     } catch (RecordDuplicatedException e) {
       Assert.assertTrue(true);
@@ -414,12 +412,10 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testQueryingWithoutNickIndex")
   public void createNotUniqueIndexOnNick() {
-    session
-        .getMetadata()
-        .getSlowMutableSchema()
-        .getClass("Profile")
-        .getProperty("nick")
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Profile").schemaClassProperty("nick")
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
+    );
   }
 
   @Test(dependsOnMethods = {"createNotUniqueIndexOnNick", "populateIndexDocuments"})
@@ -428,10 +424,9 @@ public class IndexTest extends BaseDBTest {
         session.getMetadata().getFastImmutableSchemaSnapshot().getClass("Profile").
             getInvolvedIndexes("nick").iterator()
             .next().getType(),
-        IndexType.NOT_UNIQUE.toString());
+        ImmutableSchema.IndexType.NOT_UNIQUE);
 
     session.begin();
-
     try (var resultSet =
         session.query(
             "SELECT * FROM Profile WHERE nick in ['ZZZJayLongNickIndex0'"
@@ -453,17 +448,15 @@ public class IndexTest extends BaseDBTest {
   @Test
   public void indexLinks() {
 
-    session
-        .getMetadata()
-        .getSlowMutableSchema()
-        .getClass("Whiz")
-        .getProperty("account")
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Whiz").schemaClassProperty("account")
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var resultSet = executeQuery("select * from Account limit 1");
     final var idx =
-        session.getSharedContext().getIndexManager().getIndex("Whiz.account");
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("Whiz.account");
 
     for (var i = 0; i < 5; i++) {
       final var whiz = ((EntityImpl) session.newEntity("Whiz"));
@@ -505,19 +498,17 @@ public class IndexTest extends BaseDBTest {
 
   public void linkedIndexedProperty() {
     try (var db = acquireSession()) {
-      if (!db.getMetadata().getSlowMutableSchema().existsClass("TestClass")) {
-        var testClass =
-            db.getMetadata().getSlowMutableSchema().createClass("TestClass");
-        var testLinkClass =
-            db.getMetadata().getSlowMutableSchema().createClass("TestLinkClass", 1);
-        testClass
-            .createProperty("testLink", PropertyType.LINK, testLinkClass)
-            .createIndex(IndexType.NOT_UNIQUE);
-        testClass.createProperty("name", PropertyType.STRING)
-            .createIndex(IndexType.UNIQUE);
-        testLinkClass.createProperty("testBoolean", PropertyType.BOOLEAN);
-        testLinkClass.createProperty("testString", PropertyType.STRING);
-      }
+      graph.autoExecuteInTx(g -> g.schemaClass("TestClass").fold().coalesce(
+          __.unfold(),
+          __.createSchemaClass("TestLinkClass").createSchemaClass("TestClass",
+              __.createSchemaProperty("testLink", PropertyType.LINK, "TestLinkClass")
+                  .createPropertyIndex(IndexType.NOT_UNIQUE),
+              __.createSchemaProperty("name", PropertyType.STRING)
+                  .createPropertyIndex(IndexType.UNIQUE),
+              __.createSchemaProperty("testBoolean", PropertyType.BOOLEAN),
+              __.createSchemaProperty("testString", PropertyType.STRING)
+          )
+      ));
 
       db.begin();
       var testClassDocument = db.newInstance("TestClass");
@@ -577,23 +568,15 @@ public class IndexTest extends BaseDBTest {
   public void testConcurrentRemoveDelete() {
 
     try (var db = acquireSession()) {
-      if (!db.getMetadata().getSlowMutableSchema().existsClass("MyFruit")) {
-        var fruitClass = db.getMetadata().getSlowMutableSchema().createClass("MyFruit");
-        fruitClass.createProperty("name", PropertyType.STRING);
-        fruitClass.createProperty("color", PropertyType.STRING);
-
-        db.getMetadata()
-            .getSlowMutableSchema()
-            .getClass("MyFruit")
-            .getProperty("name")
-            .createIndex(IndexType.UNIQUE);
-
-        db.getMetadata()
-            .getSlowMutableSchema()
-            .getClass("MyFruit")
-            .getProperty("color")
-            .createIndex(IndexType.NOT_UNIQUE);
-      }
+      graph.autoExecuteInTx(g -> g.schemaClass("MyFruit").fold().coalesce(
+          __.unfold(),
+          __.createSchemaClass("MyFruit",
+              __.createSchemaProperty("name", PropertyType.STRING)
+                  .createPropertyIndex(IndexType.UNIQUE),
+              __.createSchemaProperty("color", PropertyType.STRING)
+                  .createPropertyIndex(IndexType.NOT_UNIQUE)
+          )
+      ));
 
       long expectedIndexSize = 0;
 
@@ -617,9 +600,8 @@ public class IndexTest extends BaseDBTest {
 
         expectedIndexSize += chunkSize;
         Assert.assertEquals(
-            db.getSharedContext()
-                .getIndexManager()
-                .getClassIndex(db, "MyFruit", "MyFruit.color")
+            db.getMetadata().getFastImmutableSchemaSnapshot()
+                .getClass("MyFruit").getClassIndex("MyFruit.color")
 
                 .size(db),
             expectedIndexSize,
@@ -635,9 +617,9 @@ public class IndexTest extends BaseDBTest {
 
         expectedIndexSize -= recordsToDelete.size();
         Assert.assertEquals(
-            db.getSharedContext()
-                .getIndexManager()
-                .getClassIndex(db, "MyFruit", "MyFruit.color")
+            db.getMetadata().getFastImmutableSchemaSnapshot()
+                .getClass("MyFruit")
+                .getClassIndex("MyFruit.color")
 
                 .size(db),
             expectedIndexSize,
@@ -651,16 +633,13 @@ public class IndexTest extends BaseDBTest {
     final EntityImpl doc;
     final RecordIdInternal result;
     try (var db = acquireSession()) {
-      if (!db.getMetadata().getSlowMutableSchema().existsClass("IndexTestTerm")) {
-        final var termClass =
-            db.getMetadata().getSlowMutableSchema().createClass("IndexTestTerm");
-        termClass.createProperty("label", PropertyType.STRING);
-        termClass.createIndex(
-            "idxTerm",
-            IndexType.UNIQUE.toString(),
-            null,
-            Map.of("ignoreNullValues", true), new String[]{"label"});
-      }
+      graph.autoExecuteInTx(g -> g.schemaClass("IndexTestTerm").fold().coalesce(
+          __.unfold(),
+          __.createSchemaClass("IndexTestTerm",
+              __.createSchemaProperty("label", PropertyType.STRING)
+                  .createPropertyIndex("idxTerm", IndexType.UNIQUE, true)
+          )
+      ));
 
       db.begin();
       doc = ((EntityImpl) db.newEntity("IndexTestTerm"));
@@ -668,13 +647,12 @@ public class IndexTest extends BaseDBTest {
 
       db.commit();
 
-      try (var stream =
-          db.getSharedContext()
-              .getIndexManager()
+      try (var iterator =
+          db.getMetadata()
+              .getFastImmutableSchemaSnapshot()
               .getIndex("idxTerm")
-
               .getRids(db, "42")) {
-        result = (RecordIdInternal) stream.findAny().orElse(null);
+        result = (RecordIdInternal) YTDBIteratorUtils.findFirst(iterator).orElse(null);
       }
     }
     Assert.assertNotNull(result);
@@ -684,18 +662,13 @@ public class IndexTest extends BaseDBTest {
   public void testTransactionUniqueIndexTestOne() {
 
     var db = acquireSession();
-    if (!db.getMetadata().getSlowMutableSchema().existsClass("TransactionUniqueIndexTest")) {
-      final var termClass =
-          db.getMetadata()
-              .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexTest");
-      termClass.createProperty("label", PropertyType.STRING);
-      termClass.createIndex(
-          "idxTransactionUniqueIndexTest",
-          IndexType.UNIQUE.toString(),
-          null,
-          Map.of("ignoreNullValues", true), new String[]{"label"});
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("TransactionUniqueIndexTest").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("TransactionUniqueIndexTest",
+            __.createSchemaProperty("label", PropertyType.STRING)
+                .createPropertyIndex("idxTransactionUniqueIndexTest", IndexType.UNIQUE, true)
+        )
+    ));
 
     db.begin();
     var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
@@ -704,7 +677,7 @@ public class IndexTest extends BaseDBTest {
     db.commit();
 
     final var index =
-        db.getSharedContext().getIndexManager().getIndex("idxTransactionUniqueIndexTest");
+        db.getMetadata().getFastImmutableSchemaSnapshot().getIndex("idxTransactionUniqueIndexTest");
     Assert.assertEquals(index.size(this.session), 1);
 
     db.begin();
@@ -722,23 +695,9 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestOne")
   public void testTransactionUniqueIndexTestTwo() {
-
     var session = acquireSession();
-    if (!session.getMetadata().getSlowMutableSchema().existsClass("TransactionUniqueIndexTest")) {
-      final var termClass =
-          session.getMetadata()
-              .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexTest");
-
-      termClass.createProperty("label", PropertyType.STRING);
-      termClass.createIndex(
-          "idxTransactionUniqueIndexTest",
-          IndexType.UNIQUE.toString(),
-          null,
-          Map.of("ignoreNullValues", true), new String[]{"label"});
-    }
     final var index =
-        session.getSharedContext().getIndexManager()
+        session.getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("idxTransactionUniqueIndexTest");
     Assert.assertEquals(index.size(this.session), 1);
 
@@ -760,16 +719,16 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testTransactionUniqueIndexTestWithDotNameOne() {
-
     var db = acquireSession();
-    if (!db.getMetadata().getSlowMutableSchema().existsClass("TransactionUniqueIndexWithDotTest")) {
-      final var termClass =
-          db.getMetadata()
-              .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexWithDotTest");
-      termClass.createProperty("label", PropertyType.STRING)
-          .createIndex(IndexType.UNIQUE);
-    }
+
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("TransactionUniqueIndexWithDotTest").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TransactionUniqueIndexWithDotTest",
+                __.createSchemaProperty("label", PropertyType.STRING)
+                    .createPropertyIndex(IndexType.UNIQUE)
+            )
+        ));
 
     db.begin();
     var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
@@ -778,8 +737,7 @@ public class IndexTest extends BaseDBTest {
     db.commit();
 
     final var index =
-        db.getSharedContext()
-            .getIndexManager()
+        db.getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("TransactionUniqueIndexWithDotTest.label");
     Assert.assertEquals(index.size(this.session), 1);
 
@@ -804,20 +762,18 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestWithDotNameOne")
   public void testTransactionUniqueIndexTestWithDotNameTwo() {
-
     var db = acquireSession();
-    if (!db.getMetadata().getSlowMutableSchema().existsClass("TransactionUniqueIndexWithDotTest")) {
-      final var termClass =
-          db.getMetadata()
-              .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexWithDotTest");
-      termClass.createProperty("label", PropertyType.STRING)
-          .createIndex(IndexType.UNIQUE);
-    }
+
+    graph.autoExecuteInTx(g -> g.schemaClass("TransactionUniqueIndexWithDotTest").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("TransactionUniqueIndexWithDotTest")
+            .createSchemaProperty("label", PropertyType.STRING)
+            .createPropertyIndex(IndexType.UNIQUE)
+    ));
 
     final var index =
-        db.getSharedContext()
-            .getIndexManager()
+        db.getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("TransactionUniqueIndexWithDotTest.label");
     Assert.assertEquals(index.size(this.session), 1);
 
@@ -843,13 +799,11 @@ public class IndexTest extends BaseDBTest {
 
     final var index = getIndex("Profile.nick");
 
-    Iterator<RawPair<Object, RID>> streamIterator;
     Object key;
-    try (var stream = index.ascEntries(session)) {
-      streamIterator = stream.iterator();
-      Assert.assertTrue(streamIterator.hasNext());
+    try (var iterator = index.ascEntries(session)) {
+      Assert.assertTrue(iterator.hasNext());
 
-      var pair = streamIterator.next();
+      var pair = iterator.next();
       key = pair.first();
 
       session.begin();
@@ -858,32 +812,21 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
-    try (var stream = index.getRids(session, key)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, key)) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
   public void createInheritanceIndex() {
     try (var db = acquireSession()) {
-      if (!db.getMetadata().getSlowMutableSchema().existsClass("BaseTestClass")) {
-        var baseClass =
-            db.getMetadata().getSlowMutableSchema().createClass("BaseTestClass");
-        var childClass =
-            db.getMetadata().getSlowMutableSchema().createClass("ChildTestClass");
-        var anotherChildClass =
-            db.getMetadata().getSlowMutableSchema().createClass("AnotherChildTestClass");
-
-        if (!baseClass.isParentOf(childClass)) {
-          childClass.addParentClass(baseClass);
-        }
-        if (!baseClass.isParentOf(anotherChildClass)) {
-          anotherChildClass.addParentClass(baseClass);
-        }
-
-        baseClass
-            .createProperty("testParentProperty", PropertyType.LONG)
-            .createIndex(IndexType.NOT_UNIQUE);
-      }
+      graph.autoExecuteInTx(g -> g.schemaClass("BaseTestClass").fold().coalesce(
+          __.unfold(),
+          __.createSchemaClass("BaseTestClass")
+              .createSchemaProperty("testParentProperty", PropertyType.LONG)
+              .createPropertyIndex(IndexType.NOT_UNIQUE).
+              createSchemaClass("ChildTestClass", "BaseTestClass").
+              createSchemaClass("AnotherChildTestClass", "BaseTestClass")
+      ));
 
       db.begin();
       var childClassDocument = db.newInstance("ChildTestClass");
@@ -921,15 +864,13 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNotUniqueIndexKeySize() {
+    graph.autoExecuteInTx(g -> g.createSchemaClass("IndexNotUniqueIndexKeySize").
+        createSchemaProperty("value", PropertyType.INTEGER)
+        .createPropertyIndex("IndexNotUniqueIndexKeySizeIndex", IndexType.NOT_UNIQUE));
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var cls = schema.createClass("IndexNotUniqueIndexKeySize");
-    cls.createProperty("value", PropertyType.INTEGER);
-    cls.createIndex("IndexNotUniqueIndexKeySizeIndex", IndexType.NOT_UNIQUE, "value");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    var idxManager = session.getSharedContext().getIndexManager();
-
-    final var idx = idxManager.getIndex("IndexNotUniqueIndexKeySizeIndex");
+    final var idx = schema.getIndex("IndexNotUniqueIndexKeySizeIndex");
 
     final Set<Integer> keys = new HashSet<>();
     for (var i = 1; i < 100; i++) {
@@ -944,20 +885,21 @@ public class IndexTest extends BaseDBTest {
       keys.add(key);
     }
 
-    try (var stream = idx.ascEntries(session)) {
-      Assert.assertEquals(stream.map(RawPair::first).distinct().count(), keys.size());
+    try (var iterator = idx.ascEntries(session)) {
+      Assert.assertEquals(
+          YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator, RawPair::first)).size(),
+          keys.size());
     }
   }
 
   public void testNotUniqueIndexSize() {
+    graph.autoExecuteInTx(g -> g.createSchemaClass("IndexNotUniqueIndexSize").
+        createSchemaProperty("value", PropertyType.INTEGER)
+        .createPropertyIndex("IndexNotUniqueIndexSizeIndex", IndexType.NOT_UNIQUE)
+    );
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var cls = schema.createClass("IndexNotUniqueIndexSize");
-    cls.createProperty("value", PropertyType.INTEGER);
-    cls.createIndex("IndexNotUniqueIndexSizeIndex", IndexType.NOT_UNIQUE, "value");
-
-    var idxManager = session.getSharedContext().getIndexManager();
-    final var idx = idxManager.getIndex("IndexNotUniqueIndexSizeIndex");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var idx = schema.getIndex("IndexNotUniqueIndexSizeIndex");
 
     for (var i = 1; i < 100; i++) {
       final Integer key = (int) Math.log(i);
@@ -980,15 +922,14 @@ public class IndexTest extends BaseDBTest {
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = profile;
     session.commit();
 
-    var idxManager = session.getSharedContext().getIndexManager();
-    var nickIndex = idxManager.getIndex("Profile.nick");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var nickIndex = schema.getIndex("Profile.nick");
 
-    try (var stream = nickIndex
+    try (var iterator = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -996,9 +937,9 @@ public class IndexTest extends BaseDBTest {
     session.delete(loadedProfile);
     session.commit();
 
-    try (var stream = nickIndex
+    try (var iterator = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
-      Assert.assertFalse(stream.findAny().isPresent());
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -1010,16 +951,15 @@ public class IndexTest extends BaseDBTest {
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = profile;
     session.commit();
 
     session.begin();
-    var idxManager = session.getSharedContext().getIndexManager();
+    var idxManager = session.getMetadata().getFastImmutableSchemaSnapshot();
     var nickIndex = idxManager.getIndex("Profile.nick");
 
-    try (var stream = nickIndex
+    try (var iterator = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     final Entity loadedProfile = session.load(profile.getIdentity());
@@ -1029,9 +969,9 @@ public class IndexTest extends BaseDBTest {
     session.delete(activeTx.<Entity>load(loadedProfile));
     session.commit();
 
-    try (var stream = nickIndex
+    try (var iterator = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
-      Assert.assertFalse(stream.findAny().isPresent());
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -1047,16 +987,12 @@ public class IndexTest extends BaseDBTest {
 
   @Test
   public void testIndexInCompositeQuery() {
-    var classOne =
-        session.getMetadata().getSlowMutableSchema()
-            .createClass("CompoundSQLIndexTest1");
-    var classTwo =
-        session.getMetadata().getSlowMutableSchema()
-            .createClass("CompoundSQLIndexTest2");
-
-    classTwo.createProperty("address", PropertyType.LINK, classOne);
-
-    classTwo.createIndex("CompoundSQLIndexTestIndex", IndexType.UNIQUE, "address");
+    graph.autoExecuteInTx(g -> g.createSchemaClass("CompoundSQLIndexTest1")
+        .createSchemaClass("CompoundSQLIndexTest2",
+            __.createSchemaProperty("address", PropertyType.LINK, "CompoundSQLIndexTest1")
+                .createPropertyIndex("CompoundSQLIndexTestIndex", IndexType.UNIQUE)
+        )
+    );
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("CompoundSQLIndexTest1"));
@@ -1076,16 +1012,12 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testIndexWithLimitAndOffset() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var indexWithLimitAndOffset =
-        schema.createClass("IndexWithLimitAndOffsetClass");
-    indexWithLimitAndOffset.createProperty("val", PropertyType.INTEGER);
-    indexWithLimitAndOffset.createProperty("index", PropertyType.INTEGER);
-
-    session
-        .execute(
-            "create index IndexWithLimitAndOffset on IndexWithLimitAndOffsetClass (val) notunique")
-        .close();
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("IndexWithLimitAndOffsetClass",
+            __.createSchemaProperty("val", PropertyType.INTEGER)
+                .createPropertyIndex("IndexWithLimitAndOffset", IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("index", PropertyType.INTEGER)
+        ));
 
     for (var i = 0; i < 30; i++) {
       session.begin();
@@ -1110,17 +1042,12 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullIndexKeysSupport() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupport");
-    clazz.createProperty("nullField", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullIndexKeysSupport")
+            .createSchemaProperty("nullField", PropertyType.STRING)
+            .createPropertyIndex("NullIndexKeysSupportIndex", IndexType.NOT_UNIQUE)
+    );
 
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "NullIndexKeysSupportIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"nullField"});
     for (var i = 0; i < 20; i++) {
       session.begin();
       if (i % 5 == 0) {
@@ -1152,66 +1079,13 @@ public class IndexTest extends BaseDBTest {
     session.commit();
   }
 
-  public void testNullHashIndexKeysSupport() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullHashIndexKeysSupport");
-    clazz.createProperty("nullField", PropertyType.STRING);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "NullHashIndexKeysSupportIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"nullField"});
-    for (var i = 0; i < 20; i++) {
-      session.begin();
-      if (i % 5 == 0) {
-        var document = ((EntityImpl) session.newEntity("NullHashIndexKeysSupport"));
-        document.setProperty("nullField", null);
-
-      } else {
-        var document = ((EntityImpl) session.newEntity("NullHashIndexKeysSupport"));
-        document.setProperty("nullField", "val" + i);
-
-      }
-      session.commit();
-    }
-
-    session.begin();
-    var result =
-        session.query(
-            "select from NullHashIndexKeysSupport where nullField = 'val3'").toList();
-    Assert.assertEquals(result.size(), 1);
-
-    var entity = result.getFirst();
-    Assert.assertEquals(entity.getProperty("nullField"), "val3");
-
-    final var query = "select from NullHashIndexKeysSupport where nullField is null";
-    result =
-        session.query("select from NullHashIndexKeysSupport where nullField is null").toList();
-
-    Assert.assertEquals(result.size(), 4);
-    for (var document : result) {
-      Assert.assertNull(document.getProperty("nullField"));
-    }
-
-    session.commit();
-  }
 
   public void testNullIndexKeysSupportInTx() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupportInTx");
-    clazz.createProperty("nullField", PropertyType.STRING);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "NullIndexKeysSupportInTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"nullField"});
-
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullIndexKeysSupportInTx")
+            .createSchemaProperty("nullField", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
+    );
     session.begin();
 
     for (var i = 0; i < 20; i++) {
@@ -1236,7 +1110,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupportInTx where nullField is null";
     result =
         session.query(
             "select from NullIndexKeysSupportInTx where nullField is null").toList();
@@ -1249,17 +1122,11 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullIndexKeysSupportInMiddleTx() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx");
-    clazz.createProperty("nullField", PropertyType.STRING);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "NullIndexKeysSupportInMiddleTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"nullField"});
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullIndexKeysSupportInMiddleTx")
+            .createSchemaProperty("nullField", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
 
@@ -1284,7 +1151,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
     result =
         session.query(
             "select from NullIndexKeysSupportInMiddleTx where nullField is null").toList();
@@ -1298,16 +1164,15 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testCreateIndexAbstractClass() {
-    final var schema = session.getSchema();
-
-    var abstractClass = schema.createAbstractClass("TestCreateIndexAbstractClass");
-    abstractClass
-        .createProperty("value", PropertyType.STRING)
-        .setMandatory(true)
-        .createIndex(IndexType.UNIQUE);
-
-    schema.createClass("TestCreateIndexAbstractClassChildOne", abstractClass);
-    schema.createClass("TestCreateIndexAbstractClassChildTwo", abstractClass);
+    graph.autoExecuteInTx(g ->
+        g.createAbstractSchemaClass("TestCreateIndexAbstractClass").
+            createSchemaProperty("value", PropertyType.STRING).mandatoryAttr(true)
+            .createPropertyIndex(IndexType.UNIQUE).
+            createSchemaClass("TestCreateIndexAbstractClassChildOne",
+                "TestCreateIndexAbstractClass").
+            createSchemaClass("TestCreateIndexAbstractClassChildTwo",
+                "TestCreateIndexAbstractClass")
+    );
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("TestCreateIndexAbstractClassChildOne"));
@@ -1318,7 +1183,7 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
-    var tx = session.begin();
+    session.begin();
     final var queryOne = "select from TestCreateIndexAbstractClass where value = 'val1'";
 
     var resultOne = executeQuery(queryOne);
@@ -1343,16 +1208,11 @@ public class IndexTest extends BaseDBTest {
 
   @Test(enabled = false)
   public void testValuesContainerIsRemovedIfIndexIsRemoved() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    var clazz =
-        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass");
-    clazz.createProperty("val", PropertyType.STRING);
-
-    session
-        .execute(
-            "create index ValuesContainerIsRemovedIfIndexIsRemovedIndex on"
-                + " ValuesContainerIsRemovedIfIndexIsRemovedClass (val) notunique")
-        .close();
+    graph.autoExecuteInTx(g -> g.createSchemaClass("TestValuesContainerIsRemovedIfIndexIsRemoved").
+        createSchemaProperty("value", PropertyType.STRING).
+        createPropertyIndex("TestValuesContainerIsRemovedIfIndexIsRemovedIndex",
+            IndexType.NOT_UNIQUE)
+    );
 
     for (var i = 0; i < 10; i++) {
       for (var j = 0; j < 100; j++) {
@@ -1365,7 +1225,7 @@ public class IndexTest extends BaseDBTest {
       }
     }
 
-    final var storageLocalAbstract = (AbstractStorage) session.getStorage();
+    final var storageLocalAbstract = session.getStorage();
 
     final var writeCache = storageLocalAbstract.getWriteCache();
     Assert.assertTrue(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
@@ -1374,23 +1234,20 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testPreservingIdentityInIndexTx() {
-    if (!session.getMetadata().getSlowMutableSchema()
-        .existsClass("PreservingIdentityInIndexTxParent")) {
-      session.createVertexClass("PreservingIdentityInIndexTxParent");
-    }
-    if (!session.getMetadata().getSlowMutableSchema()
-        .existsClass("PreservingIdentityInIndexTxEdge")) {
-      session.createEdgeClass("PreservingIdentityInIndexTxEdge");
-    }
-    var fieldClass = session.getClass("PreservingIdentityInIndexTxChild");
-    if (fieldClass == null) {
-      fieldClass = session.createVertexClass(
-          "PreservingIdentityInIndexTxChild");
-      fieldClass.createProperty("name", PropertyType.STRING);
-      fieldClass.createProperty("in_field", PropertyType.LINK);
-      fieldClass.createIndex("nameParentIndex", IndexType.NOT_UNIQUE, "in_field",
-          "name");
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("PreservingIdentityInIndexTxParent").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("PreservingIdentityInIndexTxParent")
+                .createStateFullEdgeClass("PreservingIdentityInIndexTxEdge")
+        ).schemaClass("PreservingIdentityInIndexTxChild").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("PreservingIdentityInIndexTxChild",
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("parent", PropertyType.LINK)
+            ).createClassIndex("nameParentIndex", IndexType.NOT_UNIQUE, "in_field",
+                "name")
+        )
+    );
 
     session.begin();
     var parent = session.newVertex("PreservingIdentityInIndexTxParent");
@@ -1405,13 +1262,14 @@ public class IndexTest extends BaseDBTest {
     session.commit();
 
     {
-      fieldClass = session.getClassInternal("PreservingIdentityInIndexTxChild");
-      var index = fieldClass.getClassIndex(session, "nameParentIndex");
+      var fieldClass = session.getMetadata().getFastImmutableSchemaSnapshot()
+          .getClass("PreservingIdentityInIndexTxChild");
+      var index = fieldClass.getClassIndex("nameParentIndex");
       var key = new CompositeKey(parent.getIdentity(), "pokus");
 
       Collection<RID> h;
-      try (var stream = index.getRids(session, key)) {
-        h = stream.toList();
+      try (var iterator = index.getRids(session, key)) {
+        h = YTDBIteratorUtils.list(iterator);
       }
       for (var o : h) {
         Assert.assertNotNull(session.load(o));
@@ -1419,13 +1277,14 @@ public class IndexTest extends BaseDBTest {
     }
 
     {
-      fieldClass = session.getClass("PreservingIdentityInIndexTxChild");
-      var index = fieldClass.getClassIndex(session, "nameParentIndex");
+      var fieldClass = session.getMetadata().getFastImmutableSchemaSnapshot()
+          .getClass("PreservingIdentityInIndexTxChild");
+      var index = fieldClass.getClassIndex("nameParentIndex");
       var key = new CompositeKey(parent2.getIdentity(), "pokus2");
 
       Collection<RID> h;
-      try (var stream = index.getRids(session, key)) {
-        h = stream.toList();
+      try (var iterator = index.getRids(session, key)) {
+        h = YTDBIteratorUtils.list(iterator);
       }
       for (var o : h) {
         Assert.assertNotNull(session.load(o));
@@ -1447,16 +1306,13 @@ public class IndexTest extends BaseDBTest {
 
   public void testEmptyNotUniqueIndex() {
 
-    var emptyNotUniqueIndexClazz =
-        session
-            .getMetadata()
-            .getSlowMutableSchema()
-            .createClass("EmptyNotUniqueIndexTest");
-    emptyNotUniqueIndexClazz.createProperty("prop", PropertyType.STRING);
+    var emptyNotUniqueIndexClazz = "EmptyNotUniqueIndexTest";
+    graph.autoExecuteInTx(g -> g.createSchemaClass(emptyNotUniqueIndexClazz).
+        createSchemaProperty("prop", PropertyType.STRING)
+        .createPropertyIndex("EmptyNotUniqueIndexTestIndex", IndexType.NOT_UNIQUE));
 
-    emptyNotUniqueIndexClazz.createIndex(
-        "EmptyNotUniqueIndexTestIndex", IndexType.NOT_UNIQUE, "prop");
-    final var notUniqueIndex = session.getIndex("EmptyNotUniqueIndexTestIndex");
+    final var notUniqueIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex("EmptyNotUniqueIndexTestIndex");
 
     session.begin();
     var document = ((EntityImpl) session.newEntity("EmptyNotUniqueIndexTest"));
@@ -1467,27 +1323,28 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = notUniqueIndex.getRids(session, "RandomKeyOne")) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = notUniqueIndex.getRids(session, "RandomKeyOne")) {
+      Assert.assertFalse(iterator.hasNext());
     }
-    try (var stream = notUniqueIndex.getRids(session, "keyOne")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = notUniqueIndex.getRids(session, "keyOne")) {
+      Assert.assertTrue(iterator.hasNext());
     }
 
-    try (var stream = notUniqueIndex.getRids(session, "RandomKeyTwo")) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = notUniqueIndex.getRids(session, "RandomKeyTwo")) {
+      Assert.assertFalse(iterator.hasNext());
     }
-    try (var stream = notUniqueIndex.getRids(session, "keyTwo")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = notUniqueIndex.getRids(session, "keyTwo")) {
+      Assert.assertTrue(iterator.hasNext());
     }
   }
 
   public void testNullIteration() {
-    var v = session.getSchema().getClass("V");
-    var testNullIteration =
-        session.getMetadata().getSlowMutableSchema().createClass("NullIterationTest", v);
-    testNullIteration.createProperty("name", PropertyType.STRING);
-    testNullIteration.createProperty("birth", PropertyType.DATETIME);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullIterationTest",
+            __.createSchemaProperty("name", PropertyType.STRING),
+            __.createSchemaProperty("birth", PropertyType.DATETIME)
+        )
+    );
 
     session.begin();
     session
@@ -1499,13 +1356,9 @@ public class IndexTest extends BaseDBTest {
     session.execute("CREATE VERTEX NullIterationTest SET name = 'Olivier'").close();
     session.commit();
 
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    testNullIteration.createIndex(
-        "NullIterationTestIndex",
-        IndexType.NOT_UNIQUE.name(),
-        null,
-        metadata, new String[]{"birth"});
+    graph.autoExecuteInTx(g -> g.schemaClass("NullIterationTest").schemaClassProperty("birth")
+        .createPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     var result = session.query("SELECT FROM NullIterationTest ORDER BY birth ASC");
     Assert.assertEquals(result.stream().count(), 3);
@@ -1535,21 +1388,17 @@ public class IndexTest extends BaseDBTest {
     final RID rid2 = doc2.getIdentity();
     final RID rid3 = doc3.getIdentity();
     final RID rid4 = doc4.getIdentity();
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("TestMultikeyWithoutField");
 
-    clazz.createProperty("state", PropertyType.BYTE);
-    clazz.createProperty("users", PropertyType.LINKSET);
-    clazz.createProperty("time", PropertyType.LONG);
-    clazz.createProperty("reg", PropertyType.LONG);
-    clazz.createProperty("no", PropertyType.INTEGER);
-
-    var mt = Map.<String, Object>of("ignoreNullValues", false);
-    clazz.createIndex(
-        "MultikeyWithoutFieldIndex",
-        IndexType.UNIQUE.toString(),
-        null,
-        mt, new String[]{"state", "users", "time", "reg", "no"});
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("TestMultikeyWithoutField",
+            __.createSchemaProperty("state", PropertyType.BYTE),
+            __.createSchemaProperty("users", PropertyType.LINKSET),
+            __.createSchemaProperty("time", PropertyType.LONG),
+            __.createSchemaProperty("reg", PropertyType.LONG),
+            __.createSchemaProperty("no", PropertyType.INTEGER)
+        ).createClassIndex("MultikeyWithoutFieldIndex", IndexType.UNIQUE, "state", "users", "time",
+            "reg", "no")
+    );
 
     session.begin();
     var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutField"));
@@ -1568,29 +1417,29 @@ public class IndexTest extends BaseDBTest {
 
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descEntries(session)) {
+    try (var descIterator = index.descEntries(session)) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
 
@@ -1609,13 +1458,13 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       Assert.assertEquals(
-          keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+          keyIterator.next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
 
     session.close();
@@ -1634,14 +1483,14 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStreamAsc = index.keys()) {
+    try (var keyIteratorAsc = index.keys()) {
       Assert.assertEquals(
-          keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
+          keyIteratorAsc.next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
 
     session.close();
@@ -1656,14 +1505,14 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       Assert.assertEquals(
-          keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+          keyIterator.next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
 
     session.close();
@@ -1679,27 +1528,27 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descEntries(session)) {
+    try (var descIterator = index.descEntries(session)) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
 
@@ -1715,14 +1564,14 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       Assert.assertEquals(
-          keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
+          keyIterator.next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
   }
 
@@ -1745,21 +1594,16 @@ public class IndexTest extends BaseDBTest {
     final RID rid3 = doc3.getIdentity();
     final RID rid4 = doc4.getIdentity();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("TestMultikeyWithoutFieldNoNullSupport");
-
-    clazz.createProperty("state", PropertyType.BYTE);
-    clazz.createProperty("users", PropertyType.LINKSET);
-    clazz.createProperty("time", PropertyType.LONG);
-    clazz.createProperty("reg", PropertyType.LONG);
-    clazz.createProperty("no", PropertyType.INTEGER);
-
-    clazz.createIndex(
-        "MultikeyWithoutFieldIndexNoNullSupport",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{"state", "users", "time", "reg", "no"});
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("TestMultikeyWithoutFieldNoNullSupport",
+            __.createSchemaProperty("state", PropertyType.BYTE),
+            __.createSchemaProperty("users", PropertyType.LINKSET),
+            __.createSchemaProperty("time", PropertyType.LONG),
+            __.createSchemaProperty("reg", PropertyType.LONG),
+            __.createSchemaProperty("no", PropertyType.INTEGER)
+        ).createClassIndex("MultikeyWithoutFieldIndexNoNullSupport", IndexType.UNIQUE, true,
+            "state", "users", "time", "reg", "no")
+    );
 
     session.begin();
     var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutFieldNoNullSupport"));
@@ -1778,28 +1622,28 @@ public class IndexTest extends BaseDBTest {
 
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descEntries(session)) {
+    try (var descIterator = index.descEntries(session)) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
 
@@ -1817,13 +1661,13 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       Assert.assertEquals(
-          keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+          keyIterator.next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
 
     session.close();
@@ -1840,8 +1684,8 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 0);
 
@@ -1857,14 +1701,14 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       Assert.assertEquals(
-          keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+          keyIterator.next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
 
     session.close();
@@ -1881,27 +1725,27 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var keyStream = index.keys()) {
+    try (var keyIterator = index.keys()) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+            keyIterator.next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descEntries(session)) {
+    try (var descIterator = index.descEntries(session)) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       } else {
         Assert.assertEquals(
-            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+            descIterator.next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
 
@@ -1917,18 +1761,18 @@ public class IndexTest extends BaseDBTest {
 
     index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 0);
   }
 
   public void testNullValuesCountSBTreeUnique() {
-
-    var nullSBTreeClass = session.getSchema().createClass("NullValuesCountSBTreeUnique");
-    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex("NullValuesCountSBTreeUniqueIndex", IndexType.UNIQUE,
-        "field");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullValuesCountSBTreeUnique").
+            createSchemaProperty("field", PropertyType.INTEGER).
+            createPropertyIndex("NullValuesCountSBTreeUniqueIndex", IndexType.UNIQUE)
+    );
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeUnique"));
@@ -1941,26 +1785,25 @@ public class IndexTest extends BaseDBTest {
 
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("NullValuesCountSBTreeUniqueIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.ascEntries(session)) {
-      try (var nullStream = index.getRids(session, null)) {
+    try (var iterator = index.ascEntries(session)) {
+      try (var nullIterator = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
+            YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator, RawPair::first)).size()
+                + YTDBIteratorUtils.list(nullIterator).size(), 2);
       }
     }
   }
 
   public void testNullValuesCountSBTreeNotUniqueOne() {
-
-    var nullSBTreeClass =
-        session.getMetadata().getSlowMutableSchema()
-            .createClass("NullValuesCountSBTreeNotUniqueOne");
-    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(
-        "NullValuesCountSBTreeNotUniqueOneIndex", IndexType.NOT_UNIQUE, "field");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullValuesCountSBTreeNotUniqueOne").
+            createSchemaProperty("field", PropertyType.INTEGER).
+            createPropertyIndex("NullValuesCountSBTreeNotUniqueOneIndex", IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueOne"));
@@ -1973,26 +1816,25 @@ public class IndexTest extends BaseDBTest {
 
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("NullValuesCountSBTreeNotUniqueOneIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.ascEntries(session)) {
-      try (var nullStream = index.getRids(session, null)) {
+    try (var iterator = index.ascEntries(session)) {
+      try (var nullIterator = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
+            YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator, RawPair::first)).size()
+                + YTDBIteratorUtils.count(nullIterator), 2);
       }
     }
   }
 
   public void testNullValuesCountSBTreeNotUniqueTwo() {
-
-    var nullSBTreeClass =
-        session.getMetadata().getSlowMutableSchema()
-            .createClass("NullValuesCountSBTreeNotUniqueTwo");
-    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(
-        "NullValuesCountSBTreeNotUniqueTwoIndex", IndexType.NOT_UNIQUE, "field");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullValuesCountSBTreeNotUniqueTwo").
+            createSchemaProperty("field", PropertyType.INTEGER)
+            .createPropertyIndex("NullValuesCountSBTreeNotUniqueTwoIndex", IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueTwo"));
@@ -2005,14 +1847,16 @@ public class IndexTest extends BaseDBTest {
 
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("NullValuesCountSBTreeNotUniqueTwoIndex");
-    try (var stream = index.ascEntries(session)) {
-      try (var nullStream = index.getRids(session, null)) {
+    try (var iterator = index.ascEntries(session)) {
+      try (var nullIterator = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(RawPair::first).distinct().count()
-                + nullStream.findAny().map(v -> 1).orElse(0),
+            YTDBIteratorUtils.set(
+                YTDBIteratorUtils.map(iterator, RawPair::first)
+            ).size()
+                + YTDBIteratorUtils.findFirst(nullIterator).map(v -> 1).orElse(0),
             1);
       }
     }
@@ -2020,10 +1864,11 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountHashUnique() {
-    var nullSBTreeClass = session.getSchema().createClass("NullValuesCountHashUnique");
-    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(
-        "NullValuesCountHashUniqueIndex", IndexType.UNIQUE, "field");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("NullValuesCountHashUnique").
+            createSchemaProperty("field", PropertyType.INTEGER).
+            createPropertyIndex("NullValuesCountHashUniqueIndex", IndexType.UNIQUE)
+    );
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashUnique"));
@@ -2036,80 +1881,18 @@ public class IndexTest extends BaseDBTest {
 
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("NullValuesCountHashUniqueIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.ascEntries(session)) {
-      try (var nullStream = index.getRids(session, null)) {
+
+    try (var iterator = index.ascEntries(session)) {
+      try (var nullIterator = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
+            YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator, RawPair::first)).size()
+                + YTDBIteratorUtils.count(nullIterator), 2);
       }
     }
-  }
-
-  public void testNullValuesCountHashNotUniqueOne() {
-
-    var nullSBTreeClass = session.getSchema()
-        .createClass("NullValuesCountHashNotUniqueOne");
-    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(
-        "NullValuesCountHashNotUniqueOneIndex", IndexType.NOT_UNIQUE, "field");
-
-    session.begin();
-    var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
-    docOne.setProperty("field", 1);
-
-    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
-    docTwo.setProperty("field", null);
-
-    session.commit();
-
-    var index =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("NullValuesCountHashNotUniqueOneIndex");
-    Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.ascEntries(session)) {
-      try (var nullStream = index.getRids(session, null)) {
-        Assert.assertEquals(
-            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
-      }
-    }
-  }
-
-  public void testNullValuesCountHashNotUniqueTwo() {
-
-    var nullSBTreeClass =
-        session.getMetadata().getSlowMutableSchema().createClass("NullValuesCountHashNotUniqueTwo");
-    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(
-        "NullValuesCountHashNotUniqueTwoIndex", IndexType.NOT_UNIQUE, "field");
-
-    session.begin();
-    var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));
-    docOne.setProperty("field", null);
-
-    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));
-    docTwo.setProperty("field", null);
-
-    session.commit();
-
-    var index =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("NullValuesCountHashNotUniqueTwoIndex");
-    try (var stream = index.ascEntries(session)) {
-      try (var nullStream = index.getRids(session, null)) {
-        Assert.assertEquals(
-            stream.map(RawPair::first).distinct().count()
-                + nullStream.findAny().map(v -> 1).orElse(0),
-            1);
-      }
-    }
-    Assert.assertEquals(index.size(session), 2);
   }
 
   @Test

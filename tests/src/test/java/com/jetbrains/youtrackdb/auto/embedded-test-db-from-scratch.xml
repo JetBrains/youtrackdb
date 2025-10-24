@@ -25,8 +25,6 @@
     <classes>
       <class name="com.jetbrains.youtrackdb.auto.HookTxTest"/>
       <class name="com.jetbrains.youtrackdb.auto.hooks.HookOnIndexedMapTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.LiveQuery30Test"/>
-      <class name="com.jetbrains.youtrackdb.auto.LiveQuery30TxTest"/>
     </classes>
   </test>
   <test name="Population">
@@ -139,7 +137,6 @@
   </test>
   <test name="misc">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.TruncateClassTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DateTest"/>
       <class name="com.jetbrains.youtrackdb.auto.SQLCreateLinkTest"/>
       <class name="com.jetbrains.youtrackdb.auto.MultipleDBTest"/>

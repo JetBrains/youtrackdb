@@ -1,12 +1,11 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -17,15 +16,16 @@ import org.testng.annotations.Test;
  *
  */
 public class IndexTxTest extends BaseDBTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var cls = schema.createClass("IndexTxTestClass");
-    cls.createProperty("name", PropertyType.STRING);
-    cls.createIndex("IndexTxTestIndex", IndexType.UNIQUE, "name");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("IndexTxTestClass").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex("IndexTxTestIndex", IndexType.UNIQUE)
+    );
   }
 
   @Override
@@ -33,11 +33,7 @@ public class IndexTxTest extends BaseDBTest {
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var cls = schema.getClassInternal("IndexTxTestClass");
-    if (cls != null) {
-      cls.truncate();
-    }
+    graph.autoExecuteInTx(g -> g.V().hasLabel("IndexTxTestClass").drop());
   }
 
   @Test
@@ -60,17 +56,14 @@ public class IndexTxTest extends BaseDBTest {
     expectedResult.put("doc2", doc2.getIdentity());
 
     var index = getIndex("IndexTxTestIndex");
-    Iterator<Object> keyIterator;
-    try (var keyStream = index.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (String) keyIterator.next();
 
         final var expectedValue = expectedResult.get(key);
         final RID value;
-        try (var stream = index.getRids(session, key)) {
-          value = stream.findAny().orElse(null);
+        try (var iterator = index.getRids(session, key)) {
+          value = YTDBIteratorUtils.findFirst(iterator).orElse(null);
         }
 
         Assert.assertNotNull(value);

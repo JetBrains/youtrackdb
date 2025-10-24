@@ -4,6 +4,7 @@ package com.jetbrains.youtrackdb.api.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBInToken;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBPToken;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassInToken;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaIndexOutToken;
@@ -38,6 +39,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .property(YTDBSchemaClassPToken.name, className);
   }
 
+  @SuppressWarnings("unchecked")
   default GraphTraversal<S, Vertex> createSchemaClass(String className, String parentClassName,
       GraphTraversal<?, Vertex>... propertyDefinitions) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
@@ -62,7 +64,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   @SuppressWarnings("unchecked")
   default GraphTraversal<S, Vertex> insertSchemaProperties(
       GraphTraversal<?, Vertex>... propertyDefinitions) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     for (var propertyDefinition : propertyDefinitions) {
@@ -73,7 +74,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> addParentClass(GraphTraversal<?, Vertex> parentClass) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
     return ytdbGraphTraversal.addE(YTDBSchemaClassOutToken.parentClass).to(parentClass)
         .outV();
@@ -81,7 +81,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
   @SuppressWarnings("unchecked")
   default GraphTraversal<S, Vertex> addParentClass(GraphTraversal<?, Vertex>... parentClass) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     for (var parent : parentClass) {
@@ -99,7 +98,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> removeParentClass(String parentClass) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     var currentSchemaClass = "currentSchemaClass";
@@ -108,7 +106,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> addParentClass(String... parentClass) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     for (var parent : parentClass) {
@@ -133,6 +130,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return traversal;
   }
 
+  @SuppressWarnings("unchecked")
   default GraphTraversal<S, Vertex> createAbstractSchemaClass(String className,
       String parentClassName,
       GraphTraversal<?, Vertex>... propertyDefinitions) {
@@ -232,7 +230,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     var currentProperty = "currentProperty";
-    //noinspection unchecked
     return ytdbGraphTraversal.as(currentProperty).
         addV(YTDBSchemaIndex.LABEL).
         property(YTDBSchemaClassPToken.name,
@@ -284,7 +281,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     var currentClass = "currentClass";
 
-    //noinspection unchecked
     return ytdbGraphTraversal.as(currentClass).constant(propertyNames).unfold()
         .map(__.schemaClassProperty(__.identity())).addE(YTDBSchemaPropertyInToken.propertyToIndex).
         from(
@@ -344,7 +340,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     //save current class instance
-    //noinspection unchecked
     return ytdbGraphTraversal.as(currentClass).
         //save map between property name and indexBy
             constant(propertyNameIndexBy).as(propertyIndexByMap).
@@ -410,7 +405,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> schemaClassProperty(String... propertyName) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     if (propertyName == null || propertyName.length == 0) {
@@ -424,8 +418,17 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .has(YTDBSchemaPropertyPToken.name, P.within(propertyName));
   }
 
+  default GraphTraversal<S, Vertex> schemaClassIndexes(String... indexName) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+    if (indexName == null || indexName.length == 0) {
+      return ytdbGraphTraversal.in(YTDBSchemaClassInToken.classToIndex);
+    }
+
+    return ytdbGraphTraversal.in(YTDBSchemaClassInToken.classToIndex)
+        .has(YTDBSchemaIndexPToken.name, P.within(indexName));
+  }
+
   default GraphTraversal<S, Vertex> schemaClassProperty(Traversal<?, String> traversal) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     return ytdbGraphTraversal.emit().repeat(
@@ -504,7 +507,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> collateAttr(String collateName) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
     return ytdbGraphTraversal.property(YTDBSchemaPropertyPToken.collateName, collateName);
   }
@@ -534,7 +536,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> regExpAttr(String regExp) {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
     return ytdbGraphTraversal.property(YTDBSchemaPropertyPToken.regExp, regExp);
   }
@@ -549,20 +550,24 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return ytdbGraphTraversal.values(YTDBSchemaClassPToken.name);
   }
 
+
+  default GraphTraversal<S, Vertex> schemaClassName(String className) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+    return ytdbGraphTraversal.property(YTDBSchemaClassPToken.name, className);
+  }
+
   default GraphTraversal<S, Boolean> isAbstractClass() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.values(YTDBSchemaClassPToken.abstractClass);
   }
 
   default GraphTraversal<S, Vertex> makeClassAbstract() {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     return ytdbGraphTraversal.property(YTDBSchemaClassPToken.abstractClass, true);
   }
 
   default GraphTraversal<S, Vertex> makeClassConcrete() {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 
     return ytdbGraphTraversal.property(YTDBSchemaClassPToken.abstractClass, false);
@@ -575,7 +580,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
 
   default GraphTraversal<S, Vertex> switchStrictModeOnClass() {
-    @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
     return ytdbGraphTraversal.property(YTDBSchemaClassPToken.strictMode, true);
   }

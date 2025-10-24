@@ -5,5 +5,6 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 
 public enum YTDBSchemaClassInToken implements YTDBInToken<YTDBSchemaClass> {
   parentClass,
-  linkedClass
+  linkedClass,
+  classToIndex
 }

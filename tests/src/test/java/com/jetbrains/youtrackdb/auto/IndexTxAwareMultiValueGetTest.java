@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
@@ -32,11 +33,11 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     session.begin();
@@ -44,17 +45,17 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     var doc4 = newDoc(2);
 
     verifyTxIndexPut(Map.of(2, Set.of(doc4.getIdentity())));
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
 
     session.rollback();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
   }
 
@@ -77,11 +78,11 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     final var tx = session.begin();
@@ -93,20 +94,20 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     docTwo.delete();
 
     verifyTxIndexRemove(Map.of(1, Set.of(docOne.getIdentity(), docTwo.getIdentity())));
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertFalse(iterator.hasNext());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     session.rollback();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
   }
 
@@ -126,11 +127,11 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     ));
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     final var tx = session.begin();
@@ -139,20 +140,20 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     doc1.delete();
 
     verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     session.rollback();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
   }
 
@@ -167,8 +168,8 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     final var document = newDoc(1);
 
     verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     document.setProperty(fieldName, 0);
@@ -176,13 +177,13 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     document.setProperty(fieldName, 1);
     verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
   }
 
@@ -197,8 +198,8 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     var doc1 = newDoc(1);
     verifyTxIndexPut(Map.of(1, Set.of(doc1.getIdentity())));
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
     session.commit();
 
@@ -206,8 +207,8 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     newDoc(1);
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
   }
 
@@ -223,14 +224,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     document.delete();
 
     verifyTxIndexChanges(null, null);
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertFalse(iterator.hasNext());
     }
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 0);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 0);
     }
   }
 
@@ -247,14 +248,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     document.setProperty(fieldName, 1);
 
     verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
   }
 }

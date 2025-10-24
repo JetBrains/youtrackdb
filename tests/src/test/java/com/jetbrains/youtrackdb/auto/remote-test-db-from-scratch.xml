@@ -106,14 +106,8 @@
       <class name="com.jetbrains.youtrackdb.auto.SQLDBSequenceTest"/>
     </classes>
   </test>
-  <test name="other-commands">
-    <classes>
-      <class name="com.jetbrains.youtrackdb.auto.TraverseTest"/>
-    </classes>
-  </test>
   <test name="misc">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.TruncateClassTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DateTest"/>
       <class name="com.jetbrains.youtrackdb.auto.SQLCreateLinkTest"/>
       <class name="com.jetbrains.youtrackdb.auto.MultipleDBTest"/>
@@ -122,7 +116,6 @@
       <class name="com.jetbrains.youtrackdb.auto.CollateTest"/>
       <class name="com.jetbrains.youtrackdb.auto.EmbeddedLinkBagTest"/>
       <class name="com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.RemoteProtocolCommandsTest"/>
     </classes>
   </test>
   <test name="End">

@@ -19,10 +19,9 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Locale;
@@ -35,26 +34,26 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void checkSchema() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     assert schema != null;
     assert schema.getClass("Profile") != null;
     assert schema.getClass("Profile").getProperty("nick").getType()
-        == PropertyType.STRING;
+        == PropertyTypeInternal.STRING;
     assert schema.getClass("Profile").getProperty("name").getType()
-        == PropertyType.STRING;
+        == PropertyTypeInternal.STRING;
     assert schema.getClass("Profile").getProperty("surname").getType()
-        == PropertyType.STRING;
+        == PropertyTypeInternal.STRING;
     assert
         schema.getClass("Profile").getProperty("registeredOn").getType()
-            == PropertyType.DATETIME;
+            == PropertyTypeInternal.DATETIME;
     assert
         schema.getClass("Profile").getProperty("lastAccessOn").getType()
-            == PropertyType.DATETIME;
+            == PropertyTypeInternal.DATETIME;
 
     assert schema.getClass("Whiz") != null;
     assert schema.getClass("whiz").getProperty("account").getType()
-        == PropertyType.LINK;
+        == PropertyTypeInternal.LINK;
     assert schema
         .getClass("whiz")
         .getProperty("account")
@@ -62,14 +61,14 @@ public class SchemaTest extends BaseDBTest {
         .getName()
         .equalsIgnoreCase("Account");
     assert
-        schema.getClass("WHIZ").getProperty("date").getType() == PropertyType.DATE;
+        schema.getClass("WHIZ").getProperty("date").getType() == PropertyTypeInternal.DATE;
     assert schema.getClass("WHIZ").getProperty("text").getType()
-        == PropertyType.STRING;
+        == PropertyTypeInternal.STRING;
     assert schema.getClass("WHIZ").getProperty("text").isMandatory();
     assert schema.getClass("WHIZ").getProperty("text").getMin().equals("1");
     assert schema.getClass("WHIZ").getProperty("text").getMax().equals("140");
     assert schema.getClass("whiz").getProperty("replyTo").getType()
-        == PropertyType.LINK;
+        == PropertyTypeInternal.LINK;
     assert schema
         .getClass("Whiz")
         .getProperty("replyTo")
@@ -370,14 +369,10 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void testRenameClass() {
-    var oClass = session.getMetadata().getSlowMutableSchema()
-        .createClass("RenameClassTest");
-
+    graph.autoExecuteInTx(g -> g.createSchemaClass("RenameClassTest"));
     session.begin();
-    var document = ((EntityImpl) session.newEntity("RenameClassTest"));
-
-    document = ((EntityImpl) session.newEntity("RenameClassTest"));
-
+    session.newEntity("RenameClassTest");
+    session.newEntity("RenameClassTest");
     session.commit();
 
     session.begin();
@@ -385,7 +380,8 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(result.stream().count(), 2);
     session.commit();
 
-    oClass.set(SchemaClass.ATTRIBUTES.NAME, "RenameClassTest2");
+    graph.autoExecuteInTx(
+        g -> g.schemaClass("RenameClassTest").schemaClassName("RenameClassTest2"));
 
     session.begin();
     result = session.query("select from RenameClassTest2");
@@ -524,9 +520,9 @@ public class SchemaTest extends BaseDBTest {
     }
     session.commit();
 
-    var schema = session.getSchema();
-    var clazz = schema.getClassInternal(className);
-    var idx = clazz.getIndexesInternal();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var clazz = schema.getClass(className);
+    var idx = clazz.getIndexes();
 
     Set<String> indexes = new HashSet<>();
     for (var id : idx) {
@@ -538,7 +534,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertTrue(
         indexes.contains(className + "." + propertyName.toUpperCase(Locale.ENGLISH)));
 
-    schema.dropClass(className);
+    graph.autoExecuteInTx(g -> g.schemaClass(className).drop());
   }
 
   private void swapCollections(DatabaseSessionInternal databaseDocumentTx, int i) {

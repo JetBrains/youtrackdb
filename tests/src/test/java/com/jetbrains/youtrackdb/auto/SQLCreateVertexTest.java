@@ -1,10 +1,9 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -13,16 +12,17 @@ import org.testng.annotations.Test;
  */
 @Test
 public class SQLCreateVertexTest extends BaseDBTest {
+
   public void testCreateVertexByContent() {
     session.close();
 
     session = createSessionInstance();
 
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    if (!schema.existsClass("CreateVertexByContent")) {
-      var vClass = schema.createClass("CreateVertexByContent", schema.getClass("V"));
-      vClass.createProperty("message", PropertyType.STRING);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("CreateVertexByContent").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("CreateVertexByContent")
+            .createSchemaProperty("message", PropertyType.STRING)
+    ));
 
     session.begin();
     session.execute("create vertex CreateVertexByContent content { \"message\": \"(:\"}").close();
@@ -34,7 +34,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
 
     session.begin();
     var result =
-        session.query("select from CreateVertexByContent").stream().collect(Collectors.toList());
+        session.query("select from CreateVertexByContent").stream().toList();
     Assert.assertEquals(result.size(), 2);
 
     List<String> messages = new ArrayList<String>();
@@ -81,18 +81,15 @@ public class SQLCreateVertexTest extends BaseDBTest {
     session.execute("create vertex").close();
     session.execute("create vertex V").close();
     session.commit();
-
-    // TODO complete this!
-    // database.command(new CommandSQL("create vertex set")).execute();
-    // database.command(new CommandSQL("create vertex set set set = 1")).execute();
-
   }
 
   public void testIsClassName() {
     session.close();
 
     session = createSessionInstance();
-    session.createVertexClass("Like").createProperty("anything", PropertyType.STRING);
-    session.createVertexClass("Is").createProperty("anything", PropertyType.STRING);
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Like").
+        createSchemaProperty("anything", PropertyType.STRING).
+        createSchemaClass("Is").createSchemaProperty("anything", PropertyType.STRING)
+    );
   }
 }

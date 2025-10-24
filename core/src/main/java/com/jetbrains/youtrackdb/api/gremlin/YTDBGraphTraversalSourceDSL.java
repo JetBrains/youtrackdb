@@ -131,7 +131,8 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
         ).select("schemaClass");
   }
 
-  public YTDBGraphTraversal<Vertex, Vertex> createStateFullEdgeClass(String className,
+  @SafeVarargs
+  public final YTDBGraphTraversal<Vertex, Vertex> createStateFullEdgeClass(String className,
       GraphTraversal<?, Vertex>... propertyDefinitions) {
     var traversal = createStateFullEdgeClass(className);
     traversal.insertSchemaProperties(propertyDefinitions);

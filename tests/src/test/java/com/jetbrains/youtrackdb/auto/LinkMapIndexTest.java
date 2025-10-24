@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import java.util.Iterator;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -13,21 +13,17 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-/**
- * @since 22.03.12
- */
 @Test
 public class LinkMapIndexTest extends BaseDBTest {
+
   @BeforeClass
   public void setupSchema() {
-    final var linkMapIndexTestClass =
-        session.getMetadata().getSlowMutableSchema().createClass("LinkMapIndexTestClass");
-    linkMapIndexTestClass.createProperty("linkMap", PropertyType.LINKMAP);
-
-    linkMapIndexTestClass.createIndex("mapIndexTestKey", IndexType.NOT_UNIQUE,
-        "linkMap");
-    linkMapIndexTestClass.createIndex(
-        "mapIndexTestValue", IndexType.NOT_UNIQUE, "linkMap by value");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("LinkMapIndexTestClass")
+            .createSchemaProperty("linkMap", PropertyType.LINKMAP)
+            .createPropertyIndex("mapIndexTestKey", IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
+            .createPropertyIndex("mapIndexTestValue", IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
+    );
   }
 
   @AfterClass
@@ -67,10 +63,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = keyIndexMap.keys()) {
       while (keyIterator.hasNext()) {
         var key = (String) keyIterator.next();
 
@@ -83,10 +76,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
 
     Assert.assertEquals(valueIndexMap.size(session), 2);
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -125,10 +115,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = keyIndexMap.keys()) {
       while (keyIterator.hasNext()) {
         var key = (String) keyIterator.next();
         if (!key.equals("key1") && !key.equals("key2")) {
@@ -140,10 +127,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -183,10 +167,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key2") && !key.equals("key3")) {
@@ -198,10 +179,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -237,10 +215,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key2") && !key.equals("key3")) {
@@ -252,10 +227,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -300,10 +272,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key2") && !key.equals("key1")) {
@@ -315,10 +284,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docTwo.getIdentity())
@@ -356,10 +322,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 3);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key2") && !key.equals("key3")) {
@@ -371,10 +334,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 3);
 
-    final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -419,10 +379,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 3);
 
-    final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
 
@@ -435,10 +392,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 3);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -478,10 +432,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key2")) {
@@ -493,10 +444,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docTwo.getIdentity())
@@ -536,10 +484,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndexMap.size(session), 2);
-    final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key2")) {
@@ -551,10 +496,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -599,10 +541,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Assert.assertEquals(keyIndexMap.size(session), 2);
-    final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key2")) {
@@ -614,10 +553,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -656,10 +592,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key2")) {
@@ -671,10 +604,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -712,10 +642,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key3")) {
@@ -727,10 +654,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -775,10 +699,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key3")) {
@@ -790,10 +711,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -833,10 +751,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 3);
 
-    final Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keyIterator = keyStream.iterator();
-
+    try (var keyIterator = keyIndexMap.keys()) {
       while (keyIterator.hasNext()) {
         var key = (String) keyIterator.next();
         if (!key.equals("key1") && !key.equals("key2") && !key.equals("key3")) {
@@ -848,10 +763,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 3);
 
-    final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())
@@ -869,8 +781,6 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var docOne = ((EntityImpl) session.newEntity());
 
     final var docTwo = ((EntityImpl) session.newEntity());
-
-    final var docThree = ((EntityImpl) session.newEntity());
 
     var map = session.newLinkMap();
 
@@ -953,10 +863,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = keyIndexMap.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("key1") && !key.equals("key2")) {
@@ -968,10 +875,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
-    final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keys()) {
-      valuesIterator = valueStream.iterator();
-
+    try (var valuesIterator = valueIndexMap.keys()) {
       while (valuesIterator.hasNext()) {
         var value = (Identifiable) valuesIterator.next();
         if (!value.getIdentity().equals(docOne.getIdentity())

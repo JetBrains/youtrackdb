@@ -1,9 +1,10 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -11,62 +12,66 @@ import org.testng.annotations.Test;
 
 @Test
 public class SchemaIndexTest extends BaseDBTest {
+
   @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var superTest = schema.createClass("SchemaSharedIndexSuperTest");
-    final var test = schema.createClass("SchemaIndexTest", superTest);
-    test.createProperty("prop1", PropertyType.DOUBLE);
-    test.createProperty("prop2", PropertyType.DOUBLE);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("SchemaSharedIndexSuperTest",
+            __.createSchemaProperty("prop1", PropertyType.DOUBLE),
+            __.createSchemaProperty("prop2", PropertyType.DOUBLE)
+        )
+    );
   }
 
   @AfterMethod
   public void tearDown() throws Exception {
-    if (session.getMetadata().getSlowMutableSchema().existsClass("SchemaIndexTest")) {
-      session.execute("drop class SchemaIndexTest").close();
-    }
-    session.execute("drop class SchemaSharedIndexSuperTest").close();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("SchemaIndexTest").drop().fold().schemaClass("SchemaSharedIndexSuperTest")
+            .drop()
+    );
   }
 
   @Test
   public void testDropClass() throws Exception {
-    session
-        .execute(
-            "CREATE INDEX SchemaSharedIndexCompositeIndex ON SchemaIndexTest (prop1, prop2) UNIQUE")
-        .close();
-    session.getSharedContext().getIndexManager().reload(session);
+    graph.autoExecuteInTx(g -> g.schemaClass("SchemaIndexTest").
+        createClassIndex("SchemaSharedIndexCompositeIndex", YTDBSchemaIndex.IndexType.UNIQUE,
+            "prop1", "prop2")
+    );
+
     Assert.assertNotNull(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("SchemaSharedIndexCompositeIndex"));
 
-    session.getMetadata().getSlowMutableSchema().dropClass("SchemaIndexTest");
-    session.getSharedContext().getIndexManager().reload(session);
+    graph.autoExecuteInTx(g -> g.schemaClass("SchemaIndexTest").drop());
 
-    Assert.assertNull(session.getMetadata().getSlowMutableSchema().getClass("SchemaIndexTest"));
+    Assert.assertNull(
+        session.getMetadata().getFastImmutableSchemaSnapshot().getClass("SchemaIndexTest"));
     Assert.assertNotNull(
-        session.getMetadata().getSlowMutableSchema().getClass("SchemaSharedIndexSuperTest"));
+        session.getMetadata().getFastImmutableSchemaSnapshot()
+            .getClass("SchemaSharedIndexSuperTest"));
 
     Assert.assertNull(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
   @Test
   public void testDropSuperClass() throws Exception {
-    session
-        .execute(
-            "CREATE INDEX SchemaSharedIndexCompositeIndex ON SchemaIndexTest (prop1, prop2) UNIQUE")
-        .close();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("SchemaIndexTest")
+            .createClassIndex("SchemaSharedIndexCompositeIndex", YTDBSchemaIndex.IndexType.UNIQUE,
+                "prop1", "prop2")
+    );
 
     try {
-      session.getMetadata().getSlowMutableSchema().dropClass("SchemaSharedIndexSuperTest");
+      graph.autoExecuteInTx(g -> g.schemaClass("SchemaSharedIndexSuperTest").drop());
       Assert.fail();
     } catch (SchemaException e) {
       Assert.assertTrue(
@@ -76,28 +81,31 @@ public class SchemaIndexTest extends BaseDBTest {
                       + " classes"));
     }
 
-    Assert.assertNotNull(session.getMetadata().getSlowMutableSchema().getClass("SchemaIndexTest"));
     Assert.assertNotNull(
-        session.getMetadata().getSlowMutableSchema().getClass("SchemaSharedIndexSuperTest"));
+        session.getMetadata().getFastImmutableSchemaSnapshot().getClass("SchemaIndexTest"));
+    Assert.assertNotNull(
+        session.getMetadata().getFastImmutableSchemaSnapshot()
+            .getClass("SchemaSharedIndexSuperTest"));
 
     Assert.assertNotNull(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
 
   @Test
   public void testIndexWithNumberProperties() {
-    var oclass = session.getMetadata().getSlowMutableSchema()
-        .createClass("SchemaIndexTest_numberclass");
-    oclass.createProperty("1", PropertyType.STRING).setMandatory(false);
-    oclass.createProperty("2", PropertyType.STRING).setMandatory(false);
-    oclass.createIndex("SchemaIndexTest_numberclass_1_2", IndexType.UNIQUE,
-        "1",
-        "2");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("SchemaIndexTest_numberclass",
+            __.createSchemaProperty("1", PropertyType.STRING).mandatoryAttr(false),
+            __.createSchemaProperty("2", PropertyType.STRING).mandatoryAttr(false)
+        ).createClassIndex("SchemaIndexTest_numberclass_1_2", IndexType.UNIQUE,
+            "1",
+            "2")
+    );
 
-    session.getMetadata().getSlowMutableSchema().dropClass(oclass.getName());
+    graph.autoExecuteInTx(g -> g.schemaClass("SchemaIndexTest_numberclass").drop());
   }
 }

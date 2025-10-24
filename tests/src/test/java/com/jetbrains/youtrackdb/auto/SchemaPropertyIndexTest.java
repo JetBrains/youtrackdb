@@ -15,15 +15,14 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
-import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
@@ -36,14 +35,16 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var oClass = schema.createClass("PropertyIndexTestClass");
-    oClass.createProperty("prop0", PropertyType.LINK);
-    oClass.createProperty("prop1", PropertyType.STRING);
-    oClass.createProperty("prop2", PropertyType.INTEGER);
-    oClass.createProperty("prop3", PropertyType.BOOLEAN);
-    oClass.createProperty("prop4", PropertyType.INTEGER);
-    oClass.createProperty("prop5", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("PropertyIndexTestClass",
+            __.createSchemaProperty("prop0", PropertyType.LINK),
+            __.createSchemaProperty("prop1", PropertyType.STRING),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.BOOLEAN),
+            __.createSchemaProperty("prop4", PropertyType.INTEGER),
+            __.createSchemaProperty("prop5", PropertyType.STRING)
+        )
+    );
   }
 
   @Override
@@ -64,14 +65,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateUniqueIndex() {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    final var propOne = oClass.getProperty("prop1");
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("PropertyIndexTestClass").schemaClassProperty("prop1").createPropertyIndex(
+            YTDBSchemaIndex.IndexType.UNIQUE, true)
+    );
 
-    propOne.createIndex(IndexType.UNIQUE,
-        Map.of("ignoreNullValues", true));
-
-    final Collection<Index> indexes = oClass.getInvolvedIndexesInternal(session, "prop1");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final Collection<Index> indexes = schema.getClass("PropertyIndexTestClass")
+        .getInvolvedIndexes("prop1");
     IndexDefinition indexDefinition = null;
 
     for (final var index : indexes) {
@@ -91,54 +92,34 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})
   public void createAdditionalSchemas() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var oClass = schema.getClass("PropertyIndexTestClass");
-
-    oClass.createIndex(
-        "propOne0",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop0", "prop1"});
-    oClass.createIndex(
-        "propOne1",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop1", "prop2"});
-    oClass.createIndex(
-        "propOne2",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop1", "prop3"});
-    oClass.createIndex(
-        "propOne3",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop2", "prop3"});
-    oClass.createIndex(
-        "propOne4",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop2", "prop1"});
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("PropertyIndexTestClass").
+            createClassIndex("propOne0", YTDBSchemaIndex.IndexType.UNIQUE, true, "prop0", "prop1").
+            createClassIndex("propOne1", YTDBSchemaIndex.IndexType.UNIQUE, true, "prop1", "prop2").
+            createClassIndex("propOne2", YTDBSchemaIndex.IndexType.UNIQUE, true, "prop1", "prop3").
+            createClassIndex("propOne3", YTDBSchemaIndex.IndexType.UNIQUE, true, "prop2", "prop3").
+            createClassIndex("propOne4", YTDBSchemaIndex.IndexType.UNIQUE, true, "prop2", "prop1")
+    );
   }
 
   @Test(dependsOnMethods = "createAdditionalSchemas")
   public void testGetIndexes() {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.getClassInternal("PropertyIndexTestClass");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var oClass = schema.getClass("PropertyIndexTestClass");
     oClass.getProperty("prop1");
 
-    var indexes = oClass.getInvolvedIndexesInternal(session, "prop1");
+    var indexes = oClass.getInvolvedIndexes("prop1");
     Assert.assertEquals(indexes.size(), 1);
     Assert.assertNotNull(containsIndex(indexes, "PropertyIndexTestClass.prop1"));
   }
 
   @Test(dependsOnMethods = "createAdditionalSchemas")
   public void testGetAllIndexes() {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    var propOne = oClass.getPropertyInternal("prop1");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var oClass = schema.getClass("PropertyIndexTestClass");
+    var propOne = oClass.getProperty("prop1");
 
-    final var indexes = propOne.getAllIndexesInternal();
+    final var indexes = propOne.getIndexes();
     Assert.assertEquals(indexes.size(), 5);
     Assert.assertNotNull(containsIndex(indexes, "PropertyIndexTestClass.prop1"));
     Assert.assertNotNull(containsIndex(indexes, "propOne0"));
@@ -149,35 +130,34 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test
   public void testIsIndexedNonIndexedField() {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    var propThree = oClass.getPropertyInternal("prop3");
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var oClass = schema.getClass("PropertyIndexTestClass");
+    var propThree = oClass.getProperty("prop3");
 
-    Assert.assertTrue(propThree.getAllIndexes().isEmpty());
+    Assert.assertTrue(propThree.getIndexes().isEmpty());
   }
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})
   public void testIsIndexedIndexedField() {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    var propOne = oClass.getPropertyInternal("prop1");
-    Assert.assertFalse(propOne.getAllIndexes().isEmpty());
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var oClass = schema.getClass("PropertyIndexTestClass");
+    var propOne = oClass.getProperty("prop1");
+    Assert.assertFalse(propOne.getIndexes().isEmpty());
   }
 
   @Test(dependsOnMethods = {"testIsIndexedIndexedField"})
   public void testIndexingCompositeRIDAndOthers() throws Exception {
-
     var prev0 =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne0")
 
             .size(session);
     var prev1 =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne1")
 
             .size(session);
@@ -196,16 +176,16 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     Assert.assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne0")
 
             .size(session),
         prev0 + 1);
     Assert.assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne1")
 
             .size(session),
@@ -218,15 +198,15 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     var prev0 =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne0")
 
             .size(session);
     var prev1 =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne1")
 
             .size(session);
@@ -244,16 +224,16 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     Assert.assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne0")
 
             .size(session),
         prev0 + 1);
     Assert.assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("propOne1")
 
             .size(session),
@@ -261,36 +241,23 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   }
 
   @Test
-  public void testDropIndexes() throws Exception {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.getClassInternal("PropertyIndexTestClass");
+  public void testDropIndexes() {
+    graph.autoExecuteInTx(g -> g.schemaClass("PropertyIndexTestClass").
+        createClassIndex("PropertyIndexFirstIndex", YTDBSchemaIndex.IndexType.UNIQUE, true,
+            "prop4").
+        createClassIndex("PropertyIndexSecondIndex", YTDBSchemaIndex.IndexType.UNIQUE, true,
+            "prop4")
+    );
 
-    oClass.createIndex(
-        "PropertyIndexFirstIndex",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop4"});
-
-    oClass.createIndex(
-        "PropertyIndexSecondIndex",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop4"});
-
-    var indexes = oClass.getInvolvedIndexes(session, "prop4");
-    for (var index : indexes) {
-      session.getSharedContext().getIndexManager().dropIndex(session, index);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("PropertyIndexTestClass").schemaClassIndexes().drop());
 
     Assert.assertNull(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("PropertyIndexFirstIndex"));
     Assert.assertNull(
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("PropertyIndexSecondIndex"));
   }
 

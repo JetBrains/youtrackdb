@@ -6,9 +6,10 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class LinksConsistencyTest extends BaseDBTest {
+
   @Test
   public void selfModificationsAreProhibitedForOnBefore() {
-    session.getSchema().createClass("SelfModificationsAreProhibited");
+    graph.autoExecuteInTx(g -> g.createSchemaClass("SelfModificationsAreProhibited"));
 
     var entity = session.computeInTx(
         transaction -> transaction.newEntity("SelfModificationsAreProhibited"));
@@ -33,8 +34,10 @@ public class LinksConsistencyTest extends BaseDBTest {
 
   @Test
   public void testAddLinkInCallback() {
-    session.getSchema().createClass("AddLinkInCallback");
-    session.getSchema().createClass("AddLinkInCallbackLink");
+    graph.autoExecuteInTx(
+        g -> g.createSchemaClass("AddLinkInCallback").
+            createSchemaClass("AddLinkInCallbackLink")
+    );
 
     var entity = session.computeInTx(
         transaction -> transaction.newEntity("AddLinkInCallback"));

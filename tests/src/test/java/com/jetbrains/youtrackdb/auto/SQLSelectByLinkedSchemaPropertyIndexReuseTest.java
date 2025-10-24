@@ -3,14 +3,13 @@ package com.jetbrains.youtrackdb.auto;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Ignore;
@@ -30,6 +29,7 @@ import org.testng.annotations.Test;
 @SuppressWarnings("SuspiciousMethodCalls")
 @Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndexReuseTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
@@ -408,85 +408,61 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
   private void createSchemaForTest() {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
-    if (!schema.existsClass("lpirtStudent")) {
-      final var curatorClass = schema.createClass("lpirtCurator");
-      curatorClass.createProperty("name", PropertyType.STRING)
-          .createIndex(IndexType.NOT_UNIQUE);
-      curatorClass
-          .createProperty("salary", PropertyType.INTEGER)
-          .createIndex(IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-      curatorClass.createIndex(
-          "curotorCompositeIndex",
-          IndexType.UNIQUE.name(),
-          null,
-          Map.of("ignoreNullValues", true), new String[]{"salary", "name"});
 
-      final var groupClass = schema.createClass("lpirtGroup");
-      groupClass
-          .createProperty("name", PropertyType.STRING)
-          .createIndex(IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-      groupClass
-          .createProperty("curator", PropertyType.LINK, curatorClass)
-          .createIndex(IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("lpirtStudent").fold().coalesce(
+            __.unfold(),
 
-      final var diplomaClass = schema.createClass("lpirtDiploma");
-      diplomaClass.createProperty("GPA", PropertyType.DOUBLE)
-          .createIndex(IndexType.NOT_UNIQUE);
-      diplomaClass.createProperty("thesis", PropertyType.STRING);
-      diplomaClass
-          .createProperty("name", PropertyType.STRING)
-          .createIndex(IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-      diplomaClass.createIndex(
-          "diplomaThesisUnique",
-          IndexType.UNIQUE.name(),
-          null,
-          Map.of("ignoreNullValues", true), new String[]{"thesis"});
+            __.createSchemaClass("lpirtCurator",
+                    __.createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                        YTDBSchemaIndex.IndexType.UNIQUE, true),
+                    __.createSchemaProperty("salary", PropertyType.INTEGER).createPropertyIndex(
+                        YTDBSchemaIndex.IndexType.UNIQUE, true)
+                ).createClassIndex("curotorCompositeIndex",
+                    YTDBSchemaIndex.IndexType.UNIQUE, true,
+                    "salary", "name").
+                createSchemaClass("lpirtGroup",
+                    __.createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                        YTDBSchemaIndex.IndexType.UNIQUE, true),
+                    __.createSchemaProperty("curator", PropertyType.LINK,
+                            "lpirtCurator").
+                        createPropertyIndex(YTDBSchemaIndex.IndexType.UNIQUE, true)
+                ).
+                createSchemaClass("lpirtDiploma",
+                    __.createSchemaProperty("GPA", PropertyType.DOUBLE)
+                        .createPropertyIndex(YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+                    __.createSchemaProperty("thesis", PropertyType.STRING)
+                        .createPropertyIndex("diplomaThesisUnique",
+                            YTDBSchemaIndex.IndexType.UNIQUE, true),
+                    __.createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                        YTDBSchemaIndex.IndexType.UNIQUE, true)
+                ).
+                createSchemaClass("lpirtTranscript",
+                    __.createSchemaProperty("id", PropertyType.STRING).createPropertyIndex(
+                        YTDBSchemaIndex.IndexType.UNIQUE, true)
+                ).
+                createSchemaClass("lpirtSkill").
+                createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                    YTDBSchemaIndex.IndexType.UNIQUE, true).
 
-      final var transcriptClass = schema.createClass("lpirtTranscript");
-      transcriptClass
-          .createProperty("id", PropertyType.STRING)
-          .createIndex(
-              IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-
-      final var skillClass = schema.createClass("lpirtSkill");
-      skillClass
-          .createProperty("name", PropertyType.STRING)
-          .createIndex(IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-
-      final var studentClass = schema.createClass("lpirtStudent");
-      studentClass
-          .createProperty("name", PropertyType.STRING)
-          .createIndex(IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-      studentClass
-          .createProperty("group", PropertyType.LINK, groupClass)
-          .createIndex(IndexType.NOT_UNIQUE);
-      studentClass.createProperty("diploma", PropertyType.LINK, diplomaClass);
-      studentClass
-          .createProperty("transcript", PropertyType.LINK, transcriptClass)
-          .createIndex(
-              IndexType.UNIQUE,
-              Map.of("ignoreNullValues", true));
-      studentClass.createProperty("skill", PropertyType.LINK, skillClass);
-
-      var metadata = Map.of("ignoreNullValues", false);
-      studentClass.createIndex(
-          "studentDiplomaAndNameIndex",
-          IndexType.UNIQUE.toString(),
-          null,
-          new HashMap<>(metadata), new String[]{"diploma", "name"});
-      studentClass.createIndex(
-          "studentSkillAndGroupIndex",
-          IndexType.NOT_UNIQUE.toString(),
-          null,
-          new HashMap<>(metadata), new String[]{"skill", "group"});
-    }
+                createSchemaClass("lpirtStudent",
+                    __.createSchemaProperty("name", PropertyType.STRING).
+                        createPropertyIndex(YTDBSchemaIndex.IndexType.UNIQUE, true),
+                    __.createSchemaProperty("group", PropertyType.LINK, "lpirtGroup")
+                        .createPropertyIndex(
+                            YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+                    __.createSchemaProperty("diploma", PropertyType.LINK, "lpirtDiploma"),
+                    __.createSchemaProperty("transcript", PropertyType.LINK,
+                            "lpirtTranscript")
+                        .createPropertyIndex(YTDBSchemaIndex.IndexType.UNIQUE, true),
+                    __.createSchemaProperty("skill", PropertyType.LINK, "lpirtSkill")
+                )
+                .createClassIndex("studentDiplomaAndNameIndex", YTDBSchemaIndex.IndexType.UNIQUE,
+                    "diploma", "name")
+                .createClassIndex("studentSkillAndGroupIndex", YTDBSchemaIndex.IndexType.NOT_UNIQUE,
+                    "skill", "group")
+        )
+    );
   }
 
   private static int containsDocumentWithFieldValue(

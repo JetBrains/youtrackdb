@@ -43,12 +43,12 @@ public class JSONTest extends BaseDBTest {
     super.beforeClass();
     addBarackObamaAndFollowers();
 
-    session.createClass("Device");
-    session.createClass("Track");
-    session.createClass("NestedLinkCreation");
-    session.createClass("NestedLinkCreationFieldTypes");
-    session.createClass("InnerDocCreation");
-    session.createClass("InnerDocCreationFieldTypes");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("Device").createSchemaClass("Track")
+            .createSchemaClass("NestedLinkCreation").
+            createSchemaClass("NestedLinkCreationFieldTypes").createSchemaClass("InnerDocCreation")
+            .createSchemaClass("InnerDocCreationFieldTypes")
+    );
   }
 
   @Test

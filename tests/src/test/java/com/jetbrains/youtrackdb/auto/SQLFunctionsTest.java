@@ -22,10 +22,11 @@ import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
@@ -44,6 +45,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLFunctionsTest extends BaseDBTest {
+
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -128,9 +130,13 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryCountWithConditions() {
-    var indexed = session.getMetadata().getSlowMutableSchema().getOrCreateClass("Indexed");
-    indexed.createProperty("key", PropertyType.STRING);
-    indexed.createIndex("keyed", IndexType.NOT_UNIQUE, "key");
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Indexed").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("Indexed").createSchemaProperty("key", PropertyType.STRING)
+                .createPropertyIndex("keyed", YTDBSchemaIndex.IndexType.NOT_UNIQUE)
+        )
+    );
 
     session.begin();
     session.newInstance("Indexed").setProperty("key", "one");

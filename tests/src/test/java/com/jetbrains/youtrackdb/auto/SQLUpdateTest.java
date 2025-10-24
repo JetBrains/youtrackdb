@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -252,8 +253,11 @@ public class SQLUpdateTest extends BaseDBTest {
 
   @Test
   public void updateWithWildcardsOnSetAndWhere() {
+    graph.autoExecuteInTx(g -> g.schemaClass("Person").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Person")
+    ));
 
-    session.createClassIfNotExist("Person");
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Person"));
     doc.setProperty("name", "Raf");
@@ -298,7 +302,10 @@ public class SQLUpdateTest extends BaseDBTest {
   }
 
   public void updateWithReturn() {
-    session.createClassIfNotExist("Data");
+    graph.autoExecuteInTx(g -> g.schemaClass("Data").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Data")
+    ));
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Data"));
@@ -346,8 +353,10 @@ public class SQLUpdateTest extends BaseDBTest {
 
   @Test
   public void updateWithNamedParameters() {
-
-    session.createClassIfNotExist("Data");
+    graph.autoExecuteInTx(g -> g.schemaClass("Data").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Data")
+    ));
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Data"));
@@ -370,9 +379,9 @@ public class SQLUpdateTest extends BaseDBTest {
 
     var result = session.query("select * from Data");
     var oDoc = result.next();
-    Assert.assertEquals("Raf", oDoc.getProperty("name"));
-    Assert.assertEquals("TOR", oDoc.getProperty("city"));
-    Assert.assertEquals("f", oDoc.getProperty("gender"));
+    Assert.assertEquals(oDoc.getProperty("name"), "Raf");
+    Assert.assertEquals(oDoc.getProperty("city"), "TOR");
+    Assert.assertEquals(oDoc.getProperty("gender"), "f");
     result.close();
   }
 
@@ -758,15 +767,18 @@ public class SQLUpdateTest extends BaseDBTest {
   }
 
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    var cc = session.getMetadata().getSlowMutableSchema().getClass("TestConvertLinkedClass");
-    if (cc == null) {
-      cc = session.getMetadata().getSlowMutableSchema()
-          .createAbstractClass("TestConvertLinkedClass");
-    }
-    if (!c.existsProperty("embeddedListWithLinkedClass")) {
-      c.createProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST, cc);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("TestConvert").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+        ).schemaClass("TestConvertLinkedClass").fold().coalesce(
+            __.unfold(),
+            __.createAbstractSchemaClass("TestConvertLinkedClass")
+        ).schemaClassProperty("embeddedListWithLinkedClass").fold().coalesce(
+            __.unfold(),
+            __.createSchemaProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST,
+                "TestConvertLinkedClass")
+        )
+    );
 
     session.begin();
     var id =

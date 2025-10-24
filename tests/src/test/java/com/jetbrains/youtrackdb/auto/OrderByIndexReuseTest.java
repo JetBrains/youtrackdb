@@ -8,9 +8,6 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-/**
- * @since 2/11/14
- */
 @Test
 public class OrderByIndexReuseTest extends BaseDBTest {
 

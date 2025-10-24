@@ -15,14 +15,16 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLDropClassIndexTest extends BaseDBTest {
+
   private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
   private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
 
@@ -32,43 +34,33 @@ public class SQLDropClassIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var oClass = schema.createClass("SQLDropClassTestClass");
-    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
-    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
+    graph.autoExecuteInTx(g -> g.createSchemaClass("SQLDropClassTestClass",
+        __.createSchemaProperty("prop1", EXPECTED_PROP1_TYPE).
+            createSchemaProperty("prop2", EXPECTED_PROP2_TYPE)
+    ));
   }
 
   @Test
   public void testIndexDeletion() throws Exception {
-    session
-        .execute(
-            "CREATE INDEX SQLDropClassCompositeIndex ON SQLDropClassTestClass (prop1, prop2)"
-                + " UNIQUE")
-        .close();
+    graph.autoExecuteInTx(g -> g.schemaClass("SQLDropClassTestClass").
+        createClassIndex("SQLDropClassCompositeIndex", IndexType.UNIQUE, "prop1", "prop2"));
 
-    Assert.assertNotNull(
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("SQLDropClassCompositeIndex"));
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    Assert.assertNotNull(schema.getIndex("SQLDropClassCompositeIndex"));
 
-    session.execute("DROP CLASS SQLDropClassTestClass").close();
+    graph.autoExecuteInTx(g -> g.schemaClass("SQLDropClassTestClass").drop());
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     Assert.assertNull(
-        session.getMetadata().getSlowMutableSchema().getClass("SQLDropClassTestClass"));
+        schema.getClass("SQLDropClassTestClass"));
     Assert.assertNull(
-        session
-            .getSharedContext()
-            .getIndexManager()
+        schema
             .getIndex("SQLDropClassCompositeIndex"));
     session.close();
     session = createSessionInstance();
-    Assert.assertNull(
-        session.getMetadata().getSlowMutableSchema().getClass("SQLDropClassTestClass"));
-    Assert.assertNull(
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("SQLDropClassCompositeIndex"));
+
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    Assert.assertNull(schema.getClass("SQLDropClassTestClass"));
+    Assert.assertNull(schema.getIndex("SQLDropClassCompositeIndex"));
   }
 }

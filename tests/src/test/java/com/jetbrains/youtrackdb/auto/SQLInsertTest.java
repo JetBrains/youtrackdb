@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -48,15 +49,15 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void insertOperator() {
-    if (!session.getMetadata().getSlowMutableSchema().existsClass("Account")) {
-      session.getMetadata().getSlowMutableSchema().createClass("Account");
-    }
-
-    final var profileClass = session.getMetadata().getSlowMutableSchema().getClass("Account");
-
-    if (!session.getMetadata().getSlowMutableSchema().existsClass("Address")) {
-      session.getMetadata().getSlowMutableSchema().createClass("Address");
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Account").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("Account")
+        ).schemaClass("Address").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("Address")
+        )
+    );
 
     for (var i = 0; i < 30; i++) {
       session.begin();
@@ -518,8 +519,12 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededSetNoLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    c.createProperty("embeddedSetNoLinkedClass", PropertyType.EMBEDDEDSET);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("TestConvert").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+        ).createSchemaProperty("embeddedSetNoLinkedClass", PropertyType.EMBEDDEDSET)
+    );
 
     session.begin();
     var doc =
@@ -545,15 +550,21 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededSetWithLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    var cc = session.getMetadata().getSlowMutableSchema().getClass("TestConvertLinkedClass");
-    if (cc == null) {
-      cc = session.getMetadata().getSlowMutableSchema()
-          .createAbstractClass("TestConvertLinkedClass");
-    }
-    if (!c.existsProperty("embeddedSetWithLinkedClass")) {
-      c.createProperty("embeddedSetWithLinkedClass", PropertyType.EMBEDDEDSET, cc);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("TestConvert").
+        fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+        ).schemaClass("TestConvertLinkedClass").
+        fold().coalesce(
+            __.unfold(),
+            __.createAbstractSchemaClass("TestConvertLinkedClass")
+        ).schemaClassProperty("embeddedSetWithLinkedClass").fold().coalesce(
+            __.unfold(),
+            __.schemaClass("TestConvertLinkedClass")
+                .createSchemaProperty("embeddedSetWithLinkedClass", PropertyType.EMBEDDEDSET,
+                    "TestConvertLinkedClass")
+        )
+    );
 
     session.begin();
     var doc =
@@ -579,8 +590,13 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededListNoLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    c.createProperty("embeddedListNoLinkedClass", PropertyType.EMBEDDEDLIST);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("TestConvert").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+                .createSchemaProperty("embeddedListNoLinkedClass", PropertyType.EMBEDDEDLIST)
+        )
+    );
 
     session.begin();
     var doc =
@@ -606,15 +622,21 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    var cc = session.getMetadata().getSlowMutableSchema().getClass("TestConvertLinkedClass");
-    if (cc == null) {
-      cc = session.getMetadata().getSlowMutableSchema()
-          .createAbstractClass("TestConvertLinkedClass");
-    }
-    if (!c.existsProperty("embeddedListWithLinkedClass")) {
-      c.createProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST, cc);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("TestConvert").
+        fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+        ).schemaClass("TestConvertLinkedClass").
+        fold().coalesce(
+            __.unfold(),
+            __.createAbstractSchemaClass("TestConvertLinkedClass")
+        ).schemaClassProperty("embeddedListWithLinkedClass").fold().coalesce(
+            __.unfold(),
+            __.schemaClass("TestConvertLinkedClass")
+                .createSchemaProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST,
+                    "TestConvertLinkedClass")
+        )
+    );
 
     session.begin();
     var doc =
@@ -642,8 +664,12 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededMapNoLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    c.createProperty("embeddedMapNoLinkedClass", PropertyType.EMBEDDEDMAP);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("TestConvert").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+        ).createSchemaProperty("embeddedMapNoLinkedClass", PropertyType.EMBEDDEDMAP)
+    );
 
     session.begin();
     var doc =
@@ -669,11 +695,16 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test(enabled = false)
   public void testAutoConversionOfEmbeddededMapWithLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    c.createProperty(
-        "embeddedMapWithLinkedClass",
-        PropertyType.EMBEDDEDMAP,
-        session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvertLinkedClass"));
+    graph.autoExecuteInTx(g -> g.schemaClass("TestConvertLinkedClass").fold().coalesce(
+            __.unfold(),
+            __.createAbstractSchemaClass("TestConvertLinkedClass")
+        ).schemaClass("TestConvert").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert").createSchemaProperty(
+                "embeddedMapWithLinkedClass",
+                PropertyType.EMBEDDEDMAP, "TestConvertLinkedClass")
+        )
+    );
 
     session.begin();
     var doc =
@@ -698,8 +729,14 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test(enabled = false)
   public void testAutoConversionOfEmbeddededNoLinkedClass() {
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    c.createProperty("embeddedNoLinkedClass", PropertyType.EMBEDDED);
+    graph.autoExecuteInTx(g -> g.schemaClass("TestConvert").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("TestConvert")
+        ).schemaClassProperty("embeddedNoLinkedClass").fold().coalesce(
+            __.unfold(),
+            __.createSchemaProperty("embeddedNoLinkedClass", PropertyType.EMBEDDED)
+        )
+    );
 
     session.begin();
     var doc =
@@ -756,14 +793,17 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededWithLinkedClass() {
-
-    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
-    var cc = session.getMetadata().getSlowMutableSchema().getClass("TestConvertLinkedClass");
-    if (cc == null) {
-      cc = session.getMetadata().getSlowMutableSchema()
-          .createAbstractClass("TestConvertLinkedClass");
-    }
-    c.createProperty("embeddedWithLinkedClass", PropertyType.EMBEDDED, cc);
+    graph.autoExecuteInTx(g -> g.schemaClass("TestConvertLinkedClass").fold().coalesce(
+        __.unfold(),
+        __.createAbstractSchemaClass("TestConvertLinkedClass")
+    ).schemaClass("TestConvert").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("TestConvert")
+    ).schemaClassProperty("embeddedWithLinkedClass").fold().coalesce(
+        __.unfold(),
+        __.createSchemaProperty("embeddedWithLinkedClass", PropertyType.EMBEDDED,
+            "TestConvertLinkedClass")
+    ));
 
     session.begin();
     var doc =
@@ -786,17 +826,17 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testInsertEmbeddedWithRecordAttributes() {
-    var c = session.getMetadata().getSlowMutableSchema()
-        .getOrCreateClass("EmbeddedWithRecordAttributes");
-    var cc = session.getMetadata().getSlowMutableSchema()
-        .getClass("EmbeddedWithRecordAttributes_Like");
-    if (cc == null) {
-      cc = session.getMetadata().getSlowMutableSchema()
-          .createAbstractClass("EmbeddedWithRecordAttributes_Like");
-    }
-    if (!c.existsProperty("like")) {
-      c.createProperty("like", PropertyType.EMBEDDED, cc);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("EmbeddedWithRecordAttributes").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("EmbeddedWithRecordAttributes")
+        ).schemaClass("EmbeddedWithRecordAttributes_Like").fold().coalesce(
+            __.unfold(),
+            __.createAbstractSchemaClass("EmbeddedWithRecordAttributes_Like")
+        ).schemaClass("EmbeddedWithRecordAttributes_Like").schemaClassProperty("like").fold().coalesce(
+            __.unfold(),
+            __.createSchemaProperty("like", PropertyType.EMBEDDED, "EmbeddedWithRecordAttributes_Like")
+        )
+    );
 
     session.begin();
     var doc =
@@ -824,17 +864,20 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testInsertEmbeddedWithRecordAttributes2() {
-    var c = session.getMetadata().getSlowMutableSchema()
-        .getOrCreateClass("EmbeddedWithRecordAttributes2");
-    var cc = session.getMetadata().getSlowMutableSchema()
-        .getClass("EmbeddedWithRecordAttributes2_Like");
-    if (cc == null) {
-      cc = session.getMetadata().getSlowMutableSchema()
-          .createAbstractClass("EmbeddedWithRecordAttributes2_Like");
-    }
-    if (!c.existsProperty("like")) {
-      c.createProperty("like", PropertyType.EMBEDDED, cc);
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("EmbeddedWithRecordAttributes2").fold().coalesce(
+                __.unfold(),
+                __.createSchemaClass("EmbeddedWithRecordAttributes2")
+            ).schemaClass("EmbeddedWithRecordAttributes2_Like").fold().coalesce(
+                __.unfold(),
+                __.createAbstractSchemaClass("EmbeddedWithRecordAttributes2_Like")
+            ).schemaClass("EmbeddedWithRecordAttributes2_Like").schemaClassProperty("like").fold()
+            .coalesce(
+                __.unfold(),
+                __.createSchemaProperty("like", PropertyType.EMBEDDED,
+                    "EmbeddedWithRecordAttributes2_Like")
+            )
+    );
 
     session.begin();
     var doc =

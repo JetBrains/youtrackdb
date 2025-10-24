@@ -16,6 +16,8 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -1334,13 +1336,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   }
 
   public void testParams() {
-    var test = session.getMetadata().getSlowMutableSchema().getClass("test");
-    if (test == null) {
-      test = session.getMetadata().getSlowMutableSchema().createClass("test");
-      test.createProperty("f1", PropertyType.STRING);
-      test.createProperty("f2", PropertyType.STRING);
-    }
-    var document = ((EntityImpl) session.newEntity(test));
+    graph.autoExecuteInTx(g -> g.schemaClass("test").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("test",
+            __.createSchemaProperty("f1", PropertyType.STRING),
+            __.createSchemaProperty("f2", PropertyType.STRING)
+        )
+    ));
+
+    var document = ((EntityImpl) session.newEntity("test"));
     document.setProperty("f1", "a");
 
     session.begin();
@@ -1407,15 +1411,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryOrderByWithLimit() {
-
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var facClass = schema.getClass("FicheAppelCDI");
-    if (facClass == null) {
-      facClass = schema.createClass("FicheAppelCDI");
-    }
-    if (!facClass.existsProperty("date")) {
-      facClass.createProperty("date", PropertyType.DATE);
-    }
+    var facClass = "FicheAppelCDI";
+    graph.autoExecuteInTx(g -> g.schemaClass(facClass).fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass(facClass)
+        ).schemaClassProperty("date").fold().coalesce(
+            __.unfold(),
+            __.createSchemaProperty("date", PropertyType.DATE)
+        )
+    );
 
     final var currentYear = Calendar.getInstance();
     final var oneYearAgo = Calendar.getInstance();
@@ -1435,7 +1439,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     session.begin();
     var result =
         session.query(
-            "select * from " + facClass.getName() + " where context = 'test' order by date",
+            "select * from " + facClass + " where context = 'test' order by date",
             1).toList();
 
     var smaller = Calendar.getInstance();
@@ -1445,7 +1449,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     result =
         session.query(
             "select * from "
-                + facClass.getName()
+                + facClass
                 + " where context = 'test' order by date DESC",
             1).toList();
 
@@ -1495,10 +1499,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSelectFromListParameter() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
-    placeClass.createProperty("id", PropertyType.STRING);
-    placeClass.createProperty("descr", PropertyType.STRING);
-    placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("Place",
+            __.createSchemaProperty("id", PropertyType.STRING)
+                .createPropertyIndex("place_id_index", IndexType.UNIQUE),
+            __.createSchemaProperty("descr", PropertyType.STRING)
+        )
+    );
 
     var odoc = ((EntityImpl) session.newEntity("Place"));
     odoc.setProperty("id", "adda");
@@ -1529,10 +1536,11 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSelectRidFromListParameter() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
-    placeClass.createProperty("id", PropertyType.STRING);
-    placeClass.createProperty("descr", PropertyType.STRING);
-    placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Place",
+        __.createSchemaProperty("id", PropertyType.STRING)
+            .createPropertyIndex("place_id_index", IndexType.UNIQUE),
+        __.createSchemaProperty("descr", PropertyType.STRING)
+    ));
 
     List<RID> inputValues = new ArrayList<RID>();
 
@@ -1749,11 +1757,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testExpandSkip() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var v = schema.getClass("V");
-    final var cls = schema.createClass("TestExpandSkip", v);
-    cls.createProperty("name", PropertyType.STRING);
-    cls.createIndex("TestExpandSkip.name", INDEX_TYPE.UNIQUE, "name");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("TestExpandSkip",
+            __.createSchemaProperty("name", PropertyType.STRING)
+                .createPropertyIndex(IndexType.UNIQUE)
+        )
+    );
+
     session.execute("CREATE VERTEX TestExpandSkip set name = '1'").close();
     session.execute("CREATE VERTEX TestExpandSkip set name = '2'").close();
     session.execute("CREATE VERTEX TestExpandSkip set name = '3'").close();

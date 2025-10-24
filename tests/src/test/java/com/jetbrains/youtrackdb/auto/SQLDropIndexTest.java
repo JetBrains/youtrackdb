@@ -15,8 +15,9 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
@@ -24,6 +25,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLDropIndexTest extends BaseDBTest {
+
   private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
   private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
 
@@ -32,10 +34,10 @@ public class SQLDropIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var oClass = schema.createClass("SQLDropIndexTestClass");
-    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
-    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
+    graph.autoExecuteInTx(g -> g.createSchemaClass("SQLDropIndexTestClass",
+        __.createSchemaProperty("prop1", EXPECTED_PROP1_TYPE),
+        __.createSchemaProperty("prop2", EXPECTED_PROP2_TYPE)
+    ));
   }
 
   @Override
@@ -45,61 +47,63 @@ public class SQLDropIndexTest extends BaseDBTest {
       session = createSessionInstance();
     }
 
-    session.begin();
-    session.execute("delete from SQLDropIndexTestClass").close();
-    session.commit();
-    session.execute("drop class SQLDropIndexTestClass").close();
+    graph.autoExecuteInTx(g -> g.V().hasLabel("SQLDropIndexTestClass").drop());
+    graph.autoExecuteInTx(g -> g.schemaClass("SQLDropIndexTestClass").drop());
 
     super.afterClass();
   }
 
   @Test
   public void testOldSyntax() throws Exception {
-    session.execute("CREATE INDEX SQLDropIndexTestClass.prop1 UNIQUE").close();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("SQLDropIndexTestClass").schemaClassProperty("prop1").createPropertyIndex(
+            IndexType.UNIQUE)
+    );
 
     var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexTestClass.prop1");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexTestClass.prop1");
     Assert.assertNotNull(index);
 
-    session.execute("DROP INDEX SQLDropIndexTestClass.prop1").close();
+    graph.autoExecuteInTx(g -> g.schemaIndex("SQLDropIndexTestClass.prop1").drop());
 
     index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexTestClass.prop1");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexTestClass.prop1");
     Assert.assertNull(index);
   }
 
   @Test(dependsOnMethods = "testOldSyntax")
   public void testDropCompositeIndex() throws Exception {
-    session
-        .execute(
-            "CREATE INDEX SQLDropIndexCompositeIndex ON SQLDropIndexTestClass (prop1, prop2)"
-                + " UNIQUE")
-        .close();
+    graph.autoExecuteInTx(g ->
+        g.schemaIndex("SQLDropIndexTestClass")
+            .createClassIndex("SQLDropIndexCompositeIndex", IndexType.UNIQUE, "prop1", "prop2")
+    );
 
     var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexCompositeIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexCompositeIndex");
     Assert.assertNotNull(index);
 
-    session.execute("DROP INDEX SQLDropIndexCompositeIndex").close();
+    graph.autoExecuteInTx(g ->
+        g.schemaIndex("SQLDropIndexCompositeIndex").drop()
+    );
 
     index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexCompositeIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexCompositeIndex");
     Assert.assertNull(index);
   }
 
@@ -108,23 +112,23 @@ public class SQLDropIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexTestClass.prop1");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexTestClass.prop1");
     Assert.assertNull(index);
     index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexWithoutClass");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexWithoutClass");
     Assert.assertNull(index);
     index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("SQLDropIndexTestClass")
-            .getClassIndex(session, "SQLDropIndexCompositeIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("SQLDropIndexTestClass")
+            .getClassIndex("SQLDropIndexCompositeIndex");
     Assert.assertNull(index);
   }
 }
