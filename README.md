@@ -190,3 +190,6 @@ public class Example {
     }
 }
 ```
+
+## Stargazers over time
+[![Stargazers over time](https://starchart.cc/JetBrains/youtrackdb.svg?variant=adaptive)](https://starchart.cc/JetBrains/youtrackdb)
