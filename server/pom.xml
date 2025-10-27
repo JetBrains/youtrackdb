@@ -79,7 +79,7 @@ nse, Version 2.0 (the "License");
     <dependency>
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcpkix-jdk18on</artifactId>
-      <version>1.82</version>
+      <version>1.81</version>
     </dependency>
 
 
