@@ -17,7 +17,7 @@ Tell us about exciting applications you are building, ask for help, or just chat
 ### What is YouTrackDB?
 
 YouTrackDB is a *<b>general use</b>* object-oriented graph database that supports full-text search, and geospatial concepts.\
-YouTrackDB is being supported and developed by JetBrains and used inside in production.
+YouTrackDB is being supported and developed by JetBrains and is used internally in production.
 
 YouTrackDB's key features are:
 
