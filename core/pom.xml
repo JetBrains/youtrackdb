@@ -277,7 +277,11 @@
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
     </dependency>
-
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>tinkergraph-gremlin</artifactId>
+      <scope>test</scope>
+    </dependency>
 
     <!-- json parser -->
     <dependency>
