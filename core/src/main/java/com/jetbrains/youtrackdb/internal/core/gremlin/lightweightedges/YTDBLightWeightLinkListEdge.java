@@ -9,8 +9,8 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
-public class YTDBLightWeightEdgeLinkList extends YTDBLightweightEdgeAbstract {
-  public YTDBLightWeightEdgeLinkList(
+public class YTDBLightWeightLinkListEdge extends YTDBLightweightEdgeAbstract {
+  public YTDBLightWeightLinkListEdge(
       @NonNull YTDBGraphInternal graph,
       @NonNull EntityImpl owner,
       @NonNull String label) {

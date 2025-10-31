@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.lightweightedges;
 
+import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
@@ -16,6 +17,7 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 public abstract class YTDBLightweightEdgeAbstract implements YTDBEdge {
+
   private final ThreadLocal<EntityImpl> threadLocalOwnerEntity = new ThreadLocal<>();
 
   protected final @Nonnull YTDBGraphInternal graph;
@@ -131,5 +133,46 @@ public abstract class YTDBLightweightEdgeAbstract implements YTDBEdge {
     } else {
       return fastPathOwnerEntity;
     }
+  }
+
+  public static YTDBLightweightEdgeAbstract instantiate(@Nonnull YTDBGraphInternal graph,
+      @Nonnull EntityImpl owner, @Nonnull String label) {
+    var tx = graph.tx();
+    tx.readWrite();
+
+    var session = tx.getDatabaseSession();
+    var value = owner.getProperty(label);
+
+    if (value == null) {
+      throw new IllegalStateException(
+          "Edge '" + label + "' not found in vertex " + owner.getIdentity());
+    }
+
+    var schemaClass = owner.getImmutableSchemaClass(session);
+    if (schemaClass == null) {
+      throw new IllegalStateException(
+          "Schema class for vertex " + owner.getIdentity() + " is null");
+    }
+
+    var schemaProperty = schemaClass.getPropertyInternal(label);
+    if (schemaProperty == null) {
+      throw new IllegalStateException(
+          "Schema property '" + label + "' not found in class " + schemaClass.getName());
+    }
+
+    var propertyType = schemaProperty.getTypeInternal();
+    if (propertyType.isTypeInstance(value)) {
+      return switch (propertyType) {
+        case LINK -> new YTDBLightWeightLinkEdge(graph, owner, label);
+        case LINKSET -> new YTDBLightWeightLinkSetEdge(graph, owner, label);
+        case LINKLIST -> new YTDBLightWeightLinkListEdge(graph, owner, label);
+        case BINARY -> new YTDBLightWeightLinkBagEdge(graph, owner, label);
+        case null, default ->
+            throw new IllegalStateException("Unsupported property type " + propertyType);
+      };
+    }
+
+    throw new IllegalStateException(
+        "Property " + label + " is not a light weight edge, property value : " + value);
   }
 }

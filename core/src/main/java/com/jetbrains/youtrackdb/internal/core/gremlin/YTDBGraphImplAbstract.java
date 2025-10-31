@@ -8,14 +8,19 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
+import com.jetbrains.youtrackdb.internal.core.gremlin.lightweightedges.YTDBLightweightEdgeAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -142,13 +147,100 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     var tx = tx();
     tx.readWrite();
 
-    return elements(
-        tx.getDatabaseSession(),
-        SchemaClass.EDGE_CLASS_NAME,
-        entity ->
-            new YTDBStatefulStatefulEdgeImpl(this, entity.asStatefulEdge()),
-        edgeIds);
+    if (!containsLightWeightEdgeIds(edgeIds)) {
+      return elements(
+          tx.getDatabaseSession(),
+          SchemaClass.EDGE_CLASS_NAME,
+          entity ->
+              new YTDBStatefulStatefulEdgeImpl(this, entity.asStatefulEdge()),
+          edgeIds);
+    }
+
+    var session = tx.getDatabaseSession();
+    var filteredEdgeIds = filterOutRecordIds(edgeIds);
+
+    var statefulEdges = elements(session, SchemaClass.EDGE_CLASS_NAME, entity ->
+        (Edge) new YTDBStatefulStatefulEdgeImpl(this, entity.asStatefulEdge()), filteredEdgeIds);
+
+    var filteredLightWeightEdgeIds = filterOutLightWeightEdgeIds(edgeIds);
+    var lightWeightEdgeIterator = IteratorUtils.map(filteredLightWeightEdgeIds.iterator(),
+        ridPropertyPair -> {
+          var rid = ridPropertyPair.first();
+          var label = ridPropertyPair.second();
+
+          var vertex = (EntityImpl) session.loadVertex(rid);
+          return (Edge) YTDBLightweightEdgeAbstract.instantiate(this, vertex, label);
+        });
+
+    //noinspection unchecked
+    return IteratorUtils.concat(statefulEdges, lightWeightEdgeIterator);
   }
+
+  private static boolean containsLightWeightEdgeIds(Object... edgeIds) {
+    for (var edgeId : edgeIds) {
+      if (edgeId instanceof String stringId && !stringId.isEmpty() && stringId.charAt(0) == '#') {
+        var firstIndex = stringId.indexOf(':');
+        if (firstIndex >= 0) {
+          var secondIndex = stringId.indexOf(':', firstIndex + 1);
+          if (secondIndex >= 0) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private static Object[] filterOutRecordIds(Object[] edgeIds) {
+    var filtered = new ArrayList<>();
+
+    for (var edgeId : edgeIds) {
+      if (edgeId instanceof String stringId && !stringId.isEmpty() && stringId.charAt(0) == '#') {
+        var firstIndex = stringId.indexOf(':');
+
+        if (firstIndex >= 0) {
+          var secondIndex = stringId.indexOf(':', firstIndex + 1);
+
+          if (secondIndex < 0) {
+            filtered.add(RID.of(stringId.substring(0, firstIndex)));
+          }
+          //else it is id of lightweight edge
+        } else {
+          throw new IllegalArgumentException("Invalid edge id: " + stringId);
+        }
+      } else {
+        filtered.add(edgeId);
+      }
+    }
+
+    return filtered.toArray();
+  }
+
+  private static List<RawPair<RID, String>> filterOutLightWeightEdgeIds(Object[] edgeIds) {
+    var filtered = new ArrayList<RawPair<RID, String>>();
+
+    for (var edgeId : edgeIds) {
+      if (edgeId instanceof String stringId && !stringId.isEmpty() && stringId.charAt(0) == '#') {
+        var firstIndex = stringId.indexOf(':');
+
+        if (firstIndex >= 0) {
+          var secondIndex = stringId.indexOf(':', firstIndex + 1);
+
+          if (secondIndex >= 0) {
+            filtered.add(new RawPair<>(RID.of(stringId.substring(0, firstIndex)),
+                stringId.substring(secondIndex + 1)));
+          }
+
+        } else {
+          throw new IllegalArgumentException("Invalid edge id: " + stringId);
+        }
+      }
+    }
+
+    return filtered;
+  }
+
 
   private static <A extends Element> Iterator<A> elements(
       DatabaseSessionEmbedded session, String elementClass, Function<Entity, A> toA,
