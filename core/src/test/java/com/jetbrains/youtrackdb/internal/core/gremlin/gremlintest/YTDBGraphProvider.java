@@ -1,21 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.google.common.collect.Sets;
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBPropertyImpl;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -49,7 +46,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   public Set<Class> getImplementations() {
     return Sets.newHashSet(
         YTDBElementImpl.class,
-        YTDBStatefulEdgeImpl.class,
+        YTDBStatefulStatefulEdgeImpl.class,
         YTDBGraphEmbedded.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,

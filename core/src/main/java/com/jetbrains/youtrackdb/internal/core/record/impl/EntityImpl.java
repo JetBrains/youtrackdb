@@ -1398,7 +1398,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     preprocessRemovedValue(oldValue);
-    value = preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(value, propertyType);
 
     if (oldType != propertyType) {
       entry.type = propertyType;
@@ -1448,7 +1448,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     propertiesCount++;
     properties.put(name, entry);
 
-    value = preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(value, propertyType);
 
     if (propertyType == null) {
       assert value == null;
@@ -1462,8 +1462,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private Object preprocessAssignedValue(String name, Object value,
-      PropertyTypeInternal propertyType) {
+  private Object preprocessAssignedValue(Object value, PropertyTypeInternal propertyType) {
     switch (value) {
       case EntityImpl entity -> {
         if (propertyType == PropertyTypeInternal.EMBEDDED) {
@@ -3532,7 +3531,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nullable
   public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionInternal session) {
-    if (this.session != null && this.session != session) {
+    if (this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
 
@@ -3782,9 +3781,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private void setup() {
-    if (session != null) {
-      recordSerializer = session.getSerializer();
-    }
+    recordSerializer = session.getSerializer();
 
     if (recordSerializer == null) {
       recordSerializer = session.getSerializer();

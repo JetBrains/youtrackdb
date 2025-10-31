@@ -146,7 +146,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         tx.getDatabaseSession(),
         SchemaClass.EDGE_CLASS_NAME,
         entity ->
-            new YTDBStatefulEdgeImpl(this, entity.asStatefulEdge()),
+            new YTDBStatefulStatefulEdgeImpl(this, entity.asStatefulEdge()),
         edgeIds);
   }
 

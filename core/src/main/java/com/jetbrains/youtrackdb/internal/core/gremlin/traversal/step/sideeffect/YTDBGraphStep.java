@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
@@ -76,7 +76,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var graph = getGraph();
     return elements(
         YTDBGraph::edges,
-        result -> new YTDBStatefulEdgeImpl(graph, result.asStatefulEdge())
+        result -> new YTDBStatefulStatefulEdgeImpl(graph, result.asStatefulEdge())
     );
   }
 

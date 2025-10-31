@@ -10,14 +10,15 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBStatefulEdgeImpl extends YTDBElementImpl implements YTDBEdgeInternal,
+public final class YTDBStatefulStatefulEdgeImpl extends YTDBElementImpl implements
+    YTDBStatefulEdgeInternal,
     YTDBStatefulEdge {
 
-  public YTDBStatefulEdgeImpl(YTDBGraphInternal graph, StatefulEdge ytdbEdge) {
+  public YTDBStatefulStatefulEdgeImpl(YTDBGraphInternal graph, StatefulEdge ytdbEdge) {
     super(graph, ytdbEdge);
   }
 
-  public YTDBStatefulEdgeImpl(YTDBGraphInternal graph, RID ytdbEdgeRid) {
+  public YTDBStatefulStatefulEdgeImpl(YTDBGraphInternal graph, RID ytdbEdgeRid) {
     super(graph, ytdbEdgeRid);
   }
 

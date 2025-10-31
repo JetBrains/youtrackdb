@@ -47,7 +47,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
       if (cls.isVertexType()) {
         return new YTDBVertexImpl(graph, rid);
       } else if (cls.isEdgeType()) {
-        return new YTDBStatefulEdgeImpl(graph, rid);
+        return new YTDBStatefulStatefulEdgeImpl(graph, rid);
       }
 
       throw new IllegalStateException("Unsupported schema class " + cls.getName());
@@ -58,7 +58,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
         result =
             new YTDBVertexImpl(graph, entity.asVertex());
       } else if (entity.isStatefulEdge()) {
-        result = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
+        result = new YTDBStatefulStatefulEdgeImpl(graph, entity.asStatefulEdge());
       }
     }
 
