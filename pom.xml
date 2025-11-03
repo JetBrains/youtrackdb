@@ -108,7 +108,8 @@
     <log4j.version>2.25.2</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
+    <gremlin.version>3.7.5-YTDB-SNAPSHOT</gremlin.version>
+    <hamcrest.version>3.0</hamcrest.version>
   </properties>
 
 
@@ -222,6 +223,18 @@
         <version>${log4j.version}</version>
         <scope>import</scope>
         <type>pom</type>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-core</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>

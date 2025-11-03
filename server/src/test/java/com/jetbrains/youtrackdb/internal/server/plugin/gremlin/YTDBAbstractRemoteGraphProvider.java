@@ -153,7 +153,8 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
 
-      if (!YTDBTemporaryRidConversionTest.class.isAssignableFrom(test)) {
+      if (!YTDBRemoteGraphFeatureTest.YTDB_REMOTE_TEST.equals(testMethodName)
+          && !YTDBTemporaryRidConversionTest.class.isAssignableFrom(test)) {
         put(GREMLIN_REMOTE + "attachment", graphGetter);
       }
     }};
