@@ -264,21 +264,20 @@
       <version>1.2.0</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-groovy</artifactId>
-      <version>${gremlin.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>tinkergraph-gremlin</artifactId>
       <scope>test</scope>
     </dependency>

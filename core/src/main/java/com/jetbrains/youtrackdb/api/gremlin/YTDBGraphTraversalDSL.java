@@ -19,8 +19,6 @@ import java.util.HashSet;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal.Admin;
-import org.apache.tinkerpop.gremlin.process.traversal.step.GValue;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Property;
@@ -195,22 +193,11 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, E> from(String fromStepLabel) {
     if (fromStepLabel != null && !fromStepLabel.isBlank() && fromStepLabel.charAt(0) == '#') {
       var rid = RID.of(fromStepLabel);
-      return GraphTraversal.Admin.super.from(rid);
+      var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+      return ytdbGraphTraversal.from(__.V(rid));
     }
 
     return GraphTraversal.Admin.super.from(fromStepLabel);
-  }
-
-
-  @Override
-  @SkipAsAnonymousMethod
-  default GraphTraversal<S, E> from(Object fromVertex) {
-    if (fromVertex instanceof String stringId && !stringId.isBlank() && stringId.charAt(0) == '#') {
-      var rid = RID.of(stringId);
-      return GraphTraversal.Admin.super.from(rid);
-    }
-
-    return GraphTraversal.Admin.super.from(fromVertex);
   }
 
 
@@ -219,20 +206,10 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, E> to(String toStepLabel) {
     if (toStepLabel != null && !toStepLabel.isBlank() && toStepLabel.charAt(0) == '#') {
       var rid = RID.of(toStepLabel);
-      return GraphTraversal.Admin.super.to(rid);
+      var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+      return ytdbGraphTraversal.to(__.V(rid));
     }
 
     return GraphTraversal.Admin.super.to(toStepLabel);
-  }
-
-  @SkipAsAnonymousMethod
-  @Override
-  default GraphTraversal<S, E> to(Object toVertex) {
-    if (toVertex instanceof String stringId && !stringId.isBlank() && stringId.charAt(0) == '#') {
-      var rid = RID.of(stringId);
-      return GraphTraversal.Admin.super.to(rid);
-    }
-
-    return GraphTraversal.Admin.super.to(toVertex);
   }
 }

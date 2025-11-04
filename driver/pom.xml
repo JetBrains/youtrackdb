@@ -39,11 +39,11 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-driver</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-util</artifactId>
     </dependency>
 
