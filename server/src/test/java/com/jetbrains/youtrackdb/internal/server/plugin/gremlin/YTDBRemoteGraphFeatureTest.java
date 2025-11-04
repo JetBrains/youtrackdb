@@ -10,15 +10,12 @@ import io.cucumber.guice.InjectorSource;
 import io.cucumber.java.Scenario;
 import io.cucumber.junit.Cucumber;
 import io.cucumber.junit.CucumberOptions;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData;
 import org.apache.tinkerpop.gremlin.TestHelper;
-import org.apache.tinkerpop.gremlin.features.TestFiles;
 import org.apache.tinkerpop.gremlin.features.World;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -32,7 +29,8 @@ import org.junit.runner.RunWith;
 @RunWith(Cucumber.class)
 @CucumberOptions(
     tags = "not @RemoteOnly and not @MultiProperties and not @GraphComputerOnly and not @UserSuppliedVertexPropertyIds and not @UserSuppliedEdgeIds and not @UserSuppliedVertexIds and not @TinkerServiceRegistry and not @DisallowNullPropertyValues and not @InsertionOrderingRequired",
-    glue = {"org.apache.tinkerpop.gremlin.features"},
+    glue = {"org.apache.tinkerpop.gremlin.features",
+        "com.jetbrains.youtrackdb.internal.server.plugin.gremlin.features"},
     objectFactory = GuiceFactory.class,
     features = {"classpath:/org/apache/tinkerpop/gremlin/test/features"},
     plugin = {"progress", "junit:target/cucumber.xml"})
@@ -46,6 +44,7 @@ public class YTDBRemoteGraphFeatureTest {
       "YouTrackDB doesn't guarantee a consistent order of element's IDs"
   );
 
+  @SuppressWarnings("NewClassNamingConvention")
   public static final class ServiceModule extends AbstractModule {
 
     @Override
@@ -54,17 +53,10 @@ public class YTDBRemoteGraphFeatureTest {
     }
   }
 
+  @SuppressWarnings("NewClassNamingConvention")
   public static class YTDBGraphWorld implements World {
 
-    private static final YTDBAbstractRemoteGraphProvider provider = new YTDBGraphSONRemoteGraphProvider();
-
-    static {
-      try {
-        provider.startServer();
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
-    }
+    public static final YTDBAbstractRemoteGraphProvider provider = new YTDBGraphSONRemoteGraphProvider();
 
     @Override
     public GraphTraversalSource getGraphTraversalSource(GraphData graphData) {
@@ -130,7 +122,8 @@ public class YTDBRemoteGraphFeatureTest {
               }
               if (file.endsWith(".json")) {
                 var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.json";
-                return TestHelper.generateTempFileFromResource(GraphSONResourceAccess.class, resourceName,
+                return TestHelper.generateTempFileFromResource(GraphSONResourceAccess.class,
+                        resourceName,
                         "")
                     .getAbsolutePath();
               }
@@ -150,6 +143,7 @@ public class YTDBRemoteGraphFeatureTest {
     }
   }
 
+  @SuppressWarnings("NewClassNamingConvention")
   public static final class WorldInjectorSource implements InjectorSource {
 
     @Override
