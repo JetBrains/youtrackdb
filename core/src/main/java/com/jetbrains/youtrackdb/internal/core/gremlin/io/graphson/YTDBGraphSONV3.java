@@ -107,17 +107,19 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
           vertexData.get(GraphSONTokens.LABEL).toString(),
           (Map<String, Object>) vertexData.get(GraphSONTokens.PROPERTIES));
 
-      properties.forEach((k, p) -> {
-        if (p instanceof Collection<?> propertiesCollection) {
-          for (var property : propertiesCollection) {
-            if (property instanceof DetachedVertexProperty<?> detachedVertexProperty) {
-              detachedVertexProperty.internalSetVertex(v);
+      if (properties != null) {
+        properties.forEach((k, p) -> {
+          if (p instanceof Collection<?> propertiesCollection) {
+            for (var property : propertiesCollection) {
+              if (property instanceof DetachedVertexProperty<?> detachedVertexProperty) {
+                detachedVertexProperty.internalSetVertex(v);
+              }
             }
+          } else if (p instanceof DetachedVertexProperty<?> detachedVertexProperty) {
+            detachedVertexProperty.internalSetVertex(v);
           }
-        } else if (p instanceof DetachedVertexProperty<?> detachedVertexProperty) {
-          detachedVertexProperty.internalSetVertex(v);
-        }
-      });
+        });
+      }
 
       return v;
     }
