@@ -28,7 +28,16 @@ import org.junit.runner.RunWith;
 
 @RunWith(Cucumber.class)
 @CucumberOptions(
-    tags = "not @RemoteOnly and not @MultiProperties and not @GraphComputerOnly and not @UserSuppliedVertexPropertyIds and not @UserSuppliedEdgeIds and not @UserSuppliedVertexIds and not @TinkerServiceRegistry and not @DisallowNullPropertyValues and not @InsertionOrderingRequired",
+    tags = "not @MultiProperties "
+        + "and not @GraphComputerOnly "
+        + "and not @UserSuppliedVertexPropertyIds "
+        + "and not @UserSuppliedEdgeIds "
+        + "and not @UserSuppliedVertexIds "
+        + "and not @TinkerServiceRegistry "
+        + "and not @DisallowNullPropertyValues "
+        + "and not @InsertionOrderingRequired "
+        + "and not @DataUUID "
+        + "and not @DataDateTime",
     glue = {"org.apache.tinkerpop.gremlin.features",
         "com.jetbrains.youtrackdb.internal.server.plugin.gremlin.features"},
     objectFactory = GuiceFactory.class,

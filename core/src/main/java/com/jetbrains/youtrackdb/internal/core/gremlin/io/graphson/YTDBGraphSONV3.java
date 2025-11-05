@@ -8,9 +8,11 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -18,6 +20,7 @@ import org.apache.tinkerpop.gremlin.structure.io.graphson.AbstractObjectDeserial
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONTokens;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedEdge;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertex;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertexProperty;
 import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
 import org.apache.tinkerpop.shaded.jackson.core.JsonToken;
 import org.apache.tinkerpop.shaded.jackson.databind.DeserializationContext;
@@ -98,10 +101,25 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
     @SuppressWarnings("unchecked")
     @Override
     public Vertex createObject(final Map<String, Object> vertexData) {
-      return new DetachedVertex(
+      var properties = (Map<String, Object>) vertexData.get(GraphSONTokens.PROPERTIES);
+      var v = new DetachedVertex(
           newYTdbId(vertexData.get(GraphSONTokens.ID)),
           vertexData.get(GraphSONTokens.LABEL).toString(),
           (Map<String, Object>) vertexData.get(GraphSONTokens.PROPERTIES));
+
+      properties.forEach((k, p) -> {
+        if (p instanceof Collection<?> propertiesCollection) {
+          for (var property : propertiesCollection) {
+            if (property instanceof DetachedVertexProperty<?> detachedVertexProperty) {
+              detachedVertexProperty.internalSetVertex(v);
+            }
+          }
+        } else if (p instanceof DetachedVertexProperty<?> detachedVertexProperty) {
+          detachedVertexProperty.internalSetVertex(v);
+        }
+      });
+
+      return v;
     }
   }
 
