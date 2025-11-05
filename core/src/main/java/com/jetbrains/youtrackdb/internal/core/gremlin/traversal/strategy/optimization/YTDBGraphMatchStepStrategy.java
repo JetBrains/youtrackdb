@@ -7,6 +7,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MatchStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 
@@ -39,10 +40,11 @@ public final class YTDBGraphMatchStepStrategy
           var match = globalChildren.getFirst();
           var currentStep = match.getStartStep().getNextStep();
 
-          while (currentStep instanceof HasContainerHolder) {
-            ((HasContainerHolder) currentStep)
-                .getHasContainers()
-                .forEach(ytdbGraphStep::addHasContainer);
+          while (currentStep instanceof HasContainerHolder<?, ?> hasContainerHolder) {
+            for (var hasContainer : hasContainerHolder.getHasContainers()) {
+              ytdbGraphStep.addHasContainer(hasContainer);
+            }
+
             currentStep.getLabels().forEach(ytdbGraphStep::addLabel);
             match.removeStep(currentStep);
             currentStep = currentStep.getNextStep();

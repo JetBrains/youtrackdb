@@ -84,7 +84,7 @@ gremlin> ytdb = YourTracks.instance("data")(1)
 gremlin> ytdb.create("tg", DatabaseType.MEMORY, "superuser", "adminpwd", "admin")(2)
 gremlin> graph = ytdb.openGraph("tg", "superuser", "adminpwd") (3)
 ==>YTDBGraph[tg]
-gremlin> g = traversal().withEmbedded(graph) (4)
+gremlin> g = traversal().with(graph) (4)
 ==>graphtraversalsource[YTDBGraph[tg], standard]
 ```
 
@@ -127,7 +127,7 @@ TinkerPop examples and test cases.
 gremlin> ytdb = YourTracks.instance("data")
 gremlin> graph = YTDBDemoGraphFactory.createModern(ytdb)
 ==>YTDBGraph[modern]
-gremlin> g = traversal().withEmbedded(graph)
+gremlin> g = traversal().with(graph)
 ==>graphtraversalsource[YTDBGraph[modern], standard]
 ```
 
@@ -144,7 +144,7 @@ there is another option: The Grateful Dead [schema](/images/grateful-dead-schema
 gremlin> ytdb = YourTracks.instance("data")
 gremlin> graph = YTDBDemoGraphFactory.createGratefulDead(ytdb)
 ==>YTDBGraph[grateful-dead]
-gremlin> g = traversal().withEmbedded(graph)
+gremlin> g = traversal().with(graph)
 ==>graphtraversalsource[YTDBGraph[grateful-dead], standard]
 gremlin> g.V().count()
 ==>808
