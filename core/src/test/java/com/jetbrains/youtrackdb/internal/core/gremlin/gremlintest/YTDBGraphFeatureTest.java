@@ -38,7 +38,9 @@ import org.junit.runner.RunWith;
         + "and not @UserSuppliedVertexIds "
         + "and not @TinkerServiceRegistry "
         + "and not @DisallowNullPropertyValues "
-        + "and not @InsertionOrderingRequired",
+        + "and not @InsertionOrderingRequired "
+        + "and not @DataUUID "
+        + "and not @DataDateTime",
     glue = "org.apache.tinkerpop.gremlin.features",
     objectFactory = GuiceFactory.class,
     features = "classpath:/org/apache/tinkerpop/gremlin/test/features",

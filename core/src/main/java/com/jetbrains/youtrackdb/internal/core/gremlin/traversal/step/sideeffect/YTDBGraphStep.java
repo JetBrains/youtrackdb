@@ -30,7 +30,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
 
 public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
-    implements HasContainerHolder {
+    implements HasContainerHolder<S, E> {
 
   private final List<HasContainer> hasContainers = new ArrayList<>();
   private boolean polymorphic;

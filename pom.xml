@@ -108,7 +108,7 @@
     <log4j.version>2.25.2</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.5-YTDB-SNAPSHOT</gremlin.version>
+    <gremlin.version>3.8.0-YTDB-SNAPSHOT</gremlin.version>
     <hamcrest.version>3.0</hamcrest.version>
     <cucumber.version>7.31.0</cucumber.version>
   </properties>
@@ -162,49 +162,42 @@
         <version>${jackson.verson}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-core</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-groovy</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
+        <artifactId>tinkergraph-gremlin</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-test</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-driver</artifactId>
         <version>${gremlin.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-server</artifactId>
         <version>${gremlin.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-util</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-console</artifactId>
         <version>${gremlin.version}</version>
       </dependency>

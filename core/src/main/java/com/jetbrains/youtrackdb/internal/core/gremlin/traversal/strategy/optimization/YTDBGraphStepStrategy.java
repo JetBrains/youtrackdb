@@ -54,7 +54,10 @@ public final class YTDBGraphStepStrategy
 
     final var replacedVertices = new HashMap<String, ReferenceVertex>();
     sideEffects.forEach((name, sideEffect) -> {
-      if (sideEffect instanceof ReferenceVertex v && v.id() instanceof String id) {
+      if (sideEffect instanceof String stringIdCandidate && !stringIdCandidate.isEmpty()
+          && stringIdCandidate.charAt(0) == '#') {
+        traversal.getSideEffects().add(name, RID.of(stringIdCandidate));
+      } else if (sideEffect instanceof ReferenceVertex v && v.id() instanceof String) {
         traversal.getSideEffects().add(name, replaceRefVertex(v, replacedVertices));
       } else if (sideEffect instanceof ReferenceEdge e && e.id() instanceof String id) {
         traversal.getSideEffects().add(name, new ReferenceEdge(

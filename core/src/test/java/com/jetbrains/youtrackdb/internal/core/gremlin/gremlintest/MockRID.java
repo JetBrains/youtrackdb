@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
+import org.jspecify.annotations.NonNull;
 
 public final class MockRID implements RID {
     private final String errorText;
@@ -15,7 +16,7 @@ public final class MockRID implements RID {
     }
 
     @Override
-    public RID getIdentity() {
+    public @NonNull RID getIdentity() {
         return this;
     }
 
