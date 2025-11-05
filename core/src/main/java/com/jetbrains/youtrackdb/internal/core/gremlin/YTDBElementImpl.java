@@ -11,8 +11,6 @@ import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.gremlin.io.LinkBagStub;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
@@ -88,10 +86,6 @@ public abstract class YTDBElementImpl implements YTDBElement {
     if (value == null) {
       valueToSet = null;
       valueToReturn = null;
-    } else if (value instanceof LinkBagStub linkBagStub) {
-      valueToSet = new LinkBag(graphTx.getDatabaseSession(), linkBagStub);
-      //noinspection unchecked
-      valueToReturn = (V) valueToSet;
     } else if (value instanceof List<?> || value instanceof Set<?> || value instanceof Map<?, ?>) {
       final var typeInternal = PropertyTypeInternal.getTypeByValue(value);
       if (typeInternal == null) {
