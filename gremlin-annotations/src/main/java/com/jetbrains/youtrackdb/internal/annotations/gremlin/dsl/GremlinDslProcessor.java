@@ -368,13 +368,14 @@ public class GremlinDslProcessor extends AbstractProcessor {
           .addAnnotation(Override.class)
           .addParameter(Object[].class, "vertexIds")
           .varargs(true)
+          .addStatement("final Object[] ids = null == vertexIds ? new Object[] { null } : vertexIds;")
           .addStatement("$N clone = this.clone()", ctx.traversalSourceClazz)
-          .addStatement("clone.getBytecode().addStep($T.V, vertexIds)",
+          .addStatement("clone.getBytecode().addStep($T.V, ids)",
               GraphTraversal.Symbols.class)
           .addStatement("$N traversal = new $N(clone)", ctx.defaultTraversalClazz,
               ctx.defaultTraversalClazz)
           .addStatement(
-              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, vertexIds))",
+              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, ids))",
               ctx.traversalClassName, GraphStep.class, Vertex.class)
           .returns(ParameterizedTypeName.get(ctx.traversalClassName, ClassName.get(Vertex.class),
               ClassName.get(Vertex.class)))
@@ -384,12 +385,13 @@ public class GremlinDslProcessor extends AbstractProcessor {
           .addAnnotation(Override.class)
           .addParameter(Object[].class, "edgeIds")
           .varargs(true)
+          .addStatement("final Object[] ids = null == edgeIds ? new Object[] { null } : edgeIds;")
           .addStatement("$N clone = this.clone()", ctx.traversalSourceClazz)
-          .addStatement("clone.getBytecode().addStep($T.E, edgeIds)", GraphTraversal.Symbols.class)
+          .addStatement("clone.getBytecode().addStep($T.E, ids)", GraphTraversal.Symbols.class)
           .addStatement("$N traversal = new $N(clone)", ctx.defaultTraversalClazz,
               ctx.defaultTraversalClazz)
           .addStatement(
-              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, edgeIds))",
+              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, ids))",
               ctx.traversalClassName, GraphStep.class, Edge.class)
           .returns(ParameterizedTypeName.get(ctx.traversalClassName, ClassName.get(Edge.class),
               ClassName.get(Edge.class)))

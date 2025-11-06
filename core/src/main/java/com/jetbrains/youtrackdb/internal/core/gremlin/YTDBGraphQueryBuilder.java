@@ -46,9 +46,16 @@ public class YTDBGraphQueryBuilder {
   }
 
   public ConditionType addCondition(HasContainer condition) {
-    final var predicate = condition.getBiPredicate();
+    var predicate = condition.getPredicate();
+    final BiPredicate<?, ?> biPredicate;
+    if (predicate == null) {
+      biPredicate = null;
+    } else {
+      biPredicate = predicate.getBiPredicate();
+    }
+
     if (isLabelKey(condition.getKey())) {
-      if (predicate != Compare.eq && predicate != Contains.within) {
+      if (biPredicate != Compare.eq && biPredicate != Contains.within) {
         // Here we handle only eq and within cases, they will get translated into SQL
         // FROM clauses. Other cases will be handled later by in-memory filtering.
         return ConditionType.NOT_CONVERTED;
@@ -69,9 +76,9 @@ public class YTDBGraphQueryBuilder {
       return ConditionType.LABEL;
     } else {
       final var value = condition.getValue();
-      if ((predicate == Compare.eq || predicate == Compare.neq) && value == null) {
+      if ((biPredicate == Compare.eq || biPredicate == Compare.neq) && value == null) {
         // Gremlin's eq(null) and neq(null) should be translated into DB "IS NULL" and "IS NOT NULL"
-        final var predicateStr = predicate == Compare.eq ? "IS NULL" : "IS NOT NULL";
+        final var predicateStr = biPredicate == Compare.eq ? "IS NULL" : "IS NOT NULL";
 
         params.add(new Param(
             condition.getKey(),
@@ -82,14 +89,14 @@ public class YTDBGraphQueryBuilder {
         ));
         return ConditionType.PREDICATE;
       } else {
-        final var predicateStr = formatPredicate(predicate);
+        final var predicateStr = formatPredicate(biPredicate);
         if (predicateStr == null) {
           return ConditionType.NOT_CONVERTED;
         } else {
           params.add(new Param(
               condition.getKey(),
               predicateStr,
-              requiresAdditionalNotNull(predicate),
+              requiresAdditionalNotNull(biPredicate),
               true,
               value
           ));

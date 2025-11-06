@@ -60,8 +60,9 @@ public final class YTDBIoRegistry extends AbstractIoRegistry {
         yield rid;
 
       }
+      case String stringId -> RecordIdInternal.fromString(stringId, true);
       default -> throw new IllegalArgumentException(
-          "Unable to convert unknow type to ORecordId " + obj.getClass());
+          "Unable to convert unknow type to RecordId " + obj.getClass());
     };
 
   }
