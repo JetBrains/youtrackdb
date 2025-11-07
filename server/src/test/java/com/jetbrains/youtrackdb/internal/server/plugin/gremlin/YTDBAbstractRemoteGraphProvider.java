@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
@@ -36,6 +37,8 @@ import org.apache.tinkerpop.gremlin.util.MessageSerializer;
     reason = "Query and modification are performed in different pending transactions.")
 public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGraphProvider {
 
+  private static final AtomicLong idGenerator = new AtomicLong(0);
+
   public static final String ADMIN_USER_NAME = "adminuser";
   public static final String ADMIN_USER_PASSWORD = "adminpwd";
   public static final String DEFAULT_DB_NAME = "graph";
@@ -54,7 +57,8 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     ytdbServer = new YouTrackDBServer();
     try {
       ytdbServer.setServerRootDirectory(
-          buildDirectory.resolve("gremlinServerRoot").toAbsolutePath().toString());
+          buildDirectory.resolve("gremlinServerRoot")
+              .resolve("serverHome" + idGenerator.incrementAndGet()).toAbsolutePath().toString());
       ytdbServer.startup(getClass().getResourceAsStream(
           "/com/jetbrains/youtrackdb/internal/server/gremlin/youtrackdb-server-config.xml"));
       ytdbServer.activate();
