@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin.features;
 
-import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBRemoteGraphFeatureTest.YTDBGraphWorld;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBRemoteGraphBinaryFormatFeatureTest.YTDBGraphWorld;
 import io.cucumber.java.AfterAll;
 import io.cucumber.java.BeforeAll;
 

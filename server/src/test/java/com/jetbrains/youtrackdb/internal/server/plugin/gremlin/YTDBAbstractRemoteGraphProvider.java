@@ -7,8 +7,8 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
-import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -153,7 +153,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
 
-      if (!YTDBRemoteGraphFeatureTest.YTDB_REMOTE_TEST.equals(testMethodName)
+      if (!YTDBRemoteGraphBinaryFormatFeatureTest.YTDB_REMOTE_TEST.equals(testMethodName)
           && !YTDBTemporaryRidConversionTest.class.isAssignableFrom(test)) {
         put(GREMLIN_REMOTE + "attachment", graphGetter);
       }
