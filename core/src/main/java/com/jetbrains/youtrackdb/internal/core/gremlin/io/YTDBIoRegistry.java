@@ -1,9 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.io;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.graphson.YTDBGraphSONV3;
-import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.LinkBagGyroSerializer;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.RecordIdGyroSerializer;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.YTDBVertexPropertyIdGyroSerializer;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
@@ -33,7 +31,6 @@ public final class YTDBIoRegistry extends AbstractIoRegistry {
     register(GryoIo.class, YTDBVertexPropertyId.class, YTDBVertexPropertyIdGyroSerializer.INSTANCE);
 
     register(GraphSONIo.class, RecordIdInternal.class, YTDBGraphSONV3.INSTANCE);
-    register(GryoIo.class, LinkBag.class, LinkBagGyroSerializer.INSTANCE);
   }
 
 
