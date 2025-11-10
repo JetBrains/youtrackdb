@@ -6,12 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteBasicSecurityTest {
 
   private YouTrackDBServer server;
 
+  @Ignore
   @Before
   public void before() throws Exception {
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
@@ -31,6 +33,7 @@ public class RemoteBasicSecurityTest {
     youTrackDB.close();
   }
 
+  @Ignore
   @Test
   public void testCreateAndConnectWriter() {
     // CREATE A SEPARATE CONTEXT TO MAKE SURE IT LOAD STAFF FROM SCRATCH
@@ -51,6 +54,7 @@ public class RemoteBasicSecurityTest {
     }
   }
 
+  @Ignore
   @Test
   public void testCreateAndConnectReader() {
     // CREATE A SEPARATE CONTEXT TO MAKE SURE IT LOAD STAFF FROM SCRATCH

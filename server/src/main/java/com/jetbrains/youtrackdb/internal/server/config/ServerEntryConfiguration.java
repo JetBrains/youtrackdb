@@ -17,21 +17,27 @@
  *
  *
  */
-package com.jetbrains.youtrackdb.internal.server.plugin;
+package com.jetbrains.youtrackdb.internal.server.config;
 
-import com.jetbrains.youtrackdb.internal.common.util.Service;
-import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
+import jakarta.xml.bind.annotation.XmlAttribute;
+import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlType;
 
-/**
- * Server handler interface. Used when configured in the server configuration.
- */
-public interface ServerPlugin extends Service {
+@XmlRootElement(name = "entry")
+@XmlType(propOrder = {"value", "name"})
+public class ServerEntryConfiguration {
 
-  /**
-   * Configures the handler. Called at startup.
-   */
-  void config(YouTrackDBServer youTrackDBServer, ServerParameterConfiguration[] iParams) throws Exception;
+  @XmlAttribute
+  public String name;
 
-  void sendShutdown();
+  @XmlAttribute
+  public String value;
+
+  public ServerEntryConfiguration() {
+  }
+
+  public ServerEntryConfiguration(final String iName, final String iValue) {
+    name = iName;
+    value = iValue;
+  }
 }

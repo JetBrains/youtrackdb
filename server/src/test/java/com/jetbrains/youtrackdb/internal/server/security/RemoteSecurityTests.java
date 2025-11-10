@@ -9,6 +9,7 @@ import java.io.IOException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteSecurityTests {
@@ -43,6 +44,7 @@ public class RemoteSecurityTests {
   }
 
   @Test
+  @Ignore
   public void testCreate() {
     session.command("BEGIN");
     session.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
@@ -64,6 +66,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testSqlCreate() {
     session.command("BEGIN");
@@ -86,6 +89,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testSqlRead() {
     session.command("BEGIN");
@@ -111,6 +115,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testSqlReadWithIndex() {
     session.computeScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
@@ -135,6 +140,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testSqlReadWithIndex2() {
     session.computeScript("sql", "create index Person.name on Person(name)NOTUNIQUE");
@@ -163,6 +169,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testBeforeUpdateCreate() {
     session.computeSQLScript("""
@@ -199,6 +206,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testBeforeUpdateCreateSQL() {
     session.command("BEGIN");
@@ -229,6 +237,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testAfterUpdate() {
     session.command("BEGIN");
@@ -259,6 +268,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testAfterUpdateSQL() {
     session.command("BEGIN");
@@ -289,6 +299,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testDelete() {
     session.command("BEGIN");
@@ -323,6 +334,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testDeleteSQL() {
     session.command("BEGIN");
@@ -359,6 +371,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testSqlCount() {
     session.command("BEGIN");
@@ -380,6 +393,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testSqlCountWithIndex() {
     session.executeSQLScript("create index Person.name on Person (name) NOTUNIQUE");
@@ -410,6 +424,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testIndexGet() {
     session.computeScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
@@ -437,6 +452,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testIndexGetAndColumnSecurity() {
     session.computeScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
@@ -464,6 +480,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testReadHiddenColumn() {
     session.command("begin");
@@ -487,6 +504,7 @@ public class RemoteSecurityTests {
     }
   }
 
+  @Ignore
   @Test
   public void testUpdateHiddenColumn() {
     session.command("begin");

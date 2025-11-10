@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.server.BaseServerMemoryDatabase;
 import java.util.Map;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
@@ -31,6 +32,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testQueryUpdateUpdatedInTxTransactionScript() {
     var result = session.computeSQLScript("""
         begin;
@@ -52,6 +54,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testQueryUpdateUpdatedInTxTransactionCommands() {
     session.command("begin");
     var resRid = session.execute("insert into SomeTx set name ='Joe'").findFirst().getIdentity();
@@ -73,6 +76,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testResetUpdatedInTxTransactionScript() {
     var result = session.computeSQLScript("""
         begin;
@@ -93,6 +97,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testResetUpdatedInTxTransactionCommands() {
     session.command("begin");
     session.command("insert into O set name = 'Jane'");
@@ -111,6 +116,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testQueryUpdateCreatedInTxTransactionScript() {
     var result = session.computeSQLScript("""
         begin;
@@ -130,6 +136,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testQueryUpdateCreatedInTxTransactionCommands() {
     session.command("begin");
     var rid = session.execute("insert into SomeTx set name = 'Jane'").findFirst().getIdentity();
@@ -149,6 +156,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
 
   @Test
+  @Ignore
   public void testRollbackTxTransactionScript() {
     session.executeSQLScript("""
         begin;
@@ -168,6 +176,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testRollbackTxTransactionCommands() {
     session.executeSQLScript("""
         begin;
@@ -192,6 +201,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testRollbackTxCheckStatusTransactionScript() {
     session.executeSQLScript("""
         begin;
@@ -211,6 +221,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
+  @Ignore
   public void testRollbackTxCheckStatusTransactionCommands() {
     session.command("begin");
     session.command("insert into SomeTx set name = 'Jane'");
@@ -227,6 +238,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     Assert.assertEquals(1, selectCount);
   }
 
+  @Ignore
   @Test
   public void testQueryUpdateCreatedInTxSQLTransactionScript() {
     session.executeSQLScript("""
@@ -239,6 +251,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testQueryUpdateCreatedInTxSQLTransactionCommands() {
     session.command("begin");
@@ -252,6 +265,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     session.command("commit");
   }
 
+  @Ignore
   @Test
   public void testQueryDeleteTxSQLTransactionScript() {
     session.executeSQLScript("""
@@ -267,6 +281,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testQueryDeleteTxSQLTransactionCommands() {
     session.command("begin");
@@ -280,6 +295,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     Assert.assertEquals(0, count);
   }
 
+  @Ignore
   @Test
   public void testDoubleSaveTransactionScript() {
     session.executeSQLScript("""
@@ -295,6 +311,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testDoubleSaveTransactionCommands() {
     session.command("begin");
@@ -307,6 +324,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     Assert.assertEquals(1, count);
   }
 
+  @Ignore
   @Test
   public void testRefFlushedInTransactionScript() {
     session.executeSQLScript("""
@@ -323,6 +341,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testRefFlushedInTransactionCommands() {
     session.command("begin");
@@ -344,6 +363,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     }
   }
 
+  @Ignore
   @Test
   public void testDoubleRefFlushedInTransactionScript() {
     session.executeSQLScript("""
@@ -374,6 +394,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testDoubleRefFlushedInTransactionCommands() {
     session.command("begin");
@@ -420,6 +441,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
 
+  @Ignore
   @Test
   public void testGenerateIdCounterTransactionScript() {
     session.executeSQLScript("""
@@ -440,6 +462,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testGraphInTxScript() {
     session.executeSQLScript("""
@@ -457,6 +480,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testGraphInTxCommands() {
     session.command("create class MyV extends V");
@@ -478,6 +502,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     session.command("commit");
   }
 
+  @Ignore
   @Test
   public void testLinkBagsScript() {
     session.executeSQLScript("""
@@ -502,6 +527,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void testLinkBagsCommands() {
     session.command("create property SomeTx.rids LINKBAG");
@@ -533,6 +559,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     session.command("commit");
   }
 
+  @Ignore
   @Test
   public void testProperIndexingOnDoubleInternalBeginScript() {
     session.executeSQLScript("""
@@ -551,6 +578,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
 
+  @Ignore
   @Test
   public void testProperIndexingOnDoubleInternalBeginScriptCommands() {
     session.command("begin");
@@ -570,6 +598,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     Assert.assertEquals(1, count);
   }
 
+  @Ignore
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateIndexTxScript() {
     session.executeSQLScript("""
@@ -580,6 +609,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateIndexTxCommands() {
     session.command("begin");

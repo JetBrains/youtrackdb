@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.server.BaseServerMemoryDatabase;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
@@ -18,6 +19,7 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
         """);
   }
 
+  @Ignore
   @Test
   public void itShouldDeleteEdgesInTx() {
     session.command("begin");

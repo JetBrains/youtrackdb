@@ -17,21 +17,22 @@
  *
  *
  */
-package com.jetbrains.youtrackdb.internal.server.plugin;
+package com.jetbrains.youtrackdb.internal.server.config;
 
-import com.jetbrains.youtrackdb.internal.common.util.Service;
-import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
+import jakarta.xml.bind.annotation.XmlAttribute;
+import jakarta.xml.bind.annotation.XmlElementRef;
+import jakarta.xml.bind.annotation.XmlElementWrapper;
+import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlType;
 
-/**
- * Server handler interface. Used when configured in the server configuration.
- */
-public interface ServerPlugin extends Service {
+@XmlRootElement(name = "hook")
+@XmlType(propOrder = {"parameters", "clazz"})
+public class ServerHookConfiguration {
 
-  /**
-   * Configures the handler. Called at startup.
-   */
-  void config(YouTrackDBServer youTrackDBServer, ServerParameterConfiguration[] iParams) throws Exception;
+  @XmlAttribute(name = "class", required = true)
+  public String clazz;
 
-  void sendShutdown();
+  @XmlElementWrapper
+  @XmlElementRef(type = ServerParameterConfiguration.class)
+  public ServerParameterConfiguration[] parameters;
 }

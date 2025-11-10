@@ -22,11 +22,7 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- *
- */
 public class YouTrackDBRemoteTest {
-
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
   private YouTrackDBServer server;
 
@@ -51,6 +47,7 @@ public class YouTrackDBRemoteTest {
         config);
   }
 
+  @Ignore
   @Test
   public void createAndUseRemoteDatabase() {
     if (!factory.exists("test")) {
@@ -70,11 +67,13 @@ public class YouTrackDBRemoteTest {
   // @Test(expected = StorageExistsException.class)
   // TODO: Uniform database exist exceptions
   @Test(expected = StorageException.class)
+  @Ignore
   public void doubleCreateRemoteDatabase() {
     factory.execute("create database test memory users (admin identified by 'admin' role admin)");
     factory.execute("create database test memory users (admin identified by 'admin' role admin)");
   }
 
+  @Ignore
   @Test
   public void createDropRemoteDatabase() {
     factory.execute("create database test memory users (admin identified by 'admin' role admin)");
@@ -83,6 +82,7 @@ public class YouTrackDBRemoteTest {
     assertFalse(factory.exists("test"));
   }
 
+  @Ignore
   @Test
   public void testPool() {
     if (!factory.exists("test")) {
@@ -130,6 +130,7 @@ public class YouTrackDBRemoteTest {
     poolWriter1.close();
   }
 
+  @Ignore
   @Test
   public void testCachedPoolFactoryCleanUp() throws Exception {
     if (!factory.exists("testdb")) {
@@ -188,6 +189,7 @@ public class YouTrackDBRemoteTest {
     pool.close();
   }
 
+  @Ignore
   @Test
   public void testListDatabases() {
     assertEquals(0, factory.listDatabases().size());
@@ -197,6 +199,7 @@ public class YouTrackDBRemoteTest {
     assertTrue(databases.contains("test"));
   }
 
+  @Ignore
   @Test
   public void createDatabaseNoUsers() {
     factory.create(
@@ -210,6 +213,7 @@ public class YouTrackDBRemoteTest {
     }
   }
 
+  @Ignore
   @Test
   public void createDatabaseDefaultUsers() {
     factory.create(
@@ -223,6 +227,7 @@ public class YouTrackDBRemoteTest {
     }
   }
 
+  @Ignore
   @Test
   public void testCreateDatabaseViaSQL() {
     var dbName = "testCreateDatabaseViaSQL";

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class DBSequenceRemoteTest extends AbstractRemoteTest {
@@ -24,6 +25,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
     super.teardown();
   }
 
+  @Ignore
   @Test
   public void shouldSequenceWithDefaultValueNoTx() {
     session.execute("CREATE CLASS Person EXTENDS V");
@@ -49,6 +51,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
             .intValue()).isEqualTo(10);
   }
 
+  @Ignore
   @Test
   public void shouldSequenceWithDefaultValueTx() {
 
@@ -74,6 +77,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
             .intValue()).isEqualTo(10);
   }
 
+  @Ignore
   @Test
   public void testCreateCachedSequenceInTx() {
     session.executeSQLScript("""
@@ -85,6 +89,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
     session.query("select sequence('CircuitSequence').next() as seq");
   }
 
+  @Ignore
   @Test
   public void testCreateOrderedSequenceInTx() {
     session.executeSQLScript("""

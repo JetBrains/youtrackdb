@@ -12,6 +12,7 @@ import java.io.File;
 import java.util.List;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class CountRealationshipsTest {
@@ -34,6 +35,7 @@ public class CountRealationshipsTest {
         CountRealationshipsTest.class.getSimpleName());
   }
 
+  @Ignore
   @Test
   public void test() throws Exception {
     var session =

@@ -8,19 +8,6 @@
       </parameters>
     </handler>
   </handlers>
-  <network>
-    <protocols>
-      <protocol
-        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary"
-        name="binary"/>
-      <protocol
-        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb"
-        name="http"/>
-    </protocols>
-    <listeners>
-      <listener protocol="binary" port-range="2424" ip-address="0.0.0.0"/>
-    </listeners>
-  </network>
   <storages>
   </storages>
   <users>
