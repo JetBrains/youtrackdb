@@ -41,11 +41,16 @@ public class YTDBVertexPropertyIdBinarySerializer extends
   }
 
   @Override
-  protected int getSerializedLength(YTDBVertexPropertyId value, Map<String, Object> context) {
+  protected Map<String, Object> initWriteContextMap(YTDBVertexPropertyId value) {
     var key = value.key();
     var byteKey = key.getBytes(StandardCharsets.UTF_8);
-    context.put(PROPERTY_BYTE_KEY, byteKey);
 
+    return Map.of(PROPERTY_BYTE_KEY, byteKey);
+  }
+
+  @Override
+  protected int getSerializedLength(YTDBVertexPropertyId value, Map<String, Object> context) {
+    var byteKey = (byte[]) context.get(PROPERTY_BYTE_KEY);
     return byteKey.length + 2 * Short.BYTES + Long.BYTES;
   }
 
