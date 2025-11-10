@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.io.binary;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.io.Buffer;
@@ -67,6 +66,10 @@ public abstract class YTDBAbstractCustomTypeSerializer<T> implements CustomTypeS
 
   protected abstract int getSerializedLength(T value, Map<String, Object> context);
 
+  protected Map<String, Object> initWriteContextMap(T value) {
+    return Map.of();
+  }
+
   @Override
   public void write(T value, Buffer buffer, GraphBinaryWriter context) throws IOException {
     buffer.writeBytes(typeInfoBuffer);
@@ -90,9 +93,9 @@ public abstract class YTDBAbstractCustomTypeSerializer<T> implements CustomTypeS
       context.writeValueFlagNone(buffer);
     }
 
-    var contextMap = new HashMap<String, Object>();
-    buffer.writeInt(getSerializedLength(value, contextMap));
+    var contextMap = initWriteContextMap(value);
 
+    buffer.writeInt(getSerializedLength(value, contextMap));
     doWriteValue(value, buffer, context, contextMap);
   }
 

@@ -27,13 +27,8 @@
       </parameters>
     </handler>
   </handlers>
-  <storages>
-  </storages>
   <users>
     <user resources="*" password="root" name="root"/>
     <user resources="connect,server.listDatabases" password="guest" name="guest"/>
   </users>
-  <properties>
-    <entry name="profiler.enabled" value="false"/>
-  </properties>
 </youtrackdb-server>
