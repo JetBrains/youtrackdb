@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.io;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.internal.core.gremlin.io.binary.YTDBChangeableRecordIdBinarySerializer;
+import com.jetbrains.youtrackdb.internal.core.gremlin.io.binary.YTDBRecordIdBinarySerializer;
+import com.jetbrains.youtrackdb.internal.core.gremlin.io.binary.YTDBVertexPropertyIdBinarySerializer;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.graphson.YTDBGraphSONV3;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.RecordIdGyroSerializer;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.YTDBVertexPropertyIdGyroSerializer;
@@ -10,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.io.AbstractIoRegistry;
+import org.apache.tinkerpop.gremlin.structure.io.binary.GraphBinaryIo;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONIo;
 import org.apache.tinkerpop.gremlin.structure.io.gryo.GryoIo;
 
@@ -29,6 +33,12 @@ public final class YTDBIoRegistry extends AbstractIoRegistry {
     register(GryoIo.class, RecordId.class, RecordIdGyroSerializer.INSTANCE);
     register(GryoIo.class, ChangeableRecordId.class, RecordIdGyroSerializer.INSTANCE);
     register(GryoIo.class, YTDBVertexPropertyId.class, YTDBVertexPropertyIdGyroSerializer.INSTANCE);
+
+    register(GraphBinaryIo.class, RecordId.class, YTDBRecordIdBinarySerializer.INSTANCE);
+    register(GraphBinaryIo.class, ChangeableRecordId.class,
+        YTDBChangeableRecordIdBinarySerializer.INSTANCE);
+    register(GraphBinaryIo.class, YTDBVertexPropertyId.class,
+        YTDBVertexPropertyIdBinarySerializer.INSTANCE);
 
     register(GraphSONIo.class, RecordIdInternal.class, YTDBGraphSONV3.INSTANCE);
   }

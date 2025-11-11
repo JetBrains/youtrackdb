@@ -33,7 +33,7 @@ scriptEngines: {
   }
 }
 serializers:
-  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3, config: { ioRegistries: [
+  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1, config: { ioRegistries: [
     com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry, org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3
   ] } }
 processors:

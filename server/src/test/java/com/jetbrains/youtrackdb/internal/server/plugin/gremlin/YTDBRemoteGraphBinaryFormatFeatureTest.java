@@ -43,7 +43,7 @@ import org.junit.runner.RunWith;
     objectFactory = GuiceFactory.class,
     features = {"classpath:/org/apache/tinkerpop/gremlin/test/features"},
     plugin = {"progress", "junit:target/cucumber.xml"})
-public class YTDBRemoteGraphFeatureTest {
+public class YTDBRemoteGraphBinaryFormatFeatureTest {
 
   public static final ConcurrentHashMap<String, String> PATHS = new ConcurrentHashMap<>();
   public static final String YTDB_REMOTE_TEST = "ytdbRemoteTest";
@@ -65,7 +65,7 @@ public class YTDBRemoteGraphFeatureTest {
   @SuppressWarnings("NewClassNamingConvention")
   public static class YTDBGraphWorld implements World {
 
-    public static final YTDBAbstractRemoteGraphProvider provider = new YTDBGraphSONRemoteGraphProvider();
+    public static final YTDBAbstractRemoteGraphProvider provider = new YTDBGraphBinaryRemoteGraphProvider();
 
     @Override
     public GraphTraversalSource getGraphTraversalSource(GraphData graphData) {
@@ -87,7 +87,8 @@ public class YTDBRemoteGraphFeatureTest {
 
     private static Graph initGraph(GraphData graphData) {
       final var config =
-          provider.standardGraphConfiguration(YTDBRemoteGraphFeatureTest.class, YTDB_REMOTE_TEST,
+          provider.standardGraphConfiguration(YTDBRemoteGraphBinaryFormatFeatureTest.class,
+              YTDB_REMOTE_TEST,
               graphData);
       return provider.openTestGraph(config);
     }

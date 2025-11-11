@@ -6,6 +6,6 @@ import org.apache.tinkerpop.gremlin.structure.RemoteGraph;
 import org.junit.runner.RunWith;
 
 @RunWith(YTDBProcessSuiteRemote.class)
-@GraphProviderClass(provider = YTDBGraphSONRemoteGraphProvider.class, graph = RemoteGraph.class)
-public class GraphSONRemoteGraphProcessExtendedTest {
+@GraphProviderClass(provider = YTDBGraphBinaryRemoteGraphProvider.class, graph = RemoteGraph.class)
+public class GraphBinaryRemoteGraphProcessExtendedTest {
 }
