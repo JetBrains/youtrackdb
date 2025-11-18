@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
@@ -44,7 +43,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
   public static final String DEFAULT_DB_NAME = "graph";
 
   private YouTrackDBServer ytdbServer;
-  public HashMap<String, SessionPool<DatabaseSession>> graphGetterSessionPools = new HashMap<>();
+  public HashMap<String, SessionPool> graphGetterSessionPools = new HashMap<>();
 
   public YTDBAbstractRemoteGraphProvider(Cluster cluster) {
     super(cluster);

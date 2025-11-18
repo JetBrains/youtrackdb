@@ -31,7 +31,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -249,21 +248,6 @@ public class LiveQueryHookV2 {
     Set<String> result = new HashSet<>();
     if (ops == null || ops.subscribers == null) {
       return null;
-    }
-    for (var listener : ops.subscribers.values()) {
-      if (listener instanceof LiveQueryListenerImpl) {
-        var query = ((LiveQueryListenerImpl) listener).getStatement();
-        var proj = query.getProjection();
-        if (proj == null || proj.getItems() == null || proj.getItems().isEmpty()) {
-          return null;
-        }
-        for (var item : proj.getItems()) {
-          if (!item.getExpression().isBaseIdentifier()) {
-            return null;
-          }
-          result.add(item.getExpression().getDefaultAlias().getStringValue());
-        }
-      }
     }
     return result;
   }

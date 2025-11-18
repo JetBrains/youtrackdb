@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
@@ -163,8 +162,7 @@ public class StorageBackupMTStateTest {
       }
 
       System.out.println("Create backup database");
-      youTrackDb.restore(StorageBackupMTStateTest.class.getSimpleName() + "Restored", "admin",
-          "admin",
+      youTrackDb.restore(StorageBackupMTStateTest.class.getSimpleName() + "Restored",
           backupDir.getAbsolutePath(), YouTrackDBConfig.defaultConfig());
 
       try (var backedUpDb = (DatabaseSessionEmbedded) youTrackDb.open(
@@ -211,9 +209,9 @@ public class StorageBackupMTStateTest {
 
   private final class NonTxInserter extends Inserter {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private NonTxInserter(SessionPool<DatabaseSession> pool) {
+    private NonTxInserter(SessionPool pool) {
       this.pool = pool;
     }
 
@@ -253,9 +251,9 @@ public class StorageBackupMTStateTest {
 
   private final class TxInserter extends Inserter {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private TxInserter(SessionPool<DatabaseSession> pool) {
+    private TxInserter(SessionPool pool) {
       this.pool = pool;
     }
 
@@ -363,9 +361,9 @@ public class StorageBackupMTStateTest {
 
   private final class IncrementalBackupThread implements Runnable {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private IncrementalBackupThread(SessionPool<DatabaseSession> pool) {
+    private IncrementalBackupThread(SessionPool pool) {
       this.pool = pool;
     }
 
@@ -388,9 +386,9 @@ public class StorageBackupMTStateTest {
 
   private final class ClassAdder implements Runnable {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private ClassAdder(SessionPool<DatabaseSession> pool) {
+    private ClassAdder(SessionPool pool) {
       this.pool = pool;
     }
 
@@ -413,9 +411,9 @@ public class StorageBackupMTStateTest {
   private final class RecordsDeleter implements Callable<Void> {
 
     private final Random random = new Random();
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private RecordsDeleter(SessionPool<DatabaseSession> pool) {
+    private RecordsDeleter(SessionPool pool) {
       this.pool = pool;
     }
 
@@ -493,9 +491,9 @@ public class StorageBackupMTStateTest {
   private final class ClassDeleter implements Runnable {
 
     private final Random random = new Random();
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private ClassDeleter(SessionPool<DatabaseSession> pool) {
+    private ClassDeleter(SessionPool pool) {
       this.pool = pool;
     }
 

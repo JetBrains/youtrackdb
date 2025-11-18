@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
+import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import java.util.HashMap;
 import java.util.Map;
@@ -15,13 +15,13 @@ public class YTDBGraphInitUtil {
 
     var dbType = calculateDbType();
 
-    configs.put(ConfigurationParameters.CONFIG_DB_NAME, graphName);
-    configs.put(ConfigurationParameters.CONFIG_USER_NAME, "adminuser");
-    configs.put(ConfigurationParameters.CONFIG_USER_PWD, "adminpwd");
-    configs.put(ConfigurationParameters.CONFIG_DB_PATH, directoryPath);
-    configs.put(ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
-    configs.put(ConfigurationParameters.CONFIG_DB_TYPE, dbType.name());
-    configs.put(ConfigurationParameters.CONFIG_USER_ROLE, "admin");
+    configs.put(DatabaseConfigurationParameters.CONFIG_DB_NAME, graphName);
+    configs.put(DatabaseConfigurationParameters.CONFIG_USER_NAME, "adminuser");
+    configs.put(DatabaseConfigurationParameters.CONFIG_USER_PWD, "adminpwd");
+    configs.put(DatabaseConfigurationParameters.CONFIG_DB_PATH, directoryPath);
+    configs.put(DatabaseConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
+    configs.put(DatabaseConfigurationParameters.CONFIG_DB_TYPE, dbType.name());
+    configs.put(DatabaseConfigurationParameters.CONFIG_USER_ROLE, "admin");
 
     return configs;
   }

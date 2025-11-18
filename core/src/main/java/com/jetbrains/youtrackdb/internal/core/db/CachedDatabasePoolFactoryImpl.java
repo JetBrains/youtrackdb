@@ -119,7 +119,7 @@ public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>>
   }
 
   @Override
-  public DatabasePoolInternal<S> getOrCreateNoAuthentication(String database, String username,
+  public DatabasePoolInternal getOrCreateNoAuthentication(String database, String username,
       YouTrackDBConfigImpl parentConfig) {
     checkForClose();
     var key = database + "!!" + username;

@@ -5,6 +5,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
@@ -31,15 +34,12 @@ public class StatementIndexFinderTest {
   @Before
   public void before() {
     this.youTrackDb = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()));
-    this.youTrackDb.execute(
-        "create database "
-            + StatementIndexFinderTest.class.getSimpleName()
-            + " memory users (admin identified by 'adminpwd' role admin)");
+        DbTestBase.getBaseDirectoryPathStr(getClass()));
+    youTrackDb.create(StatementIndexFinderTest.class.getSimpleName(), DatabaseType.MEMORY,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
     this.session =
-        (DatabaseSessionEmbedded)
-            this.youTrackDb.open(
-                StatementIndexFinderTest.class.getSimpleName(), "admin", "adminpwd");
+        this.youTrackDb.open(
+            StatementIndexFinderTest.class.getSimpleName(), "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @Test

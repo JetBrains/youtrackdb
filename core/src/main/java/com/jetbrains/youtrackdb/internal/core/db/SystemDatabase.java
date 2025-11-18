@@ -28,7 +28,6 @@ import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
-import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.security.DefaultSecuritySystem;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -56,7 +55,7 @@ public class SystemDatabase {
    * responsible for retrieving any ThreadLocal-stored database before openSystemDatabase() is
    * called and restoring it after the database is closed.
    */
-  public DatabaseSessionInternal openSystemDatabaseSession() {
+  public DatabaseSessionEmbedded openSystemDatabaseSession() {
     checkIfEnabled();
     if (!exists()) {
       init();
@@ -140,11 +139,11 @@ public class SystemDatabase {
     }
   }
 
-  public void executeInDBScope(CallableFunction<Void, DatabaseSessionInternal> callback) {
+  public void executeInDBScope(CallableFunction<Void, DatabaseSessionEmbedded> callback) {
     executeWithDB(callback);
   }
 
-  public <T> T executeWithDB(CallableFunction<T, DatabaseSessionInternal> callback) {
+  public <T> T executeWithDB(CallableFunction<T, DatabaseSessionEmbedded> callback) {
     try (final var session = openSystemDatabaseSession()) {
       return callback.call(session);
     }

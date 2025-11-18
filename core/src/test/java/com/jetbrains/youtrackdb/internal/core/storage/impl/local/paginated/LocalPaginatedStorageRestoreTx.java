@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
@@ -256,9 +255,9 @@ public class LocalPaginatedStorageRestoreTx {
 
   public class DataPropagationTask implements Callable<Void> {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    public DataPropagationTask(SessionPool<DatabaseSession> pool) {
+    public DataPropagationTask(SessionPool pool) {
       this.pool = pool;
     }
 

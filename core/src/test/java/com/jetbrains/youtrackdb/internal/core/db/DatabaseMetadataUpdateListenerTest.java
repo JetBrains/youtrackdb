@@ -3,12 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -21,7 +22,9 @@ import org.junit.Test;
 
 public class DatabaseMetadataUpdateListenerTest {
 
-  private YouTrackDBAbstract<?, ?> youTrackDB;
+  private static final String ADMIN_PASSWORD = "adminpwd";
+
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionInternal session;
   private int configCount;
   private int sequenceCount;
@@ -31,11 +34,10 @@ public class DatabaseMetadataUpdateListenerTest {
 
   @Before
   public void before() {
-    youTrackDB =
-        CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    session = (DatabaseSessionInternal) youTrackDB.open("test", "admin",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+
+    session = youTrackDB.open("test", "admin", ADMIN_PASSWORD);
     configCount = 0;
     schemaCount = 0;
     sequenceCount = 0;

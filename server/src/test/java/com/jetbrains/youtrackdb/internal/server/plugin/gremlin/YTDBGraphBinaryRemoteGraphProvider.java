@@ -18,7 +18,7 @@ public class YTDBGraphBinaryRemoteGraphProvider extends YTDBAbstractRemoteGraphP
   }
 
   private static MessageSerializer<?> createSerializer() {
-    var graphSonSerializer = new GraphBinaryMessageSerializerV1();
+    var graphBinarySerializer = new GraphBinaryMessageSerializerV1();
     var config = new HashMap<String, Object>();
     var ytdbIoRegistry = YTDBIoRegistry.class.getName();
     var tinkerGraphIoRegistry = TinkerIoRegistryV3.class.getName();
@@ -28,8 +28,8 @@ public class YTDBGraphBinaryRemoteGraphProvider extends YTDBAbstractRemoteGraphP
     registries.add(tinkerGraphIoRegistry);
 
     config.put(AbstractMessageSerializer.TOKEN_IO_REGISTRIES, registries);
-    graphSonSerializer.configure(config, null);
+    graphBinarySerializer.configure(config, null);
 
-    return graphSonSerializer;
+    return graphBinarySerializer;
   }
 }

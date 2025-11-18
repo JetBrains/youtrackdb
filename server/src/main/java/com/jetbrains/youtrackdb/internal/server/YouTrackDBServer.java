@@ -15,10 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.server;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
@@ -52,9 +49,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.Authenticat
 import com.jetbrains.youtrackdb.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
-import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfigurationManager;
@@ -760,24 +754,44 @@ public class YouTrackDBServer {
 
     if (systemDbEnabled) {
       if (!existsRoot) {
-        context.execute(
-            "CREATE SYSTEM USER "
-                + ServerConfiguration.DEFAULT_ROOT_USER
-                + " IDENTIFIED BY ? ROLE root",
-            rootPassword);
+        var password = rootPassword;
+        databases.getSystemDatabase().executeWithDB(session -> {
+          session.executeInTx(transaction -> {
+            var metadata = session.getMetadata();
+            var security = metadata.getSecurity();
+
+            if (security.getUser(ServerConfiguration.DEFAULT_ROOT_USER) == null) {
+              security.createUser(ServerConfiguration.DEFAULT_ROOT_USER, password, "root");
+            }
+          });
+          return null;
+        });
       }
 
-      if (!existsSystemUser(ServerConfiguration.GUEST_USER)) {
-        context.execute(
-            "CREATE SYSTEM USER " + ServerConfiguration.GUEST_USER + " IDENTIFIED BY ? ROLE guest",
-            ServerConfiguration.DEFAULT_GUEST_PASSWORD);
-      }
+      databases.getSystemDatabase().executeWithDB(session -> {
+        session.executeInTx(transaction -> {
+          var metadata = session.getMetadata();
+          var security = metadata.getSecurity();
+
+          if (security.getUser(ServerConfiguration.GUEST_USER) == null) {
+            security.createUser(ServerConfiguration.DEFAULT_ROOT_USER,
+                ServerConfiguration.DEFAULT_GUEST_PASSWORD, "guest");
+          }
+        });
+        return null;
+      });
     }
   }
 
+  @SuppressWarnings("SameParameterValue")
   private boolean existsSystemUser(String user) {
-    return Boolean.TRUE.equals(
-        context.execute("EXISTS SYSTEM USER ?", user).next().getProperty("exists"));
+    return databases.getSystemDatabase()
+        .executeWithDB(session -> session.computeInTx(transaction -> {
+          var metadata = session.getMetadata();
+          var security = metadata.getSecurity();
+
+          return security.getUser(user) != null;
+        }));
   }
 
   public ServerPluginManager getPluginManager() {
@@ -906,10 +920,10 @@ public class YouTrackDBServer {
   }
 
   public void restore(String name, String path) {
-    databases.restore(name, null, null, null, path, YouTrackDBConfig.defaultConfig());
+    databases.restore(name, null, path, YouTrackDBConfig.defaultConfig());
   }
 
-  public final class YTDBInternalProxy implements YouTrackDBInternal<DatabaseSession>,
+  public final class YTDBInternalProxy implements YouTrackDBInternal,
       ServerAware {
 
     private final YouTrackDBInternalEmbedded internal;
@@ -920,11 +934,11 @@ public class YouTrackDBServer {
 
     @Override
     public YouTrackDBImpl newYouTrackDb() {
-      return YTDBGraphFactory.ytdbInstance(internal.getBasePath(), () -> this);
+      return YTDBGraphFactory.ytdbInstance(internal.getBasePath(), () -> internal);
     }
 
     @Override
-    public DatabaseSession open(String name, String user, String password) {
+    public DatabaseSessionEmbedded open(String name, String user, String password) {
       return internal.open(name, user, password);
     }
 
@@ -993,47 +1007,47 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user,
+    public DatabasePoolInternal openPool(String name, String user,
         String password) {
       return internal.openPool(name, user, password);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user, String password,
+    public DatabasePoolInternal openPool(String name, String user, String password,
         YouTrackDBConfig config) {
       return internal.openPool(name, user, password, config);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+    public DatabasePoolInternal cachedPool(String database, String user,
         String password) {
       return internal.cachedPool(database, user, password);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+    public DatabasePoolInternal cachedPool(String database, String user,
         String password, YouTrackDBConfig config) {
       return internal.cachedPool(database, user, password, config);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPoolNoAuthentication(String database,
+    public DatabasePoolInternal cachedPoolNoAuthentication(String database,
         String user, YouTrackDBConfig config) {
       return internal.cachedPoolNoAuthentication(database, user, config);
     }
 
     @Override
-    public DatabaseSession poolOpen(String name, String user, String password,
-        DatabasePoolInternal<DatabaseSession> pool) {
+    public DatabaseSessionEmbedded poolOpen(String name, String user, String password,
+        DatabasePoolInternal pool) {
       return internal.poolOpen(name, user, password, pool);
     }
 
     @Override
-    public void restore(String name, String user, String password, DatabaseType type, String path,
+    public void restore(String name, DatabaseType type, String path,
         YouTrackDBConfig config) {
       dbCreationLock.lock();
       try {
-        internal.restore(name, user, password, type, path, config);
+        internal.restore(name, type, path, config);
         dbNamesCache.add(name);
       } finally {
         dbCreationLock.unlock();
@@ -1064,7 +1078,7 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void removePool(DatabasePoolInternal<DatabaseSession> toRemove) {
+    public void removePool(DatabasePoolInternal toRemove) {
       internal.removePool(toRemove);
     }
 
@@ -1089,44 +1103,11 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public BasicResultSet<BasicResult> executeServerStatementNamedParams(String script, String user,
-        String pw, Map<String, Object> params) {
-      var statement = SQLEngine.parseServerStatement(script, this);
-
-      var original = statement.execute(this, params, true);
-      LocalResultSetLifecycleDecorator result;
-      var prefetched = new InternalResultSet(null);
-      original.forEachRemaining(prefetched::add);
-      original.close();
-      result = new LocalResultSetLifecycleDecorator(prefetched);
-
-      //noinspection unchecked,rawtypes
-      return (BasicResultSet) result;
-    }
-
-    @Override
-    public BasicResultSet<BasicResult> executeServerStatementPositionalParams(String script,
-        String user, String pw, Object... params) {
-      var statement = SQLEngine.parseServerStatement(script, this);
-
-      var original = statement.execute(this, params, true);
-      LocalResultSetLifecycleDecorator result;
-      var prefetched = new InternalResultSet(null);
-      original.forEachRemaining(prefetched::add);
-      original.close();
-
-      result = new LocalResultSetLifecycleDecorator(prefetched);
-
-      //noinspection unchecked,rawtypes
-      return (BasicResultSet) result;
-    }
-
-    @Override
     public void create(String name, String user, String password, DatabaseType type,
-        YouTrackDBConfig config, DatabaseTask<Void> createOps) {
+        YouTrackDBConfig config, boolean failIfExists, DatabaseTask<Void> createOps) {
       dbCreationLock.lock();
       try {
-        internal.create(name, user, password, type, config, createOps);
+        internal.create(name, user, password, type, config, true, createOps);
         dbNamesCache.add(name);
       } finally {
         dbCreationLock.unlock();

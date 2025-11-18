@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
@@ -26,7 +29,7 @@ public class StorageBackupTest {
 
   @Before
   public void before() {
-    testDirectory = DbTestBase.getBaseDirectoryPath(getClass());
+    testDirectory = DbTestBase.getBaseDirectoryPathStr(getClass());
   }
 
   @Test
@@ -35,10 +38,9 @@ public class StorageBackupTest {
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
-    youTrackDB.execute(
-        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
-
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    var db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -77,8 +79,6 @@ public class StorageBackupTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         YouTrackDBConfig.defaultConfig());
 
@@ -114,10 +114,9 @@ public class StorageBackupTest {
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
 
     final var dbName = StorageBackupTest.class.getSimpleName();
-    youTrackDB.execute(
-        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
-
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -178,8 +177,6 @@ public class StorageBackupTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         YouTrackDBConfig.defaultConfig());
 
@@ -214,10 +211,9 @@ public class StorageBackupTest {
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
 
     final var dbName = StorageBackupTest.class.getSimpleName();
-    youTrackDB.execute(
-        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
-
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -278,8 +274,6 @@ public class StorageBackupTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         config);
 

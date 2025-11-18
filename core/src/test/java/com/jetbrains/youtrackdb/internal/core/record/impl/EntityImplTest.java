@@ -6,13 +6,15 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -114,11 +116,13 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionEmbedded session = null;
     YouTrackDBImpl ytdb = null;
     try {
-      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, DbTestBase.embeddedDBUrl(
-              EntityImplTest.class) + "temp",
-          CreateDatabaseUtil.TYPE_MEMORY);
-      session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      ytdb = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp");
+      ytdb.create(dbName, DatabaseType.MEMORY,
+          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+
+      session = ytdb.open(dbName, defaultDbAdminCredentials,
+          DbTestBase.ADMIN_PASSWORD);
 
       var clazz = session.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("integer", PropertyType.INTEGER);
@@ -180,11 +184,12 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionInternal db = null;
     YouTrackDBImpl ytdb = null;
     try {
-      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName,
-          embeddedDBUrl(DbTestBase.class),
-          CreateDatabaseUtil.TYPE_MEMORY);
-      db = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      ytdb = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+      ytdb.create(dbName, DatabaseType.MEMORY,
+          new UserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
+              PredefinedRole.ADMIN));
+      db = ytdb.open(dbName, defaultDbAdminCredentials,
+          DbTestBase.ADMIN_PASSWORD);
 
       Schema schema = db.getMetadata().getSchema();
       var classA = schema.createClass("TestRemovingField2");
@@ -221,12 +226,14 @@ public class EntityImplTest extends DbTestBase {
   @Test
   public void testUndo() {
     DatabaseSessionInternal session = null;
-    YouTrackDBAbstract<?, ?> ytdb = null;
+    YouTrackDBImpl ytdb = null;
     try {
-      ytdb = CreateDatabaseUtil.createDatabase(dbName,
-          DbTestBase.embeddedDBUrl(EntityImplTest.class) + "temp", CreateDatabaseUtil.TYPE_MEMORY);
-      session = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      ytdb = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+      ytdb.create(dbName, DatabaseType.MEMORY,
+          new UserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
+              PredefinedRole.ADMIN));
+      session = ytdb.open(dbName, defaultDbAdminCredentials,
+          DbTestBase.ADMIN_PASSWORD);
 
       Schema schema = session.getMetadata().getSchema();
       var classA = schema.createClass("TestUndo");

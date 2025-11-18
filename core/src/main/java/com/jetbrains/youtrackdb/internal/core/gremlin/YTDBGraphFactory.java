@@ -1,13 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
+import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Locale;
@@ -27,50 +27,54 @@ public class YTDBGraphFactory {
   @SuppressWarnings("unused")
   public static Graph open(Configuration configuration) {
     try {
-      var dbName = configuration.getString(ConfigurationParameters.CONFIG_DB_NAME);
+      var dbName = configuration.getString(DatabaseConfigurationParameters.CONFIG_DB_NAME);
       if (dbName == null) {
         throw new IllegalArgumentException(
-            "YouTrackDB graph name is not specified : " + ConfigurationParameters.CONFIG_DB_NAME);
+            "YouTrackDB graph name is not specified : "
+                + DatabaseConfigurationParameters.CONFIG_DB_NAME);
       }
-      var user = configuration.getString(ConfigurationParameters.CONFIG_USER_NAME);
+      var user = configuration.getString(DatabaseConfigurationParameters.CONFIG_USER_NAME);
       if (user == null) {
         throw new IllegalArgumentException(
-            "YouTrackDB user is not specified : " + ConfigurationParameters.CONFIG_USER_NAME);
+            "YouTrackDB user is not specified : "
+                + DatabaseConfigurationParameters.CONFIG_USER_NAME);
       }
-      var password = configuration.getString(ConfigurationParameters.CONFIG_USER_PWD);
+      var password = configuration.getString(DatabaseConfigurationParameters.CONFIG_USER_PWD);
       if (password == null) {
         throw new IllegalArgumentException(
-            "YouTrackDB password is not specified : " + ConfigurationParameters.CONFIG_USER_PWD);
+            "YouTrackDB password is not specified : "
+                + DatabaseConfigurationParameters.CONFIG_USER_PWD);
       }
 
       YouTrackDB youTrackDB;
       boolean shouldCloseYouTrackDB;
       String dbPath;
 
-      dbPath = configuration.getString(ConfigurationParameters.CONFIG_DB_PATH);
+      dbPath = configuration.getString(DatabaseConfigurationParameters.CONFIG_DB_PATH);
       if (dbPath == null) {
         throw new IllegalArgumentException(
-            "YouTrackDB path is not specified : " + ConfigurationParameters.CONFIG_DB_PATH);
+            "YouTrackDB path is not specified : " + DatabaseConfigurationParameters.CONFIG_DB_PATH);
       }
 
       var createIfNotExists = configuration.getBoolean(
-          ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS,
+          DatabaseConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS,
           false);
       var currentYouTrackDB = ytdbInstance(dbPath, configuration);
 
       if (createIfNotExists && !currentYouTrackDB.exists(dbName)) {
-        var dbTypeStr = configuration.getString(ConfigurationParameters.CONFIG_DB_TYPE);
+        var dbTypeStr = configuration.getString(DatabaseConfigurationParameters.CONFIG_DB_TYPE);
         if (dbTypeStr == null) {
           throw new IllegalArgumentException(
-              "YouTrackDB type is not specified : " + ConfigurationParameters.CONFIG_DB_TYPE);
+              "YouTrackDB type is not specified : "
+                  + DatabaseConfigurationParameters.CONFIG_DB_TYPE);
         }
         var dbType = DatabaseType.valueOf(dbTypeStr.toUpperCase(Locale.ROOT));
 
-        var userRole = configuration.getString(ConfigurationParameters.CONFIG_USER_ROLE);
+        var userRole = configuration.getString(DatabaseConfigurationParameters.CONFIG_USER_ROLE);
         if (userRole == null) {
           throw new IllegalArgumentException(
               "YouTrackDB user role is not specified : "
-                  + ConfigurationParameters.CONFIG_USER_ROLE);
+                  + DatabaseConfigurationParameters.CONFIG_USER_ROLE);
         }
 
         currentYouTrackDB.createIfNotExists(dbName, dbType, user, password, userRole);
@@ -78,7 +82,7 @@ public class YTDBGraphFactory {
 
       return currentYouTrackDB.openGraph(dbName, user, password, configuration);
     } finally {
-      configuration.clearProperty(ConfigurationParameters.CONFIG_USER_PWD);
+      configuration.clearProperty(DatabaseConfigurationParameters.CONFIG_USER_PWD);
     }
   }
 
@@ -88,7 +92,7 @@ public class YTDBGraphFactory {
   }
 
   public static YouTrackDBImpl ytdbInstance(
-      String dbPath, Supplier<YouTrackDBInternal<DatabaseSession>> internalSupplier) {
+      String dbPath, Supplier<YouTrackDBInternalEmbedded> internalSupplier) {
     var path = Path.of(dbPath).toAbsolutePath().normalize();
     return storagePathYTDBMap.compute(path, (p, youTrackDB) -> {
       if (youTrackDB != null) {

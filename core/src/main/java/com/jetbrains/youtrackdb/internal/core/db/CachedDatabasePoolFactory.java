@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
  * Cached database pool factory which allows store database pools associated with users
  */
 public interface CachedDatabasePoolFactory<S extends BasicDatabaseSession<?, ?>> {
-
   /**
    * Get {@link DatabasePoolInternal} from cache or create and cache new
    * {@link DatabasePoolInternal}
@@ -16,10 +15,10 @@ public interface CachedDatabasePoolFactory<S extends BasicDatabaseSession<?, ?>>
    * @param password user password
    * @return {@link DatabasePoolInternal} cached database pool
    */
-  DatabasePoolInternal<S> getOrCreate(
+  DatabasePoolInternal getOrCreate(
       String database, String username, String password, YouTrackDBConfigImpl config);
 
-  DatabasePoolInternal<S> getOrCreateNoAuthentication(
+  DatabasePoolInternal getOrCreateNoAuthentication(
       String database, String username, YouTrackDBConfigImpl config);
 
   /**

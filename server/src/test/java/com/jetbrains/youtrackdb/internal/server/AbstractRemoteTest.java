@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.server;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import java.io.File;
@@ -9,6 +12,7 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class AbstractRemoteTest {
+
   protected static final String SERVER_DIRECTORY = "./target/remotetest";
 
   private YouTrackDBServer server;
@@ -30,14 +34,13 @@ public class AbstractRemoteTest {
     final var dbName = name.getMethodName();
     if (dbName != null) {
       server
-          .getContext()
-          .execute(
-              "create database ? memory users (admin identified by 'admin' role admin)", dbName);
+          .getContext().create(dbName, DatabaseType.MEMORY,
+              new UserCredential("admin", "admin", PredefinedRole.ADMIN));
     }
   }
 
   @After
-  public void teardown() {
+  public void teardown() throws Exception {
     server.shutdown();
 
     YouTrackDBEnginesManager.instance().shutdown();

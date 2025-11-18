@@ -4,6 +4,8 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -29,11 +31,11 @@ public class TransactionMetadataTest {
 
   @Before
   public void before() {
-
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.execute(
-        "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");
-    db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin", "admin");
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()));
+    youTrackDB.create(DB_NAME, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    db = youTrackDB.open(DB_NAME, "admin", "admin");
   }
 
   @Test
@@ -50,8 +52,6 @@ public class TransactionMetadataTest {
     YouTrackDBInternal.extract((YouTrackDBImpl) youTrackDB)
         .restore(
             DB_NAME + "_re",
-            null,
-            null,
             DatabaseType.DISK,
             "target/backup_metadata",
             YouTrackDBConfig.defaultConfig());

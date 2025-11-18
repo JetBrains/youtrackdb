@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
+import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -27,13 +27,13 @@ public abstract class GraphBaseTest extends DbTestBase {
   protected YTDBGraph openGraph() {
     var config = getBaseConfiguration();
 
-    config.setProperty(ConfigurationParameters.CONFIG_DB_PATH, dbPath);
-    config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, databaseName);
-    config.setProperty(ConfigurationParameters.CONFIG_USER_NAME, adminUser);
-    config.setProperty(ConfigurationParameters.CONFIG_USER_ROLE, "admin");
-    config.setProperty(ConfigurationParameters.CONFIG_USER_PWD, adminPassword);
-    config.setProperty(ConfigurationParameters.CONFIG_DB_TYPE, dbType);
-    config.setProperty(ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_DB_PATH, dbPath);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_DB_NAME, databaseName);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_USER_NAME, adminUser);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_USER_ROLE, "admin");
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_USER_PWD, adminPassword);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_DB_TYPE, dbType);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
 
     return (YTDBGraph) GraphFactory.open(config);
   }
@@ -43,10 +43,10 @@ public abstract class GraphBaseTest extends DbTestBase {
     var config = new BaseConfiguration();
     config.setProperty(Graph.GRAPH, YTDBGraph.class.getName());
 
-    config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, databaseName);
-    config.setProperty(ConfigurationParameters.CONFIG_USER_NAME, adminUser);
-    config.setProperty(ConfigurationParameters.CONFIG_USER_PWD, adminPassword);
-    config.setProperty(ConfigurationParameters.CONFIG_DB_PATH, dbPath);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_DB_NAME, databaseName);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_USER_NAME, adminUser);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_USER_PWD, adminPassword);
+    config.setProperty(DatabaseConfigurationParameters.CONFIG_DB_PATH, dbPath);
 
     return config;
   }
