@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
 import com.jetbrains.youtrackdb.api.SessionListener;
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -17,6 +18,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.script.Bindings;
 import javax.script.SimpleBindings;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
@@ -79,11 +81,18 @@ public class YTDBGraphManager implements GraphManager {
 
     var graphName = traversalSourceName.substring(TRAVERSAL_SOURCE_PREFIX.length());
     var graph = getGraph(graphName);
-    if (graph == null) {
-      return null;
+    if (graph != null) {
+      return graph.traversal();
     }
 
-    return graph.traversal();
+    // Lazy-load graph if it exists in the database but hasn't been registered yet
+    if (getGraphNames().contains(graphName)) {
+      var config = new BaseConfiguration();
+      config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, graphName);
+      return openGraph(graphName, name -> newGraphProxyInstance(graphName, config)).traversal();
+    }
+
+    return null;
   }
 
   @Override
@@ -103,8 +112,10 @@ public class YTDBGraphManager implements GraphManager {
 
     getGraphNames().forEach((name) -> {
       var graph = getGraph(name);
-      bindings.put(name, graph);
-      bindings.put(TRAVERSAL_SOURCE_PREFIX + name, graph.traversal());
+      if (graph != null) {
+        bindings.put(name, graph);
+        bindings.put(TRAVERSAL_SOURCE_PREFIX + name, graph.traversal());
+      }
     });
 
     return bindings;
