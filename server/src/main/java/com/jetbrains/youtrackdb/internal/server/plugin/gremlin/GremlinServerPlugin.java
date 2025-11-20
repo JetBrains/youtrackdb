@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
 import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
@@ -22,6 +23,7 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
   public static final String DEFAULT_GREMLIN_SERVER_CONFIG_NAME = "gremlin-server.yaml";
   public static final String NAME = "gremlinserver";
 
+  private YouTrackDBServer youTrackDBServer;
   private GremlinServer gremlinServer;
   private YTDBGraphManager graphManager;
 
@@ -71,6 +73,7 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
 
     augmentServerSettings(youTrackDBServer, ytdbSettings);
 
+    this.youTrackDBServer = youTrackDBServer;
     gremlinServer = new GremlinServer(ytdbSettings);
   }
 
@@ -90,6 +93,9 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
     if (gremlinServer != null) {
       gremlinServer.start();
       graphManager = (YTDBGraphManager) gremlinServer.getServerGremlinExecutor().getGraphManager();
+      youTrackDBServer
+          .listDatabases()
+          .forEach(databaseName -> registerGraphDatabase(databaseName, null));
     }
   }
 
@@ -102,18 +108,22 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
 
   @Override
   public void onCreate(@Nonnull DatabaseSessionInternal session) {
-    if (session.getDatabaseName().equals(SystemDatabase.SYSTEM_DB_NAME)) {
+    registerGraphDatabase(session.getDatabaseName(), session.getConfiguration());
+  }
+
+  private void registerGraphDatabase(@Nonnull String databaseName, ContextConfiguration contextConfig) {
+    if (databaseName.equals(SystemDatabase.SYSTEM_DB_NAME)) {
       return;
     }
 
-    var databaseName = session.getDatabaseName();
-    var contextConfig = session.getConfiguration();
     var config = new BaseConfiguration();
-    contextConfig.merge(config);
+    if (contextConfig != null) {
+      contextConfig.merge(config);
+    }
     config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, databaseName);
 
     graphManager.openGraph(databaseName,
-        name -> graphManager.newGraphProxyInstance(databaseName, config));
+        name -> graphManager.newGraphProxyInstance(name, config));
   }
 
   @Override
