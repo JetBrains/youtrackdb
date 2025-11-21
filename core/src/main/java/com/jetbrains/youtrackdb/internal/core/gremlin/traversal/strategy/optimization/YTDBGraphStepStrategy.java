@@ -9,7 +9,6 @@ import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
@@ -29,11 +28,6 @@ public final class YTDBGraphStepStrategy
 
   @Override
   public void apply(final Admin<?, ?> traversal) {
-    final var startStep = traversal.getStartStep();
-    if (!(startStep instanceof GraphStep<?, ?>) || startStep instanceof YTDBGraphStep) {
-      return;
-    }
-
     final var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
     if (polymorphic == null) {
       // means we couldn't access the graph from the traversal
@@ -91,7 +85,7 @@ public final class YTDBGraphStepStrategy
     return replaced;
   }
 
-  /// Recursive function that rebuilds traversal, replacing TinkerPop steps with YouTrackDB ones.
+  /// Function that rebuilds traversal, replacing TinkerPop steps with YouTrackDB ones.
   /// Here is what gets replaced:
   /// 1. All "has" steps that strictly follow a GraphStep. They are gonna be handled natively by
   /// YouTrackDB (via SQL FROM and WHERE clauses at the moment).
@@ -112,10 +106,15 @@ public final class YTDBGraphStepStrategy
 
         // replacing GraphStep with YTDBGraphStep
         isTraversalStart = true;
-        currentGraphStep = new YTDBGraphStep<>(graphStep);
-        currentGraphStep.setPolymorphic(polymorphic);
-        traversal.removeStep(idx);
-        traversal.addStep(idx, currentGraphStep);
+
+        if (graphStep instanceof YTDBGraphStep<?, ?> ytdbGraphStep) {
+          currentGraphStep = ytdbGraphStep;
+        } else {
+          currentGraphStep = new YTDBGraphStep<>(graphStep);
+          currentGraphStep.setPolymorphic(polymorphic);
+          traversal.removeStep(idx);
+          traversal.addStep(idx, currentGraphStep);
+        }
       } else if (current instanceof HasStep<?> hch) {
 
         final boolean removeOriginalStep;
@@ -157,11 +156,6 @@ public final class YTDBGraphStepStrategy
         }
       } else {
         isTraversalStart = false;
-      }
-
-      // applying the transformation recursively to all children traversals.
-      if (current instanceof TraversalParent tp) {
-        tp.getLocalChildren().forEach(t -> rebuildTraversal(t, polymorphic));
       }
 
       idx = idx + 1;
