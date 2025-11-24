@@ -1,27 +1,27 @@
 package com.jetbrains.youtrackdb.api;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.nio.file.Path;
 import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
+import org.jspecify.annotations.NonNull;
 
-/// YouTrackDB management environment, it allows to connect to an environment and manipulate
-/// databases or open graph instances.
+/// YouTrackDB management environment, it allows connecting to an environment and manipulate
+/// databases or open [org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal]
+/// instances.
 ///
 /// Usage examples: Remote Example:
 /// <pre>
 /// <code>
-/// try(var youTrackDB = YourTracks.remote("localhost","root","root") {
+/// try(var youTrackDB = YourTracks.instance("localhost","root","root") {
 ///  youTrackDB.createIfNotExists("test",DatabaseType.DISK, "superuser", "password", "admin",
 ///  "writer" , "password2", "writer");
-///  try(var graph = youTrackDB.openGraph("test","superuser","password")) {
-///     graph.addVertex("MyClass");
+///  try(var g = youTrackDB.openTraversal("test","superuser","password")) {
+///     graph.addV("MyClass").iterate();
 ///   }
-///  try(var graph = youTrackDB.openGraph("test","writer","password2")) {
-///     //...
-///  }
 /// }
 /// </code>
 /// </pre>
@@ -29,15 +29,11 @@ import org.apache.commons.configuration2.Configuration;
 /// Embedded example:
 /// <pre>
 /// <code>
-/// try(var youTrackDB = YourTracks.embedded("./databases/")) {
+/// try(var youTrackDB = YourTracks.instance("./databases/")) {
 ///  youTrackDB.createIfNotExists("test",DatabaseType.DISK, "superuser", "password", "admin",
 ///  "writer" , "password2", "writer");
-///   try(var graph = youTrackDB.openGraph("test","superuser","password")) {
-///     graph.addVertex("MyClass");
-///   }
-///
-///   try(var graph = youTrackDB.openGraph("test","writer","password2")) {
-///     //...
+///   try(var g = youTrackDB.openTraversal("test","superuser","password")) {
+///     graph.addV("MyClass").iterate();
 ///   }
 /// }
 /// </code>
@@ -47,16 +43,16 @@ import org.apache.commons.configuration2.Configuration;
 /// <pre>
 /// <code>
 /// try(var youTrackDB = ...) {
-///  if(!youTrackDB.exists("one")) {
-///     youTrackDB.create("one",DatabaseType.DISK, "superuser", "password", "admin", "writer,
+///  if(!youTrackDB.exists("dbOne")) {
+///     youTrackDB.create("dbOne",DatabaseType.DISK, "superuser", "password", "admin", "writer,
 ///     "password2", "writer");
 ///  }
-///  if(youTrackDB.exists("two")) {
-///    youTrackDB.drop("two");
+///  if(youTrackDB.exists("dbTwo")) {
+///    youTrackDB.drop("dbTwo");
 ///  }
 ///  List<tString> databases = youTrackDB.list();
 ///  assertEquals(databases.size(),1);
-///  assertEquals(databases.get(0),"one");
+///  assertEquals(databases.get(0),"dbOne");
 /// }
 /// </code>
 /// </pre>
@@ -65,14 +61,14 @@ public interface YouTrackDB extends AutoCloseable {
   /// Configuration parameters passed during creation of the database or during opening of the graph
   /// instance using methods of [YouTrackDB] and
   /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] classes. Even though work using
-  /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] is supported, we do recommend using
-  /// [YouTrackDB] methods to open graph instances. Except parameters listed in this interface, you
-  /// can also specify any other parameter listed in
+  /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] is supported for embedded
+  /// deployments, we do recommend using[YouTrackDB] methods to open graph instances. Except
+  /// parameters listed in this interface, you can also specify any other parameter listed in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration] class. If the parameter listed in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration] is not specified directly, then a
   /// database will use the default value from of parameter indicated in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration].
-  interface ConfigurationParameters {
+  interface DatabaseConfigurationParameters {
 
     /// Path to the root folder that contains all embedded databases managed by [YouTrackDB], this
     /// parameter is used only in [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open
@@ -124,6 +120,15 @@ public interface YouTrackDB extends AutoCloseable {
     String CONFIG_DB_CHARSET = "youtrackdb.database.charset";
   }
 
+  enum PredefinedRole {
+    ADMIN, READER, WRITER
+  }
+
+  record UserCredential(String username, String password, PredefinedRole role) {
+
+  }
+
+
   /// Creates a new database alongside users, passwords and roles.
   ///
   /// If you want to create users during creation of a database, you should provide array that
@@ -145,7 +150,19 @@ public interface YouTrackDB extends AutoCloseable {
   /// @param type            can be disk or memory
   /// @param userCredentials usernames, passwords and roles provided as a sequence of triple
   ///                        strings
-  void create(@Nonnull String databaseName, @Nonnull DatabaseType type, String... userCredentials);
+  void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      String... userCredentials);
+
+  /// Creates a new database alongside users, passwords and roles. For example:
+  ///
+  /// @param databaseName    database name
+  /// @param type            can be disk or memory
+  /// @param userCredentials List of users and their credentials
+  default void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      UserCredential... userCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+    create(databaseName, type, userCredentialsArray);
+  }
 
   /// Creates a new database alongside users, passwords and roles and also allows to specify
   /// database configuration.
@@ -170,8 +187,22 @@ public interface YouTrackDB extends AutoCloseable {
   /// @param youTrackDBConfig database configuration
   /// @param userCredentials  usernames, passwords and roles provided as a sequence of triple
   ///                         strings
-  void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
-      @Nonnull Configuration youTrackDBConfig, String... userCredentials);
+  default void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      @Nonnull Configuration youTrackDBConfig, String... userCredentials) {
+  }
+
+  /// Creates a new database alongside users, passwords and roles and also allows to specify
+  /// database configuration.
+  ///
+  /// @param databaseName     database name
+  /// @param type             can be disk or memory
+  /// @param youTrackDBConfig database configuration
+  /// @param userCredentials  List of users and their credentials
+  default void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      @Nonnull Configuration youTrackDBConfig, UserCredential... userCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+    create(databaseName, type, youTrackDBConfig, userCredentialsArray);
+  }
 
   /// Creates a new database alongside users, passwords and roles if such a one does not exist yet.
   ///
@@ -196,6 +227,17 @@ public interface YouTrackDB extends AutoCloseable {
   ///                        strings
   void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
       String... userCredentials);
+
+  /// Creates a new database alongside users, passwords and roles if such a one does not exist yet.
+  ///
+  /// @param databaseName    database name
+  /// @param type            can be disk or memory
+  /// @param userCredentials List of users and their credentials
+  default void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      UserCredential... userCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+    createIfNotExists(databaseName, type, userCredentialsArray);
+  }
 
   /// Creates a new database alongside users, passwords and roles if such a one does not exist yet
   /// and also allows to specify database configuration.
@@ -224,6 +266,19 @@ public interface YouTrackDB extends AutoCloseable {
   void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
       @Nonnull Configuration config, String... userCredentials);
 
+  /// Creates a new database alongside users, passwords and roles if such a one does not exist yet
+  /// and also allows to specify database configuration.
+  ///
+  /// @param databaseName    database name
+  /// @param type            can be disk or memory
+  /// @param config          database configuration
+  /// @param userCredentials List of users and their credentials
+  default void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      @Nonnull Configuration config, UserCredential... userCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+    createIfNotExists(databaseName, type, config, userCredentialsArray);
+  }
+
   /// Drop a database
   ///
   /// @param databaseName database name
@@ -250,7 +305,12 @@ public interface YouTrackDB extends AutoCloseable {
   /// @return boolean true if is open false otherwise.
   boolean isOpen();
 
-  /// Open the YTDB Graph instance by database name, using the current username and password.
+  /// Open the YTDB Graph instance by database name, using the current username and password. This
+  /// method works only for embedded databases.
+  ///
+  /// You can use this method if you do not plan to migrate from embedded to remote databases,
+  /// though the recommended approach is to use [#openTraversal(String, String, String)] method
+  /// instead.
   ///
   /// @param databaseName Database name
   /// @param userName     user name
@@ -261,6 +321,12 @@ public interface YouTrackDB extends AutoCloseable {
   /// Open the YTDB Graph instance by database name, using the current username and password. This
   /// method allows one to specify database configuration.
   ///
+  /// This method works only for embedded databases.
+  ///
+  /// You can use this method if you do not plan to migrate from embedded to remote databases,
+  /// though the recommended approach is to use [#openTraversal(String, String, String)] method
+  /// instead.
+  ///
   /// @param databaseName Database name
   /// @param userName     user name
   /// @param config       database configuration
@@ -268,16 +334,74 @@ public interface YouTrackDB extends AutoCloseable {
   YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
       @Nonnull String userPassword, @Nonnull Configuration config);
 
+  /// Opens [YTDBGraphTraversalSource] instance for the given embedded database by database name,
+  /// using provided user name and password. Unlike [#openGraph(String, String, String)] method,
+  /// this method works both for embedded and remote databases.
+  ///
+  /// The underlying [org.apache.tinkerpop.gremlin.structure.Graph] instance is closed while a
+  /// traversal source is closed. Please keep a single instance of this traversal source per
+  /// application.
+  ///
+  /// That is the recommended approach to use for both embedded and remote databases.
+  ///
+  /// @param databaseName Database name
+  /// @param userName     user name. For remote database this parameter is ignored, and user name
+  ///                     provided during connection is used.
+  /// @param userPassword user password. For remote database this parameter is ignored.
+  @Nonnull
+  YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName, @Nonnull String userName,
+      @Nonnull String userPassword);
+
   /// Creates a database by restoring it from incremental backup. The backup should be created with
   /// [#incrementalBackup(Path)].
   ///
   /// At the moment only disk-based databases are supported, you cannot restore memory databases.
   ///
   /// @param databaseName Name of a database to be created.
-  /// @param userName     Name of server user, not needed for local databases.
-  /// @param userPassword User password, not needed for local databases.
   /// @param path         Path to the backup directory.
   /// @param config       YouTrackDB configuration.
-  void restore(@Nonnull String databaseName, @Nonnull String userName, @Nonnull String userPassword,
-      @Nonnull String path, @Nullable Configuration config);
+  void restore(@Nonnull String databaseName, @Nonnull String path, @Nullable Configuration config);
+
+  /// Creates user on that can be used to authenticate for all databases.
+  ///
+  /// This functionality works for both remote and embedded deployments. In the case of the remote
+  /// deployments system users can be used to connect to the server.
+  ///
+  /// User with rights to mangage databases on server (create, drop, list) can be created using this
+  /// method passing `root` as a user role.
+  ///
+  /// @param username User name
+  /// @param password User password
+  /// @param role     List of user roles
+  void createSystemUser(@Nonnull String username, @Nonnull String password,
+      @Nonnull String... role);
+
+  /// Creates user on that can be used to authenticate for all databases.
+  ///
+  /// This functionality works for both remote and embedded deployments. In the case of the remote
+  /// deployments system users can be used to connect to the server.
+  ///
+  /// @param username User name
+  /// @param password User password
+  /// @param role     List of user roles
+  default void createSystemUser(@Nonnull String username, @Nonnull String password,
+      @Nonnull PredefinedRole... role) {
+    var roles = new String[role.length];
+    for (var i = 0; i < role.length; i++) {
+      roles[i] = role[i].name();
+    }
+    createSystemUser(username, password, roles);
+  }
+
+  private static String @NonNull [] createUserCredentialsArray(UserCredential[] userCredentials) {
+    var userCredentialsArray = new String[userCredentials.length * 3];
+
+    for (var i = 0; i < userCredentials.length; i++) {
+      userCredentialsArray[i * 3] = userCredentials[i].username();
+      userCredentialsArray[i * 3 + 1] = userCredentials[i].password();
+      userCredentialsArray[i * 3 + 2] = userCredentials[i].role().name();
+    }
+
+    return userCredentialsArray;
+  }
 }

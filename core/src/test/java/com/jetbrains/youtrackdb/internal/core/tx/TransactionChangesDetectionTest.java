@@ -23,7 +23,7 @@ public class TransactionChangesDetectionTest {
   public void before() {
     youTrackDB = DbTestBase.createYTDBManagerAndDb(getClass().getSimpleName(), DatabaseType.MEMORY,
         getClass());
-    youTrackDB.open(
+    db = youTrackDB.open(
         TransactionChangesDetectionTest.class.getSimpleName(),
         "admin",
         DbTestBase.ADMIN_PASSWORD);

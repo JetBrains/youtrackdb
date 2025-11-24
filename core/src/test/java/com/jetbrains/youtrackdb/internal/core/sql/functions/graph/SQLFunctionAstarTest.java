@@ -70,8 +70,12 @@ public class SQLFunctionAstarTest {
 
   private void setUpDatabase() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    if (youTrackDB.exists("SQLFunctionAstarTest")) {
+      youTrackDB.drop("SQLFunctionAstarTest");
+    }
 
+    youTrackDB.create("SQLFunctionAstarTest", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD,
+        "admin");
     session = youTrackDB.open("SQLFunctionAstarTest", "admin", ADMIN_PASSWORD);
 
     session.createEdgeClass("has_path");

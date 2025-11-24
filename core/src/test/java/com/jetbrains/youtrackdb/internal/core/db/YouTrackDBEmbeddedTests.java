@@ -19,15 +19,14 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import java.io.File;
 import java.util.TimerTask;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -84,7 +83,7 @@ public class YouTrackDBEmbeddedTests {
   public void testMultiThread() {
     try (final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()))) {
-      youTrackDb.create("createAndUseEmbeddedDatabase", DatabaseType.MEMORY,
+      youTrackDb.create("testMultiThread", DatabaseType.MEMORY,
           new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
       final SessionPool pool =
           new SessionPoolImpl(
@@ -145,39 +144,37 @@ public class YouTrackDBEmbeddedTests {
   @Test
   public void testRegisterDatabase() {
     try (final var youtrack = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(getClass()) + "testRegisterDatabase")) {
-      try {
-        final var youtrackEmbedded = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
-            youtrack);
-        youtrackEmbedded.getSystemDatabase().executeInDBScope(session -> {
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + ThreadLocalRandom.current().nextInt())) {
+      final var youtrackEmbedded = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
+          youtrack);
+      youtrackEmbedded.getSystemDatabase().executeInDBScope(session -> {
+        session.executeInTx(tx -> {
           var security = session.getMetadata().getSecurity();
-          security.createUser("admin", "admin", "root");
-          return null;
+          security.createUser("root", "root", "root");
         });
 
-        assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
-        youtrackEmbedded.initCustomStorage("database1",
-            DbTestBase.getBaseDirectoryPathStr(getClass()) +
-                "testRegisterDatabase/database1"
-        );
-        try (final var db = youtrackEmbedded.open("database1", "admin", "admin")) {
-          assertEquals("database1", db.getDatabaseName());
-        }
-        youtrackEmbedded.initCustomStorage("database2",
-            DbTestBase.getBaseDirectoryPathStr(getClass()) +
-                "testRegisterDatabase/database2"
-        );
+        return null;
+      });
 
-        try (final var db = youtrackEmbedded.open("database2", "admin", "admin")) {
-          assertEquals("database2", db.getDatabaseName());
-        }
-        youtrackEmbedded.drop("database1", null, null);
-        youtrackEmbedded.drop("database2", null, null);
-        youtrackEmbedded.close();
-      } finally {
-        FileUtils.deleteRecursively(
-            new File(DbTestBase.getBaseDirectoryPathStr(getClass()) + "testRegisterDatabase"));
+      assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
+      youtrackEmbedded.initCustomStorage("database1",
+          DbTestBase.getBaseDirectoryPathStr(getClass()) +
+              "testRegisterDatabase/database1"
+      );
+      try (final var db = youtrackEmbedded.open("database1", "root", "root")) {
+        assertEquals("database1", db.getDatabaseName());
       }
+      youtrackEmbedded.initCustomStorage("database2",
+          DbTestBase.getBaseDirectoryPathStr(getClass()) +
+              "testRegisterDatabase/database2"
+      );
+
+      try (final var db = youtrackEmbedded.open("database2", "root", "root")) {
+        assertEquals("database2", db.getDatabaseName());
+      }
+      youtrackEmbedded.drop("database1", null, null);
+      youtrackEmbedded.drop("database2", null, null);
+      youtrackEmbedded.close();
     }
   }
 

@@ -48,7 +48,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
-import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfigurationManager;
@@ -297,7 +296,7 @@ public class YouTrackDBServer {
             .build();
 
     databases = new YTDBInternalProxy(
-        (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
+        YouTrackDBInternal.embedded(this.databaseDirectory,
             config, true));
     context = databases.newYouTrackDb();
 
@@ -483,28 +482,6 @@ public class YouTrackDBServer {
     return serverRootDirectory;
   }
 
-
-  /**
-   * Authenticate a server user.
-   *
-   * @param iUserName Username to authenticate
-   * @param iPassword Password in clear
-   * @return true if authentication is ok, otherwise false
-   */
-  public boolean authenticate(
-      final String iUserName, final String iPassword, final String iResourceToCheck) {
-    // FALSE INDICATES WRONG PASSWORD OR NO AUTHORIZATION
-    return authenticateUser(iUserName, iPassword, iResourceToCheck) != null;
-  }
-
-  // Returns null if the user cannot be authenticated. Otherwise returns the
-  // ServerUserConfiguration user.
-  public SecurityUser authenticateUser(
-      final String iUserName, final String iPassword, final String iResourceToCheck) {
-    return databases
-        .getSecuritySystem()
-        .authenticateAndAuthorize(null, iUserName, iPassword, iResourceToCheck);
-  }
 
   public ServerConfiguration getConfiguration() {
     return serverCfg.getConfiguration();
@@ -774,7 +751,7 @@ public class YouTrackDBServer {
           var security = metadata.getSecurity();
 
           if (security.getUser(ServerConfiguration.GUEST_USER) == null) {
-            security.createUser(ServerConfiguration.DEFAULT_ROOT_USER,
+            security.createUser(ServerConfiguration.GUEST_USER,
                 ServerConfiguration.DEFAULT_GUEST_PASSWORD, "guest");
           }
         });
@@ -887,7 +864,7 @@ public class YouTrackDBServer {
     return databases;
   }
 
-  public YouTrackDBImpl getContext() {
+  public YouTrackDBImpl getYouTrackDB() {
     return context;
   }
 
@@ -904,10 +881,6 @@ public class YouTrackDBServer {
     return databases.exists(databaseName, null, null);
   }
 
-  public void createDatabase(String databaseName, DatabaseType type, YouTrackDBConfigImpl config) {
-    databases.create(databaseName, null, null, type, config);
-  }
-
   public Set<String> listDatabases() {
     var dbs = databases.listDatabases(null, null);
     if (dbs.contains(SystemDatabase.SYSTEM_DB_NAME)) {
@@ -919,13 +892,7 @@ public class YouTrackDBServer {
     return dbs;
   }
 
-  public void restore(String name, String path) {
-    databases.restore(name, null, path, YouTrackDBConfig.defaultConfig());
-  }
-
-  public final class YTDBInternalProxy implements YouTrackDBInternal,
-      ServerAware {
-
+  public final class YTDBInternalProxy implements YouTrackDBInternal, ServerAware {
     private final YouTrackDBInternalEmbedded internal;
 
     private YTDBInternalProxy(YouTrackDBInternalEmbedded internal) {
@@ -934,7 +901,7 @@ public class YouTrackDBServer {
 
     @Override
     public YouTrackDBImpl newYouTrackDb() {
-      return YTDBGraphFactory.ytdbInstance(internal.getBasePath(), () -> internal);
+      return YTDBGraphFactory.ytdbInstance(internal.getBasePath(), () -> this);
     }
 
     @Override
@@ -978,6 +945,7 @@ public class YouTrackDBServer {
       }
 
     }
+
 
     @Override
     public boolean exists(String name, String user, String password) {
@@ -1113,6 +1081,7 @@ public class YouTrackDBServer {
         dbCreationLock.unlock();
       }
     }
+
 
     @Override
     public YouTrackDBConfigImpl getConfiguration() {

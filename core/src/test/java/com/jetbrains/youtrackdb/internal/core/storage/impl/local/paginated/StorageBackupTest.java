@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
@@ -84,8 +83,8 @@ public class StorageBackupTest {
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+            youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD),
+            youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD),
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -182,8 +181,8 @@ public class StorageBackupTest {
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+            youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD),
+            youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD),
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -279,8 +278,8 @@ public class StorageBackupTest {
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+            youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD),
+            youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD),
             System.out::println);
 
     Assert.assertTrue(compare.compare());

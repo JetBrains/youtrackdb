@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Locale;
@@ -92,7 +91,7 @@ public class YTDBGraphFactory {
   }
 
   public static YouTrackDBImpl ytdbInstance(
-      String dbPath, Supplier<YouTrackDBInternalEmbedded> internalSupplier) {
+      String dbPath, Supplier<YouTrackDBInternal> internalSupplier) {
     var path = Path.of(dbPath).toAbsolutePath().normalize();
     return storagePathYTDBMap.compute(path, (p, youTrackDB) -> {
       if (youTrackDB != null) {

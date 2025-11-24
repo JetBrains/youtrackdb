@@ -23,8 +23,12 @@ public class TransactionQueryIndexTests {
   @Before
   public void before() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    if (youTrackDB.exists("test")) {
+      youTrackDB.drop("test");
+    }
 
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    database = youTrackDB.open("test", "admin", ADMIN_PASSWORD);
   }
 
   @Test

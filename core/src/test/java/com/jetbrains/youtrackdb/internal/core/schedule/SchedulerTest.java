@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import io.netty.util.internal.ThreadLocalRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -125,7 +126,11 @@ public class SchedulerTest {
         (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPathStr(getClass()),
             config);
-    youTrackDb.createIfNotExists("test", DatabaseType.DISK,
+    if (youTrackDb.exists("test")) {
+      youTrackDb.drop("test");
+    }
+
+    youTrackDb.create("test", DatabaseType.DISK,
         new UserCredential("admin", NEW_ADMIN_PASSWORD, PredefinedRole.ADMIN));
     final var pool =
         youTrackDb.cachedPool("test", "admin", NEW_ADMIN_PASSWORD);
@@ -214,14 +219,19 @@ public class SchedulerTest {
 
   private YouTrackDBImpl createContext() {
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(getClass()));
-    youTrackDB.createIfNotExists("test",
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + ThreadLocalRandom.current().nextInt());
+    if (youTrackDB.exists("test")) {
+      youTrackDB.drop("test");
+    }
+
+    youTrackDB.create("test",
         DatabaseType.MEMORY, "admin", NEW_ADMIN_PASSWORD, "admin");
 
     YouTrackDBEnginesManager.instance()
         .registerThreadDatabaseFactory(
             new TestScheduleDatabaseFactory(
                 youTrackDB, "test", "admin", NEW_ADMIN_PASSWORD));
+
     return youTrackDB;
   }
 

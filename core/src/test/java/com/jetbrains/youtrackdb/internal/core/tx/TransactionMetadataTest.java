@@ -25,7 +25,7 @@ public class TransactionMetadataTest {
   @Before
   public void before() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", ADMIN_PASSWORD, "admin");
 
     db = youTrackDB.open(DB_NAME, "admin", ADMIN_PASSWORD);
   }

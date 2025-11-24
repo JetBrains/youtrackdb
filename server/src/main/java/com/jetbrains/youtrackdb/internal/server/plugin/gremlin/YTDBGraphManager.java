@@ -234,7 +234,7 @@ public class YTDBGraphManager implements GraphManager {
       var sessionPool = databases.cachedPoolNoAuthentication(databaseName, currentUser.getName(),
           configuration);
 
-      return (DatabaseSessionEmbedded) sessionPool.acquire();
+      return sessionPool.acquire();
     }
   }
 

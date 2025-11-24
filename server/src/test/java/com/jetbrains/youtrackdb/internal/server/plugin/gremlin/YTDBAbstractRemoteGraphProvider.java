@@ -80,7 +80,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     }
     graphGetterSessionPools = new HashMap<>();
 
-    var serverContext = ytdbServer.getContext();
+    var serverContext = ytdbServer.getYouTrackDB();
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
 

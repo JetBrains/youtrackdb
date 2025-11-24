@@ -37,7 +37,12 @@ public class UpdateStatementExecutionTest {
   @Before
   public void before() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    if (youTrackDB.exists("test")) {
+      youTrackDB.drop("test");
+    }
+
     youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    session = youTrackDB.open("test", "admin", ADMIN_PASSWORD);
 
     className = name.getMethodName();
     session.getMetadata().getSchema().createClass(className);

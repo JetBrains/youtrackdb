@@ -102,7 +102,7 @@ public class AutomaticBackupTest {
       server.dropDatabase(DBNAME);
     }
     server
-        .getContext().create(DBNAME, DatabaseType.DISK,
+        .getYouTrackDB().create(DBNAME, DatabaseType.DISK,
             new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     db = server.getDatabases().openNoAuthorization(DBNAME);
@@ -162,7 +162,7 @@ public class AutomaticBackupTest {
       server.dropDatabase(DBNAME2);
     }
     server
-        .getContext().create(DBNAME2, DatabaseType.DISK,
+        .getYouTrackDB().create(DBNAME2, DatabaseType.DISK,
             new YouTrackDB.UserCredential("admin", "admin", PredefinedRole.ADMIN));
     var database2 = server.getDatabases().openNoAuthorization(DBNAME2);
 
@@ -360,7 +360,7 @@ public class AutomaticBackupTest {
       server.dropDatabase(DBNAME3);
     }
     server
-        .getContext().create(DBNAME3, DatabaseType.DISK,
+        .getYouTrackDB().create(DBNAME3, DatabaseType.DISK,
             new UserCredential("admin", "admin", PredefinedRole.ADMIN));
     var database2 = server.getDatabases().openNoAuthorization(DBNAME3);
 

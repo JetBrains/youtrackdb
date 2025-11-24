@@ -56,7 +56,7 @@ public class MailPlugin extends ServerPluginAbstract
   public void config(final YouTrackDBServer youTrackDBServer,
       final ServerParameterConfiguration[] iParams) {
     ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
-        youTrackDBServer.getContext())).getScriptManager()
+        youTrackDBServer.getYouTrackDB())).getScriptManager()
         .registerInjection(this);
   }
 

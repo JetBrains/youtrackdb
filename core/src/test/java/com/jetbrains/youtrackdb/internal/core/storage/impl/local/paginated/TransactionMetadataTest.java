@@ -35,7 +35,7 @@ public class TransactionMetadataTest {
         DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDB.create(DB_NAME, DatabaseType.DISK,
         new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
-    db = youTrackDB.open(DB_NAME, "admin", "admin");
+    db = youTrackDB.open(DB_NAME, "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @Test
@@ -55,7 +55,7 @@ public class TransactionMetadataTest {
             DatabaseType.DISK,
             "target/backup_metadata",
             YouTrackDBConfig.defaultConfig());
-    var db1 = youTrackDB.open(DB_NAME + "_re", "admin", "admin");
+    var db1 = youTrackDB.open(DB_NAME + "_re", "admin", DbTestBase.ADMIN_PASSWORD);
     var fromStorage =
         ((AbstractStorage) ((DatabaseSessionInternal) db1).getStorage())
             .getLastMetadata();

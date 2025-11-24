@@ -34,7 +34,7 @@ public class AbstractRemoteTest {
     final var dbName = name.getMethodName();
     if (dbName != null) {
       server
-          .getContext().create(dbName, DatabaseType.MEMORY,
+          .getYouTrackDB().create(dbName, DatabaseType.MEMORY,
               new UserCredential("admin", "admin", PredefinedRole.ADMIN));
     }
   }
