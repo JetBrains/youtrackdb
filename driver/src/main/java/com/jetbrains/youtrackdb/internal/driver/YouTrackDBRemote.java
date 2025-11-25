@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutionException;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
-import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.driver.remote.DriverRemoteConnection;
@@ -27,8 +26,6 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBRemote implements YouTrackDB {
-
-  private final Client client;
   private final Cluster cluster;
 
   public static YouTrackDBRemote instance(@Nonnull String serverAddress,
@@ -63,7 +60,6 @@ public class YouTrackDBRemote implements YouTrackDB {
 
   public YouTrackDBRemote(@Nonnull final Cluster cluster) {
     this.cluster = cluster;
-    this.client = cluster.connect();
   }
 
   @Override
@@ -151,15 +147,22 @@ public class YouTrackDBRemote implements YouTrackDB {
 
   @Override
   public @Nonnull List<String> listDatabases() {
-    var result = executeServerRequestWithResult(
-        RemoteProtocolConstants.SERVER_COMMAND_LIST_DATABASES, Map.of());
-    //noinspection unchecked
-    return (List<String>) result.getObject();
+    var requestMessageBuilder = RequestMessage.build(
+        RemoteProtocolConstants.SERVER_COMMAND_LIST_DATABASES);
+    requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_NAME);
+
+    try (var client = cluster.connect()) {
+      return client.submitAsync(requestMessageBuilder.create()).get().stream().map(
+          Result::getString).toList();
+    } catch (InterruptedException e) {
+      throw new RuntimeException("Server request processing was interrupted", e);
+    } catch (ExecutionException e) {
+      throw new RuntimeException("Server request processing failed", e);
+    }
   }
 
   @Override
   public void close() {
-    client.close();
     cluster.close();
   }
 
@@ -194,13 +197,14 @@ public class YouTrackDBRemote implements YouTrackDB {
 
   private void executeServerRequestNoResult(String op, Map<String, Object> args) {
     var requestMessageBuilder = RequestMessage.build(op);
-    requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_OP);
+    requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_NAME);
 
     for (var entry : args.entrySet()) {
       requestMessageBuilder.addArg(entry.getKey(), entry.getValue());
     }
-    try {
-      client.submitAsync(requestMessageBuilder.create()).get();
+    try (var client = cluster.connect()) {
+      var resultSet = client.submitAsync(requestMessageBuilder.create()).get();
+      resultSet.all().get();
     } catch (InterruptedException e) {
       throw new RuntimeException("Server request processing was interrupted", e);
     } catch (ExecutionException e) {
@@ -208,15 +212,16 @@ public class YouTrackDBRemote implements YouTrackDB {
     }
   }
 
+  @SuppressWarnings("SameParameterValue")
   private Result executeServerRequestWithResult(String op, Map<String, Object> args) {
     var requestMessageBuilder = RequestMessage.build(op);
-    requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_OP);
-
+    requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_NAME);
     for (var entry : args.entrySet()) {
       requestMessageBuilder.addArg(entry.getKey(), entry.getValue());
     }
-    try {
-      return client.submitAsync(requestMessageBuilder.create()).get().one();
+
+    try (var client = cluster.connect()) {
+      return client.submitAsync(requestMessageBuilder.create()).get().all().get().getFirst();
     } catch (InterruptedException e) {
       throw new RuntimeException("Server request processing was interrupted", e);
     } catch (ExecutionException e) {

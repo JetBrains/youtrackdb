@@ -59,7 +59,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
           buildDirectory.resolve("gremlinServerRoot")
               .resolve("serverHome" + idGenerator.incrementAndGet()).toAbsolutePath().toString());
       ytdbServer.startup(getClass().getResourceAsStream(
-          "/com/jetbrains/youtrackdb/internal/server/gremlin/youtrackdb-server-config.xml"));
+          "/com/jetbrains/youtrackdb/internal/server/youtrackdb-server-config.xml"));
       ytdbServer.activate();
     } catch (Exception e) {
       throw new RuntimeException(e);

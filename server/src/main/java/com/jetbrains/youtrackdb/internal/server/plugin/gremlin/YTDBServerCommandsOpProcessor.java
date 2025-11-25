@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.remote.RemoteProtocolConstants;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.MapConfiguration;
@@ -15,7 +17,6 @@ import org.apache.tinkerpop.gremlin.util.function.ThrowingConsumer;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
-import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,11 +31,9 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
   public static final String LIST_DATABASES_ROLE = "server.listDatabases";
   public static final String MANAGE_SYSTEM_USERS = "server.manageSystemUsers";
 
-  public static final String NAME = "ytdbServerCommands";
-
   @Override
   public String getName() {
-    return NAME;
+    return RemoteProtocolConstants.PROCESSOR_NAME;
   }
 
   @Override
@@ -144,6 +143,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     var youTrackDB = server.getYouTrackDB();
 
     var databases = youTrackDB.listDatabases();
+    databases.remove(SystemDatabase.SYSTEM_DB_NAME);
 
     var response = ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).result(databases)
         .statusMessage("Databases listed successfully").create();
@@ -182,16 +182,18 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     var server = settings.server;
 
     if (!ifNotExist) {
-      server.getYouTrackDB().create(databaseName, databaseType, configuration, userCredentials);
+      server.getYouTrackDB().create(databaseName, databaseType, configuration,
+          userCredentials.toArray(String[]::new));
     } else {
       server.getYouTrackDB()
-          .createIfNotExists(databaseName, databaseType, configuration, userCredentials);
+          .createIfNotExists(databaseName, databaseType, configuration,
+              userCredentials.toArray(String[]::new));
     }
 
     ctx.writeAndFlush(ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).create());
   }
 
-  private static @NonNull String getDatabaseName(RequestMessage msg)
+  private static @Nonnull String getDatabaseName(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
     var databaseName = (String) args.get(RemoteProtocolConstants.DATABASE_NAME_PARAMETER);
@@ -205,7 +207,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return databaseName;
   }
 
-  private static @NonNull String geUserName(RequestMessage msg)
+  private static @Nonnull String geUserName(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
     var userName = (String) args.get(RemoteProtocolConstants.USER_NAME_PARAMETER);
@@ -220,7 +222,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return userName;
   }
 
-  private static @NonNull String geUserPassword(RequestMessage msg)
+  private static @Nonnull String geUserPassword(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
     var userPassword = (String) args.get(RemoteProtocolConstants.USER_PASSWORD_PARAMETER);
@@ -234,7 +236,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return userPassword;
   }
 
-  private static @NonNull List<String> geUserRoles(RequestMessage msg)
+  private static @Nonnull List<String> geUserRoles(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
     @SuppressWarnings("unchecked") var userRoles = (List<String>) args.get(
@@ -250,7 +252,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return userRoles;
   }
 
-  private static @NonNull String getBackupPath(RequestMessage msg)
+  private static @Nonnull String getBackupPath(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
     var backupPath = (String) args.get(RemoteProtocolConstants.BACKUP_PATH_PARAMETER);
@@ -264,7 +266,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return backupPath;
   }
 
-  private static @NonNull Configuration getConfiguration(Map<String, Object> args) {
+  private static @Nonnull Configuration getConfiguration(Map<String, Object> args) {
     @SuppressWarnings("unchecked")
     var mapConfig = (Map<String, ?>) args.get(RemoteProtocolConstants.CONFIGURATION_PARAMETER);
 
@@ -277,17 +279,18 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return configuration;
   }
 
-  private static String @NonNull [] getUserCredentials(RequestMessage msg)
+  private static @Nonnull List<String> getUserCredentials(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
-    var userCredentials = (String[]) args.get(RemoteProtocolConstants.USER_CREDENTIALS_PARAMETER);
-    if (userCredentials == null || userCredentials.length == 0) {
+    @SuppressWarnings("unchecked") var userCredentials = (List<String>)
+        args.get(RemoteProtocolConstants.USER_CREDENTIALS_PARAMETER);
+    if (userCredentials == null || userCredentials.isEmpty()) {
       throw new OpProcessorException("User credentials are not specified",
           ResponseMessage.build(msg).code(
                   ResponseStatusCode.REQUEST_ERROR_MALFORMED_REQUEST)
               .statusMessage("User credentials are not specified").create());
     }
-    if (userCredentials.length % 3 != 0) {
+    if (userCredentials.size() % 3 != 0) {
       throw new OpProcessorException("Invalid user credentials format",
           ResponseMessage.build(msg).code(
                   ResponseStatusCode.REQUEST_ERROR_MALFORMED_REQUEST)
@@ -296,7 +299,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     return userCredentials;
   }
 
-  private static @NonNull DatabaseType getDatabaseType(RequestMessage msg)
+  private static @Nonnull DatabaseType getDatabaseType(RequestMessage msg)
       throws OpProcessorException {
     var args = msg.getArgs();
     var databaseTypeStr = (String) args.get(RemoteProtocolConstants.DATABASE_TYPE_PARAMETER);

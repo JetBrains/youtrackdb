@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.remote;
 
 public interface RemoteProtocolConstants {
 
-  String PROCESSOR_OP = "ytdb-processor";
+  String PROCESSOR_NAME = "ytdbServerCommands";
 
   String DATABASE_NAME_PARAMETER = "ytdb-database-name-parameter";
   String USER_CREDENTIALS_PARAMETER = "ytdb-user-credentials-parameter";

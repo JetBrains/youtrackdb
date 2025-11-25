@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.api.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
-
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -99,5 +98,14 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             YTDBCommandService.ARGUMENTS, arguments
         )
     ).iterate();
+  }
+
+  @Override
+  public void close() {
+    try {
+      super.close();
+    } catch (Exception e) {
+      throw new RuntimeException("Error during closing of GraphTraversalSource", e);
+    }
   }
 }

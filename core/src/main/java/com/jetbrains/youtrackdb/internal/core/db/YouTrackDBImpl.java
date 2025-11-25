@@ -436,10 +436,14 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
       super.close();
 
-      getGraph().close();
+      try {
+        getGraph().close();
+      } catch (Exception e) {
+        throw new RuntimeException("Error during closing of Graph instance", e);
+      }
     }
   }
 }
