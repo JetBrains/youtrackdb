@@ -144,7 +144,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
 
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
-      return schemaClass.isEdgeType();
+      return schemaClass.isEdgeType(session);
     });
   }
 
@@ -154,7 +154,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
 
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
-      return schemaClass.isVertexType();
+      return schemaClass.isVertexType(session);
     });
   }
 
@@ -164,7 +164,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
 
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
-      return mapToDomainClassIterator(schemaClass.getSuperClasses().iterator());
+      return mapToDomainClassIterator(schemaClass.getSuperClasses(session).iterator());
     });
   }
 
@@ -175,7 +175,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
 
-      return mapToDomainClassIterator(schemaClass.getSubclasses().iterator());
+      return mapToDomainClassIterator(schemaClass.getSubclasses(session).iterator());
     });
   }
 
@@ -186,7 +186,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
 
-      return mapToDomainClassIterator(schemaClass.getAllSubclasses().iterator());
+      return mapToDomainClassIterator(schemaClass.getAllSubclasses(session).iterator());
     });
   }
 
@@ -197,7 +197,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
 
-      return mapToDomainClassIterator(schemaClass.getAllSuperClasses().iterator());
+      return mapToDomainClassIterator(schemaClass.getAllSuperClasses(session).iterator());
     });
   }
 
@@ -231,7 +231,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
 
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
-      return schemaClass.isSubClassOf(className);
+      return schemaClass.isSubClassOf(session, className);
     });
   }
 
@@ -243,7 +243,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
       checkSchemaReadPermissions(session);
 
       var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
-      return schemaClass.isSubClassOf(schemaClassImpl.schemaClass);
+      return schemaClass.isSubClassOf(session, schemaClassImpl.schemaClass);
     });
   }
 
@@ -254,7 +254,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
 
-      return schemaClass.isSuperClassOf(className);
+      return schemaClass.isSuperClassOf(session, className);
     });
   }
 
@@ -266,7 +266,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
       checkSchemaReadPermissions(session);
 
       var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
-      return schemaClass.isSuperClassOf(schemaClassImpl.schemaClass);
+      return schemaClass.isSuperClassOf(session, schemaClassImpl.schemaClass);
     });
   }
 
@@ -370,13 +370,13 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
       checkSchemaReadPermissions(session);
 
       if (name.length == 0) {
-        return mapToDomainPropertyIterator(schemaClass.properties().iterator());
+        return mapToDomainPropertyIterator(schemaClass.properties(session).iterator());
       }
 
       var filteredProperties = new ArrayList<YTDBSchemaProperty>(name.length);
       for (var property : name) {
         filteredProperties.add(
-            new YTDBSchemaPropertyImpl(schemaClass.getPropertyInternal(property), graph));
+            new YTDBSchemaPropertyImpl(schemaClass.getPropertyInternal(session, property), graph));
       }
 
       return filteredProperties.iterator();
@@ -441,7 +441,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
     checkIfDeleted();
     return graph.computeSchemaCode(session -> {
       checkSchemaReadPermissions(session);
-      return schemaClass.existsProperty(propertyName);
+      return schemaClass.existsProperty(session, propertyName);
     });
   }
 

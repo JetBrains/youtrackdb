@@ -1857,7 +1857,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLinkCollection(
-      DatabaseSessionInternal db, ImmutableSchema schema,
+      DatabaseSessionInternal session, ImmutableSchema schema,
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
@@ -1869,12 +1869,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
           if (object.getChangeType() == ChangeType.ADD
               || object.getChangeType() == ChangeType.UPDATE
               && object.getValue() != null) {
-            validateLink(schema, db, property, object.getValue(), true);
+            validateLink(schema, session, property, object.getValue(), true);
           }
         }
       } else {
         for (var object : values) {
-          validateLink(schema, db, property, object, true);
+          validateLink(schema, session, property, object, true);
         }
       }
     }

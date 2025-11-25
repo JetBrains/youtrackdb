@@ -23,7 +23,7 @@ public interface CloseableInStorage {
 
   /**
    * Closes resources inside of call of Storage#close(). So do not use locks when you call this
-   * method or you may have deadlock during storage close. This method is completely house keeping
+   * method, or you may have deadlock during storage close. This method is completely housekeeping
    * method and plays role of Object#finalize() in case of you need to clean up resources after
    * storage is closed.
    */

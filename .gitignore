@@ -21,6 +21,7 @@ out
 
 #IntelliJ IDEA files
 *.iml
+.idea/misc.xml
 
 tests/src/test/java/com/orientechnologies/orient/test/database/auto/_*.xml
 

@@ -104,7 +104,7 @@ public class YTDBSchemaPropertyImpl implements YTDBSchemaProperty {
     checkIfDeleted();
 
     return graph.computeSchemaCode(session -> {
-      var linkedClass = schemaProperty.getLinkedClass(session);
+      var linkedClass = schemaProperty.getLinkedClass();
       if (linkedClass == null) {
         return null;
       }

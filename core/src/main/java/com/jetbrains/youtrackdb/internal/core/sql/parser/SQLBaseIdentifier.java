@@ -404,8 +404,7 @@ public class SQLBaseIdentifier extends SimpleNode {
 
   public boolean isIndexChain(SchemaClassInternal clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(
-          suffix.getIdentifier().getStringValue());
+      var prop = clazz.getPropertyInternal(suffix.getIdentifier().getStringValue());
       if (prop == null) {
         return false;
       }

@@ -105,7 +105,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public SchemaPropertyInternal getPropertyInternal(String propertyName) {
     assert this.session.assertIfNotActive();
-    var result = delegate.getPropertyInternal(propertyName);
+    var result = delegate.getPropertyInternal(session, propertyName);
     return result != null ? new SchemaPropertyProxy(result, session) : null;
   }
 
@@ -238,7 +238,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public List<SchemaClass> getSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSuperClasses();
+    var result = delegate.getSuperClasses(session);
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -325,7 +325,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaProperty> getProperties() {
     assert this.session.assertIfNotActive();
-    var result = delegate.properties();
+    var result = delegate.properties(session);
 
     var resultProxy = new ArrayList<SchemaProperty>(result.size());
     for (var schemaProperty : result) {
@@ -352,7 +352,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public SchemaProperty getProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    var result = delegate.getProperty(iPropertyName);
+    var result = delegate.getProperty(session, iPropertyName);
     return result != null ? new SchemaPropertyProxy(result, session) : null;
   }
 
@@ -391,7 +391,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean existsProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    return delegate.existsProperty(iPropertyName);
+    return delegate.existsProperty(session, iPropertyName);
   }
 
   @Override
@@ -409,7 +409,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getSubclasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSubclasses();
+    var result = delegate.getSubclasses(session);
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -422,7 +422,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getAllSubclasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getAllSubclasses();
+    var result = delegate.getAllSubclasses(session);
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -436,7 +436,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getAllSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getAllSuperClasses();
+    var result = delegate.getAllSuperClasses(session);
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -449,19 +449,19 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isSubClassOf(String iClassName) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(iClassName);
+    return delegate.isSubClassOf(session, iClassName);
   }
 
   @Override
   public boolean isSubClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(((SchemaClassInternal) iClass).getImplementation());
+    return delegate.isSubClassOf(session, ((SchemaClassInternal) iClass).getImplementation());
   }
 
   @Override
   public boolean isSuperClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSuperClassOf(((SchemaClassInternal) iClass).getImplementation());
+    return delegate.isSuperClassOf(session, ((SchemaClassInternal) iClass).getImplementation());
   }
 
   @Override
@@ -502,13 +502,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isEdgeType() {
     assert session.assertIfNotActive();
-    return delegate.isEdgeType();
+    return delegate.isEdgeType(session);
   }
 
   @Override
   public boolean isVertexType() {
     assert session.assertIfNotActive();
-    return delegate.isVertexType();
+    return delegate.isVertexType(session);
   }
 
   @Override

@@ -85,8 +85,8 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     type = PropertyTypeInternal.convertFromPublicType(property.getType());
     description = property.getDescription();
 
-    if (property.getLinkedClass(session) != null) {
-      linkedClassName = property.getLinkedClass(session).getName();
+    if (property.getLinkedClass() != null) {
+      linkedClassName = property.getLinkedClass().getName();
     } else {
       linkedClassName = null;
     }

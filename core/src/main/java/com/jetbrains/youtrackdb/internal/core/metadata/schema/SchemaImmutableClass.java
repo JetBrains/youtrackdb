@@ -94,8 +94,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   @Nonnull
   private final SchemaClassImpl original;
 
-
-  public SchemaImmutableClass(@Nonnull DatabaseSessionInternal session,
+  public SchemaImmutableClass(
+      @Nonnull DatabaseSessionInternal session,
       @Nonnull final SchemaClassImpl oClass,
       final ImmutableSchema schema) {
 
@@ -113,7 +113,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     polymorphicCollectionIds = oClass.getPolymorphicCollectionIds();
 
     baseClassesNames = new ArrayList<>();
-    for (var baseClass : oClass.getSubclasses()) {
+    for (var baseClass : oClass.getSubclasses(session)) {
       baseClassesNames.add(baseClass.getName());
     }
 
@@ -287,7 +287,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     throw new UnsupportedOperationException();
   }
 
-
   @Override
   public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType,
@@ -322,12 +321,10 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return collectionSelection.getCollection(entity.getBoundedToSession(), this, entity);
   }
 
-
   @Override
   public int[] getCollectionIds() {
     return collectionIds;
   }
-
 
   @Override
   public CollectionSelectionStrategy getCollectionSelection() {
@@ -376,7 +373,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
   }
 
-
   @Override
   public long count(DatabaseSessionInternal session) {
     return count(session, true);
@@ -398,7 +394,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
 
     return session
-        .countCollectionElements(SchemaClassImpl.readableCollections(session, collectionIds, name));
+        .countCollectionElements(
+            SchemaClassImpl.readableCollections(session, collectionIds, name));
   }
 
   @Override
@@ -456,7 +453,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   public SchemaClass setDescription(String iDescription) {
     throw new UnsupportedOperationException();
   }
-
 
   public Object get(ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
@@ -712,7 +708,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   public boolean hasPolymorphicCollectionId(final int collectionId) {
     return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
   }
-
 
   @Override
   public SchemaClass set(ATTRIBUTES attribute, Object value) {

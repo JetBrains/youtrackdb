@@ -96,12 +96,12 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   private YTDBVertex createVertexWithClass(DatabaseSessionEmbedded sessionEmbedded, String label) {
     executeSchemaCode(session -> {
       var schema = session.getSharedContext().getSchema();
-      var vertexClass = schema.getClass(label);
+      var vertexClass = schema.getClass(session, label);
 
       if (vertexClass == null) {
-        var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
+        var vClass = schema.getClass(session, SchemaClass.VERTEX_CLASS_NAME);
         schema.getOrCreateClass(session, label, vClass);
-      } else if (!vertexClass.isVertexType()) {
+      } else if (!vertexClass.isVertexType(session)) {
         throw new IllegalArgumentException("Class " + label + " is not a vertex type");
       }
     });

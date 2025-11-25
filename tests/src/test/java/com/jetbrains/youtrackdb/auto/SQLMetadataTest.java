@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
+import java.util.Objects;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -28,20 +29,28 @@ public class SQLMetadataTest extends BaseDBTest {
   public void querySchemaClasses() {
     var result =
         session
-            .query("select expand(classes) from metadata:schema").toList();
+            .query("select expand(classesRefs) from metadata:schema").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
 
   @Test
   public void querySchemaProperties() {
-    var result =
+    var oUserRecordId =
         session
             .query(
-                "select expand(properties) from (select expand(classes) from metadata:schema)"
-                    + " where name = 'OUser'").toList();
+                "select expand(classesRefs) from metadata:schema "
+            ).stream()
+            .map(a -> a.getProperty("ouser"))
+            .filter(Objects::nonNull)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("Could not find ouser class"));
+    var result = session
+        .query(
+            "select expand(properties) from " + oUserRecordId
+        ).toList();
 
-    Assert.assertTrue(result.size() != 0);
+    Assert.assertFalse(result.isEmpty());
   }
 
   @Test

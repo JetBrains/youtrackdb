@@ -60,7 +60,6 @@ public abstract class SchemaPropertyImpl {
   protected final SchemaClassImpl owner;
   protected PropertyTypeInternal linkedType;
   protected SchemaClassImpl linkedClass;
-  private transient String linkedClassName;
 
   protected String description;
   protected boolean mandatory;
@@ -250,12 +249,9 @@ public abstract class SchemaPropertyImpl {
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
    * yet.
    */
-  public SchemaClassImpl getLinkedClass(DatabaseSessionInternal session) {
+  public SchemaClassImpl getLinkedClass() {
     acquireSchemaReadLock();
     try {
-      if (linkedClass == null && linkedClassName != null) {
-        linkedClass = owner.owner.getClass(linkedClassName);
-      }
       return linkedClass;
     } finally {
       releaseSchemaReadLock();
@@ -410,13 +406,13 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public Object get(DatabaseSessionInternal db, final ATTRIBUTES attribute) {
+  public Object get(final ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
     return switch (attribute) {
-      case LINKEDCLASS -> getLinkedClass(db);
+      case LINKEDCLASS -> getLinkedClass();
       case LINKEDTYPE -> getLinkedType();
       case MIN -> getMin();
       case MANDATORY -> isMandatory();
@@ -444,7 +440,7 @@ public abstract class SchemaPropertyImpl {
     switch (attribute) {
       case LINKEDCLASS:
         setLinkedClass(session,
-            session.getSharedContext().getSchema().getClass(stringValue));
+            session.getSharedContext().getSchema().getClass(session, stringValue));
         break;
       case LINKEDTYPE:
         if (stringValue == null) {
@@ -575,82 +571,101 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public void fromStream(EntityImpl entity) {
-    String name = entity.getProperty("name");
-    PropertyTypeInternal type = null;
-    if (entity.getProperty("type") != null) {
-      type = PropertyTypeInternal.getById(((Integer) entity.getProperty("type")).byteValue());
-    }
-    Integer globalId = entity.getProperty("globalId");
-    if (globalId != null) {
-      globalRef = owner.owner.getGlobalPropertyById(globalId);
-    } else {
-      if (type == null) {
-        throw new UnsupportedOperationException("Type is not defined for property " + name);
+  public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
+    acquireSchemaReadLock();
+    try {
+      String name = entity.getProperty("name");
+      PropertyTypeInternal type = null;
+      if (entity.getProperty("type") != null) {
+        type = PropertyTypeInternal.getById(((Integer) entity.getProperty("type")).byteValue());
       }
-      globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
-    }
+      Integer globalId = entity.getProperty("globalId");
+      if (globalId != null) {
+        globalRef = owner.owner.getGlobalPropertyById(globalId);
+      } else {
+        if (type == null) {
+          throw new UnsupportedOperationException("Type is not defined for property " + name);
+        }
+        globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
+      }
 
-    if (entity.hasProperty("mandatory")) {
-      mandatory = entity.getProperty("mandatory");
-    } else {
-      mandatory = false;
-    }
-    if (entity.hasProperty("readonly")) {
-      readonly = entity.getProperty("readonly");
-    } else {
-      readonly = false;
-    }
-    if (entity.hasProperty("notNull")) {
-      notNull = entity.getProperty("notNull");
-    } else {
-      notNull = false;
-    }
-    if (entity.hasProperty("defaultValue")) {
-      defaultValue = entity.getProperty("defaultValue");
-    } else {
-      defaultValue = null;
-    }
-    if (entity.hasProperty("collate")) {
-      collate = SQLEngine.getCollate(entity.getProperty("collate"));
-    }
+      if (entity.hasProperty("mandatory")) {
+        mandatory = entity.getProperty("mandatory");
+      } else {
+        mandatory = false;
+      }
+      if (entity.hasProperty("readonly")) {
+        readonly = entity.getProperty("readonly");
+      } else {
+        readonly = false;
+      }
+      if (entity.hasProperty("notNull")) {
+        notNull = entity.getProperty("notNull");
+      } else {
+        notNull = false;
+      }
+      if (entity.hasProperty("defaultValue")) {
+        defaultValue = entity.getProperty("defaultValue");
+      } else {
+        defaultValue = null;
+      }
+      if (entity.hasProperty("collate")) {
+        collate = SQLEngine.getCollate(entity.getProperty("collate"));
+      }
 
-    if (entity.hasProperty("min")) {
-      min = entity.getProperty("min");
-    } else {
-      min = null;
-    }
-    if (entity.hasProperty("max")) {
-      max = entity.getProperty("max");
-    } else {
-      max = null;
-    }
-    if (entity.hasProperty("regexp")) {
-      regexp = entity.getProperty("regexp");
-    } else {
-      regexp = null;
-    }
-    if (entity.hasProperty("linkedClass")) {
-      linkedClassName = entity.getProperty("linkedClass");
-    } else {
-      linkedClassName = null;
-    }
-    if (entity.getProperty("linkedType") != null) {
-      linkedType =
-          PropertyTypeInternal.getById(((Integer) entity.getProperty("linkedType")).byteValue());
-    } else {
-      linkedType =
-          null;
-    }
-    if (entity.hasProperty("customFields")) {
-      customFields = entity.getProperty("customFields");
-    } else {
-      customFields = null;
-    }
-    if (entity.hasProperty("description")) {
-      description = entity.getProperty("description");
-    } else {
-      description = null;
+      if (entity.hasProperty("min")) {
+        min = entity.getProperty("min");
+      } else {
+        min = null;
+      }
+      if (entity.hasProperty("max")) {
+        max = entity.getProperty("max");
+      } else {
+        max = null;
+      }
+      if (entity.hasProperty("regexp")) {
+        regexp = entity.getProperty("regexp");
+      } else {
+        regexp = null;
+      }
+      final String linkedClassName;
+      if (entity.hasProperty("linkedClass")) {
+        linkedClassName = entity.getProperty("linkedClass");
+      } else {
+        linkedClassName = null;
+      }
+      if (linkedClassName != null) {
+        // maybe I will find a better solution, but we need it to unfold recursion
+        // class loads properties -> property loads same class which is not loaded yet
+        if (linkedClassName.equalsIgnoreCase(owner.getName())) {
+          linkedClass = owner;
+        } else {
+          var lazyClass = owner.owner.getLazyClass(linkedClassName);
+          // we need to load class without inheritance to have a proper link on it
+          // later inheritance info will be loaded if needed
+          lazyClass.loadWithoutInheritanceIfNeeded(session);
+          linkedClass = lazyClass.getDelegate();
+        }
+      }
+      if (entity.getProperty("linkedType") != null) {
+        linkedType =
+            PropertyTypeInternal.getById(((Integer) entity.getProperty("linkedType")).byteValue());
+      } else {
+        linkedType = null;
+      }
+
+      if (entity.hasProperty("customFields")) {
+        customFields = entity.getProperty("customFields");
+      } else {
+        customFields = null;
+      }
+      if (entity.hasProperty("description")) {
+        description = entity.getProperty("description");
+      } else {
+        description = null;
+      }
+    } finally {
+      releaseSchemaReadLock();
     }
   }
 
@@ -679,44 +694,56 @@ public abstract class SchemaPropertyImpl {
   }
 
   public Entity toStream(DatabaseSessionInternal session) {
-    var entity = session.newEmbeddedEntity();
-    entity.setProperty("name", getName());
-    entity.setProperty("type",
-        PropertyTypeInternal.convertFromPublicType(getType()).getId());
-    entity.setProperty("globalId", globalRef.getId());
-    entity.setProperty("mandatory", mandatory);
-    entity.setProperty("readonly", readonly);
-    entity.setProperty("notNull", notNull);
-    entity.setProperty("defaultValue", defaultValue);
+    acquireSchemaReadLock();
+    try {
+      Entity entity = session.newEmbeddedEntity();
+      entity.setProperty("name", getName());
+      entity.setProperty("type",
+          PropertyTypeInternal.convertFromPublicType(getType()).getId());
+      entity.setProperty("globalId", globalRef.getId());
+      entity.setProperty("mandatory", mandatory);
+      entity.setProperty("readonly", readonly);
+      entity.setProperty("notNull", notNull);
+      entity.setProperty("defaultValue", defaultValue);
 
-    entity.setProperty("min", min);
-    entity.setProperty("max", max);
-    if (regexp != null) {
-      entity.setProperty("regexp", regexp);
-    }
+      entity.setProperty("min", min);
+      entity.setProperty("max", max);
+      if (regexp != null) {
+        entity.setProperty("regexp", regexp);
+      }
 
-    if (linkedType != null) {
-      entity.setProperty("linkedType", linkedType.getId());
-    }
-    if (linkedClass != null || linkedClassName != null) {
-      entity.setProperty("linkedClass",
-          linkedClass != null ? linkedClass.getName() : linkedClassName);
-    }
+      if (linkedType != null) {
+        entity.setProperty("linkedType", linkedType.getId());
+      }
+      if (linkedClass != null) {
+        entity.setProperty("linkedClass", linkedClass.getName());
+      }
 
-    if (customFields != null && customFields.isEmpty()) {
-      var storedCustomFields = entity.getOrCreateEmbeddedMap("customFields");
-      storedCustomFields.clear();
-      storedCustomFields.putAll(customFields);
-    } else {
-      entity.removeProperty("customFields");
-    }
+      if (customFields != null && customFields.isEmpty()) {
+        var storedCustomFields = entity.getOrCreateEmbeddedMap("customFields");
+        storedCustomFields.clear();
+        storedCustomFields.putAll(customFields);
+      } else {
+        entity.removeProperty("customFields");
+      }
 
-    if (collate != null) {
-      entity.setProperty("collate", collate.getName());
-    }
+      if (customFields != null && customFields.isEmpty()) {
+        var storedCustomFields = entity.getOrCreateEmbeddedMap("customFields");
+        storedCustomFields.clear();
+        storedCustomFields.putAll(customFields);
+      } else {
+        entity.removeProperty("customFields");
+      }
 
-    entity.setProperty("description", description);
-    return entity;
+      if (collate != null) {
+        entity.setProperty("collate", collate.getName());
+      }
+
+      entity.setProperty("description", description);
+      return entity;
+    } finally {
+      releaseSchemaReadLock();
+    }
   }
 
   public void acquireSchemaReadLock() {
@@ -741,24 +768,29 @@ public abstract class SchemaPropertyImpl {
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {
     if (iDateAsString != null) {
-      if (globalRef.getType() == PropertyType.DATE) {
-        try {
-          DateHelper.getDateFormatInstance(session).parse(iDateAsString);
-        } catch (ParseException e) {
-          throw BaseException.wrapException(
-              new SchemaException(session.getDatabaseName(),
-                  "Invalid date format while formatting date '" + iDateAsString + "'"),
-              e, session.getDatabaseName());
+      acquireSchemaReadLock();
+      try {
+        if (globalRef.getType() == PropertyType.DATE) {
+          try {
+            DateHelper.getDateFormatInstance(session).parse(iDateAsString);
+          } catch (ParseException e) {
+            throw BaseException.wrapException(
+                new SchemaException(session.getDatabaseName(),
+                    "Invalid date format while formatting date '" + iDateAsString + "'"),
+                e, session.getDatabaseName());
+          }
+        } else if (globalRef.getType() == PropertyType.DATETIME) {
+          try {
+            DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
+          } catch (ParseException e) {
+            throw BaseException.wrapException(
+                new SchemaException(session.getDatabaseName(),
+                    "Invalid datetime format while formatting date '" + iDateAsString + "'"),
+                e, session.getDatabaseName());
+          }
         }
-      } else if (globalRef.getType() == PropertyType.DATETIME) {
-        try {
-          DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
-        } catch (ParseException e) {
-          throw BaseException.wrapException(
-              new SchemaException(session.getDatabaseName(),
-                  "Invalid datetime format while formatting date '" + iDateAsString + "'"),
-              e, session.getDatabaseName());
-        }
+      } finally {
+        releaseSchemaReadLock();
       }
     }
   }

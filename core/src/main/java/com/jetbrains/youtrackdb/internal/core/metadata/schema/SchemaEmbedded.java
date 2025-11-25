@@ -44,7 +44,8 @@ public class SchemaEmbedded extends SchemaShared {
         result = doCreateClass(session, className, collectionIds, retry, superClasses);
         break;
       } catch (CollectionIdsAreEmptyException ignore) {
-        classes.remove(className.toLowerCase(Locale.ENGLISH));
+        String normalizedClassName = normalizeClassName(className);
+        classesRefs.remove(normalizedClassName);
         collectionIds = createCollections(session, className);
         retry++;
       }
@@ -86,10 +87,9 @@ public class SchemaEmbedded extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key)) {
-        throw new SchemaException(session.getDatabaseName(),
-            "Class '" + className + "' already exists in current database");
+      final var key = normalizeClassName(className);
+      if (classesRefs.containsKey(key)) {
+        throw new SchemaException("Class '" + className + "' already exists in current database");
       }
       List<SchemaClassImpl> superClassesList = new ArrayList<>();
       if (superClasses != null) {
@@ -112,7 +112,7 @@ public class SchemaEmbedded extends SchemaShared {
       doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
       // WAKE UP DB LIFECYCLE LISTENER
       for (var it = YouTrackDBEnginesManager.instance()
           .getDbLifecycleListeners();
@@ -138,12 +138,12 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   protected void doRealCreateClass(
-      DatabaseSessionEmbedded database,
+      DatabaseSessionEmbedded session,
       String className,
       List<SchemaClassImpl> superClassesList,
       int[] collectionIds)
       throws CollectionIdsAreEmptyException {
-    createClassInternal(database, className, collectionIds, superClassesList);
+    createClassInternal(session, className, collectionIds, superClassesList);
   }
 
   protected void createClassInternal(
@@ -172,16 +172,24 @@ public class SchemaEmbedded extends SchemaShared {
 
       session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
+      final var key = normalizeClassName(className);
 
-      if (classes.containsKey(key)) {
-        throw new SchemaException(session.getDatabaseName(),
-            "Class '" + className + "' already exists in current database");
+      if (classesRefs.containsKey(key)) {
+        throw new SchemaException("Class '" + className + "' already exists in current database");
       }
 
       var cls = createClassInstance(className, collectionIds);
 
-      classes.put(key, cls);
+      // do we need to save or to batch
+      // todo move to schema lock release step
+      var savedClassEntity = session.computeInTx(tx -> cls.toStream(session));
+
+      classesRefs.put(key, LazySchemaClass.fromTemplate(
+          savedClassEntity.getIdentity(),
+          cls,
+          true
+      ));
+      this.markClassDirty(cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
         cls.setSuperClassesInternal(session, superClasses, true);
@@ -228,9 +236,13 @@ public class SchemaEmbedded extends SchemaShared {
 
     acquireSchemaReadLock();
     try {
-      var cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
-      if (cls != null) {
-        return cls;
+      var lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+      if (lazySchemaClass != null) {
+        lazySchemaClass.loadIfNeeded(session);
+        var cls = lazySchemaClass.getDelegate();
+        if (cls != null) {
+          return cls;
+        }
       }
     } finally {
       releaseSchemaReadLock();
@@ -245,9 +257,12 @@ public class SchemaEmbedded extends SchemaShared {
       try {
         acquireSchemaWriteLock(session);
         try {
-          cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
-          if (cls != null) {
-            return cls;
+          var lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+          if (lazySchemaClass != null) {
+            cls = lazySchemaClass.getDelegate();
+            if (cls != null) {
+              return cls;
+            }
           }
 
           cls = doCreateClass(session, iClassName, collectionIds, retry, superClasses);
@@ -280,11 +295,9 @@ public class SchemaEmbedded extends SchemaShared {
 
     acquireSchemaWriteLock(session);
     try {
-
-      final var key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key) && retry == 0) {
-        throw new SchemaException(session.getDatabaseName(),
-            "Class '" + className + "' already exists in current database");
+      final var key = normalizeClassName(className);
+      if (classesRefs.containsKey(key) && retry == 0) {
+        throw new SchemaException("Class '" + className + "' already exists in current database");
       }
 
       checkCollectionsAreAbsent(collectionIds);
@@ -308,7 +321,7 @@ public class SchemaEmbedded extends SchemaShared {
       doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
       for (var oSessionListener : session.getListeners()) {
         oSessionListener.onCreateClass(session, new SchemaClassProxy(result, session));
       }
@@ -406,19 +419,20 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      var cls = classes.get(key);
+      var cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses().isEmpty()) {
-        throw new SchemaException(session.getDatabaseName(),
+      var subclasses = cls.getSubclasses(session);
+      if (!subclasses.isEmpty()) {
+        throw new SchemaException(
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses()
+                + subclasses
                 + ". Remove the dependencies before trying to drop it again");
       }
 
@@ -452,24 +466,25 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      final var cls = classes.get(key);
+      final var cls = classesRefs.get(key).getDelegate();
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses().isEmpty()) {
+      var subclasses = cls.getSubclasses(session);
+      if (!subclasses.isEmpty()) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses()
+                + subclasses
                 + ". Remove the dependencies before trying to drop it again");
       }
 
       checkEmbedded(session);
 
-      for (var superClass : cls.getSuperClasses()) {
+      for (var superClass : cls.getSuperClasses(session)) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }
@@ -481,7 +496,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       dropClassIndexes(session, cls);
 
-      classes.remove(key);
+      classesRefs.remove(key);
 
       removeCollectionClassMap(cls);
 

@@ -1213,11 +1213,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             continue;
           }
           var recordIterator = session.browseCollection(collectionName);
+          var classesRefs = session.getMetadata().getSchema().getClassesRefs().values();
           while (recordIterator.hasNext()) {
             var identity = recordIterator.next().getIdentity();
             if (identity.equals(schemaRecordId)) {
               continue;
             } else if (identity.equals(indexMgrRecordId)) {
+              continue;
+            } else if (classesRefs.contains(identity)) {
+              // do not track records related to schema classes information
               continue;
             }
 

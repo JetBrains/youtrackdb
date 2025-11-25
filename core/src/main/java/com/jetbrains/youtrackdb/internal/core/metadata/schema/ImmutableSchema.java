@@ -50,7 +50,8 @@ public class ImmutableSchema implements SchemaInternal {
 
   private final Int2ObjectOpenHashMap<SchemaClass> collectionsToClasses;
   private final Map<String, SchemaClassInternal> classes;
-  private final IntSet blogCollections;
+  private final Map<String, LazySchemaClass> classesRefs;
+  private final IntSet blobCollections;
 
   public final int version;
   private final RecordIdInternal identity;
@@ -64,13 +65,20 @@ public class ImmutableSchema implements SchemaInternal {
     identity = schemaShared.getIdentity();
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
 
-    collectionsToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
-    classes = new HashMap<>(schemaShared.getClasses(session).size());
+    var schemaSharedClassesRefs = schemaShared.getClassesRefs(session);
+    var size = schemaSharedClassesRefs.size();
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(size * 3);
+    this.classes = new HashMap<>(size);
 
-    for (var oClass : schemaShared.getClasses(session)) {
-      final var immutableClass = new SchemaImmutableClass(session, oClass, this);
+    classesRefs = new HashMap<>(schemaSharedClassesRefs.size());
+    classesRefs.putAll(schemaSharedClassesRefs);
 
-      classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
+    for (var className : classesRefs.keySet()) {
+      var lazyClass = schemaShared.getLazyClass(className);
+      lazyClass.loadIfNeeded(session);
+      final var immutableClass = new SchemaImmutableClass(session, lazyClass.getDelegate(), this);
+
+      this.classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
 
       for (var collectionId : immutableClass.getCollectionIds()) {
         collectionsToClasses.put(collectionId, immutableClass);
@@ -80,11 +88,11 @@ public class ImmutableSchema implements SchemaInternal {
     properties = new ArrayList<>();
     properties.addAll(schemaShared.getGlobalProperties());
 
-    for (SchemaClass cl : classes.values()) {
+    for (SchemaClass cl : this.classes.values()) {
       ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blogCollections = schemaShared.getBlobCollections();
+    this.blobCollections = schemaShared.getBlobCollections();
 
     var indexManager = session.getSharedContext().getIndexManager();
     var internalIndexes = indexManager.getIndexes();
@@ -232,6 +240,15 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
+  public Map<String, RID> getClassesRefs() {
+    var result = new HashMap<String, RID>(classesRefs.size());
+    for (var lazyClassRef : classesRefs.entrySet()) {
+      result.put(lazyClassRef.getKey(), lazyClassRef.getValue().getId());
+    }
+    return result;
+  }
+
+  @Override
   public Collection<String> getIndexes() {
     return indexes.keySet();
   }
@@ -308,6 +325,6 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   public IntSet getBlobCollections() {
-    return blogCollections;
+    return blobCollections;
   }
 }
