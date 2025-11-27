@@ -1807,6 +1807,9 @@ public class SecurityShared implements SecurityInternal {
         .existsClass(Role.CLASS_NAME)) {
       return Collections.emptySet();
     }
+
+    final var shouldCloseTxAfter = !db.isTxActive();
+
     try (var rs = db.query("select policies from " + Role.CLASS_NAME)) {
       while (rs.hasNext()) {
         var item = rs.next();
@@ -1832,6 +1835,10 @@ public class SecurityShared implements SecurityInternal {
             }
           }
         }
+      }
+    } finally {
+      if (shouldCloseTxAfter && db.isTxActive()) {
+        db.rollback();
       }
     }
     return result;
