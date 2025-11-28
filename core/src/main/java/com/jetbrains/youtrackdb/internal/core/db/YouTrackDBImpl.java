@@ -337,6 +337,25 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
         key -> new SessionPoolImpl(this, internalPool));
   }
 
+  public @Nonnull YTDBGraphTraversalSource openTraversalNoAuthenticate(@Nonnull String databaseName,
+      @Nonnull String userName) {
+    var graph = openCachedPoolNoAuthenticate(databaseName, userName).asGraph();
+    return new StandaloneYTDBGraphTraversalSource(graph);
+  }
+
+  private SessionPool openCachedPoolNoAuthenticate(String database, String user) {
+    var internalPool = internal.cachedPoolNoAuthentication(database, user,
+        YouTrackDBConfig.defaultConfig());
+    var pool = cachedPools.get(internalPool);
+
+    if (pool != null) {
+      return pool;
+    }
+
+    return cachedPools.computeIfAbsent(internalPool,
+        key -> new SessionPoolImpl(this, internalPool));
+  }
+
   public void restore(String name, String path, YouTrackDBConfig config) {
     internal.restore(name, null, path, config);
   }

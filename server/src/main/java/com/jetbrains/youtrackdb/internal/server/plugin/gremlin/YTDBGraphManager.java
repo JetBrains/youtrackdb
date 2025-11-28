@@ -180,7 +180,6 @@ public class YTDBGraphManager implements GraphManager {
     return registeredGraphs.remove(graphName);
   }
 
-  @Override
   public void beforeQueryStart(RequestMessage msg, AuthenticatedUser authenticatedUser) {
     currentQuerySession.set(new QuerySession(authenticatedUser, msg));
   }
@@ -244,7 +243,6 @@ public class YTDBGraphManager implements GraphManager {
 
 
   private final class YTDBTransactionListener implements SessionListener {
-
     @Override
     public void onAfterTxCommit(Transaction transaction, @Nullable Map<RID, RID> ridMapping) {
       var currentQuerySession = YTDBGraphManager.this.currentQuerySession.get();

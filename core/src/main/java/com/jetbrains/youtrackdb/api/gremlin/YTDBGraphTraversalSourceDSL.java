@@ -75,7 +75,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   public <X extends Exception, R> R computeInTx(
       @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
     var tx = tx();
-    return YTDBTransaction.computeInTx(code, (YTDBTransaction) tx);
+    return YTDBTransaction.computeInTx(code, tx);
   }
 
   /// Execute a generic YouTrackDB command. The result of the execution is ignored, so it only makes

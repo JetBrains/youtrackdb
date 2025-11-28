@@ -25,13 +25,14 @@ public class BaseServerMemoryDatabase {
   public void beforeTest() {
     server = new YouTrackDBServer(false);
     try {
-      server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
+      server.startup(getClass().getResourceAsStream(
+          "/com/jetbrains/youtrackdb/internal/server/youtrackdb-server-config.xml"));
       server.activate();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
 
-    youTrackDB = YourTracks.instance("localhost", "root", "root");
+    youTrackDB = YourTracks.instance("localhost", 45940, "root", "root");
     youTrackDB.create(name.getMethodName(), DatabaseType.MEMORY,
         new UserCredential("admin", "admin", PredefinedRole.ADMIN));
     traversal = youTrackDB.openTraversal(name.getMethodName(), "admin", "adminpwd");

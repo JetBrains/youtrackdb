@@ -100,7 +100,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private final Engine disk;
   private final YouTrackDBEnginesManager youTrack;
   private final boolean serverMode;
-  private final CachedDatabasePoolFactory<DatabaseSession> cachedPoolFactory;
+  private final CachedDatabasePoolFactory cachedPoolFactory;
   private volatile boolean open = true;
   private final ExecutorService executor;
   private final ExecutorService ioExecutor;
@@ -229,10 +229,10 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     return baseSize;
   }
 
-  private CachedDatabasePoolFactory<DatabaseSession> createCachedDatabasePoolFactory() {
+  private CachedDatabasePoolFactory createCachedDatabasePoolFactory() {
     var capacity = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CAPACITY);
     long timeout = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT);
-    return new CachedDatabasePoolFactoryImpl<>(this, capacity, timeout);
+    return new CachedDatabasePoolFactoryImpl(this, capacity, timeout);
   }
 
   public void initAutoClose(long delay) {
@@ -1253,7 +1253,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
           } else {
             LogManager.instance()
                 .warn(this, " Cancelled execution of task, YouTrackDB instance is closed");
-            //noinspection ReturnOfNull
             return null;
           }
         });

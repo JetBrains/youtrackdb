@@ -27,9 +27,9 @@ public final class YTDBTransaction extends AbstractTransaction {
   }
 
   public static <X extends Exception> void executeInTX(
-      FailableConsumer<YTDBGraphTraversalSource, X> code, YTDBTransaction tx) throws X {
+      FailableConsumer<YTDBGraphTraversalSource, X> code, Transaction tx) throws X {
     var ok = false;
-    YTDBGraphTraversalSource g = tx.begin();
+    var g = tx.begin(YTDBGraphTraversalSource.class);
     try {
       code.accept(g);
       ok = true;
@@ -44,9 +44,9 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   public static <X extends Exception> void executeInTX(
       FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code,
-      YTDBTransaction tx) throws X {
+      Transaction tx) throws X {
     var ok = false;
-    YTDBGraphTraversalSource g = tx.begin();
+    var g = tx.begin(YTDBGraphTraversalSource.class);
     try {
       var traversal = code.apply(g);
       traversal.iterate();
@@ -62,11 +62,11 @@ public final class YTDBTransaction extends AbstractTransaction {
 
 
   public static <X extends Exception, R> R computeInTx(
-      FailableFunction<YTDBGraphTraversalSource, R, X> code, YTDBTransaction tx) throws X {
+      FailableFunction<YTDBGraphTraversalSource, R, X> code, Transaction tx) throws X {
     var ok = false;
     R result;
 
-    YTDBGraphTraversalSource g = tx.begin();
+    var g = tx.begin(YTDBGraphTraversalSource.class);
     try {
       result = code.apply(g);
       ok = true;

@@ -14,9 +14,9 @@ import java.util.HashMap;
 import javax.annotation.Nonnull;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
+import org.apache.tinkerpop.gremlin.server.Settings.ScriptEngineSettings;
 
 public class GremlinServerPlugin extends ServerPluginAbstract implements DatabaseLifecycleListener {
-
   public static final String RESULT_METADATA_COMMITTED_RIDS_KEY = "committedRIDs";
 
   public static final String DEFAULT_GREMLIN_SERVER_CONFIG_NAME = "gremlin-server.yaml";
@@ -76,6 +76,9 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
 
   private static void augmentServerSettings(YouTrackDBServer youTrackDBServer,
       YTDBSettings ytdbSettings) {
+    ytdbSettings.scriptEngines.clear();
+    ytdbSettings.scriptEngines.put("gremlin-lang", new ScriptEngineSettings());
+
     ytdbSettings.server = youTrackDBServer;
     var config = ytdbSettings.authentication.config;
     if (config == null) {
