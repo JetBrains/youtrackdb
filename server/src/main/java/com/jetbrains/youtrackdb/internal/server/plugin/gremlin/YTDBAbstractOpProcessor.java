@@ -446,7 +446,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
   }
 
 
-  protected static Map<String, String> validatedAliases(final RequestMessage message,
+  protected Map<String, String> validatedAliases(final RequestMessage message,
       final String opCode)
       throws OpProcessorException {
     final Optional<Map<String, String>> aliases = message.optionalArgs(Tokens.ARGS_ALIASES);
@@ -471,7 +471,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     return aliases.get();
   }
 
-  protected static YTDBGraphTraversalSource initTraversalSource(final Context context,
+  protected YTDBGraphTraversalSource initTraversalSource(final Context context,
       String opCode)
       throws OpProcessorException {
     var msg = context.getRequestMessage();
