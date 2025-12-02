@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;

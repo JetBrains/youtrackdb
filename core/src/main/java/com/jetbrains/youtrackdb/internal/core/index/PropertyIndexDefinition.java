@@ -20,11 +20,11 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;

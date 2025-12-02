@@ -20,12 +20,11 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfigBuilder;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfigBuilder;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.security.GlobalUser;
 import com.jetbrains.youtrackdb.internal.core.security.GlobalUserImpl;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityConfig;

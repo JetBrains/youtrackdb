@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.api.gremlin.embedded;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEmptyProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Property;
 

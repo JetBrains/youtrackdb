@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

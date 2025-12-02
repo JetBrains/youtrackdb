@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
-import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.HashSet;
 import java.util.Map;

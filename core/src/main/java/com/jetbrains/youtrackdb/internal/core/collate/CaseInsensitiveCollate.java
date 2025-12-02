@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.collate;
 
-import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;

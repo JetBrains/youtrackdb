@@ -23,10 +23,10 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_AC
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_MAX;
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_MIN;
 
-import com.jetbrains.youtrackdb.api.exception.AcquireTimeoutException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolListener;
+import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 
 public class DatabasePoolImpl implements DatabasePoolInternal {
 

@@ -20,8 +20,8 @@
 
 package com.jetbrains.youtrackdb.internal.core.util;
 
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;

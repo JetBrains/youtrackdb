@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;

@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.NoSuchElementException;
