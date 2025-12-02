@@ -82,8 +82,8 @@ public class WOWCacheTestIT {
     String nativeFileName = null;
 
     if (wowCache != null) {
-      var fileId = wowCache.fileIdByName(fileName);
-      nativeFileName = wowCache.nativeFileNameById(fileId);
+      var fileHandler = wowCache.fileHandlerByName(fileName);
+      nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
       wowCache.delete();
       wowCache = null;
@@ -177,8 +177,8 @@ public class WOWCacheTestIT {
     var random = new Random();
 
     var pageData = new byte[200][];
-    var fileId = wowCache.addFile(fileName);
-    final var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.addFile(fileName);
+    final var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     for (var i = 0; i < pageData.length; i++) {
       var data = new byte[8];
@@ -186,9 +186,10 @@ public class WOWCacheTestIT {
 
       pageData[i] = data;
 
-      final var pageIndex = wowCache.allocateNewPage(fileId);
+      final var pageIndex = wowCache.allocateNewPage(fileHandler.fileId());
       Assert.assertEquals(i, pageIndex);
-      final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
+      final var cachePointer = wowCache.load(fileHandler.fileId(), i, new ModifiableBoolean(),
+          false);
       cachePointer.acquireExclusiveLock();
 
       var buffer = cachePointer.getBuffer();
@@ -197,14 +198,14 @@ public class WOWCacheTestIT {
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
       cachePointer.releaseExclusiveLock();
 
-      wowCache.store(fileId, i, cachePointer);
+      wowCache.store(fileHandler.fileId(), i, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
     for (var i = 0; i < pageData.length; i++) {
       var dataOne = pageData[i];
 
-      var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), i, new ModifiableBoolean(), true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -280,8 +281,8 @@ public class WOWCacheTestIT {
     var random = new Random();
 
     var pageData = new byte[200][];
-    var fileId = wowCache.addFile(fileName);
-    final var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.addFile(fileName);
+    final var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     for (var i = 0; i < pageData.length; i++) {
       var data = new byte[8];
@@ -289,9 +290,10 @@ public class WOWCacheTestIT {
 
       pageData[i] = data;
 
-      final var pageIndex = wowCache.allocateNewPage(fileId);
+      final var pageIndex = wowCache.allocateNewPage(fileHandler.fileId());
       Assert.assertEquals(i, pageIndex);
-      final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
+      final var cachePointer = wowCache.load(fileHandler.fileId(), i, new ModifiableBoolean(),
+          false);
       cachePointer.acquireExclusiveLock();
 
       var buffer = cachePointer.getBuffer();
@@ -300,14 +302,14 @@ public class WOWCacheTestIT {
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
       cachePointer.releaseExclusiveLock();
 
-      wowCache.store(fileId, i, cachePointer);
+      wowCache.store(fileHandler.fileId(), i, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
     for (var i = 0; i < pageData.length; i++) {
       var dataOne = pageData[i];
 
-      var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), i, new ModifiableBoolean(), true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -323,7 +325,7 @@ public class WOWCacheTestIT {
     for (var i = 0; i < pageData.length; i++) {
       var dataOne = pageData[i];
 
-      var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), i, new ModifiableBoolean(), true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -337,7 +339,7 @@ public class WOWCacheTestIT {
     for (var i = 0; i < pageData.length; i++) {
       var dataContent = pageData[i];
       assertFileEncrypted(
-          wowCache.internalFileId(fileId),
+          wowCache.internalFileId(fileHandler.fileId()),
           i,
           dataContent,
           new LogSequenceNumber(0, 0),
@@ -350,19 +352,19 @@ public class WOWCacheTestIT {
   @Test
   public void testDataUpdate() throws Exception {
     final NavigableMap<Long, byte[]> pageIndexDataMap = new TreeMap<>();
-    var fileId = wowCache.addFile(fileName);
-    final var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.addFile(fileName);
+    final var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     var random = new Random();
 
     for (var i = 0; i < 2048; i++) {
-      wowCache.allocateNewPage(fileId);
+      wowCache.allocateNewPage(fileHandler.fileId());
 
       final var pointer = bufferPool.acquireDirect(true, Intention.TEST);
-      final var cachePointer = new CachePointer(pointer, bufferPool, fileId, i);
+      final var cachePointer = new CachePointer(pointer, bufferPool, fileHandler.fileId(), i);
 
       cachePointer.incrementReadersReferrer();
-      wowCache.store(fileId, i, cachePointer);
+      wowCache.store(fileHandler.fileId(), i, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
@@ -375,7 +377,7 @@ public class WOWCacheTestIT {
       pageIndexDataMap.put(pageIndex, data);
 
       final var cachePointer =
-          wowCache.load(fileId, pageIndex, new ModifiableBoolean(), false);
+          wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(), false);
       cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -386,7 +388,7 @@ public class WOWCacheTestIT {
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
       cachePointer.releaseExclusiveLock();
 
-      wowCache.store(fileId, pageIndex, cachePointer);
+      wowCache.store(fileHandler.fileId(), pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
@@ -394,7 +396,8 @@ public class WOWCacheTestIT {
       long pageIndex = entry.getKey();
       var dataOne = entry.getValue();
 
-      var cachePointer = wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(),
+          true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -417,7 +420,7 @@ public class WOWCacheTestIT {
       pageIndexDataMap.put(pageIndex, data);
 
       final var cachePointer =
-          wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
+          wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(), true);
 
       cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
@@ -426,14 +429,15 @@ public class WOWCacheTestIT {
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
       cachePointer.releaseExclusiveLock();
 
-      wowCache.store(fileId, pageIndex, cachePointer);
+      wowCache.store(fileHandler.fileId(), pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
     for (var entry : pageIndexDataMap.entrySet()) {
       long pageIndex = entry.getKey();
       var dataOne = entry.getValue();
-      var cachePointer = wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(),
+          true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -506,15 +510,15 @@ public class WOWCacheTestIT {
     wowCache.loadRegisteredFiles();
 
     final NavigableMap<Long, byte[]> pageIndexDataMap = new TreeMap<>();
-    var fileId = wowCache.addFile(fileName);
-    final var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.addFile(fileName);
+    final var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     final var seed = System.nanoTime();
     System.out.println("testDataUpdateEncrypted : seed " + seed);
     var random = new Random(seed);
 
     for (var i = 0; i < 2048; i++) {
-      final long position = wowCache.allocateNewPage(fileId);
+      final long position = wowCache.allocateNewPage(fileHandler.fileId());
       Assert.assertEquals(i, position);
     }
 
@@ -528,7 +532,7 @@ public class WOWCacheTestIT {
       pageIndexDataMap.put(pageIndex, data);
 
       final var cachePointer =
-          wowCache.load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+          wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(), verifyChecksums);
       var bufferDuplicate = cachePointer.getBuffer();
       assert bufferDuplicate != null;
 
@@ -545,7 +549,7 @@ public class WOWCacheTestIT {
 
       cachePointer.releaseExclusiveLock();
 
-      wowCache.store(fileId, pageIndex, cachePointer);
+      wowCache.store(fileHandler.fileId(), pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
@@ -553,7 +557,8 @@ public class WOWCacheTestIT {
       long pageIndex = entry.getKey();
       var dataOne = entry.getValue();
 
-      var cachePointer = wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(),
+          true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -577,7 +582,7 @@ public class WOWCacheTestIT {
       pageIndexDataMap.put(pageIndex, data);
 
       final var cachePointer =
-          wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
+          wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(), true);
 
       cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
@@ -587,14 +592,15 @@ public class WOWCacheTestIT {
 
       cachePointer.releaseExclusiveLock();
 
-      wowCache.store(fileId, pageIndex, cachePointer);
+      wowCache.store(fileHandler.fileId(), pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
     }
 
     for (var entry : pageIndexDataMap.entrySet()) {
       long pageIndex = entry.getKey();
       var dataOne = entry.getValue();
-      var cachePointer = wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
+      var cachePointer = wowCache.load(fileHandler.fileId(), pageIndex, new ModifiableBoolean(),
+          true);
       var dataTwo = new byte[8];
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -609,7 +615,7 @@ public class WOWCacheTestIT {
 
     for (var entry : pageIndexDataMap.entrySet()) {
       assertFileEncrypted(
-          wowCache.internalFileId(fileId),
+          wowCache.internalFileId(fileHandler.fileId()),
           (int) entry.getKey().longValue(),
           entry.getValue(),
           new LogSequenceNumber(0, 0),
@@ -621,39 +627,39 @@ public class WOWCacheTestIT {
 
   @Test
   public void testFileRestore() throws IOException {
-    final var nonDelFileId = wowCache.addFile(fileName);
-    final var fileId = wowCache.addFile("removedFile.del");
+    final var nonDelFileHandler = wowCache.addFile(fileName);
+    final var fileHandler = wowCache.addFile("removedFile.del");
 
-    final var removedNativeFileName = wowCache.nativeFileNameById(fileId);
+    final var removedNativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert removedNativeFileName != null;
 
-    wowCache.deleteFile(fileId);
+    wowCache.deleteFile(fileHandler.fileId());
     var deletedFile = storagePath.resolve(removedNativeFileName).toFile();
     Assert.assertFalse(deletedFile.exists());
 
-    var fileName = wowCache.restoreFileById(fileId);
+    var fileName = wowCache.restoreFileById(fileHandler.fileId());
     Assert.assertEquals("removedFile.del", fileName);
 
-    fileName = wowCache.restoreFileById(nonDelFileId);
+    fileName = wowCache.restoreFileById(nonDelFileHandler.fileId());
     Assert.assertNull(fileName);
     Assert.assertTrue(deletedFile.exists());
 
     fileName = wowCache.restoreFileById(1525454L);
     Assert.assertNull(fileName);
 
-    wowCache.deleteFile(fileId);
+    wowCache.deleteFile(fileHandler.fileId());
     Assert.assertFalse(deletedFile.exists());
   }
 
   @Test
   public void testFileRestoreAfterClose() throws Exception {
-    final var nonDelFileId = wowCache.addFile(fileName);
-    final var fileId = wowCache.addFile("removedFile.del");
+    final var nonDelFileHandler = wowCache.addFile(fileName);
+    final var fileHandler = wowCache.addFile("removedFile.del");
 
-    final var removedNativeFileName = wowCache.nativeFileNameById(fileId);
+    final var removedNativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert removedNativeFileName != null;
 
-    wowCache.deleteFile(fileId);
+    wowCache.deleteFile(fileHandler.fileId());
     var deletedFile = storagePath.resolve(removedNativeFileName).toFile();
 
     Assert.assertFalse(deletedFile.exists());
@@ -663,17 +669,17 @@ public class WOWCacheTestIT {
 
     initBuffer();
 
-    var fileName = wowCache.restoreFileById(fileId);
+    var fileName = wowCache.restoreFileById(fileHandler.fileId());
     Assert.assertEquals("removedFile.del", fileName);
 
-    fileName = wowCache.restoreFileById(nonDelFileId);
+    fileName = wowCache.restoreFileById(nonDelFileHandler.fileId());
     Assert.assertNull(fileName);
     Assert.assertTrue(deletedFile.exists());
 
     fileName = wowCache.restoreFileById(1525454L);
     Assert.assertNull(fileName);
 
-    wowCache.deleteFile(fileId);
+    wowCache.deleteFile(fileHandler.fileId());
     Assert.assertFalse(deletedFile.exists());
   }
 
@@ -681,9 +687,9 @@ public class WOWCacheTestIT {
   public void testChecksumFailure() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
-    final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
-    final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
+    final var fileHandler = wowCache.addFile(fileName);
+    Assert.assertEquals(0, wowCache.allocateNewPage(fileHandler.fileId()));
+    final var cachePointer = wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), false);
 
     cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
@@ -693,12 +699,12 @@ public class WOWCacheTestIT {
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
     cachePointer.releaseExclusiveLock();
 
-    wowCache.store(fileId, 0, cachePointer);
+    wowCache.store(fileHandler.fileId(), 0, cachePointer);
     cachePointer.decrementReadersReferrer();
 
     wowCache.flush();
 
-    var fileName = wowCache.nativeFileNameById(fileId);
+    var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
 
     final var path = storagePath.resolve(fileName);
@@ -711,7 +717,7 @@ public class WOWCacheTestIT {
     file.close();
 
     try {
-      wowCache.load(fileId, 0, new ModifiableBoolean(), true);
+      wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true);
       Assert.fail();
     } catch (StorageException e) {
       // ok
@@ -722,9 +728,9 @@ public class WOWCacheTestIT {
   public void testMagicFailure() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
-    final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
-    final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
+    final var fileHandler = wowCache.addFile(fileName);
+    Assert.assertEquals(0, wowCache.allocateNewPage(fileHandler.fileId()));
+    final var cachePointer = wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), false);
 
     cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
@@ -734,12 +740,12 @@ public class WOWCacheTestIT {
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
     cachePointer.releaseExclusiveLock();
 
-    wowCache.store(fileId, 0, cachePointer);
+    wowCache.store(fileHandler.fileId(), 0, cachePointer);
     cachePointer.decrementReadersReferrer();
 
     wowCache.flush();
 
-    var fileName = wowCache.nativeFileNameById(fileId);
+    var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
 
     final var path = storagePath.resolve(fileName);
@@ -750,7 +756,7 @@ public class WOWCacheTestIT {
     file.close();
 
     try {
-      wowCache.load(fileId, 0, new ModifiableBoolean(), true);
+      wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true);
       Assert.fail();
     } catch (StorageException e) {
       // ok
@@ -761,9 +767,9 @@ public class WOWCacheTestIT {
   public void testNoChecksumVerificationIfNotRequested() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
-    final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
-    final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
+    final var fileHandler = wowCache.addFile(fileName);
+    Assert.assertEquals(0, wowCache.allocateNewPage(fileHandler.fileId()));
+    final var cachePointer = wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), false);
 
     cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
@@ -773,12 +779,12 @@ public class WOWCacheTestIT {
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
     cachePointer.releaseExclusiveLock();
 
-    wowCache.store(fileId, 0, cachePointer);
+    wowCache.store(fileHandler.fileId(), 0, cachePointer);
     cachePointer.decrementReadersReferrer();
 
     wowCache.flush();
 
-    var fileName = wowCache.nativeFileNameById(fileId);
+    var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
 
     final var path = storagePath.resolve(fileName);
@@ -790,16 +796,17 @@ public class WOWCacheTestIT {
         ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
     file.close();
 
-    wowCache.load(fileId, 0, new ModifiableBoolean(), false).decrementReadersReferrer();
+    wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), false)
+        .decrementReadersReferrer();
   }
 
   @Test
   public void testNoChecksumFailureIfVerificationTurnedOff() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.Off);
 
-    final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
-    final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
+    final var fileHandler = wowCache.addFile(fileName);
+    Assert.assertEquals(0, wowCache.allocateNewPage(fileHandler.fileId()));
+    final var cachePointer = wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true);
 
     cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
@@ -809,12 +816,12 @@ public class WOWCacheTestIT {
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
     cachePointer.releaseExclusiveLock();
 
-    wowCache.store(fileId, 0, cachePointer);
+    wowCache.store(fileHandler.fileId(), 0, cachePointer);
     cachePointer.decrementReadersReferrer();
 
     wowCache.flush();
 
-    var fileName = wowCache.nativeFileNameById(fileId);
+    var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
 
     final var path = storagePath.resolve(fileName);
@@ -826,16 +833,17 @@ public class WOWCacheTestIT {
         ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
     file.close();
 
-    wowCache.load(fileId, 0, new ModifiableBoolean(), true).decrementReadersReferrer();
+    wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true)
+        .decrementReadersReferrer();
   }
 
   @Test
   public void testNoChecksumFailureIfVerificationTurnedOffOnLoad() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.Store);
 
-    final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
-    final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
+    final var fileHandler = wowCache.addFile(fileName);
+    Assert.assertEquals(0, wowCache.allocateNewPage(fileHandler.fileId()));
+    final var cachePointer = wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true);
 
     cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
@@ -845,12 +853,12 @@ public class WOWCacheTestIT {
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
     cachePointer.releaseExclusiveLock();
 
-    wowCache.store(fileId, 0, cachePointer);
+    wowCache.store(fileHandler.fileId(), 0, cachePointer);
     cachePointer.decrementReadersReferrer();
 
     wowCache.flush();
 
-    var fileName = wowCache.nativeFileNameById(fileId);
+    var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
 
     final var path = storagePath.resolve(fileName);
@@ -862,16 +870,17 @@ public class WOWCacheTestIT {
         ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
     file.close();
 
-    wowCache.load(fileId, 0, new ModifiableBoolean(), true).decrementReadersReferrer();
+    wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true)
+        .decrementReadersReferrer();
   }
 
   @Test
   public void testNoChecksumFailureIfNoChecksumProvided() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.Off);
 
-    final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
-    final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
+    final var fileHandler = wowCache.addFile(fileName);
+    Assert.assertEquals(0, wowCache.allocateNewPage(fileHandler.fileId()));
+    final var cachePointer = wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true);
 
     cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
@@ -881,12 +890,12 @@ public class WOWCacheTestIT {
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
     cachePointer.releaseExclusiveLock();
 
-    wowCache.store(fileId, 0, cachePointer);
+    wowCache.store(fileHandler.fileId(), 0, cachePointer);
     cachePointer.decrementReadersReferrer();
 
     wowCache.flush();
 
-    var fileName = wowCache.nativeFileNameById(fileId);
+    var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
 
     final var path = storagePath.resolve(fileName);
@@ -899,7 +908,8 @@ public class WOWCacheTestIT {
     file.close();
 
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
-    wowCache.load(fileId, 0, new ModifiableBoolean(), true).decrementReadersReferrer();
+    wowCache.load(fileHandler.fileId(), 0, new ModifiableBoolean(), true)
+        .decrementReadersReferrer();
   }
 
   private static void assertFile(

@@ -1,11 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -214,8 +217,9 @@ public class AsyncReadCacheTestIT {
         final var fileId = random.nextInt(fileLimit);
         final var pageIndex = random.nextInt(pageLimit);
 
+        var fileHandler = new FileHandler(fileId, new CASObjectArray<CacheEntry>());
         final var cacheEntry =
-            readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+            readCache.loadForWrite(fileHandler, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }
@@ -255,7 +259,8 @@ public class AsyncReadCacheTestIT {
         final var fileId = random.nextInt(fileLimit);
         final var pageIndex = random.nextInt(pageLimit);
 
-        final var cacheEntry = readCache.loadForRead(fileId, pageIndex, writeCache, true);
+        var fileHandler = new FileHandler(fileId, new CASObjectArray<CacheEntry>());
+        final var cacheEntry = readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
         readCache.releaseFromRead(cacheEntry);
         pageCounter++;
       }
@@ -291,7 +296,9 @@ public class AsyncReadCacheTestIT {
       while (pageCounter < pageCount) {
         final var pageIndex = random.nextInt();
         assert pageIndex < pageLimit;
-        final var cacheEntry = readCache.loadForWrite(0, pageIndex, writeCache, true, null);
+        var fileHandler = new FileHandler(0, new CASObjectArray<CacheEntry>());
+        final var cacheEntry = readCache.loadForWrite(fileHandler, pageIndex, writeCache, true,
+            null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }
@@ -327,7 +334,8 @@ public class AsyncReadCacheTestIT {
       while (pageCounter < pageCount) {
         final var pageIndex = random.nextInt();
         assert pageIndex < pageLimit;
-        final var cacheEntry = readCache.loadForRead(0, pageIndex, writeCache, true);
+        var fileHandler = new FileHandler(0, new CASObjectArray<CacheEntry>());
+        final var cacheEntry = readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
         readCache.releaseFromRead(cacheEntry);
         pageCounter++;
       }
@@ -358,23 +366,23 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public long loadFile(final String fileName) {
-      return 0;
+    public FileHandler loadFile(final String fileName) {
+      return new FileHandler(0, new CASObjectArray<CacheEntry>());
     }
 
     @Override
-    public long addFile(final String fileName) {
-      return 0;
+    public FileHandler addFile(final String fileName) {
+      return new FileHandler(0, new CASObjectArray<CacheEntry>());
     }
 
     @Override
-    public long addFile(final String fileName, final long fileId) {
-      return 0;
+    public FileHandler addFile(final String fileName, final long fileId) {
+      return new FileHandler(0, new CASObjectArray<CacheEntry>());
     }
 
     @Override
-    public long fileIdByName(final String fileName) {
-      return 0;
+    public FileHandler fileHandlerByName(final String fileName) {
+      return new FileHandler(0, new CASObjectArray<CacheEntry>());
     }
 
     @Override
@@ -470,7 +478,7 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public void close(final long fileId, final boolean flush) {
+    public void close(final FileHandler fileHandler, final boolean flush) {
     }
 
     @Override
@@ -500,7 +508,7 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public Map<String, Long> files() {
+    public Map<String, FileHandler> files() {
       return null;
     }
 

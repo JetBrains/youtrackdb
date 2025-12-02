@@ -75,8 +75,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     storage.shutdown();
     ctx.close();
@@ -141,8 +141,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     storage.shutdown();
     ctx.close();
@@ -205,8 +205,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     storage.shutdown();
     ctx.close();
@@ -273,8 +273,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     storage.shutdown();
     ctx.close();
