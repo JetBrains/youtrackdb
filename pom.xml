@@ -36,6 +36,7 @@
     <module>distribution</module>
     <module>gremlin-annotations</module>
     <module>driver</module>
+    <module>console</module>
   </modules>
 
   <scm>
