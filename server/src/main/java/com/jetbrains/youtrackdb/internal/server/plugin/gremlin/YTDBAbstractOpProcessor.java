@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.AttributeKey;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,6 +76,8 @@ import org.slf4j.LoggerFactory;
 public abstract class YTDBAbstractOpProcessor implements OpProcessor {
 
   private static final Logger logger = LoggerFactory.getLogger(YTDBAbstractOpProcessor.class);
+  private static final AttributeKey<YTDBGraphTraversalSource> currentTraversalSource = AttributeKey.valueOf(
+      "ytdb-traversal-source");
 
   /// Length of time to pause writes in milliseconds when the high watermark is exceeded.
   public static final long WRITE_PAUSE_TIME_MS = 10;
@@ -89,8 +92,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
 
   private static final Logger auditLogger = LoggerFactory.getLogger(
       GremlinServer.AUDIT_LOGGER_NAME);
-  public static final Timer evalOpTimer = MetricManager.INSTANCE.getTimer(
-      name(GremlinServer.class, "op", "eval"));
+  public static final Timer evalOpTimer =
+      MetricManager.INSTANCE.getTimer(name(GremlinServer.class, "op", "eval"));
 
   /// The maximum number of parameters that can be passed on a script evaluation request.
   public static final String CONFIG_MAX_PARAMETERS = "maxParameters";
@@ -98,8 +101,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
   /// Default number of parameters allowed on a script evaluation request.
   public static final int DEFAULT_MAX_PARAMETERS = 16;
 
-  public static final Timer traversalOpTimer = MetricManager.INSTANCE.getTimer(
-      name(GremlinServer.class, "op", "traversal"));
+  public static final Timer traversalOpTimer =
+      MetricManager.INSTANCE.getTimer(name(GremlinServer.class, "op", "traversal"));
 
 
   /// This may or may not be the full set of invalid binding keys.  It is dependent on the static
@@ -156,17 +159,31 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     this.manageTransactions = manageTransactions;
   }
 
-
   @Override
   public ThrowingConsumer<Context> select(final Context context) throws OpProcessorException {
     final var message = context.getRequestMessage();
     logger.debug("Selecting processor for RequestMessage {}", message);
 
-    var traversalSource = initTraversalSource(context, Tokens.OPS_BYTECODE);
     return switch (message.getOp()) {
-      case Tokens.OPS_EVAL -> validateEvalMessage(message).orElse(getEvalOp(traversalSource));
+      case Tokens.OPS_EVAL -> {
+        yield (ctx) -> {
+          try {
+            var traversalSource = initTraversalSourceIfAbsent(context);
+            validateEvalMessage(message).orElse(getEvalOp(traversalSource)).accept(ctx);
+          } finally {
+            ctx.getChannelHandlerContext().channel().attr(currentTraversalSource).remove();
+          }
+        };
+      }
       case Tokens.OPS_BYTECODE -> {
-        yield (ctx) -> iterateBytecodeTraversal(ctx, traversalSource);
+        yield (ctx) -> {
+          try {
+            initTraversalSourceIfAbsent(ctx);
+            iterateBytecodeTraversal(ctx);
+          } finally {
+            ctx.getChannelHandlerContext().channel().attr(currentTraversalSource).remove();
+          }
+        };
       }
       case Tokens.OPS_INVALID -> {
         final var msgInvalid = String.format(
@@ -300,19 +317,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
 
           Map<String, Object> metadata = new HashMap<>();
           if (manageTransactions && code == ResponseStatusCode.SUCCESS) {
-            var tx = (YTDBTransaction) traversalSource.tx();
-            if (tx.isOpen()) {
-              var session = tx.getDatabaseSession();
-
-              session.registerListener(new SessionListener() {
-                @Override
-                public void onAfterTxCommit(Transaction transaction,
-                    @Nullable Map<RID, RID> ridMapping) {
-                  metadata.put(GremlinServerPlugin.RESULT_METADATA_COMMITTED_RIDS_KEY, ridMapping);
-                }
-              });
-              traversalSource.tx().commit();
-            }
+            commitAndUpdateMetadata(traversalSource, metadata);
           }
 
           var txWasClosed = !traversalSource.tx().isOpen();
@@ -385,6 +390,23 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     }
   }
 
+  private static void commitAndUpdateMetadata(YTDBGraphTraversalSource traversalSource,
+      Map<String, Object> metadata) {
+    var tx = (YTDBTransaction) traversalSource.tx();
+    if (tx.isOpen()) {
+      var session = tx.getDatabaseSession();
+
+      session.registerListener(new SessionListener() {
+        @Override
+        public void onAfterTxCommit(Transaction transaction,
+            @Nullable Map<RID, RID> ridMapping) {
+          metadata.put(GremlinServerPlugin.RESULT_METADATA_COMMITTED_RIDS_KEY, ridMapping);
+        }
+      });
+      traversalSource.tx().commit();
+    }
+  }
+
 
   /**
    * Generates response status meta-data to put on a {@link ResponseMessage}.
@@ -446,13 +468,11 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
   }
 
 
-  protected Map<String, String> validatedAliases(final RequestMessage message,
-      final String opCode)
+  protected static Map<String, String> validatedAliases(final RequestMessage message)
       throws OpProcessorException {
     final Optional<Map<String, String>> aliases = message.optionalArgs(Tokens.ARGS_ALIASES);
     if (aliases.isEmpty()) {
-      final var msg = String.format("A message with [%s] op code requires a [%s] argument.",
-          opCode, Tokens.ARGS_ALIASES);
+      final var msg = String.format("A message requires a [%s] argument.", Tokens.ARGS_ALIASES);
       throw new OpProcessorException(msg, ResponseMessage.build(message)
           .code(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS).statusMessage(msg)
           .create());
@@ -461,8 +481,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     if (aliases.get().size() != 1 || !aliases.get()
         .containsKey(Tokens.VAL_TRAVERSAL_SOURCE_ALIAS)) {
       final var msg = String.format(
-          "A message with [%s] op code requires the [%s] argument to be a Map containing one alias assignment named '%s'.",
-          opCode, Tokens.ARGS_ALIASES, Tokens.VAL_TRAVERSAL_SOURCE_ALIAS);
+          "A message requires the [%s] argument to be a Map containing one alias assignment named '%s'.",
+          Tokens.ARGS_ALIASES, Tokens.VAL_TRAVERSAL_SOURCE_ALIAS);
       throw new OpProcessorException(msg, ResponseMessage.build(message)
           .code(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS).statusMessage(msg)
           .create());
@@ -471,11 +491,10 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     return aliases.get();
   }
 
-  protected YTDBGraphTraversalSource initTraversalSource(final Context context,
-      String opCode)
+  protected static YTDBGraphTraversalSource doInitTraversalSource(final Context context)
       throws OpProcessorException {
     var msg = context.getRequestMessage();
-    var aliases = validatedAliases(msg, opCode);
+    var aliases = validatedAliases(msg);
     var settings = (YTDBSettings) context.getSettings();
     var server = settings.server;
     var youTrackDB = server.getYouTrackDB();
@@ -733,8 +752,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
         filter(i -> i instanceof TemporaryException || i instanceof Failure).findFirst();
   }
 
-  private void iterateBytecodeTraversal(final Context context,
-      YTDBGraphTraversalSource traversalSource)
+  private void iterateBytecodeTraversal(final Context context)
       throws Exception {
     final var msg = context.getRequestMessage();
     final var settings = context.getSettings();
@@ -781,6 +799,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
       auditLogger.info("User {} with address {} requested: {}", user.getName(), address, bytecode);
     }
 
+    var traversalSource = getTraversalSource(context);
     // handle bytecode based graph operations like commit/rollback commands
     if (BytecodeHelper.isGraphOperation(bytecode)) {
       handleGraphOperation(bytecode, traversalSource, context);
@@ -904,11 +923,13 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
       // there is no timeout on a commit/rollback
       submitToGremlinExecutor(context, graphTraversalSource, 0, new FutureTask<>(() -> {
         try {
-          var tx = graphTraversalSource.tx();
-          if (tx.isOpen()) {
-            if (commit) {
-              tx.commit();
-            } else {
+          var metadata = new HashMap<String, Object>();
+          if (commit) {
+            commitAndUpdateMetadata(graphTraversalSource, metadata);
+          } else {
+            var tx = graphTraversalSource.tx();
+
+            if (tx.isOpen()) {
               tx.rollback();
             }
           }
@@ -918,6 +939,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
               context.getChannelHandlerContext(), Collections.emptyIterator());
           context.writeAndFlush(ResponseMessage.build(msg)
               .code(ResponseStatusCode.NO_CONTENT)
+              .responseMetaData(metadata)
               .statusAttributes(attributes)
               .create());
 
@@ -984,5 +1006,23 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
   protected GremlinExecutor getGremlinExecutor(final Context context,
       YTDBGraphTraversalSource traversalSource) {
     return context.getGremlinExecutor();
+  }
+
+  protected YTDBGraphTraversalSource getTraversalSource(Context context)
+      throws OpProcessorException {
+    return context.getChannelHandlerContext().channel().attr(currentTraversalSource).get();
+  }
+
+  protected YTDBGraphTraversalSource initTraversalSourceIfAbsent(Context context)
+      throws OpProcessorException {
+    var attr = context.getChannelHandlerContext().channel().attr(currentTraversalSource);
+    var traversal = attr.get();
+    if (traversal == null) {
+      traversal = doInitTraversalSource(context);
+
+    }
+
+    attr.set(traversal);
+    return traversal;
   }
 }

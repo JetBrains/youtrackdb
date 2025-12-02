@@ -124,6 +124,10 @@ public final class YTDBGremlinSession {
     return !killing.get();
   }
 
+  public YTDBGraphTraversalSource getGraphTraversalSource() {
+    return graphTraversalSource;
+  }
+
   public void touch() {
     // if the task of killing is cancelled successfully then reset the session monitor. otherwise this session
     // has already been killed and there's nothing left to do with this session.

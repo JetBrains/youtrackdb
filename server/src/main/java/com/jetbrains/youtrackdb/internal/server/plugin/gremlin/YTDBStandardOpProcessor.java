@@ -5,7 +5,6 @@ import java.util.Optional;
 import org.apache.tinkerpop.gremlin.server.Context;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.op.OpProcessorException;
-import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.function.ThrowingConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +52,7 @@ public final class YTDBStandardOpProcessor extends YTDBAbstractOpProcessor {
           Thread.currentThread().getName());
     }
 
-    var traversalSource = initTraversalSource(context, Tokens.OPS_EVAL);
+    var traversalSource = getTraversalSource(context);
     evalOpInternal(context, context::getGremlinExecutor, traversalSource);
   }
 }

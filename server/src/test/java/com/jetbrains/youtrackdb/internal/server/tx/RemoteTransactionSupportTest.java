@@ -8,9 +8,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
-
-  private static final String FIELD_VALUE = "VALUE";
-
   @Override
   public void beforeTest() {
     GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
@@ -28,11 +25,11 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     traversal.command("create index UniqueIndexedTx.name on UniqueIndexedTx (name) UNIQUE");
   }
 
-  @Ignore
   @Test
   public void testUpdateInTxTransaction() {
     var id = traversal.computeInTx(g -> {
       var vId = g.addV("SomeTx").property("name", "Joe").id().next();
+      var v = g.V(vId).next();
       var updateVertices = g.V(vId).property("name", "Jane").
           V().has("SomeTx", "name", "Jane").property("name", "July").
           V().has("SomeTx", "name", "July").count().next();

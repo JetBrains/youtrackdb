@@ -2,6 +2,7 @@ package org.apache.tinkerpop.gremlin.driver.remote;
 
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -260,7 +261,7 @@ public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider 
             }
           }
 
-          return RemoteGraph.open(new DriverRemoteConnection(cluster, config), config);
+          return RemoteGraph.open(new YTDBDriverRemoteConnection(cluster, config), config);
         });
   }
 

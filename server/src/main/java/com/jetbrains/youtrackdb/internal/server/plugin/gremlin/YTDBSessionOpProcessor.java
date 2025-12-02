@@ -86,6 +86,31 @@ public final class YTDBSessionOpProcessor extends YTDBAbstractOpProcessor {
   }
 
   @Override
+  public ThrowingConsumer<Context> select(Context context) throws OpProcessorException {
+    var requestMessage = context.getRequestMessage();
+    if (requestMessage.getOp().equals(Tokens.OPS_CLOSE)) {
+      // this must be an in-session request
+      if (requestMessage.optionalArgs(Tokens.ARGS_SESSION).isEmpty()) {
+        final var msg = String.format("A message with an [%s] op code requires a [%s] argument",
+            Tokens.OPS_CLOSE, Tokens.ARGS_SESSION);
+        throw new OpProcessorException(msg,
+            ResponseMessage.build(requestMessage).
+                code(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS).statusMessage(msg)
+                .create());
+      }
+
+      return rhc -> {
+        // send back a confirmation of the close
+        rhc.writeAndFlush(ResponseMessage.build(requestMessage)
+            .code(ResponseStatusCode.NO_CONTENT)
+            .create());
+      };
+    }
+
+    return super.select(context);
+  }
+
+  @Override
   public ThrowingConsumer<Context> getEvalOp(YTDBGraphTraversalSource traversalSource) {
     return ctx -> this.evalOp(ctx, traversalSource);
   }
@@ -164,5 +189,49 @@ public final class YTDBSessionOpProcessor extends YTDBAbstractOpProcessor {
       YTDBGraphTraversalSource traversalSource) {
     var session = getSession(context, context.getRequestMessage(), traversalSource);
     return session.getGremlinExecutor();
+  }
+
+  @Override
+  protected YTDBGraphTraversalSource getTraversalSource(Context context)
+      throws OpProcessorException {
+
+    var msg = context.getRequestMessage();
+    final var sessionId = (String) msg.getArgs().get(Tokens.ARGS_SESSION);
+    var session = sessions.get(sessionId);
+    if (session == null) {
+      throw new OpProcessorException(String.format("Session %s not found", sessionId),
+          ResponseMessage.build(msg).code(ResponseStatusCode.SERVER_ERROR).create());
+    }
+
+    return session.getGraphTraversalSource();
+  }
+
+  @Override
+  protected YTDBGraphTraversalSource initTraversalSourceIfAbsent(Context context)
+      throws OpProcessorException {
+    try {
+      var msg = context.getRequestMessage();
+      final var sessionId = (String) msg.getArgs().get(Tokens.ARGS_SESSION);
+
+      var session = sessions.computeIfAbsent(sessionId,
+          k -> {
+            try {
+              return new YTDBGremlinSession(k, context,
+                  doInitTraversalSource(context), sessions);
+            } catch (OpProcessorException e) {
+              throw new RuntimeException("Error initializing of server session ", e);
+            }
+          }
+      );
+
+      session.touch();
+      return session.getGraphTraversalSource();
+    } catch (Exception e) {
+      if (e.getCause() instanceof OpProcessorException processorException) {
+        throw processorException;
+      }
+
+      throw e;
+    }
   }
 }

@@ -40,8 +40,7 @@ public interface YTDBGraph extends Graph {
   /// method.
   default <X extends Exception> void executeInTx(
       @Nonnull FailableConsumer<YTDBGraphTraversalSource, X> code) throws X {
-    var tx = tx();
-    YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
+    YTDBTransaction.executeInTX(code, traversal());
   }
 
   /// Start a new transaction if it is not yet started and executes passed in code in it and then
@@ -53,7 +52,7 @@ public interface YTDBGraph extends Graph {
   default <X extends Exception, R> R computeInTx(
       @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
     var tx = tx();
-    return YTDBTransaction.computeInTx(code, (YTDBTransaction) tx);
+    return YTDBTransaction.computeInTx(code, traversal());
   }
 
   /// Start a new transaction if it is not yet started and executes passed in code in it.
@@ -68,6 +67,6 @@ public interface YTDBGraph extends Graph {
       @Nonnull FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code)
       throws X {
     var tx = tx();
-    YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
+    YTDBTransaction.executeInTX(code, traversal());
   }
 }

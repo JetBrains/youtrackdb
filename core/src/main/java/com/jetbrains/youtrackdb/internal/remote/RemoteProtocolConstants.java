@@ -20,4 +20,6 @@ public interface RemoteProtocolConstants {
   String SERVER_COMMAND_EXISTS = "ytdb-server-command-exists";
   String SERVER_COMMAND_RESTORE = "ytdb-server-command-restore";
   String SERVER_COMMAND_CREATE_SYSTEM_USER = "ytdb-server-command-create-system-user";
+
+  String RESULT_METADATA_COMMITTED_RIDS_KEY = "committedRIDs";
 }

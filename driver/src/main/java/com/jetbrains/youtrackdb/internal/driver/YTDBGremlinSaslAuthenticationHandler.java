@@ -39,7 +39,7 @@ public final class YTDBGremlinSaslAuthenticationHandler extends
   private static final AttributeKey<SaslClient> saslClientKey = AttributeKey.valueOf("saslclient");
   public static final AttributeKey<String> SASL_AUTH_ID = AttributeKey.valueOf("saslAuthId");
 
-  private static final Map<String, String> SASL_PROPERTIES = new HashMap<String, String>() {{
+  private static final Map<String, String> SASL_PROPERTIES = new HashMap<>() {{
     put(
         Sasl.SERVER_AUTH, "true");
   }};
