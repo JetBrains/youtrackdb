@@ -4973,7 +4973,6 @@ public abstract class AbstractStorage
           // somehwo get it from id
           FileHandler fileHandler = null;
 
-          final var fileHandler = readCache.loadFileHandler(fileId);
           var cacheEntry = readCache.loadForWrite(fileHandler, pageIndex, writeCache, true, null);
           if (cacheEntry == null) {
             do {

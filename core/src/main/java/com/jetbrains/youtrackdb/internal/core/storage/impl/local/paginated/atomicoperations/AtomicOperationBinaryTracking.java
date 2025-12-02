@@ -23,8 +23,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -109,11 +107,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public long getOperationUnitId() {
     return operationUnitId;
-  }
-
-  @Override
-  public FileHandler loadFileHandler(long fileId) {
-    return readCache.loadFileHandler(fileId);
   }
 
   @Nullable

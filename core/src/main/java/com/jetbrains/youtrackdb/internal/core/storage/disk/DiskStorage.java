@@ -1520,7 +1520,6 @@ public class DiskStorage extends AbstractStorage {
       stream.write(binaryFileId, 0, binaryFileId.length);
 
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var fileHandler = readCache.loadFileHandler(fileId);
         final var cacheEntry =
             readCache.silentLoadForRead(fileHandler, pageIndex, writeCache, true);
         cacheEntry.acquireSharedLock();

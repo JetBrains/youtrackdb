@@ -133,7 +133,6 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   protected CacheEntry loadPageForRead(
       final AtomicOperation atomicOperation, final FileHandler fileHandler, final long pageIndex)
       throws IOException {
-    final var fileHandler = readCache.loadFileHandler(fileId);
     if (atomicOperation == null) {
       return readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
     }
