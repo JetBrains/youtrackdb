@@ -3,11 +3,13 @@ package com.jetbrains.youtrackdb.internal.server.tx;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.server.BaseServerMemoryDatabase;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
+
   @Override
   public void beforeTest() {
     GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
@@ -29,7 +31,6 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   public void testUpdateInTxTransaction() {
     var id = traversal.computeInTx(g -> {
       var vId = g.addV("SomeTx").property("name", "Joe").id().next();
-      var v = g.V(vId).next();
       var updateVertices = g.V(vId).property("name", "Jane").
           V().has("SomeTx", "name", "Jane").property("name", "July").
           V().has("SomeTx", "name", "July").count().next();
@@ -45,23 +46,33 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
   @Test
-  @Ignore
   public void testRollbackTxTransactionScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into SomeTx set name = 'Jane';
-//        commit;
-//
-//        begin;
-//        insert into SomeTx set name = 'Jane';
-//        let $res = update SomeTx set name = 'July' where name = 'Jane';
-//        select assert(eval("$res[0].count = 2"), 'count is not 2');
-//        rollback;
-//
-//        begin;
-//        select assert(eval("count = 1"), 'count is not 1') from(select count(*) as count from SomeTx where name = 'Jane');
-//        commit;
-//        """);
+    var vId = traversal.computeInTx(g ->
+        g.addV("SomeTx").property("name", "Joe").id().next()
+    );
+
+    var rollback = new AtomicBoolean(false);
+    try {
+      traversal.executeInTx(g -> {
+        var updateVertices = g.V(vId).property("name", "Jane").
+            V().has("SomeTx", "name", "Jane").property("name", "July").
+            V().has("SomeTx", "name", "July").count().next();
+        Assert.assertEquals(1L, updateVertices.longValue());
+
+        rollback.set(true);
+        g.inject(1).fail().iterate();
+      });
+    } catch (Exception e) {
+      //ignore
+    }
+
+    Assert.assertTrue(rollback.get());
+
+    var v = traversal.computeInTx(g ->
+        g.V(vId).next()
+    );
+
+    Assert.assertEquals("Joe", v.<String>value("name"));
   }
 
 

@@ -15,7 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBTransaction extends AbstractTransaction {
-
   private static final Logger logger = LoggerFactory.getLogger(YTDBTransaction.class);
 
   private Consumer<Transaction> readWriteConsumerInternal = READ_WRITE_BEHAVIOR.AUTO;
@@ -38,13 +37,7 @@ public final class YTDBTransaction extends AbstractTransaction {
       code.accept(tx.begin(YTDBGraphTraversalSource.class));
       ok = true;
     } finally {
-      if (tx.isOpen()) {
-        if (ok) {
-          tx.commit();
-        } else {
-          tx.rollback();
-        }
-      }
+      finishTx(ok, tx);
     }
   }
 
@@ -58,13 +51,7 @@ public final class YTDBTransaction extends AbstractTransaction {
       traversal.iterate();
       ok = true;
     } finally {
-      if (tx.isOpen()) {
-        if (ok) {
-          tx.commit();
-        } else {
-          tx.rollback();
-        }
-      }
+      finishTx(ok, tx);
     }
   }
 
@@ -73,30 +60,32 @@ public final class YTDBTransaction extends AbstractTransaction {
       FailableFunction<YTDBGraphTraversalSource, R, X> code, YTDBGraphTraversalSource g) throws X {
     var ok = false;
     R result;
-
     var tx = g.tx();
     try {
       result = code.apply(tx.begin(YTDBGraphTraversalSource.class));
       ok = true;
     } finally {
-      if (tx.isOpen()) {
-        if (ok) {
-          try {
-            tx.commit();
-          } catch (Exception e) {
-            logger.error("Failed to commit transaction", e);
-          }
-        } else {
-          try {
-            tx.rollback();
-          } catch (Exception e) {
-            logger.error("Failed to rollback transaction", e);
-          }
+      finishTx(ok, tx);
+    }
+    return result;
+  }
+
+  private static void finishTx(boolean ok, Transaction tx) {
+    if (tx.isOpen()) {
+      if (ok) {
+        try {
+          tx.commit();
+        } catch (Exception e) {
+          logger.error("Failed to commit transaction", e);
+        }
+      } else {
+        try {
+          tx.rollback();
+        } catch (Exception e) {
+          logger.error("Failed to rollback transaction", e);
         }
       }
     }
-
-    return result;
   }
 
   @Override
