@@ -1,19 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.LockManager;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
-import com.jetbrains.youtrackdb.internal.common.util.RawPairLongInteger;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.BoundedBuffer;
@@ -21,9 +24,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.Buffe
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.writequeue.MPSCLinkedQueue;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -36,26 +39,29 @@ import javax.annotation.Nullable;
  * handling set of events logged in lock free event buffer. This feature first was introduced in
  * Caffeine framework <a href="https://github.com/ben-manes/caffeine">...</a> and in
  * ConcurrentLinkedHashMap library
- * <a href="https://github.com/ben-manes/concurrentlinkedhashmap">...</a>. The difference is that if
- * consumption of
- * memory in cache is bigger than 1% disk cache is switched from asynchronous processing of stream
- * of events to synchronous processing. But that is true only for threads which cause loading of
- * additional pages from write cache to disk cache. Window TinyLFU policy is used as cache eviction
- * policy because it prevents usage of ghost entries and as result considerably decrease usage of
- * heap memory.
+ * <a href="https://github.com/ben-manes/concurrentlinkedhashmap">...</a>. The difference is that
+ * if consumption of memory in cache is bigger than 1% disk cache is switched from asynchronous
+ * processing of stream of events to synchronous processing. But that is true only for threads which
+ * cause loading of additional pages from write cache to disk cache. Window TinyLFU policy is used
+ * as cache eviction policy because it prevents usage of ghost entries and as result considerably
+ * decrease usage of heap memory.
  */
 public final class LockFreeReadCache implements ReadCache {
 
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
 
-  private final ConcurrentHashMap<PageKey, CacheEntry> data;
+  private final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
+      new CacheEntryPlaceholder();
+
+  private final ConcurrentHashMap<Long/*fileId*/, FileHandler> data; // todo replace with primitive concurrent hash map
   private final Lock evictionLock = new ReentrantLock();
 
   private final WTinyLFUPolicy policy;
 
   private final Buffer readBuffer = new BoundedBuffer();
   private final MPSCLinkedQueue<CacheEntry> writeBuffer = new MPSCLinkedQueue<>();
+  private final LockManager<PageKey> lockManager = new PartitionedLockManager<PageKey>();
   private final AtomicInteger cacheSize = new AtomicInteger();
   private final int maxCacheSize;
 
@@ -93,12 +99,13 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public long addFile(final String fileName, final WriteCache writeCache) throws IOException {
+  public FileHandler addFile(final String fileName, final WriteCache writeCache)
+      throws IOException {
     return writeCache.addFile(fileName);
   }
 
   @Override
-  public long addFile(final String fileName, long fileId, final WriteCache writeCache)
+  public FileHandler addFile(final String fileName, long fileId, final WriteCache writeCache)
       throws IOException {
     assert fileId >= 0;
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
@@ -107,12 +114,12 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public CacheEntry loadForWrite(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    final var cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    final var cacheEntry = doLoad(fileHandler, (int) pageIndex, writeCache, verifyChecksums);
 
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
@@ -124,58 +131,47 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public CacheEntry loadForRead(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    return doLoad(fileHandler, (int) pageIndex, writeCache, verifyChecksums);
   }
 
   @Nullable
   @Override
   public CacheEntry silentLoadForRead(
-      final long extFileId,
+      final FileHandler fileHandler,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final var pageKey = new PageKey(fileId, pageIndex);
+    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(),
+        fileHandler.fileId());
+    assert fileId == fileHandler.fileId() :
+        "File id in handler is different. New FileHandler has to be constructed";
 
+    final var updatedEntry = new CacheEntry[1];
     for (; ; ) {
-      var cacheEntry = data.get(pageKey);
-
+      @SuppressWarnings("unechecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      var cacheEntry = casArray.get(pageIndex);
       if (cacheEntry == null) {
-        final var updatedEntry = new CacheEntry[1];
 
-        cacheEntry =
-            data.compute(
-                pageKey,
-                (page, entry) -> {
-                  if (entry == null) {
-                    try {
-                      final var pointer =
-                          writeCache.load(
-                              fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-                      if (pointer == null) {
-                        return null;
-                      }
+        try {
+          final var pointer = writeCache.load(fileHandler.fileId(), pageIndex,
+              new ModifiableBoolean(), verifyChecksums);
+          if (pointer != null) {
+            updatedEntry[0] = new CacheEntryImpl(fileHandler.fileId(), pageIndex, pointer, false,
+                this);
+          }
 
-                      updatedEntry[0] =
-                          new CacheEntryImpl(
-                              page.fileId(), page.pageIndex(), pointer, false, this);
-                      return null;
-                    } catch (final IOException e) {
-                      throw BaseException.wrapException(
-                          new StorageException(writeCache.getStorageName(),
-                              "Error during loading of page " + pageIndex + " for file " + fileId),
-                          e, writeCache.getStorageName());
-                    }
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(writeCache.getStorageName(),
+                  "Error during loading of page " + pageIndex + " for file " + fileId),
+              e, writeCache.getStorageName());
+        }
 
-                  } else {
-                    return entry;
-                  }
-                });
-
+        cacheEntry = casArray.get(pageIndex);
         if (cacheEntry == null) {
           cacheEntry = updatedEntry[0];
         }
@@ -192,13 +188,10 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Nullable
   private CacheEntry doLoad(
-      final long extFileId,
+      final FileHandler fileHandler,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final var pageKey = new PageKey(fileId, pageIndex);
-
     var success = false;
     try {
       while (true) {
@@ -206,69 +199,66 @@ public final class LockFreeReadCache implements ReadCache {
 
         CacheEntry cacheEntry;
 
-        cacheEntry = data.get(pageKey);
-
+        @SuppressWarnings("unchecked")
+        var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+        //search for page in an array
+        cacheEntry = casArray.get(pageIndex);
+        var read = true;
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
             afterRead(cacheEntry);
-            success = true;
-
             return cacheEntry;
           }
         } else {
-          final var read = new boolean[1];
-
-          cacheEntry =
-              data.compute(
-                  pageKey,
-                  (page, entry) -> {
-                    if (entry == null) {
-                      try {
-                        final var pointer =
-                            writeCache.load(
-                                fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-                        if (pointer == null) {
-                          return null;
-                        }
-
-                        cacheSize.incrementAndGet();
-                        return new CacheEntryImpl(
-                            page.fileId(), page.pageIndex(), pointer, true, this);
-                      } catch (final IOException e) {
-                        throw BaseException.wrapException(
-                            new StorageException(writeCache.getStorageName(),
-                                "Error during loading of page " + pageIndex + " for file "
-                                    + fileId),
-                            e, writeCache.getStorageName());
-                      }
-                    } else {
-                      read[0] = true;
-                      return entry;
-                    }
-                  });
-
-          if (cacheEntry == null) {
-            return null;
-          }
-
-          if (cacheEntry.acquireEntry()) {
-            if (read[0]) {
-              success = true;
-              afterRead(cacheEntry);
-            } else {
-              afterAdd(cacheEntry);
-
-              try {
-                writeCache.checkCacheOverflow();
-              } catch (final java.lang.InterruptedException e) {
-                throw BaseException.wrapException(
-                    new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                    e, writeCache.getStorageName());
+          try {
+            var pageKey = new PageKey(fileHandler.fileId(), pageIndex);
+            var pageLock = lockManager.acquireExclusiveLock(pageKey);
+            try {
+              final var pointer = writeCache.load(
+                  fileHandler.fileId(), pageIndex, new ModifiableBoolean(), verifyChecksums);
+              if (pointer == null) {
+                return null;
               }
+              cacheEntry = casArray.get(pageIndex);
+              if (cacheEntry != null) {
+                read = true;
+              } else {
+                cacheSize.incrementAndGet();
+                var newCacheEntry = new CacheEntryImpl(pageKey, pointer, true, this);
+                casArray.set(pageIndex, newCacheEntry,
+                    LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
+                cacheEntry = newCacheEntry;
+                read = false;
+              }
+            } finally {
+              pageLock.unlock();
             }
-
-            return cacheEntry;
+          } catch (final IOException e) {
+            throw BaseException.wrapException(
+                new StorageException(writeCache.getStorageName(),
+                    "Error during loading of page " + pageIndex + " for file "
+                        + fileHandler.fileId()),
+                e, writeCache.getStorageName());
           }
+        }
+
+        if (cacheEntry.acquireEntry()) {
+          if (read) {
+            success = true;
+            afterRead(cacheEntry);
+          } else {
+            afterAdd(cacheEntry);
+
+            try {
+              writeCache.checkCacheOverflow();
+            } catch (final java.lang.InterruptedException e) {
+              throw BaseException.wrapException(
+                  new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                  e, writeCache.getStorageName());
+            }
+          }
+
+          return cacheEntry;
         }
       }
     } finally {
@@ -276,21 +266,27 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
-  private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
-
+  private CacheEntry addNewPagePointerToTheCache(final FileHandler fileHandler,
+      final int pageIndex) {
     final var pointer = bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
-    final var cachePointer = new CachePointer(pointer, bufferPool, fileId, pageIndex);
+    final var cachePointer = new CachePointer(pointer, bufferPool, fileHandler.fileId(),
+        pageIndex);
     cachePointer.incrementReadersReferrer();
     DurablePage.setLogSequenceNumberForPage(
         pointer.getNativeByteBuffer(), new LogSequenceNumber(-1, -1));
 
-    final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
+    final CacheEntry cacheEntry = new CacheEntryImpl(fileHandler.fileId(), pageIndex,
+        cachePointer,
+        true, this);
     cacheEntry.acquireEntry();
 
-    final var oldCacheEntry = data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
-    if (oldCacheEntry != null) {
+    @SuppressWarnings("unchecked")
+    var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    //if cas does not work, it means old entry is present
+    final var oldCacheEntryPresent = !casArray.compareAndSet(pageIndex, null, cacheEntry);
+    if (oldCacheEntryPresent) {
       throw new IllegalStateException(
-          "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
+          "Page  " + fileHandler.fileId() + ":" + pageIndex + " was allocated in other thread");
     }
 
     afterAdd(cacheEntry);
@@ -329,12 +325,13 @@ public final class LockFreeReadCache implements ReadCache {
       }
 
       data.compute(
-          cacheEntry.getPageKey(),
-          (page, entry) -> {
+          // todo this logic I don't get yet, need to ponder on it
+          cacheEntry.getFileId(),
+          (fId, entry) -> {
             writeCache.store(
                 cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry.getCachePointer());
-            return entry; // may be absent if page in pinned pages, in such case we use map as
-            // virtual lock
+            return entry; // may be absent if page is in the pinned pages,
+            // in such case we use map as virtual lock
           });
     }
 
@@ -362,11 +359,12 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public CacheEntry allocateNewPage(
-      long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN)
+      FileHandler fileHandler, final WriteCache writeCache, final LogSequenceNumber startLSN)
       throws IOException {
-    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
+    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(),
+        fileHandler.fileId());
     final var newPageIndex = writeCache.allocateNewPage(fileId);
-    final var cacheEntry = addNewPagePointerToTheCache(fileId, newPageIndex);
+    final var cacheEntry = addNewPagePointerToTheCache(fileHandler, newPageIndex);
 
     cacheEntry.acquireExclusiveLock();
     cacheEntry.markAllocated();
@@ -492,16 +490,23 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      for (final var entry : data.values()) {
-        if (entry.freeze()) {
-          policy.onRemove(entry);
-        } else {
-          throw new StorageException(null,
-              "Page with index "
-                  + entry.getPageIndex()
-                  + " for file id "
-                  + entry.getFileId()
-                  + " is used and cannot be removed");
+      for (final var fileHandler : data.values()) {
+        // we don't expose this array as part of the public API
+        // however here we have to use it in our internal algorithm
+        @SuppressWarnings("unchecked")
+        var cacheEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+        for (var i = 0; i < cacheEntries.size(); i++) {
+          var entry = cacheEntries.get(i);
+          if (entry.freeze()) {
+            policy.onRemove(entry);
+          } else {
+            throw new StorageException(null,
+                "Page with index "
+                    + entry.getPageIndex()
+                    + " for file id "
+                    + entry.getFileId()
+                    + " is used and cannot be removed");
+          }
         }
       }
 
@@ -513,43 +518,32 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public void truncateFile(long fileId, final WriteCache writeCache) throws IOException {
-    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+  public void truncateFile(long fileId, final WriteCache writeCache)
+      throws IOException {
     writeCache.truncateFile(fileId);
 
-    clearFile(fileId, filledUpTo, writeCache);
+    clearFile(fileId, writeCache);
   }
 
   @Override
-  public void closeFile(long fileId, final boolean flush, final WriteCache writeCache) {
-    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
-
-    clearFile(fileId, filledUpTo, writeCache);
-    writeCache.close(fileId, flush);
+  public void closeFile(FileHandler fileHandler, final boolean flush, final WriteCache writeCache) {
+    clearFile(fileHandler.fileId(), writeCache);
+    writeCache.close(fileHandler, flush);
   }
 
   @Override
   public void deleteFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
-    clearFile(fileId, filledUpTo, writeCache);
+    clearFile(fileId, writeCache);
     writeCache.deleteFile(fileId);
   }
 
   @Override
   public void deleteStorage(final WriteCache writeCache) throws IOException {
     final var files = writeCache.files().values();
-    final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
-    for (final long fileId : files) {
-      filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
-    }
-
-    for (final var entry : filledUpTo) {
-      clearFile(entry.first, entry.second, writeCache);
+    for (final var fileHandlers : files) {
+      clearFile(fileHandlers.fileId(), writeCache);
     }
 
     writeCache.delete();
@@ -558,26 +552,22 @@ public final class LockFreeReadCache implements ReadCache {
   @Override
   public void closeStorage(final WriteCache writeCache) throws IOException {
     final var files = writeCache.files().values();
-    final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
-    for (final long fileId : files) {
-      filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
-    }
-
-    for (final var entry : filledUpTo) {
-      clearFile(entry.first, entry.second, writeCache);
+    for (final var fileHandler : files) {
+      clearFile(fileHandler.fileId(), writeCache);
     }
 
     writeCache.close();
   }
 
-  private void clearFile(final long fileId, final int filledUpTo, final WriteCache writeCache) {
+  private void clearFile(final long fileId, final WriteCache writeCache) {
     evictionLock.lock();
     try {
       emptyBuffers();
 
-      for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var pageKey = new PageKey(fileId, pageIndex);
-        final var cacheEntry = data.remove(pageKey);
+      final var fileHandler = data.remove(fileId);
+      @SuppressWarnings("unchecked") final var pageEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      for (var pageIndex = 0; pageIndex < pageEntries.size(); pageIndex++) {
+        final var cacheEntry = pageEntries.get(pageIndex);
         if (cacheEntry != null) {
           if (cacheEntry.freeze()) {
             policy.onRemove(cacheEntry);
@@ -652,5 +642,199 @@ public final class LockFreeReadCache implements ReadCache {
   private static int ceilingPowerOfTwo(final int x) {
     // From Hacker's Delight, Chapter 3, Harry S. Warren Jr.
     return 1 << -Integer.numberOfLeadingZeros(x - 1);
+  }
+
+  private class CacheEntryPlaceholder implements CacheEntry {
+
+    private final long fileId = -1;
+    private final int pageIndex = -1;
+    private final LogSequenceNumber lsn = new LogSequenceNumber(-1, -1);
+    private CacheEntry emptyPointer;
+
+    @Override
+    public CachePointer getCachePointer() {
+      throw new UnsupportedOperationException(
+          "This object is a placeholder and does not support cachePointer");
+    }
+
+    @Override
+    public void clearCachePointer() {
+
+    }
+
+    @Override
+    public long getFileId() {
+      return fileId;
+    }
+
+    @Override
+    public int getPageIndex() {
+      return pageIndex;
+    }
+
+    @Override
+    public void acquireExclusiveLock() {
+
+    }
+
+    @Override
+    public void releaseExclusiveLock() {
+
+    }
+
+    @Override
+    public void acquireSharedLock() {
+
+    }
+
+    @Override
+    public void releaseSharedLock() {
+
+    }
+
+    @Override
+    public int getUsagesCount() {
+      return 0;
+    }
+
+    @Override
+    public void incrementUsages() {
+
+    }
+
+    @Override
+    public boolean isLockAcquiredByCurrentThread() {
+      return false;
+    }
+
+    @Override
+    public void decrementUsages() {
+
+    }
+
+    @Override
+    public WALChanges getChanges() {
+      return new WALPageChangesPortion();
+    }
+
+    @Override
+    public LogSequenceNumber getEndLSN() {
+      return lsn;
+    }
+
+    @Override
+    public LogSequenceNumber getInitialLSN() {
+      return lsn;
+    }
+
+    @Override
+    public void setInitialLSN(LogSequenceNumber lsn) {
+
+    }
+
+    @Override
+    public void setEndLSN(LogSequenceNumber endLSN) {
+
+    }
+
+    @Override
+    public boolean acquireEntry() {
+      return false;
+    }
+
+    @Override
+    public void releaseEntry() {
+
+    }
+
+    @Override
+    public boolean isReleased() {
+      return false;
+    }
+
+    @Override
+    public boolean isAlive() {
+      return false;
+    }
+
+    @Override
+    public boolean freeze() {
+      return false;
+    }
+
+    @Override
+    public boolean isFrozen() {
+      return false;
+    }
+
+    @Override
+    public void makeDead() {
+
+    }
+
+    @Override
+    public boolean isDead() {
+      return false;
+    }
+
+    @Override
+    public CacheEntry getNext() {
+      return emptyPointer;
+    }
+
+    @Override
+    public CacheEntry getPrev() {
+      return emptyPointer;
+    }
+
+    @Override
+    public void setPrev(CacheEntry prev) {
+
+    }
+
+    @Override
+    public void setNext(CacheEntry next) {
+
+    }
+
+    @Override
+    public void setContainer(LRUList lruList) {
+
+    }
+
+    @Override
+    public LRUList getContainer() {
+      return new LRUList();
+    }
+
+    @Override
+    public boolean isNewlyAllocatedPage() {
+      return false;
+    }
+
+    @Override
+    public void markAllocated() {
+
+    }
+
+    @Override
+    public void clearAllocationFlag() {
+
+    }
+
+    @Override
+    public boolean insideCache() {
+      return false;
+    }
+
+    @Override
+    public PageKey getPageKey() {
+      return new PageKey(fileId, pageIndex);
+    }
+
+    @Override
+    public void close() throws IOException {
+
+    }
   }
 }

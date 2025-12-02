@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagBucketPointer;
@@ -12,10 +13,11 @@ public interface AtomicOperation {
 
   long getOperationUnitId();
 
-  CacheEntry loadPageForWrite(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)
+  CacheEntry loadPageForWrite(FileHandler fileHandler, long pageIndex, int pageCount,
+      boolean verifyChecksum)
       throws IOException;
 
-  CacheEntry loadPageForRead(long fileId, long pageIndex) throws IOException;
+  CacheEntry loadPageForRead(FileHandler fileHandler, long pageIndex) throws IOException;
 
   void addMetadata(AtomicOperationMetadata<?> metadata);
 
@@ -25,7 +27,7 @@ public interface AtomicOperation {
 
   Set<LinkBagBucketPointer> getDeletedBonsaiPointers();
 
-  CacheEntry addPage(long fileId) throws IOException;
+  CacheEntry addPage(FileHandler fileHandler) throws IOException;
 
   void releasePageFromRead(CacheEntry cacheEntry);
 
@@ -33,9 +35,9 @@ public interface AtomicOperation {
 
   long filledUpTo(long fileId);
 
-  long addFile(String fileName) throws IOException;
+  FileHandler addFile(String fileName) throws IOException;
 
-  long loadFile(String fileName) throws IOException;
+  FileHandler loadFile(String fileName) throws IOException;
 
   void deleteFile(long fileId) throws IOException;
 
@@ -59,7 +61,8 @@ public interface AtomicOperation {
 
   Iterable<String> lockedObjects();
 
-  void addDeletedRecordPosition(final int collectionId, final int pageIndex, final int recordPosition);
+  void addDeletedRecordPosition(final int collectionId, final int pageIndex,
+      final int recordPosition);
 
   IntSet getBookedRecordPositions(final int collectionId, final int pageIndex);
 

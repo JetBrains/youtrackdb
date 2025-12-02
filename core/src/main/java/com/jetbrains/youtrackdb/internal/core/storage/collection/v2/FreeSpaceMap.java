@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
@@ -14,7 +15,7 @@ public final class FreeSpaceMap extends DurableComponent {
   static final int NORMALIZATION_INTERVAL =
       (int) Math.floor(DurablePage.MAX_PAGE_SIZE_BYTES / 256.0);
 
-  private long fileId;
+  private FileHandler fileHandler;
 
   public FreeSpaceMap(
       @Nonnull AbstractStorage storage,
@@ -29,16 +30,16 @@ public final class FreeSpaceMap extends DurableComponent {
   }
 
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileHandler = addFile(atomicOperation, getFullName());
     init(atomicOperation);
   }
 
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileHandler = openFile(atomicOperation, getFullName());
   }
 
   private void init(final AtomicOperation atomicOperation) throws IOException {
-    try (final var firstLevelCacheEntry = addPage(atomicOperation, fileId)) {
+    try (final var firstLevelCacheEntry = addPage(atomicOperation, fileHandler)) {
       final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
       page.init();
     }
@@ -50,7 +51,7 @@ public final class FreeSpaceMap extends DurableComponent {
     final var atomicOperation = atomicOperationsManager.getCurrentOperation();
     final int localSecondLevelPageIndex;
 
-    try (final var firstLevelEntry = loadPageForRead(atomicOperation, fileId, 0)) {
+    try (final var firstLevelEntry = loadPageForRead(atomicOperation, fileHandler, 0)) {
       final var page = new FreeSpaceMapPage(firstLevelEntry);
       localSecondLevelPageIndex = page.findPage(normalizedSize);
       if (localSecondLevelPageIndex < 0) {
@@ -60,7 +61,7 @@ public final class FreeSpaceMap extends DurableComponent {
 
     final var secondLevelPageIndex = localSecondLevelPageIndex + 1;
     try (final var leafEntry =
-        loadPageForRead(atomicOperation, fileId, secondLevelPageIndex)) {
+        loadPageForRead(atomicOperation, fileHandler, secondLevelPageIndex)) {
       final var page = new FreeSpaceMapPage(leafEntry);
       return page.findPage(normalizedSize)
           + localSecondLevelPageIndex * FreeSpaceMapPage.CELLS_PER_PAGE;
@@ -77,10 +78,10 @@ public final class FreeSpaceMap extends DurableComponent {
     final var normalizedSpace = freeSpace / NORMALIZATION_INTERVAL;
     final var secondLevelPageIndex = 1 + pageIndex / FreeSpaceMapPage.CELLS_PER_PAGE;
 
-    final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+    final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler.fileId());
 
     for (var i = 0; i < secondLevelPageIndex - filledUpTo + 1; i++) {
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+      try (final var cacheEntry = addPage(atomicOperation, fileHandler)) {
         final var page = new FreeSpaceMapPage(cacheEntry);
         page.init();
       }
@@ -89,7 +90,7 @@ public final class FreeSpaceMap extends DurableComponent {
     final int maxFreeSpaceSecondLevel;
     final var localSecondLevelPageIndex = pageIndex % FreeSpaceMapPage.CELLS_PER_PAGE;
     try (final var leafEntry =
-        loadPageForWrite(atomicOperation, fileId, secondLevelPageIndex, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, secondLevelPageIndex, true)) {
 
       final var page = new FreeSpaceMapPage(leafEntry);
       maxFreeSpaceSecondLevel =
@@ -97,18 +98,18 @@ public final class FreeSpaceMap extends DurableComponent {
     }
 
     try (final var firstLevelCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, 0, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, 0, true)) {
       final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
       page.updatePageMaxFreeSpace(secondLevelPageIndex - 1, maxFreeSpaceSecondLevel);
     }
   }
 
   public void delete(AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileHandler.fileId());
   }
 
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    writeCache.renameFile(fileHandler.fileId(), newName + getExtension());
     setName(newName);
   }
 }

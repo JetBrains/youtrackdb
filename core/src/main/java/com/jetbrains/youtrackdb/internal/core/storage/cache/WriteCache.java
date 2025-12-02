@@ -61,19 +61,19 @@ public interface WriteCache {
    * @param fileName Name of file to register inside storage.
    * @return Id of registered file
    */
-  long loadFile(String fileName) throws IOException;
+  FileHandler loadFile(String fileName) throws IOException;
 
-  long addFile(String fileName) throws IOException;
+  FileHandler addFile(String fileName) throws IOException;
 
-  long addFile(String fileName, long fileId) throws IOException;
+  FileHandler addFile(String fileName, long fileId) throws IOException;
 
   /**
-   * Returns id associated with given file or value &lt; 0 if such file does not exist.
+   * Returns handler associated with given file or FileHandler.SPECIAL_VALUE_RENAME_WHEN_UNDERSTAND_MEANING_OF_IT
    *
    * @param fileName File name id of which has to be returned.
    * @return id associated with given file or value &lt; 0 if such file does not exist.
    */
-  long fileIdByName(String fileName);
+  FileHandler fileHandlerByName(String fileName);
 
   boolean checkLowDiskSpace() throws IOException;
 
@@ -115,7 +115,7 @@ public interface WriteCache {
 
   long[] close() throws IOException;
 
-  void close(long fileId, boolean flush);
+  void close(FileHandler fileHandler, boolean flush);
 
   PageDataVerificationError[] checkStoredPages(CommandOutputListener commandOutputListener);
 
@@ -137,7 +137,7 @@ public interface WriteCache {
 
   int getId();
 
-  Map<String, Long> files();
+  Map<String, FileHandler> files();
 
   /**
    * DO NOT DELETE THIS METHOD IT IS USED IN ENTERPRISE STORAGE

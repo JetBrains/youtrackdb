@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -14,7 +16,8 @@ public final class WTinyLFUPolicy {
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int maxSize;
-  private final ConcurrentHashMap<PageKey, CacheEntry> data;
+  // todo figure out how data is used
+  private final ConcurrentHashMap<Long, FileHandler> data;
   private final Admittor admittor;
 
   private final AtomicInteger cacheSize;
@@ -28,7 +31,7 @@ public final class WTinyLFUPolicy {
   private int maxSecondLevelSize;
 
   WTinyLFUPolicy(
-      final ConcurrentHashMap<PageKey, CacheEntry> data,
+      final ConcurrentHashMap<Long, FileHandler> data,
       final Admittor admittor,
       final AtomicInteger cacheSize) {
     this.data = data;
@@ -118,7 +121,7 @@ public final class WTinyLFUPolicy {
           probation.moveToTheTail(candidate);
 
           if (victim.freeze()) {
-            final var removed = data.remove(victim.getPageKey(), victim);
+            final var removed = remove(victim);
             victim.makeDead();
 
             if (removed) {
@@ -134,7 +137,7 @@ public final class WTinyLFUPolicy {
           }
         } else {
           if (candidate.freeze()) {
-            final var removed = data.remove(candidate.getPageKey(), candidate);
+            final var removed = remove(candidate);
             candidate.makeDead();
 
             if (removed) {
@@ -153,6 +156,16 @@ public final class WTinyLFUPolicy {
     }
 
     assert protection.size() <= maxProtectedSize;
+  }
+
+  private boolean remove(CacheEntry victim) {
+    // todo discuss with Andrii
+    final var fileHandler = data.get(
+        victim.getPageKey().fileId());
+
+    @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    final var removed = casArray.compareAndSet(victim.getPageIndex(), victim, null);
+    return removed;
   }
 
   void onRemove(final CacheEntry cacheEntry) {
@@ -198,28 +211,41 @@ public final class WTinyLFUPolicy {
   }
 
   void assertConsistency() {
-    for (final var cacheEntry : data.values()) {
-      assert eden.contains(cacheEntry)
-          || protection.contains(cacheEntry)
-          || probation.contains(cacheEntry);
+    // todo discuss with Andrii
+    for (final var fileHandler : data.values()) {
+      @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      for (var i = 0; i < casArray.size(); i++) {
+        var cacheEntry = casArray.get(i);
+        assert eden.contains(cacheEntry)
+            || protection.contains(cacheEntry)
+            || probation.contains(cacheEntry);
+      }
     }
 
     var counter = 0;
     for (final var cacheEntry : eden) {
-      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
+      assert readCacheEntry(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
-    for (final var cacheEntry : probation) {
-      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
+    for (
+        final var cacheEntry : probation) {
+      assert readCacheEntry(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
-    for (final var cacheEntry : protection) {
-      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
+    for (
+        final var cacheEntry : protection) {
+      assert readCacheEntry(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
     assert counter == data.size();
+  }
+
+  private CacheEntry readCacheEntry(PageKey pageKey) {
+    var fileHandler = data.get(pageKey.fileId());
+    @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    return casArray.get(pageKey.pageIndex());
   }
 }

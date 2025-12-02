@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
@@ -27,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -34,8 +36,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExce
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
-import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
@@ -53,7 +53,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   private final Lock metadataLock = new ReentrantLock();
 
-  private final Object2IntOpenHashMap<String> fileNameIdMap = new Object2IntOpenHashMap<>();
+  private final ConcurrentMap<String, FileHandler> fileNameHandlerMap = new ConcurrentHashMap<>();
   private final Int2ObjectOpenHashMap<String> fileIdNameMap = new Int2ObjectOpenHashMap<>();
 
   private final ConcurrentMap<Integer, MemoryFile> files = new ConcurrentHashMap<>();
@@ -68,7 +68,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     this.pageSize = pageSize;
     this.id = id;
     this.storageName = storageName;
-    fileNameIdMap.defaultReturnValue(-1);
   }
 
   @Override
@@ -86,44 +85,37 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public long addFile(final String fileName, final WriteCache writeCache) {
+  public FileHandler addFile(final String fileName, final WriteCache writeCache) {
     metadataLock.lock();
     try {
-      var fileId = fileNameIdMap.getInt(fileName);
+      var fileHandler = fileNameHandlerMap.get(fileName);
 
-      if (fileId == -1) {
+      if (fileHandler == null) {
+        fileHandler = new FileHandler(id, new CASObjectArray<>());
         counter++;
         final var id = counter;
 
         files.put(id, new MemoryFile(this.id, id));
-        fileNameIdMap.put(fileName, id);
-
-        fileId = id;
-
-        fileIdNameMap.put(fileId, fileName);
+        fileNameHandlerMap.put(fileName, fileHandler);
+        fileIdNameMap.put(id, fileName);
       } else {
         throw new StorageException(storageName, fileName + " already exists.");
       }
 
-      return composeFileId(id, fileId);
+      return fileHandler;
     } finally {
       metadataLock.unlock();
     }
   }
 
   @Override
-  public long fileIdByName(final String fileName) {
+  public FileHandler fileHandlerByName(final String fileName) {
     metadataLock.lock();
     try {
-      final var fileId = fileNameIdMap.getInt(fileName);
-      if (fileId > -1) {
-        return fileId;
-      }
+      return fileNameHandlerMap.get(fileName);
     } finally {
       metadataLock.unlock();
     }
-
-    return -1;
   }
 
   @Override
@@ -160,7 +152,8 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public long addFile(final String fileName, final long fileId, final WriteCache writeCache) {
+  public FileHandler addFile(final String fileName, final long fileId,
+      final WriteCache writeCache) {
     final var intId = extractFileId(fileId);
 
     metadataLock.lock();
@@ -169,15 +162,16 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
         throw new StorageException(storageName, "File with id " + intId + " already exists.");
       }
 
-      if (fileNameIdMap.containsKey(fileName)) {
+      if (fileNameHandlerMap.containsKey(fileName)) {
         throw new StorageException(storageName, fileName + " already exists.");
       }
 
       files.put(intId, new MemoryFile(id, intId));
-      fileNameIdMap.put(fileName, intId);
+      var fileHandler = new FileHandler(intId, new CASObjectArray<>());
+      fileNameHandlerMap.put(fileName, fileHandler);
       fileIdNameMap.put(intId, fileName);
 
-      return composeFileId(id, intId);
+      return fileHandler;
     } finally {
       metadataLock.unlock();
     }
@@ -186,13 +180,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   @Nullable
   @Override
   public CacheEntry loadForWrite(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    assert fileId >= 0;
-    final var cacheEntry = doLoad(fileId, pageIndex);
+    assert fileHandler.fileId() >= 0;
+    final var cacheEntry = doLoad(fileHandler, pageIndex);
 
     if (cacheEntry == null) {
       return null;
@@ -205,12 +199,12 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   @Nullable
   @Override
   public CacheEntry loadForRead(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
 
-    final var cacheEntry = doLoad(fileId, pageIndex);
+    final var cacheEntry = doLoad(fileHandler, pageIndex);
 
     if (cacheEntry == null) {
       return null;
@@ -223,13 +217,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public CacheEntry silentLoadForRead(
-      long extFileId, int pageIndex, WriteCache writeCache, boolean verifyChecksums) {
-    return loadForRead(extFileId, pageIndex, writeCache, verifyChecksums);
+      FileHandler fileHandler, int pageIndex, WriteCache writeCache, boolean verifyChecksums) {
+    return loadForRead(fileHandler, pageIndex, writeCache, verifyChecksums);
   }
 
   @Nullable
-  private CacheEntry doLoad(final long fileId, final long pageIndex) {
-    final var intId = extractFileId(fileId);
+  private CacheEntry doLoad(final FileHandler fileHandler, final long pageIndex) {
+    final var intId = extractFileId(fileHandler.fileId());
 
     final var memoryFile = getFile(intId);
     final var cacheEntry = memoryFile.loadPage(pageIndex);
@@ -237,6 +231,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
       return null;
     }
 
+    // todo remove
     synchronized (cacheEntry) {
       cacheEntry.incrementUsages();
     }
@@ -246,8 +241,10 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public CacheEntry allocateNewPage(
-      final long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN) {
-    final var intId = extractFileId(fileId);
+      final FileHandler fileHandler, final WriteCache writeCache,
+      final LogSequenceNumber startLSN) {
+    // todo do we need the id
+    final var intId = extractFileId(fileHandler.fileId());
 
     final var memoryFile = getFile(intId);
     final var cacheEntry = memoryFile.addNewPage(this);
@@ -311,7 +308,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void close(final long fileId, final boolean flush) {
+  public void close(final FileHandler fileHandler, final boolean flush) {
   }
 
   @Override
@@ -324,7 +321,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
         return;
       }
 
-      fileNameIdMap.removeInt(fileName);
+      fileNameHandlerMap.remove(fileName);
       final var file = files.remove(intId);
       if (file != null) {
         file.clear();
@@ -345,10 +342,10 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
         return;
       }
 
-      fileNameIdMap.removeInt(fileName);
+      fileNameHandlerMap.remove(fileName);
 
       fileIdNameMap.put(intId, newFileName);
-      fileNameIdMap.put(newFileName, intId);
+      fileNameHandlerMap.put(newFileName, new FileHandler(intId, new CASObjectArray<>()));
     } finally {
       metadataLock.unlock();
     }
@@ -386,7 +383,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
       files.clear();
       fileIdNameMap.clear();
-      fileNameIdMap.clear();
+      fileNameHandlerMap.clear();
     } finally {
       metadataLock.unlock();
     }
@@ -427,12 +424,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   public boolean exists(final String name) {
     metadataLock.lock();
     try {
-      final var fileId = fileNameIdMap.getInt(name);
-      if (fileId == -1) {
+      final var fileHandler = fileNameHandlerMap.get(name);
+      // do we need to check id is > -1 still?
+      if (fileHandler == null) {
         return false;
       }
 
-      final var memoryFile = files.get(fileId);
+      final var memoryFile = files.get(fileHandler.fileId());
       return memoryFile != null;
     } finally {
       metadataLock.unlock();
@@ -507,28 +505,29 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public long loadFile(final String fileName) {
+  public FileHandler loadFile(final String fileName) {
+    // I suspect we need thid lock because previous collection was not atomic
     metadataLock.lock();
     try {
-      final var fileId = fileNameIdMap.getInt(fileName);
+      final var fileHandler = fileNameHandlerMap.get(fileName);
 
-      if (fileId == -1) {
+      if (fileHandler == null) {
         throw new StorageException(storageName, "File " + fileName + " does not exist.");
       }
 
-      return composeFileId(id, fileId);
+      return fileHandler;
     } finally {
       metadataLock.unlock();
     }
   }
 
   @Override
-  public long addFile(final String fileName) {
+  public FileHandler addFile(final String fileName) {
     return addFile(fileName, null);
   }
 
   @Override
-  public long addFile(final String fileName, final long fileId) {
+  public FileHandler addFile(final String fileName, final long fileId) {
     return addFile(fileName, fileId, null);
   }
 
@@ -578,7 +577,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void truncateFile(final long fileId, final WriteCache writeCache) {
+  public void truncateFile(long fileId, WriteCache writeCache) throws IOException {
     truncateFile(fileId);
   }
 
@@ -588,14 +587,15 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public Map<String, Long> files() {
-    final var result = new Object2LongOpenHashMap<String>(1024);
+  public Map<String, FileHandler> files() {
+    final var result = new ConcurrentHashMap<String, FileHandler>(1024);
 
     metadataLock.lock();
     try {
-      for (final var entry : fileNameIdMap.object2IntEntrySet()) {
-        if (entry.getIntValue() > 0) {
-          result.put(entry.getKey(), composeFileId(id, entry.getIntValue()));
+      for (final var entry : fileNameHandlerMap.entrySet()) {
+        // why it's > 0 and not -1? is 0 a special id?
+        if (entry.getValue().fileId() > 0) {
+          result.put(entry.getKey(), entry.getValue());
         }
       }
     } finally {
@@ -631,8 +631,8 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void closeFile(final long fileId, final boolean flush, final WriteCache writeCache) {
-    close(fileId, flush);
+  public void closeFile(final FileHandler fileHandler, final boolean flush, final WriteCache writeCache) {
+    close(fileHandler, flush);
   }
 
   @Override
