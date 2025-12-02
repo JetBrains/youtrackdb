@@ -14,9 +14,9 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class BaseServerMemoryDatabase {
-
   protected YTDBGraphTraversalSource traversal;
   protected YouTrackDB youTrackDB;
+
   @Rule
   public TestName name = new TestName();
   protected YouTrackDBServer server;

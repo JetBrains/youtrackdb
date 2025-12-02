@@ -1,15 +1,12 @@
 package com.jetbrains.youtrackdb.internal.server.tx;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.server.BaseServerMemoryDatabase;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
-
   @Override
   public void beforeTest() {
     GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
@@ -76,119 +73,41 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   }
 
 
-  @Ignore
   @Test
-  public void testQueryUpdateCreatedInTxSQLTransactionScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into SomeTx set name = 'Jane';
-//        let $res = update SomeTx set name = 'July' where name = 'Jane';
-//        select assert (eval("count = 1"),'count is not 1')from $res;
-//        select assert (eval("name = 'July'"),'name is not July')from SomeTx where name = 'July';
-//        commit;
-//        """);
+  public void testDuplicateIndexTxScriptOne() {
+    traversal.autoExecuteInTx(g ->
+        g.addV("UniqueIndexedTx").property("name", "a")
+    );
+
+    try {
+      traversal.autoExecuteInTx(g ->
+          g.addV("UniqueIndexedTx").property("name", "a")
+      );
+    } catch (Exception e) {
+      //ignore
+    }
+
+    var count = traversal.computeInTx(g ->
+        g.V().has("UniqueIndexedTx", "name", "a").count().next()
+    );
+
+    Assert.assertEquals(1L, count.longValue());
   }
 
-
-  @Ignore
   @Test
-  public void testQueryDeleteTxSQLTransactionScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into SomeTx set name = 'foo';
-//        commit;
-//        begin;
-//        delete from SomeTx;
-//        commit;
-//        begin;
-//        select assert (eval("count = 0"),'count is not 0')from(select count( *) as count from SomeTx);
-//        commit;
-//        """);
-  }
+  public void testDuplicateIndexTxScriptTwo() {
+    try {
+      traversal.autoExecuteInTx(g ->
+          g.addV("UniqueIndexedTx").property("name", "a").
+              addV("UniqueIndexedTx").property("name", "a")
+      );
+    } catch (Exception e) {
+      //ignore
+    }
 
-
-  @Ignore
-  @Test
-  public void testDoubleSaveTransactionScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into SomeTx set name = 'foo';
-//        select assert (eval("count = 1"),'first case count is not 1')from(select count( *) as count
-//        from SomeTx);
-//        commit;
-//        begin;
-//        select assert (eval("count = 1"),'second case count is not 1')from(select count( *) as count
-//        from SomeTx);
-//        commit;
-//        """);
-  }
-
-  @Ignore
-  @Test
-  public void testRefFlushedInTransactionScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        let $entity = insert into SomeTx set name = 'foo';
-//        let $ref = $entity[0]. @rid ;
-//        insert into SomeTx set name = 'bar', ref = $ref;
-//        select assert (eval("count = 2"),'count is not 2')from(select count( *) as count from SomeTx);
-//        commit;
-//        begin;
-//        select assert (eval("$ref = ref"),'incorrect ref value')
-//        from(select ref as ref from SomeTx where name = 'bar');
-//        commit;
-//        """);
-  }
-
-
-  @Ignore
-  @Test
-  public void testGenerateIdCounterTransactionScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into SomeTx set name = 'Jane';
-//        insert into SomeTx set name = 'Jane1';
-//        insert into SomeTx set name = 'Jane2';
-//        insert into SomeTx set name = 'Jane3';
-//        insert into SomeTx set name = 'Jane4';
-//        insert into SomeTx set name = 'Jane2';
-//        select assert (eval("count = 6"),'count is not 6 inside tx')from(select count( *) as count
-//        from SomeTx);
-//        commit;
-//        begin;
-//        select assert (eval("count = 6"),'count is not 6 outside tx')from(select count( *) as count
-//        from SomeTx);
-//        commit;
-//        """);
-  }
-
-
-  @Ignore
-  @Test
-  public void testProperIndexingOnDoubleInternalBeginScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into IndexedTx set name =:fieldValue;
-//        let $entity = insert into SomeTx set name = 'foo';
-//        select assert (eval("count = 1"),'case 1: count is not 1 inside tx')from(select count( *)
-//        as count from $entity);
-//        commit;
-//
-//        begin;
-//        select assert (eval("count = 1"),'case 2: count is not 1 outside tx')from(select count( *)
-//        as count from IndexedTx where name = :fieldValue);
-//        commit;
-//        """, Map.of("fieldValue", FIELD_VALUE));
-  }
-
-  @Ignore
-  @Test(expected = RecordDuplicatedException.class)
-  public void testDuplicateIndexTxScript() {
-//    session.executeSQLScript("""
-//        begin;
-//        insert into UniqueIndexedTx set name = 'a';
-//        insert into UniqueIndexedTx set name = 'a';
-//        commit;
-//        """);
+    var count = traversal.computeInTx(g ->
+        g.V().has("UniqueIndexedTx", "name", "a").count().next()
+    );
+    Assert.assertEquals(0L, count.longValue());
   }
 }
