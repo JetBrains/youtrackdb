@@ -249,7 +249,7 @@ public class FreeSpaceMapTestIT {
   public void after() throws IOException {
     final var writeCache = storage.getWriteCache();
 
-    final var fileId = writeCache.fileIdByName(freeSpaceMap.getFullName());
-    storage.getReadCache().deleteFile(fileId, writeCache);
+    final var fileHandler = writeCache.fileHandlerByName(freeSpaceMap.getFullName());
+    storage.getReadCache().deleteFile(fileHandler.fileId(), writeCache);
   }
 }

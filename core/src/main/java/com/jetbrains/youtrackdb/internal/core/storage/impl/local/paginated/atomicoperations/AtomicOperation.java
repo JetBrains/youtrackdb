@@ -13,8 +13,6 @@ public interface AtomicOperation {
 
   long getOperationUnitId();
 
-  FileHandler loadFileHandler(long fileId);
-
   CacheEntry loadPageForWrite(FileHandler fileHandler, long pageIndex, int pageCount,
       boolean verifyChecksum)
       throws IOException;
@@ -29,7 +27,7 @@ public interface AtomicOperation {
 
   Set<LinkBagBucketPointer> getDeletedBonsaiPointers();
 
-  CacheEntry addPage(long fileId) throws IOException;
+  CacheEntry addPage(FileHandler fileHandler) throws IOException;
 
   void releasePageFromRead(CacheEntry cacheEntry);
 
@@ -37,9 +35,9 @@ public interface AtomicOperation {
 
   long filledUpTo(long fileId);
 
-  long addFile(String fileName) throws IOException;
+  FileHandler addFile(String fileName) throws IOException;
 
-  long loadFile(String fileName) throws IOException;
+  FileHandler loadFile(String fileName) throws IOException;
 
   void deleteFile(long fileId) throws IOException;
 

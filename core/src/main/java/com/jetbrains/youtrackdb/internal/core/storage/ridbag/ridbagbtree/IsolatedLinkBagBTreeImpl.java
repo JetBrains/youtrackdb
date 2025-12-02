@@ -46,7 +46,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
   @Override
   public long getFileId() {
-    return bTree.getFileId();
+    return bTree.getFileHandler().fileId();
   }
 
   @Override

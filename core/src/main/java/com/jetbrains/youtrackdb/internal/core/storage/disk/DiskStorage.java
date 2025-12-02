@@ -57,6 +57,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -1507,9 +1508,8 @@ public class DiskStorage extends AbstractStorage {
     for (var entry : files.entrySet()) {
       final var fileName = entry.getKey();
 
-      long fileId = entry.getValue();
-      fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
-
+      var fileHandler = entry.getValue();
+      final var fileId = writeCache.externalFileId(writeCache.internalFileId(fileHandler.fileId()));
       final var filledUpTo = writeCache.getFilledUpTo(fileId);
       final var zipEntry = new ZipEntry(fileName);
 
@@ -1520,7 +1520,6 @@ public class DiskStorage extends AbstractStorage {
       stream.write(binaryFileId, 0, binaryFileId.length);
 
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var fileHandler = readCache.loadFileHandler(fileId);
         final var cacheEntry =
             readCache.silentLoadForRead(fileHandler, pageIndex, writeCache, true);
         cacheEntry.acquireSharedLock();
@@ -1784,7 +1783,7 @@ public class DiskStorage extends AbstractStorage {
     if (isFull) {
       final var files = writeCache.files();
       for (var entry : files.entrySet()) {
-        final var fileId = writeCache.fileIdByName(entry.getKey());
+        final var fileId = writeCache.fileHandlerByName(entry.getKey()).fileId();
 
         assert entry.getValue().equals(fileId);
         readCache.deleteFile(fileId, writeCache);
@@ -1864,13 +1863,14 @@ public class DiskStorage extends AbstractStorage {
       }
 
       var fileName = zipEntryPath.getFileName().toString();
+      final FileHandler fileHandler;
       if (!writeCache.exists(fileName)) {
-        fileId = readCache.addFile(fileName, expectedFileId, writeCache);
+        fileHandler = readCache.addFile(fileName, expectedFileId, writeCache);
       } else {
-        fileId = writeCache.fileIdByName(fileName);
+        fileHandler = writeCache.fileHandlerByName(fileName);
       }
 
-      if (!writeCache.fileIdsAreEqual(expectedFileId, fileId)) {
+      if (!writeCache.fileIdsAreEqual(expectedFileId, fileHandler.fileId())) {
         throw new StorageException(name,
             "Can not restore database from backup because expected and actual file ids are not the"
                 + " same");
@@ -1903,7 +1903,6 @@ public class DiskStorage extends AbstractStorage {
               Cipher.DECRYPT_MODE, aesKey, expectedFileId, pageIndex, data, encryptionIv);
         }
 
-        final var fileHandler = readCache.loadFileHandler(fileId);
         var cacheEntry = readCache.loadForWrite(fileHandler, pageIndex, writeCache, true, null);
 
         if (cacheEntry == null) {
@@ -1912,7 +1911,7 @@ public class DiskStorage extends AbstractStorage {
               readCache.releaseFromWrite(cacheEntry, writeCache, true);
             }
 
-            cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
+            cacheEntry = readCache.allocateNewPage(fileHandler, writeCache, null);
           } while (cacheEntry.getPageIndex() != pageIndex);
         }
 
@@ -1950,8 +1949,8 @@ public class DiskStorage extends AbstractStorage {
 
     for (var file : currentFiles) {
       if (writeCache.exists(file)) {
-        final var fileId = writeCache.fileIdByName(file);
-        readCache.deleteFile(fileId, writeCache);
+        final var fileHandler = writeCache.fileHandlerByName(file);
+        readCache.deleteFile(fileHandler.fileId(), writeCache);
       }
     }
 

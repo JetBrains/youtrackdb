@@ -44,7 +44,7 @@ public class InvalidRemovedFileIdsIT {
     Map<String, Integer> filesWithIntIds = new HashMap<>();
 
     for (var file : files.entrySet()) {
-      filesWithIntIds.put(file.getKey(), writeCache.internalFileId(file.getValue()));
+      filesWithIntIds.put(file.getKey(), writeCache.internalFileId(file.getValue().fileId()));
     }
 
     db.close();
@@ -90,45 +90,47 @@ public class InvalidRemovedFileIdsIT {
 
     final var c1_cpm_id = files.get("c1.cpm");
     Assert.assertNotNull(c1_cpm_id);
-    Assert.assertTrue(c1_cpm_id > 0);
-    Assert.assertTrue(ids.add(c1_cpm_id));
+    Assert.assertTrue(c1_cpm_id.fileId() > 0);
+    Assert.assertTrue(ids.add(c1_cpm_id.fileId()));
 
     final var c1_pcl_id = files.get("c1.pcl");
     Assert.assertNotNull(c1_pcl_id);
-    Assert.assertTrue(c1_pcl_id > 0);
-    Assert.assertTrue(ids.add(c1_pcl_id));
+    Assert.assertTrue(c1_pcl_id.fileId() > 0);
+    Assert.assertTrue(ids.add(c1_pcl_id.fileId()));
 
     final var c2_cpm_id = files.get("c2.cpm");
     Assert.assertNotNull(c2_cpm_id);
-    Assert.assertTrue(ids.add(c2_cpm_id));
+    Assert.assertTrue(ids.add(c2_cpm_id.fileId()));
     Assert.assertEquals(
-        200, writeCache.internalFileId(c2_cpm_id)); // check that updated file map has been read
+        200,
+        writeCache.internalFileId(c2_cpm_id.fileId())); // check that updated file map has been read
 
     final var c2_pcl_id = files.get("c2.pcl");
     Assert.assertNotNull(c2_pcl_id);
-    Assert.assertTrue(ids.add(c2_pcl_id));
+    Assert.assertTrue(ids.add(c2_pcl_id.fileId()));
     Assert.assertEquals(
-        400, writeCache.internalFileId(c2_pcl_id)); // check that updated file map has been read
+        400,
+        writeCache.internalFileId(c2_pcl_id.fileId())); // check that updated file map has been read
 
     final var c3_cpm_id = files.get("c3.cpm");
     Assert.assertNotNull(c3_cpm_id);
-    Assert.assertTrue(c3_cpm_id > 0);
-    Assert.assertTrue(ids.add(c3_cpm_id));
+    Assert.assertTrue(c3_cpm_id.fileId() > 0);
+    Assert.assertTrue(ids.add(c3_cpm_id.fileId()));
 
     final var c3_pcl_id = files.get("c3.pcl");
     Assert.assertNotNull(c3_pcl_id);
-    Assert.assertTrue(c3_pcl_id > 0);
-    Assert.assertTrue(ids.add(c3_pcl_id));
+    Assert.assertTrue(c3_pcl_id.fileId() > 0);
+    Assert.assertTrue(ids.add(c3_pcl_id.fileId()));
 
     final var c4_cpm_id = files.get("c4.cpm");
     Assert.assertNotNull(c4_cpm_id);
-    Assert.assertTrue(c4_cpm_id > 0);
-    Assert.assertTrue(ids.add(c4_cpm_id));
+    Assert.assertTrue(c4_cpm_id.fileId() > 0);
+    Assert.assertTrue(ids.add(c4_cpm_id.fileId()));
 
     final var c4_pcl_id = files.get("c4.pcl");
     Assert.assertNotNull(c4_pcl_id);
-    Assert.assertTrue(c1_pcl_id > 0);
-    Assert.assertTrue(ids.add(c4_pcl_id));
+    Assert.assertTrue(c1_pcl_id.fileId() > 0);
+    Assert.assertTrue(ids.add(c4_pcl_id.fileId()));
 
     db.close();
     youTrackDB.close();

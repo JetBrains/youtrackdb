@@ -19,11 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -44,6 +43,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -107,11 +107,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public long getOperationUnitId() {
     return operationUnitId;
-  }
-
-  @Override
-  public FileHandler loadFileHandler(long fileId) {
-    return readCache.loadFileHandler(fileId);
   }
 
   @Nullable
@@ -247,35 +242,37 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public CacheEntry addPage(long fileId) {
-    fileId = checkFileIdCompatibility(fileId, storageId);
+  public CacheEntry addPage(FileHandler fileHandler) throws IOException {
+    var fileId = checkFileIdCompatibility(fileHandler.fileId(), storageId);
+    throw new UnsupportedEncodingException(
+        "TODO Implement. I think we need to add newly created page to the casArray.");
 
-    if (deletedFiles.contains(fileId)) {
-      throw new StorageException(writeCache.getStorageName(),
-          "File with id " + fileId + " is deleted.");
-    }
-
-    final var changesContainer =
-        fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
-
-    final var filledUpTo = internalFilledUpTo(fileId, changesContainer);
-
-    var pageChangesContainer = changesContainer.pageChangesMap.get(filledUpTo);
-    assert pageChangesContainer == null;
-
-    pageChangesContainer = new CacheEntryChanges(false, this);
-    pageChangesContainer.isNew = true;
-
-    changesContainer.pageChangesMap.put(filledUpTo, pageChangesContainer);
-    changesContainer.maxNewPageIndex = filledUpTo;
-    pageChangesContainer.delegate =
-        new CacheEntryImpl(
-            fileId,
-            (int) filledUpTo,
-            new CachePointer(null, null, fileId, (int) filledUpTo),
-            false,
-            readCache);
-    return pageChangesContainer;
+//    if (deletedFiles.contains(fileId)) {
+//      throw new StorageException(writeCache.getStorageName(),
+//          "File with id " + fileId + " is deleted.");
+//    }
+//
+//    final var changesContainer =
+//        fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
+//
+//    final var filledUpTo = internalFilledUpTo(fileId, changesContainer);
+//
+//    var pageChangesContainer = changesContainer.pageChangesMap.get(filledUpTo);
+//    assert pageChangesContainer == null;
+//
+//    pageChangesContainer = new CacheEntryChanges(false, this);
+//    pageChangesContainer.isNew = true;
+//
+//    changesContainer.pageChangesMap.put(filledUpTo, pageChangesContainer);
+//    changesContainer.maxNewPageIndex = filledUpTo;
+//    pageChangesContainer.delegate =
+//        new CacheEntryImpl(
+//            fileId,
+//            (int) filledUpTo,
+//            new CachePointer(null, null, fileId, (int) filledUpTo),
+//            false,
+//            readCache);
+//    return pageChangesContainer;
   }
 
   @Override
@@ -304,8 +301,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public long filledUpTo(long fileId) {
-    fileId = checkFileIdCompatibility(fileId, storageId);
+  public long filledUpTo(long inputFileId) {
+    final var fileId = checkFileIdCompatibility(inputFileId, storageId);
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
           "File with id " + fileId + " is deleted.");
@@ -347,7 +344,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public long addFile(final String fileName) {
+  public FileHandler addFile(final String fileName) {
     if (newFileNamesId.containsKey(fileName)) {
       throw new StorageException(writeCache.getStorageName(),
           "File with name " + fileName + " already exists.");
@@ -372,17 +369,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     this.fileChanges.put(fileId, fileChanges);
 
-    return fileId;
+    return new FileHandler(fileId, new CASObjectArray<>());
   }
 
   @Override
-  public long loadFile(final String fileName) throws IOException {
+  public FileHandler loadFile(final String fileName) throws IOException {
     var fileId = newFileNamesId.getLong(fileName);
+    FileHandler fileHandler = null;
     if (fileId == -1) {
-      fileId = writeCache.loadFile(fileName);
+      fileHandler = writeCache.loadFile(fileName);
     }
     this.fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
-    return fileId;
+    // todo init
+    return fileHandler;
   }
 
   @Override
@@ -443,7 +442,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return -1;
     }
 
-    return writeCache.fileIdByName(fileName);
+    return writeCache.fileHandlerByName(fileName).fileId();
   }
 
   @Override
@@ -521,6 +520,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     deletedFilesIterator = deletedFiles.longIterator();
     while (deletedFilesIterator.hasNext()) {
       var deletedFileId = deletedFilesIterator.nextLong();
+      // todo wrap with handler
       readCache.deleteFile(deletedFileId, writeCache);
     }
 
@@ -567,7 +567,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                 readCache.releaseFromWrite(cacheEntry, writeCache, true);
               }
 
-              cacheEntry = readCache.allocateNewPage(fileId, writeCache, startLSN);
+              // where to get handler from?
+              cacheEntry = readCache.allocateNewPage(new FileHandler(fileId, null), writeCache,
+                  startLSN);
             } while (cacheEntry.getPageIndex() != pageIndex);
           }
 

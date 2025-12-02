@@ -112,11 +112,10 @@ public abstract class DurableComponent extends SharedResourceAbstract {
 
   protected static CacheEntry loadPageForWrite(
       final AtomicOperation atomicOperation,
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final boolean verifyCheckSum)
       throws IOException {
-    final var fileHandler = atomicOperation.loadFileHandler(fileId);
     return atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, verifyCheckSum);
   }
 
@@ -125,25 +124,24 @@ public abstract class DurableComponent extends SharedResourceAbstract {
       throws IOException {
     var entry = atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, true);
     if (entry == null) {
-      entry = addPage(atomicOperation, fileHandler.fileId());
+      entry = addPage(atomicOperation, fileHandler);
     }
     return entry;
   }
 
   protected CacheEntry loadPageForRead(
-      final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      final AtomicOperation atomicOperation, final FileHandler fileHandler, final long pageIndex)
       throws IOException {
-    final var fileHandler = readCache.loadFileHandler(fileId);
     if (atomicOperation == null) {
       return readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
     }
     return atomicOperation.loadPageForRead(fileHandler, pageIndex);
   }
 
-  protected CacheEntry addPage(final AtomicOperation atomicOperation, final long fileId)
+  protected CacheEntry addPage(final AtomicOperation atomicOperation, final FileHandler fileHandler)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.addPage(fileId);
+    return atomicOperation.addPage(fileHandler);
   }
 
   protected void releasePageFromWrite(
@@ -161,13 +159,13 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     }
   }
 
-  protected long addFile(final AtomicOperation atomicOperation, final String fileName)
+  protected FileHandler addFile(final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.addFile(fileName);
   }
 
-  protected long openFile(final AtomicOperation atomicOperation, final String fileName)
+  protected FileHandler openFile(final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     if (atomicOperation == null) {
       return writeCache.loadFile(fileName);
