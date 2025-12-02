@@ -23,8 +23,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -45,6 +43,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -108,11 +107,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public long getOperationUnitId() {
     return operationUnitId;
-  }
-
-  @Override
-  public FileHandler loadFileHandler(long fileId) {
-    return readCache.loadFileHandler(fileId);
   }
 
   @Nullable
@@ -528,6 +522,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     deletedFilesIterator = deletedFiles.longIterator();
     while (deletedFilesIterator.hasNext()) {
       var deletedFileId = deletedFilesIterator.nextLong();
+      // todo wrap with handler
       readCache.deleteFile(deletedFileId, writeCache);
     }
 
