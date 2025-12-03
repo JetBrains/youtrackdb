@@ -15,7 +15,7 @@ public class DefaultCollectionTest {
   @Test
   public void defaultCollectionTest() {
     final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.embeddedDBUrl(getClass()));
+        DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDB.create("test", DatabaseType.MEMORY,
         new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
     try (final var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD)) {
