@@ -4467,7 +4467,6 @@ public abstract class AbstractStorage
   }
 
   protected void doShutdown() throws IOException {
-
     shutdownDuration.timed(() -> {
       if (status == STATUS.CLOSED) {
         return;
@@ -4483,8 +4482,11 @@ public abstract class AbstractStorage
 
       if (!isInError()) {
         flushAllData();
-        preCloseSteps();
+      }
 
+      preCloseSteps();
+
+      if (!isInError()) {
         atomicOperationsManager.executeInsideAtomicOperation(
             null,
             atomicOperation -> {
@@ -4499,27 +4501,6 @@ public abstract class AbstractStorage
               }
               ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
             });
-
-        linkCollectionsBTreeManager.close();
-
-        // we close all files inside cache system so we only clear collection metadata
-        collections.clear();
-        collectionMap.clear();
-        indexEngines.clear();
-        indexEngineNameMap.clear();
-
-        if (writeCache != null) {
-          writeCache.removeBackgroundExceptionListener(this);
-          writeCache.removePageIsBrokenListener(this);
-        }
-
-        writeAheadLog.removeCheckpointListener(this);
-
-        if (readCache != null) {
-          readCache.closeStorage(writeCache);
-        }
-
-        writeAheadLog.close();
       } else {
         LogManager.instance()
             .error(
@@ -4528,10 +4509,43 @@ public abstract class AbstractStorage
                 null);
       }
 
-      postCloseSteps(false, isInError(), idGen.getLastId());
+      linkCollectionsBTreeManager.close();
+
+      // we close all files inside cache system so we only clear collection metadata
+      collections.clear();
+      collectionMap.clear();
+      indexEngines.clear();
+      indexEngineNameMap.clear();
+
+      if (writeCache != null) {
+        writeCache.removeBackgroundExceptionListener(this);
+        writeCache.removePageIsBrokenListener(this);
+      }
+
+      writeAheadLog.removeCheckpointListener(this);
+
+      try {
+        if (readCache != null) {
+          readCache.closeStorage(writeCache);
+        }
+      } catch (Exception e) {
+        LogManager.instance().error(this, "Error during closing of disk cache", e);
+      }
+
+      try {
+        writeAheadLog.close();
+      } catch (Exception e) {
+        LogManager.instance().error(this, "Error during closing of write ahead log", e);
+      }
+
+      if (!isInError()) {
+        postCloseSteps(false, isInError(), idGen.getLastId());
+      }
+
       transaction = null;
       lastMetadata = null;
       migration = new CountDownLatch(1);
+
       status = STATUS.CLOSED;
     });
   }

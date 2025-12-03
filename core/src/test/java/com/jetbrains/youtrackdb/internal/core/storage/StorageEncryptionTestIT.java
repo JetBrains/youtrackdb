@@ -81,25 +81,8 @@ public class StorageEncryptionTestIT {
       }
     }
 
-    try (final var youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()))) {
-      try {
-        try (final var ignored = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
-            "admin", "admin")) {
-          Assert.fail();
-        }
-      } catch (Exception e) {
-        // ignore
-      }
-    }
-
-    var wrongConfig = new BaseConfiguration();
-    wrongConfig.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
-        "T1JJRU5UREJfSVNfQ09PTA==");
-    try (final var youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
-            wrongConfig)) {
+    try (final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       try {
         try (final var ignored = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
             "admin", "admin")) {

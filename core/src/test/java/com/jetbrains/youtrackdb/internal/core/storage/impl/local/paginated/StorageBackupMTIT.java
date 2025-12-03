@@ -198,7 +198,7 @@ public class StorageBackupMTIT {
 
       System.out.println("create and restore");
 
-      GlobalConfiguration.STORAGE_ENCRYPTION_KEY.setValue("T1JJRU5UREJfSVNfQ09PTA==");
+      config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(), "T1JJRU5UREJfSVNfQ09PTA==");
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
           config);
       youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(), config);
