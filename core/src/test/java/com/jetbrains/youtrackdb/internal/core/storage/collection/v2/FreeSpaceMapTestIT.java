@@ -122,7 +122,7 @@ public class FreeSpaceMapTestIT {
     final var checks = 1_000;
 
     final var pageSpaceMap = new HashMap<Integer, Integer>();
-    final var seed = 1107466507161549L; // System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("randomPages seed - " + seed);
     final var random = new Random(seed);
 
@@ -134,9 +134,7 @@ public class FreeSpaceMapTestIT {
           null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
-            final var freeSpaceIndex =
-                (freeSpace - FreeSpaceMap.NORMALIZATION_INTERVAL + 1)
-                    / FreeSpaceMap.NORMALIZATION_INTERVAL;
+            final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
             if (maxFreeSpaceIndex[0] < freeSpaceIndex) {
               maxFreeSpaceIndex[0] = freeSpaceIndex;
             }
@@ -150,7 +148,7 @@ public class FreeSpaceMapTestIT {
       final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
       final var pageIndex = freeSpaceMap.findFreePage(freeSpace);
       final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
-      if (freeSpaceIndex <= maxFreeSpaceIndex[0]) {
+      if (freeSpaceIndex < maxFreeSpaceIndex[0]) {
         Assert.assertTrue(pageSpaceMap.get(pageIndex) >= freeSpace);
       } else {
         Assert.assertEquals(-1, pageIndex);
@@ -166,7 +164,7 @@ public class FreeSpaceMapTestIT {
     final var pageFreeSpaceMap = new HashMap<Integer, Integer>();
     final var inMemoryFreeSpaceMap = new TreeMap<Integer, Integer>();
 
-    final var seed = 27216955702411L;//System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("randomPagesUpdate seed - " + seed);
 
     final var random = new Random(seed);
