@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginAbstract;
@@ -113,7 +113,7 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
     var contextConfig = session.getConfiguration();
     var config = new BaseConfiguration();
     contextConfig.merge(config);
-    config.setProperty(DatabaseConfigurationParameters.CONFIG_DB_NAME, databaseName);
+    config.setProperty(YTDBGraphFactory.CONFIG_DB_NAME, databaseName);
 
     graphManager.openGraph(databaseName,
         name -> graphManager.newGraphProxyInstance(databaseName, config));

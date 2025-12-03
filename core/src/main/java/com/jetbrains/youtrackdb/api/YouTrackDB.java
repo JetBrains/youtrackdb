@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.api;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.nio.file.Path;
 import java.util.List;
@@ -10,8 +9,7 @@ import org.apache.commons.configuration2.Configuration;
 import org.jspecify.annotations.NonNull;
 
 /// YouTrackDB management environment, it allows connecting to an environment and manipulate
-/// databases or open [org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal]
-/// instances.
+/// databases or open [com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource] instances.
 ///
 /// Usage examples: Remote Example:
 /// <pre>
@@ -57,49 +55,14 @@ import org.jspecify.annotations.NonNull;
 /// </code>
 /// </pre>
 public interface YouTrackDB extends AutoCloseable {
-
   /// Configuration parameters passed during creation of the database or during opening of the graph
-  /// instance using methods of [YouTrackDB] and
-  /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] classes. Even though work using
-  /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] is supported for embedded
-  /// deployments, we do recommend using[YouTrackDB] methods to open graph instances. Except
-  /// parameters listed in this interface, you can also specify any other parameter listed in
+  /// traversal instance using methods of [YouTrackDB]. Except parameters listed in this interface,
+  /// you can also specify any other parameter listed in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration] class. If the parameter listed in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration] is not specified directly, then a
   /// database will use the default value from of parameter indicated in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration].
   interface DatabaseConfigurationParameters {
-
-    /// Path to the root folder that contains all embedded databases managed by [YouTrackDB], this
-    /// parameter is used only in [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open
-    /// the [YTDBGraph] instance.
-    String CONFIG_DB_PATH = "youtrackdb.embedded.path";
-    /// Name of the embedded database to open, this parameter is used only in
-    /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph]
-    /// instance.
-    String CONFIG_DB_NAME = "youtrackdb.database.name";
-    /// Type of the embedded database to open, this parameter is used only in
-    /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph] instance.
-    /// Allowed values listed in [DatabaseType] enum.
-    String CONFIG_DB_TYPE = "youtrackdb.database.type";
-    /// Current username, this parameter is used only in
-    /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph]
-    /// instance.
-    String CONFIG_USER_NAME = "youtrackdb.user.name";
-    /// User role that will be created during database creation, this parameter is used only in
-    /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph] instance.
-    /// Database is created if it does not exist yet.
-    String CONFIG_USER_ROLE = "youtrackdb.user.role";
-    /// Current user password, this parameter is used only in
-    /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph]
-    /// instance.
-    String CONFIG_USER_PWD = "youtrackdb.user.pwd";
-    /// This parameter indicates if a database should be created during the opening of [YTDBGraph]
-    /// instance. This parameter is used only in
-    /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph]
-    /// instance.
-    String CONFIG_CREATE_IF_NOT_EXISTS = "youtrackdb.database.createIfNotExists";
-
     /// Default date format for the database. This parameter is used during data serialization and
     /// query processing.
     String CONFIG_DB_DATE_FORMAT = "youtrackdb.database.dateFormat";
@@ -108,7 +71,6 @@ public interface YouTrackDB extends AutoCloseable {
     String CONFIG_DB_DATE_TIME_FORMAT = "youtrackdb.database.dateTimeFormat";
     /// Default time zone for the database. This parameter is used for query processing.
     String CONFIG_DB_TIME_ZONE = "youtrackdb.database.timeZone";
-
     /// Default locale country for the database. This parameter is used during data serialization,
     /// query processing and index manipulation.
     String CONFIG_DB_LOCALE_COUNTRY = "youtrackdb.database.locale.country";
@@ -127,7 +89,6 @@ public interface YouTrackDB extends AutoCloseable {
   record UserCredential(String username, String password, PredefinedRole role) {
 
   }
-
 
   /// Creates a new database alongside users, passwords and roles.
   ///
@@ -305,44 +266,10 @@ public interface YouTrackDB extends AutoCloseable {
   /// @return boolean true if is open false otherwise.
   boolean isOpen();
 
-  /// Open the YTDB Graph instance by database name, using the current username and password. This
-  /// method works only for embedded databases.
-  ///
-  /// You can use this method if you do not plan to migrate from embedded to remote databases,
-  /// though the recommended approach is to use [#openTraversal(String, String, String)] method
-  /// instead.
-  ///
-  /// @param databaseName Database name
-  /// @param userName     user name
-  @Nonnull
-  YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
-      @Nonnull String userPassword);
-
-  /// Open the YTDB Graph instance by database name, using the current username and password. This
-  /// method allows one to specify database configuration.
-  ///
-  /// This method works only for embedded databases.
-  ///
-  /// You can use this method if you do not plan to migrate from embedded to remote databases,
-  /// though the recommended approach is to use [#openTraversal(String, String, String)] method
-  /// instead.
-  ///
-  /// @param databaseName Database name
-  /// @param userName     user name
-  /// @param config       database configuration
-  @Nonnull
-  YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
-      @Nonnull String userPassword, @Nonnull Configuration config);
-
   /// Opens [YTDBGraphTraversalSource] instance for the given embedded database by database name,
-  /// using provided user name and password. Unlike [#openGraph(String, String, String)] method,
-  /// this method works both for embedded and remote databases.
+  /// using provided user name and password.
   ///
-  /// The underlying [org.apache.tinkerpop.gremlin.structure.Graph] instance is closed while a
-  /// traversal source is closed. Please keep a single instance of this traversal source per
-  /// application.
-  ///
-  /// That is the recommended approach to use for both embedded and remote databases.
+  /// Please keep a single instance of this traversal source per application.
   ///
   /// @param databaseName Database name
   /// @param userName     user name. For remote database this parameter is ignored, and user name

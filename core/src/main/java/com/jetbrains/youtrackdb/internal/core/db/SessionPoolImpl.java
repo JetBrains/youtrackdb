@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 
 /**
  * A Pool of databases.
@@ -130,7 +130,7 @@ public class SessionPoolImpl implements
   @Override
   public YTDBGraph asGraph() {
     var configuration = youTrackDb.internal.getConfiguration().toApacheConfiguration();
-    configuration.setProperty(DatabaseConfigurationParameters.CONFIG_DB_NAME, getDbName());
+    configuration.setProperty(YTDBGraphFactory.CONFIG_DB_NAME, getDbName());
     return new YTDBGraphEmbedded(this, configuration);
   }
 

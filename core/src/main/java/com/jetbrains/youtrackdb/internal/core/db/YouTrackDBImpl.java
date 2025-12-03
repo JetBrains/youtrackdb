@@ -3,10 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -196,27 +196,10 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   ///
   /// @param databaseName Database name
   /// @param userName     user name
-  @Override
   @Nonnull
-  public YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
+  private YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
       @Nonnull String userPassword) {
     var sessionPool = cachedPool(databaseName, userName, userPassword);
-    return sessionPool.asGraph();
-  }
-
-  /// Open the YTDB Graph instance by database name, using the current username and password. This
-  /// method allows one to specify database configuration.
-  ///
-  /// @param databaseName Database name
-  /// @param userName     user name
-  /// @param config       database configuration
-  @Override
-  @Nonnull
-  public YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
-      @Nonnull String userPassword,
-      @Nonnull Configuration config) {
-    var sessionPool = cachedPool(databaseName, userName, userPassword,
-        YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     return sessionPool.asGraph();
   }
 

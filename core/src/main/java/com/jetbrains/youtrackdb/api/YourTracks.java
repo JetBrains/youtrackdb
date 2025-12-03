@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.api;
 
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
@@ -7,13 +8,16 @@ import javax.annotation.Nonnull;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;
 
-public abstract class YourTracks {
+public final class YourTracks {
+
+  private YourTracks() {
+  }
+
   /// Create a new YouTrackDB manager instance for an embedded deployment with the default
-  /// configuration. Created instance is registered in
-  /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] and reused if already exists with
-  /// the configuration that was used during its creation.
+  /// configuration.
   ///
-  /// The given instance will be unregistered when [YouTrackDB#close()] method is called.
+  /// A created instance is cached and reused if the method is called for the second time unless it
+  /// is closed by the user.
   ///
   /// @param directoryPath the directory where the databases are stored. For in memory database use
   ///                      "."
@@ -22,11 +26,10 @@ public abstract class YourTracks {
   }
 
   /// Create a new YouTrackDB manager instance for an embedded deployment with the default
-  /// configuration. Created instance is registered in
-  /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] and reused if already exists with
-  /// the configuration that was used during its creation.
+  /// configuration.
   ///
-  /// The given instance will be unregistered when [YouTrackDB#close()] method is called.
+  /// A created instance is cached and reused if the method is called for the second time unless it
+  /// is closed by the user.
   ///
   /// @param directoryPath the directory where the databases are stored. For in memory database use
   ///                      "."
@@ -35,10 +38,9 @@ public abstract class YourTracks {
   }
 
   /// Create a new YouTrackDB manager instance for an embedded deployment with custom configuration.
-  /// Created instance is registered in [org.apache.tinkerpop.gremlin.structure.util.GraphFactory]
-  /// and reused if already exists with the configuration that was used during its creation.
   ///
-  /// The given instance will be unregistered when [YouTrackDB#close()] method is called.
+  /// A created instance is cached and reused if the method is called for the second time unless it
+  /// is closed by the user.
   ///
   /// @param directoryPath the directory where the databases are stored. For in memory database use
   ///                      "."
@@ -49,10 +51,9 @@ public abstract class YourTracks {
   }
 
   /// Create a new YouTrackDB manager instance for an embedded deployment with custom configuration.
-  /// Created instance is registered in [org.apache.tinkerpop.gremlin.structure.util.GraphFactory]
-  /// and reused if already exists with the configuration that was used during its creation.
   ///
-  /// The given instance will be unregistered when [YouTrackDB#close()] method is called.
+  /// A created instance is cached and reused if the method is called for the second time unless it
+  /// is closed by the user.
   ///
   /// @param directoryPath the directory where the databases are stored. For in memory database use
   ///                      "."
@@ -76,6 +77,9 @@ public abstract class YourTracks {
   /// @param serverPort    server port
   /// @param username      user name
   /// @param password      user password
+  ///
+  /// @see YouTrackDB#createSystemUser(String, String, String...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort,
       @Nonnull String username,
       @Nonnull String password) {
@@ -106,6 +110,9 @@ public abstract class YourTracks {
   /// @param serverAddress server address
   /// @param username      user name
   /// @param password      user password
+  ///
+  /// @see YouTrackDB#createSystemUser(String, String, String...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, @Nonnull String username,
       @Nonnull String password) {
     try {

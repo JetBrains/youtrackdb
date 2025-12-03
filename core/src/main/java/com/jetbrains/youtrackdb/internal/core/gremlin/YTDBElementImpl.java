@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;

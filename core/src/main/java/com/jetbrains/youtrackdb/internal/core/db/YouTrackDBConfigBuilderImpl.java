@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfigBuilder;
 import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.security.GlobalUser;
 import com.jetbrains.youtrackdb.internal.core.security.GlobalUserImpl;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityConfig;
@@ -72,7 +73,7 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
         case DatabaseConfigurationParameters.CONFIG_DB_DATE_FORMAT -> {
           attributes.put(ATTRIBUTES.DATEFORMAT, value);
         }
-        case DatabaseConfigurationParameters.CONFIG_USER_PWD -> {
+        case YTDBGraphFactory.CONFIG_USER_PWD -> {
           //skip password
         }
         default -> {

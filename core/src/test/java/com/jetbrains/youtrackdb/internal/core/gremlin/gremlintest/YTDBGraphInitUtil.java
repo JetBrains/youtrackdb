@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -15,13 +15,13 @@ public class YTDBGraphInitUtil {
 
     var dbType = calculateDbType();
 
-    configs.put(DatabaseConfigurationParameters.CONFIG_DB_NAME, graphName);
-    configs.put(DatabaseConfigurationParameters.CONFIG_USER_NAME, "adminuser");
-    configs.put(DatabaseConfigurationParameters.CONFIG_USER_PWD, "adminpwd");
-    configs.put(DatabaseConfigurationParameters.CONFIG_DB_PATH, directoryPath);
-    configs.put(DatabaseConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
-    configs.put(DatabaseConfigurationParameters.CONFIG_DB_TYPE, dbType.name());
-    configs.put(DatabaseConfigurationParameters.CONFIG_USER_ROLE, "admin");
+    configs.put(YTDBGraphFactory.CONFIG_DB_NAME, graphName);
+    configs.put(YTDBGraphFactory.CONFIG_USER_NAME, "adminuser");
+    configs.put(YTDBGraphFactory.CONFIG_USER_PWD, "adminpwd");
+    configs.put(YTDBGraphFactory.CONFIG_DB_PATH, directoryPath);
+    configs.put(YTDBGraphFactory.CONFIG_CREATE_IF_NOT_EXISTS, true);
+    configs.put(YTDBGraphFactory.CONFIG_DB_TYPE, dbType.name());
+    configs.put(YTDBGraphFactory.CONFIG_USER_ROLE, "admin");
 
     return configs;
   }
