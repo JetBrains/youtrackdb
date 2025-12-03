@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -24,7 +26,7 @@ public class FreeSpaceMapTestIT {
 
   protected FreeSpaceMap freeSpaceMap;
 
-  protected static YouTrackDBAbstract<?, ?> youTrackDB;
+  protected static YouTrackDBImpl youTrackDB;
   protected static String dbName;
   protected static AbstractStorage storage;
   private static AtomicOperationsManager atomicOperationsManager;
@@ -42,8 +44,8 @@ public class FreeSpaceMapTestIT {
     dbName = "freeSpaceMapTest";
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
-    youTrackDB.execute(
-        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     final var databaseDocumentTx =
         (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");

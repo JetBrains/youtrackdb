@@ -2,12 +2,12 @@ package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.nio.file.Path;
@@ -44,7 +44,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
   public static final String DEFAULT_DB_NAME = "graph";
 
   private YouTrackDBServer ytdbServer;
-  public HashMap<String, SessionPool<DatabaseSession>> graphGetterSessionPools = new HashMap<>();
+  public HashMap<String, SessionPool> graphGetterSessionPools = new HashMap<>();
 
   public YTDBAbstractRemoteGraphProvider(Cluster cluster) {
     super(cluster);
@@ -60,7 +60,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
           buildDirectory.resolve("gremlinServerRoot")
               .resolve("serverHome" + idGenerator.incrementAndGet()).toAbsolutePath().toString());
       ytdbServer.startup(getClass().getResourceAsStream(
-          "/com/jetbrains/youtrackdb/internal/server/gremlin/youtrackdb-server-config.xml"));
+          "/com/jetbrains/youtrackdb/internal/server/youtrackdb-server-config.xml"));
       ytdbServer.activate();
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -81,7 +81,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     }
     graphGetterSessionPools = new HashMap<>();
 
-    var serverContext = ytdbServer.getContext();
+    var serverContext = ytdbServer.getYouTrackDB();
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
 
@@ -151,9 +151,10 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
         .asGraph();
     return new HashMap<>() {{
       put(Graph.GRAPH, RemoteGraph.class.getName());
-      put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS, DriverRemoteConnection.class.getName());
+      put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS,
+          YTDBDriverRemoteConnection.class.getName());
       put(DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME,
-          YTDBGraphManager.TRAVERSAL_SOURCE_PREFIX + serverGraphName);
+          serverGraphName);
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
 

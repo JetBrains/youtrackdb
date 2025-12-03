@@ -16,11 +16,11 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.List;

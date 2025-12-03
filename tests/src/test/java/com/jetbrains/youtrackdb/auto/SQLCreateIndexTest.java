@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
@@ -10,6 +8,8 @@ import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagIndexDefiniti
 import com.jetbrains.youtrackdb.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import java.util.Arrays;
 import java.util.List;
 import org.testng.Assert;

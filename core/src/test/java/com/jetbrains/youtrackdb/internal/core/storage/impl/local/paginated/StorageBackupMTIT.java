@@ -1,19 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -43,13 +46,12 @@ public class StorageBackupMTIT {
     final var backupDir = new File(buildDirectory, "backupDir");
     final var backupDbName = StorageBackupMTIT.class.getSimpleName() + "BackUp";
 
-    FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
+    FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPathStr(getClass())));
 
     try {
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-          DbTestBase.getBaseDirectoryPath(getClass()));
-      youTrackDB.execute(
-          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
+          DbTestBase.getBaseDirectoryPathStr(getClass()));
+      youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
@@ -94,8 +96,8 @@ public class StorageBackupMTIT {
       System.out.println("create and restore");
 
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-          DbTestBase.getBaseDirectoryPath(getClass()));
-      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(),
+          DbTestBase.getBaseDirectoryPathStr(getClass()));
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath(),
           YouTrackDBConfig.defaultConfig());
 
       final var compare =
@@ -118,7 +120,7 @@ public class StorageBackupMTIT {
       }
       try {
         youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()));
+            DbTestBase.getBaseDirectoryPathStr(getClass()));
         if (youTrackDB.exists(dbName)) {
           youTrackDB.drop(dbName);
         }
@@ -148,12 +150,13 @@ public class StorageBackupMTIT {
     config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
         "T1JJRU5UREJfSVNfQ09PTA==");
     try {
-      FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
+      FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPathStr(getClass())));
 
-      youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPathStr(getClass()),
           config);
-      youTrackDB.execute(
-          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
+      youTrackDB.create(dbName, DatabaseType.DISK,
+          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
@@ -199,9 +202,10 @@ public class StorageBackupMTIT {
       System.out.println("create and restore");
 
       config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(), "T1JJRU5UREJfSVNfQ09PTA==");
-      youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPathStr(getClass()),
           config);
-      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(), config);
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath(), config);
 
       final var compare =
           new DatabaseCompare(
@@ -223,7 +227,7 @@ public class StorageBackupMTIT {
       }
       try {
         youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()), config);
+            DbTestBase.getBaseDirectoryPathStr(getClass()), config);
         youTrackDB.drop(dbName);
         youTrackDB.drop(backupDbName);
 

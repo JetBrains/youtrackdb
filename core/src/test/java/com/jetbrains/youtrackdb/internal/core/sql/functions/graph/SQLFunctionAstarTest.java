@@ -21,14 +21,15 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.Vertex;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,10 +38,9 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/*
- *
- */
 public class SQLFunctionAstarTest {
+
+  private static final String ADMIN_PASSWORD = "adminpwd";
 
   private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
@@ -69,14 +69,14 @@ public class SQLFunctionAstarTest {
   }
 
   private void setUpDatabase() {
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            "SQLFunctionAstarTest", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    session =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open("SQLFunctionAstarTest", "admin",
-                CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    if (youTrackDB.exists("SQLFunctionAstarTest")) {
+      youTrackDB.drop("SQLFunctionAstarTest");
+    }
+
+    youTrackDB.create("SQLFunctionAstarTest", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD,
+        "admin");
+    session = youTrackDB.open("SQLFunctionAstarTest", "admin", ADMIN_PASSWORD);
 
     session.createEdgeClass("has_path");
 

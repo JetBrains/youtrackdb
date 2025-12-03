@@ -24,31 +24,25 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.FILE_DELET
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.FILE_DELETE_RETRY;
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.WARNING_DEFAULT_USERS;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.thread.SourceTraceExecutorService;
 import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.DefaultSecuritySystem;
-import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -82,7 +76,7 @@ import javax.annotation.Nullable;
 import org.apache.commons.lang.NullArgumentException;
 
 
-public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSession> {
+public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
   /**
    * Keeps track of next possible storage id.
@@ -97,7 +91,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
 
   private final Map<String, AbstractStorage> storages = new ConcurrentHashMap<>();
   private final Map<String, SharedContext> sharedContexts = new ConcurrentHashMap<>();
-  private final Set<DatabasePoolInternal<DatabaseSession>> pools = Collections.newSetFromMap(
+  private final Set<DatabasePoolInternal> pools = Collections.newSetFromMap(
       new ConcurrentHashMap<>());
   private final YouTrackDBConfigImpl configuration;
   private final Path basePath;
@@ -105,7 +99,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   private final Engine disk;
   private final YouTrackDBEnginesManager youTrack;
   private final boolean serverMode;
-  private final CachedDatabasePoolFactory<DatabaseSession> cachedPoolFactory;
+  private final CachedDatabasePoolFactory cachedPoolFactory;
   private volatile boolean open = true;
   private final ExecutorService executor;
   private final ExecutorService ioExecutor;
@@ -234,10 +228,10 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     return baseSize;
   }
 
-  private CachedDatabasePoolFactory<DatabaseSession> createCachedDatabasePoolFactory() {
+  private CachedDatabasePoolFactory createCachedDatabasePoolFactory() {
     var capacity = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CAPACITY);
     long timeout = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT);
-    return new CachedDatabasePoolFactoryImpl<>(this, capacity, timeout);
+    return new CachedDatabasePoolFactoryImpl(this, capacity, timeout);
   }
 
   public void initAutoClose(long delay) {
@@ -585,8 +579,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   }
 
   @Override
-  public DatabaseSessionInternal poolOpen(
-      String name, String user, String password, DatabasePoolInternal<DatabaseSession> pool) {
+  public DatabaseSessionEmbedded poolOpen(
+      String name, String user, String password, DatabasePoolInternal pool) {
     final DatabaseSessionEmbedded embedded;
     synchronized (this) {
       checkOpen();
@@ -600,8 +594,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     return embedded;
   }
 
-  public DatabaseSessionInternal poolOpenNoAuthenticate(String name, String user,
-      DatabasePoolInternal<DatabaseSession> pool) {
+  public DatabaseSessionEmbedded poolOpenNoAuthenticate(String name, String user,
+      DatabasePoolInternal pool) {
     final DatabaseSessionEmbedded embedded;
     synchronized (this) {
       checkOpen();
@@ -618,7 +612,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   }
 
   private static DatabaseSessionEmbedded newPooledSessionInstance(
-      DatabasePoolInternal<DatabaseSession> pool, AbstractStorage storage,
+      DatabasePoolInternal pool, AbstractStorage storage,
       SharedContext sharedContext, boolean serverMode) {
     var embedded = new DatabaseSessionEmbeddedPooled(pool, storage, serverMode);
     embedded.init(pool.getConfig(), sharedContext);
@@ -763,7 +757,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   @Override
   public void create(
       String name, String user, String password, DatabaseType type, YouTrackDBConfig config) {
-    create(name, user, password, type, config, null);
+    create(name, user, password, type, config, true, null);
   }
 
   @Override
@@ -773,6 +767,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       String password,
       DatabaseType type,
       YouTrackDBConfig config,
+      boolean failIfExists,
       DatabaseTask<Void> createOps) {
     checkDatabaseName(name);
     final DatabaseSessionEmbedded embedded;
@@ -823,18 +818,24 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
               basePath.toString());
         }
       } else {
-        throw new DatabaseException(basePath.toString(),
-            "Cannot create new database '" + name + "' because it already exists");
+        if (failIfExists) {
+          throw new DatabaseException(basePath.toString(),
+              "Cannot create new database '" + name + "' because it already exists");
+        } else {
+          LogManager.instance()
+              .info(this, "Database '%s' already exists, nothing to do", name);
+          return;
+        }
+
       }
     }
     embedded.callOnCreateListeners();
   }
 
+
   @Override
   public void restore(
       String name,
-      String user,
-      String password,
       DatabaseType type,
       String path,
       YouTrackDBConfig config) {
@@ -1008,29 +1009,29 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   }
 
   @Override
-  public DatabasePoolInternal<DatabaseSession> openPool(String name, String user, String password) {
+  public DatabasePoolInternal openPool(String name, String user, String password) {
     return openPool(name, user, password, null);
   }
 
   @Override
-  public DatabasePoolInternal<DatabaseSession> openPool(
+  public DatabasePoolInternal openPool(
       String name, String user, String password, YouTrackDBConfig config) {
     checkDatabaseName(name);
     checkOpen();
-    var pool = new DatabasePoolImpl<>(this, name, user, password,
+    var pool = new DatabasePoolImpl(this, name, user, password,
         solveConfig((YouTrackDBConfigImpl) config));
     pools.add(pool);
     return pool;
   }
 
   @Override
-  public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+  public DatabasePoolInternal cachedPool(String database, String user,
       String password) {
     return cachedPool(database, user, password, null);
   }
 
   @Override
-  public DatabasePoolInternal<DatabaseSession> cachedPool(
+  public DatabasePoolInternal cachedPool(
       String database, String user, String password, YouTrackDBConfig config) {
     checkDatabaseName(database);
     checkOpen();
@@ -1042,7 +1043,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   }
 
   @Override
-  public DatabasePoolInternal<DatabaseSession> cachedPoolNoAuthentication(String database,
+  public DatabasePoolInternal cachedPoolNoAuthentication(String database,
       String user, YouTrackDBConfig config) {
     checkDatabaseName(database);
     checkOpen();
@@ -1133,7 +1134,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   }
 
   @Override
-  public void removePool(DatabasePoolInternal<DatabaseSession> pool) {
+  public void removePool(DatabasePoolInternal pool) {
     pools.remove(pool);
   }
 
@@ -1251,7 +1252,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
           } else {
             LogManager.instance()
                 .warn(this, " Cancelled execution of task, YouTrackDB instance is closed");
-            //noinspection ReturnOfNull
             return null;
           }
         });
@@ -1273,46 +1273,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
 
   public ScriptManager getScriptManager() {
     return scriptManager;
-  }
-
-  @Override
-  public BasicResultSet<BasicResult> executeServerStatementNamedParams(String script,
-      String username, String pw,
-      Map<String, Object> args) {
-    var statement = SQLEngine.parseServerStatement(script, this);
-    var original = statement.execute(this, args, true);
-    LocalResultSetLifecycleDecorator result;
-    //    if (!statement.isIdempotent()) {
-    // fetch all, close and detach
-    // TODO pagination!
-    var prefetched = new InternalResultSet(null);
-    original.forEachRemaining(prefetched::add);
-    original.close();
-    result = new LocalResultSetLifecycleDecorator(prefetched);
-    //    } else {
-    // stream, keep open and attach to the current DB
-    //      result = new LocalResultSetLifecycleDecorator(original);
-    //      this.queryStarted(result.getQueryId(), result);
-    //      result.addLifecycleListener(this);
-    //    }
-    //noinspection unchecked,rawtypes
-    return (BasicResultSet) result;
-  }
-
-  @Override
-  public BasicResultSet<BasicResult> executeServerStatementPositionalParams(
-      String script, String username, String pw, Object... args) {
-    checkOpen();
-    var statement = SQLEngine.parseServerStatement(script, this);
-    var original = statement.execute(this, args, true);
-    LocalResultSetLifecycleDecorator result;
-    var prefetched = new InternalResultSet(null);
-    original.forEachRemaining(prefetched::add);
-    original.close();
-    result = new LocalResultSetLifecycleDecorator(prefetched);
-
-    //noinspection unchecked,rawtypes
-    return (BasicResultSet) result;
   }
 
   @Override

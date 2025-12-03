@@ -1,14 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect;
 
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
-import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
 import java.util.Arrays;

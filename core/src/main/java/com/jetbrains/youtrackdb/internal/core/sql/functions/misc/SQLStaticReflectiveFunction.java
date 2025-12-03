@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;

@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.filter;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 
 /**

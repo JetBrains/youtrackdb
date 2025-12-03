@@ -4,7 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry.i
 import static com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry.newYTdbId;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.IOException;

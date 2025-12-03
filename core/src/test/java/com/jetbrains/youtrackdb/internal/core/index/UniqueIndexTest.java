@@ -1,16 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Triple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;

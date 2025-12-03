@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 

@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
-import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.HashSet;
 import java.util.Map;
@@ -180,7 +180,6 @@ public class YTDBGraphManager implements GraphManager {
     return registeredGraphs.remove(graphName);
   }
 
-  @Override
   public void beforeQueryStart(RequestMessage msg, AuthenticatedUser authenticatedUser) {
     currentQuerySession.set(new QuerySession(authenticatedUser, msg));
   }
@@ -234,7 +233,7 @@ public class YTDBGraphManager implements GraphManager {
       var sessionPool = databases.cachedPoolNoAuthentication(databaseName, currentUser.getName(),
           configuration);
 
-      return (DatabaseSessionEmbedded) sessionPool.acquire();
+      return sessionPool.acquire();
     }
   }
 
@@ -244,7 +243,6 @@ public class YTDBGraphManager implements GraphManager {
 
 
   private final class YTDBTransactionListener implements SessionListener {
-
     @Override
     public void onAfterTxCommit(Transaction transaction, @Nullable Map<RID, RID> ridMapping) {
       var currentQuerySession = YTDBGraphManager.this.currentQuerySession.get();

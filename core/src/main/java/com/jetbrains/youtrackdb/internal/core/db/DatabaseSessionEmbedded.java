@@ -20,52 +20,10 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkList;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkMap;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
-import com.jetbrains.youtrackdb.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
-import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
-import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Blob;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.RecordHook;
-import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
-import com.jetbrains.youtrackdb.api.record.StatefulEdge;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
-import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
-import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
-import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
-import com.jetbrains.youtrackdb.api.transaction.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
@@ -77,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
@@ -87,10 +46,30 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook.TYPE;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
+import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
@@ -101,6 +80,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryI
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -110,8 +91,14 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryProxy;
-import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
-import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
@@ -145,6 +132,11 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrackdb.internal.core.tx.RollbackException;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import com.jetbrains.youtrackdb.internal.core.tx.TxBiConsumer;
+import com.jetbrains.youtrackdb.internal.core.tx.TxBiFunction;
+import com.jetbrains.youtrackdb.internal.core.tx.TxConsumer;
+import com.jetbrains.youtrackdb.internal.core.tx.TxFunction;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -1693,8 +1685,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           }
         }
 
-        LiveQueryHook.addOp(entity, operation.type, this);
-        LiveQueryHookV2.addOp(this, entity, operation.type);
       }
     }
 
@@ -1716,8 +1706,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    LiveQueryHook.notifyForTxChanges(this);
-    LiveQueryHookV2.notifyForTxChanges(this);
   }
 
 
@@ -1757,8 +1745,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    LiveQueryHook.removePendingDatabaseOps(this);
-    LiveQueryHookV2.removePendingDatabaseOps(this);
   }
 
   @Override
@@ -2559,49 +2545,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
-      Map<String, ?> args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var youTrackDb = sharedContext.youtrackDB;
-
-    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-    var contextConfig = getConfiguration();
-    var poolConfig = configBuilder.fromContext(contextConfig).build();
-
-    var userName = user.getName(this);
-
-    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
-    var storage = this.storage;
-
-    return storage.live(pool, query, listener, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var youTrackDb = sharedContext.youtrackDB;
-
-    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-    var contextConfig = getConfiguration();
-    var poolConfig = configBuilder.fromContext(contextConfig).build();
-
-    var userName = user.getName(this);
-
-    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
-    var storage = this.storage;
-
-    return storage.live(pool, query, listener, args);
-  }
-
   /**
    * {@inheritDoc}
    */
@@ -2942,16 +2885,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
   }
 
-  @Override
-  public RemoteDatabaseSession asRemoteSession() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    openedAsRemoteSession = true;
-    return new RemoteDatabaseSessionWrapper(this);
-  }
 
   @Override
   public String getURL() {

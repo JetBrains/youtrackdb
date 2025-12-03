@@ -19,20 +19,19 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
@@ -47,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collection;
 import java.util.Collections;

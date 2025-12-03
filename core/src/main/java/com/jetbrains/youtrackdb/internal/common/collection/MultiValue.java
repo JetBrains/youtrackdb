@@ -19,13 +19,13 @@
  */
 package com.jetbrains.youtrackdb.internal.common.collection;
 
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.common.util.Resettable;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
 import java.lang.reflect.Array;

@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 
 /**
@@ -28,9 +27,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded implements
     PooledSession {
 
-  private final DatabasePoolInternal<DatabaseSession> pool;
+  private final DatabasePoolInternal pool;
 
-  public DatabaseSessionEmbeddedPooled(DatabasePoolInternal<DatabaseSession> pool,
+  public DatabaseSessionEmbeddedPooled(DatabasePoolInternal pool,
       Storage storage, boolean serverMode) {
     super(storage, serverMode);
     this.pool = pool;
@@ -55,7 +54,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
   @Override
   public DatabaseSessionEmbedded copy() {
     assertIfNotActive();
-    return (DatabaseSessionEmbedded) pool.acquire();
+    return pool.acquire();
   }
 
   @Override

@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;

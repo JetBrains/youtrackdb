@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import java.math.BigDecimal;
 import org.junit.Assert;
 import org.junit.Test;

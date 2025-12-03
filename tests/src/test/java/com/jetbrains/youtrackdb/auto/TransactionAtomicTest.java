@@ -15,15 +15,15 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
+import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
+import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.Test;

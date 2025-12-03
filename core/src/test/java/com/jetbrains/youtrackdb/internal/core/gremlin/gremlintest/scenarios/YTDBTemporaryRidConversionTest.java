@@ -4,7 +4,7 @@ import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.stream.IntStream;
 import org.apache.tinkerpop.gremlin.FeatureRequirement;

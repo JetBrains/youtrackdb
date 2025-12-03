@@ -2,15 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
-import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;

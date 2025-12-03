@@ -19,12 +19,11 @@
  */
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NoSuchElementException;

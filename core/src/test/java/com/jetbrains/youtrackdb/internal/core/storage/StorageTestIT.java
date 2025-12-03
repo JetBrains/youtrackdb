@@ -1,15 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.storage;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -47,12 +50,11 @@ public class StorageTestIT {
         ChecksumMode.StoreAndSwitchReadOnlyMode.name());
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
-    youTrackDB.execute(
-        "create database "
-            + StorageTestIT.class.getSimpleName()
-            + " disk users ( admin identified by 'admin' role admin)");
+    youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     var session =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -100,7 +102,8 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPathStr(getClass()),
           config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
@@ -113,12 +116,11 @@ public class StorageTestIT {
         ChecksumMode.StoreAndSwitchReadOnlyMode.name());
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
-    youTrackDB.execute(
-        "create database "
-            + StorageTestIT.class.getSimpleName()
-            + " disk users ( admin identified by 'admin' role admin)");
+    youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -163,7 +165,8 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPathStr(getClass()),
           config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
@@ -176,12 +179,11 @@ public class StorageTestIT {
     config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
         ChecksumMode.StoreAndVerify.name());
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
-    youTrackDB.execute(
-        "create database "
-            + StorageTestIT.class.getSimpleName()
-            + " disk users ( admin identified by 'admin' role admin)");
+    youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -244,13 +246,11 @@ public class StorageTestIT {
         ChecksumMode.StoreAndVerify);
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
-    youTrackDB.execute(
-        "create database "
-            + StorageTestIT.class.getSimpleName()
-            + " disk users ( admin identified by 'admin' role admin)");
-
+    youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
@@ -310,11 +310,9 @@ public class StorageTestIT {
   @Test
   public void testCreatedVersionIsStored() {
     youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.execute(
-        "create database "
-            + StorageTestIT.class.getSimpleName()
-            + " disk users ( admin identified by 'admin' role admin)");
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()));
+    youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     final var session =
         youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");

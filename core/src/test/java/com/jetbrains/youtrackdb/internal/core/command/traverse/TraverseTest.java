@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;

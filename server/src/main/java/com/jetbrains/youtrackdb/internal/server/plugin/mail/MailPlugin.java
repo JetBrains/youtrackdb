@@ -19,16 +19,16 @@
  */
 package com.jetbrains.youtrackdb.internal.server.plugin.mail;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptInjection;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginAbstract;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginConfigurable;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.HashMap;
@@ -56,7 +56,7 @@ public class MailPlugin extends ServerPluginAbstract
   public void config(final YouTrackDBServer youTrackDBServer,
       final ServerParameterConfiguration[] iParams) {
     ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
-        youTrackDBServer.getContext())).getScriptManager()
+        youTrackDBServer.getYouTrackDB())).getScriptManager()
         .registerInjection(this);
   }
 

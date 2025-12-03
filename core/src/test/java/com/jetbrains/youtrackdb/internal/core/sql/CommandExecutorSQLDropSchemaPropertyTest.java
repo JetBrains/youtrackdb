@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 

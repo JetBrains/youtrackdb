@@ -1,16 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.CommandScriptException;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.Map;
 import javax.script.Compilable;

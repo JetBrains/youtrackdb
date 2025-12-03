@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
-
 public class TransactionBlockedException extends TransactionException {
 
   public TransactionBlockedException(TransactionBlockedException exception) {

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import static org.testng.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.annotations.Test;
 

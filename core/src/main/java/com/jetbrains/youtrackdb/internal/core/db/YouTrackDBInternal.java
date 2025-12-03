@@ -21,100 +21,21 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
 import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-/**
- *
- */
-public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
-    extends AutoCloseable, SchedulerInternal {
 
-  /**
-   * Create a new factory from a given url.
-   *
-   * <p>possible kind of urls 'embedded','remote', for the case of remote and distributed can be
-   * specified multiple nodes using comma.
-   *
-   * @param url           the url for the specific factory.
-   * @param configuration configuration for the specific factory for the list of option
-   *                      {@see GlobalConfiguration}.
-   * @return the new YouTrackDB Factory.
-   */
-  static YouTrackDBInternal<?> fromUrl(String url, YouTrackDBConfig configuration) {
-    var what = url.substring(0, url.indexOf(':'));
-    if ("embedded".equals(what)) {
-      var path = url.substring(url.indexOf(':') + 1);
-      if (path.isEmpty()) {
-        throw new DatabaseException(url, "missing database path");
-      }
+public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
 
-      return embedded(path, configuration, false);
-    } else if ("remote".equals(what)) {
-      return remote(url.substring(url.indexOf(':') + 1).split(";"),
-          (YouTrackDBConfigImpl) configuration);
-    }
-    throw new DatabaseException(url, "not supported database type");
-  }
+  YouTrackDBImpl newYouTrackDb();
 
-  YouTrackDBAbstract<?, S> newYouTrackDb();
-
-  /**
-   * Create a new remote factory
-   *
-   * @param hosts         array of hosts
-   * @param configuration configuration for the specific factory for the list of option
-   *                      {@see GlobalConfiguration}.
-   * @return a new remote databases factory
-   */
-  static YouTrackDBInternal<RemoteDatabaseSession>
-  remote(String[] hosts, YouTrackDBConfigImpl configuration) {
-    YouTrackDBInternal<RemoteDatabaseSession> factory;
-    try {
-      var className = "com.jetbrains.youtrackdb.internal.client.remote.YouTrackDBInternalRemote";
-      ClassLoader loader;
-      if (configuration != null) {
-        loader = configuration.getClassLoader();
-      } else {
-        loader = YouTrackDBInternal.class.getClassLoader();
-      }
-      var kass = loader.loadClass(className);
-      var constructor =
-          kass.getConstructor(String[].class, YouTrackDBConfig.class,
-              YouTrackDBEnginesManager.class);
-      //noinspection unchecked,rawtypes
-      factory = (YouTrackDBInternal) constructor.newInstance(hosts, configuration,
-          YouTrackDBEnginesManager.instance());
-    } catch (ClassNotFoundException
-             | NoSuchMethodException
-             | IllegalAccessException
-             | InstantiationException e) {
-      throw BaseException.wrapException(
-          new DatabaseException((String) null, "YouTrackDB client API missing"), e, (String) null);
-    } catch (InvocationTargetException e) {
-      //noinspection ThrowInsideCatchBlockWhichIgnoresCaughtException
-      throw BaseException.wrapException(
-          new DatabaseException((String) null, "Error creating YouTrackDB remote factory"),
-          e.getTargetException(), (String) null);
-    }
-    return factory;
-  }
 
   /**
    * Create a new Embedded factory
@@ -142,7 +63,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    * @param password related to the specified username
    * @return the opened database
    */
-  S open(String name, String user, String password);
+  DatabaseSessionEmbedded open(String name, String user, String password);
 
   /**
    * Open a database specified by name using the username and password if needed, with specific
@@ -155,7 +76,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    *                 needed.
    * @return the opened database
    */
-  S open(String name, String user, String password,
+  DatabaseSessionEmbedded open(String name, String user, String password,
       YouTrackDBConfig config);
 
   /**
@@ -167,7 +88,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    *                           settings where needed.
    * @return the opened database
    */
-  S open(AuthenticationInfo authenticationInfo, YouTrackDBConfig config);
+  DatabaseSessionEmbedded open(AuthenticationInfo authenticationInfo, YouTrackDBConfig config);
 
   /**
    * Create a new database
@@ -233,7 +154,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    * @param password the password relative to the user
    * @return a new pool of databases.
    */
-  DatabasePoolInternal<S> openPool(String name, String user, String password);
+  DatabasePoolInternal openPool(String name, String user, String password);
 
   /**
    * Open a pool of databases, similar to open but with multiple instances.
@@ -245,28 +166,26 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    *                 needed.
    * @return a new pool of databases.
    */
-  DatabasePoolInternal<S> openPool(String name, String user, String password,
+  DatabasePoolInternal openPool(String name, String user, String password,
       YouTrackDBConfig config);
 
-  DatabasePoolInternal<S> cachedPool(String database, String user, String password);
+  DatabasePoolInternal cachedPool(String database, String user, String password);
 
-  DatabasePoolInternal<S> cachedPool(
+  DatabasePoolInternal cachedPool(
       String database, String user, String password, YouTrackDBConfig config);
 
-  DatabasePoolInternal<S> cachedPoolNoAuthentication(String database, String user,
+  DatabasePoolInternal cachedPoolNoAuthentication(String database, String user,
       YouTrackDBConfig config);
 
   /**
    * Internal api for request to open a database with a pool
    */
-  S poolOpen(
-      String name, String user, String password, DatabasePoolInternal<S> pool);
+  DatabaseSessionEmbedded poolOpen(
+      String name, String user, String password, DatabasePoolInternal pool);
 
 
   void restore(
       String name,
-      String user,
-      String password,
       DatabaseType type,
       String path,
       YouTrackDBConfig config);
@@ -292,7 +211,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   /**
    * Internal API for pool close
    */
-  void removePool(DatabasePoolInternal<S> toRemove);
+  void removePool(DatabasePoolInternal toRemove);
 
   /**
    * Check if the current instance is open
@@ -305,36 +224,14 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
     return false;
   }
 
-  static <S extends BasicDatabaseSession<?, ?>> YouTrackDBInternal<S> extract(
-      YouTrackDBAbstract<?, S> youTrackDB) {
+  static YouTrackDBInternal extract(
+      YouTrackDBImpl youTrackDB) {
     return youTrackDB.internal;
-  }
-
-  static String extractUser(YouTrackDBAbstract<?, ?> youTrackDB) {
-    return youTrackDB.serverUser;
   }
 
   void removeShutdownHook();
 
   void forceDatabaseClose(String databaseName);
-
-  default boolean validateServerStatement(String query) {
-    try {
-      StatementCache.getServerStatement(query, this);
-      return true;
-    } catch (CommandSQLParsingException e) {
-      return false;
-    }
-  }
-
-  BasicResultSet<BasicResult> executeServerStatementNamedParams(String script,
-      String user, String pw,
-      Map<String, Object> params);
-
-  BasicResultSet<BasicResult> executeServerStatementPositionalParams(String script,
-      String user,
-      String pw,
-      Object... params);
 
   default SystemDatabase getSystemDatabase() {
     throw new UnsupportedOperationException();
@@ -350,6 +247,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
       String password,
       DatabaseType type,
       YouTrackDBConfig config,
+      boolean failIfExists,
       DatabaseTask<Void> createOps);
 
   YouTrackDBConfigImpl getConfiguration();
