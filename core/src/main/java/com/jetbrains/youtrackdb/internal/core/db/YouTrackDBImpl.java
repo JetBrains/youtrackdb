@@ -437,6 +437,13 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     }
 
     @Override
+    public String toString() {
+      var config = getGraph().configuration();
+      final var graphString = config.getString(YTDBGraphFactory.CONFIG_DB_NAME);
+      return "ytdbGraphTraversalSource[" + graphString + "]:v-" + YouTrackDBConstants.getVersion();
+    }
+
+    @Override
     public void close() {
       super.close();
 
