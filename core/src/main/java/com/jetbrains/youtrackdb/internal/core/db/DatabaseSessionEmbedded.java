@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedSet;
@@ -44,7 +43,6 @@ import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
 import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
-import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Blob;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
@@ -58,7 +56,6 @@ import com.jetbrains.youtrackdb.api.record.RecordHook;
 import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
@@ -88,7 +85,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
@@ -110,8 +106,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryProxy;
-import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
-import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
@@ -1693,8 +1687,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           }
         }
 
-        LiveQueryHook.addOp(entity, operation.type, this);
-        LiveQueryHookV2.addOp(this, entity, operation.type);
       }
     }
 
@@ -1716,8 +1708,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    LiveQueryHook.notifyForTxChanges(this);
-    LiveQueryHookV2.notifyForTxChanges(this);
   }
 
 
@@ -1757,8 +1747,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    LiveQueryHook.removePendingDatabaseOps(this);
-    LiveQueryHookV2.removePendingDatabaseOps(this);
   }
 
   @Override
@@ -2559,49 +2547,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
-      Map<String, ?> args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var youTrackDb = sharedContext.youtrackDB;
-
-    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-    var contextConfig = getConfiguration();
-    var poolConfig = configBuilder.fromContext(contextConfig).build();
-
-    var userName = user.getName(this);
-
-    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
-    var storage = this.storage;
-
-    return storage.live(pool, query, listener, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var youTrackDb = sharedContext.youtrackDB;
-
-    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-    var contextConfig = getConfiguration();
-    var poolConfig = configBuilder.fromContext(contextConfig).build();
-
-    var userName = user.getName(this);
-
-    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
-    var storage = this.storage;
-
-    return storage.live(pool, query, listener, args);
-  }
-
   /**
    * {@inheritDoc}
    */
@@ -2942,16 +2887,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
   }
 
-  @Override
-  public RemoteDatabaseSession asRemoteSession() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    openedAsRemoteSession = true;
-    return new RemoteDatabaseSessionWrapper(this);
-  }
 
   @Override
   public String getURL() {

@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
+import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfigBuilder;
@@ -55,25 +55,25 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
       var key = keysIter.next();
       var value = configuration.getProperty(key);
       switch (key) {
-        case ConfigurationParameters.CONFIG_DB_LOCALE_COUNTRY -> {
+        case DatabaseConfigurationParameters.CONFIG_DB_LOCALE_COUNTRY -> {
           attributes.put(ATTRIBUTES.LOCALE_COUNTRY, value);
         }
-        case ConfigurationParameters.CONFIG_DB_LOCALE_LANGUAGE -> {
+        case DatabaseConfigurationParameters.CONFIG_DB_LOCALE_LANGUAGE -> {
           attributes.put(ATTRIBUTES.LOCALE_LANGUAGE, value);
         }
-        case ConfigurationParameters.CONFIG_DB_TIME_ZONE -> {
+        case DatabaseConfigurationParameters.CONFIG_DB_TIME_ZONE -> {
           attributes.put(ATTRIBUTES.TIMEZONE, value);
         }
-        case ConfigurationParameters.CONFIG_DB_CHARSET -> {
+        case DatabaseConfigurationParameters.CONFIG_DB_CHARSET -> {
           attributes.put(ATTRIBUTES.CHARSET, value);
         }
-        case ConfigurationParameters.CONFIG_DB_DATE_TIME_FORMAT -> {
+        case DatabaseConfigurationParameters.CONFIG_DB_DATE_TIME_FORMAT -> {
           attributes.put(ATTRIBUTES.DATE_TIME_FORMAT, value);
         }
-        case ConfigurationParameters.CONFIG_DB_DATE_FORMAT -> {
+        case DatabaseConfigurationParameters.CONFIG_DB_DATE_FORMAT -> {
           attributes.put(ATTRIBUTES.DATEFORMAT, value);
         }
-        case ConfigurationParameters.CONFIG_USER_PWD -> {
+        case DatabaseConfigurationParameters.CONFIG_USER_PWD -> {
           //skip password
         }
         default -> {

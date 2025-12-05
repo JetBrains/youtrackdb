@@ -98,7 +98,7 @@ public class StorageBackupTestWithLuceneIndex {
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
     youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
-        "admin", "admin", backedUpDbDirectory,
+        backedUpDbDirectory,
         YouTrackDBConfig.defaultConfig().toApacheConfiguration());
     final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
         StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
@@ -167,7 +167,7 @@ public class StorageBackupTestWithLuceneIndex {
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
     youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
-        "admin", "admin", backedUpDbDirectory, YouTrackDBConfig.defaultConfig());
+        backedUpDbDirectory, YouTrackDBConfig.defaultConfig());
     final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
         StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
 

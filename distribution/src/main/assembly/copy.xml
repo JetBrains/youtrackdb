@@ -52,28 +52,6 @@
     </fileSet>
 
     <!--
-     | copy tools scripts
-    -->
-    <fileSet>
-      <directory>${basedir}/../tools/script</directory>
-      <outputDirectory>bin</outputDirectory>
-      <includes>
-        <include>*.bat</include>
-      </includes>
-      <fileMode>644</fileMode>
-      <filtered>true</filtered>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../tools/script</directory>
-      <outputDirectory>bin</outputDirectory>
-      <includes>
-        <include>*.sh</include>
-      </includes>
-      <fileMode>755</fileMode>
-      <filtered>true</filtered>
-    </fileSet>
-
-    <!--
      | copy distributed scripts
     -->
     <fileSet>
@@ -100,10 +78,6 @@
     -->
     <fileSet>
       <directory>${basedir}/../server/config</directory>
-      <outputDirectory>config</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../tools/config</directory>
       <outputDirectory>config</outputDirectory>
     </fileSet>
     <fileSet>

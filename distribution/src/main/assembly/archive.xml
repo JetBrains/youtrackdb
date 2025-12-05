@@ -54,11 +54,6 @@
       <fileMode>600</fileMode>
     </fileSet>
     <fileSet>
-      <directory>${basedir}/../tools/config</directory>
-      <outputDirectory>config</outputDirectory>
-      <fileMode>600</fileMode>
-    </fileSet>
-    <fileSet>
       <directory>${basedir}/../server/config/cert</directory>
       <outputDirectory>config/cert</outputDirectory>
       <fileMode>600</fileMode>

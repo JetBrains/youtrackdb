@@ -22,14 +22,12 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Blob;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
@@ -721,24 +719,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   default TransactionMeters transactionMeters() {
     return TransactionMeters.NOOP;
   }
-
-  /**
-   * Subscribe a query as a live query for future create/update event with the referred conditions
-   *
-   * @param query    live query
-   * @param listener the listener that receive the query results
-   * @param args     the live query args
-   */
-  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Map<String, ?> args);
-
-  /**
-   * Subscribe a query as a live query for future create/update event with the referred conditions
-   *
-   * @param query    live query
-   * @param listener the listener that receive the query results
-   * @param args     the live query args
-   */
-  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args);
 
 
   @Nonnull

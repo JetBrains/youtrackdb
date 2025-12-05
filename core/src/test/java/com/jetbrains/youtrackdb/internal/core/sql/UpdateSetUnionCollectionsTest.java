@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -20,12 +21,10 @@ public class UpdateSetUnionCollectionsTest {
 
   @Before
   public void before() {
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB
-        .execute(
-            "create database ? memory users (admin identified by 'admpwd' role admin)",
-            UpdateSetUnionCollectionsTest.class.getSimpleName())
-        .close();
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()));
+    youTrackDB.create(UpdateSetUnionCollectionsTest.class.getSimpleName(), DatabaseType.MEMORY,
+        "admin", "admpwd", "admin");
   }
 
   @After

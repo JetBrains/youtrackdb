@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
+import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
@@ -257,7 +257,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   @Override
   public String toString() {
     return YTDBGraph.class.getSimpleName() + "[" + configuration.getString(
-        ConfigurationParameters.CONFIG_DB_NAME) + "]";
+        DatabaseConfigurationParameters.CONFIG_DB_NAME) + "]";
   }
 
   public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {

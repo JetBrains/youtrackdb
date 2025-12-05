@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -22,11 +24,14 @@ import org.junit.rules.TestName;
 
 public class DbTestBase {
 
+  public static final String ADMIN_PASSWORD = "adminpwd";
+  public static final String READER_PASSWORD = "readerpwd";
+
   private static final AtomicLong counter = new AtomicLong();
   private static final ConcurrentHashMap<Class<?>, Long> ids = new ConcurrentHashMap<>();
 
   protected DatabaseSessionEmbedded session;
-  protected SessionPool<DatabaseSession> pool;
+  protected SessionPool pool;
   protected YouTrackDBImpl youTrackDB;
 
   @Rule
@@ -35,10 +40,10 @@ public class DbTestBase {
   protected DatabaseType dbType;
 
   protected String adminUser = "admin";
-  protected String adminPassword = "adminpwd";
+  protected String adminPassword = ADMIN_PASSWORD;
 
   protected String readerUser = "reader";
-  protected String readerPassword = "readerpwd";
+  protected String readerPassword = READER_PASSWORD;
   protected String dbPath;
 
   @Before
@@ -77,16 +82,15 @@ public class DbTestBase {
 
   private DatabaseSessionEmbedded openDatabase(Configuration config) {
     var build = YouTrackDBConfig.builder().fromApacheConfiguration(config);
-    return (DatabaseSessionEmbedded)
-        youTrackDB.open(this.databaseName, "admin", "adminpwd", build.build());
+    return youTrackDB.open(this.databaseName, "admin", "adminpwd", build.build());
   }
 
 
   public static String embeddedDBUrl(Class<?> testClass) {
-    return "embedded:" + getBaseDirectoryPath(testClass);
+    return "embedded:" + getBaseDirectoryPathStr(testClass);
   }
 
-  public static String getBaseDirectoryPath(Class<?> testClass) {
+  public static String getBaseDirectoryPathStr(Class<?> testClass) {
     final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath().toString();
     return
@@ -94,12 +98,29 @@ public class DbTestBase {
             .getSimpleName() + "-" + getTestId(testClass);
   }
 
+  public static YouTrackDBImpl createYTDBManagerAndDb(String dbName, DatabaseType dbType,
+      Class<?> testClass) {
+    var path = getBaseDirectoryPath(testClass);
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(path);
+    youTrackDB.create(dbName, dbType,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    return youTrackDB;
+  }
+
+  public static Path getBaseDirectoryPath(Class<?> testClass) {
+    final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
+        .toAbsolutePath();
+    return
+        buildDirectory.resolve("databases").resolve(testClass.getSimpleName() +
+            "-" + getTestId(testClass));
+  }
+
   private static long getTestId(Class<?> testClass) {
     return ids.computeIfAbsent(testClass, k -> counter.incrementAndGet());
   }
 
   protected YouTrackDBImpl createContext() {
-    dbPath = getBaseDirectoryPath(getClass());
+    dbPath = getBaseDirectoryPathStr(getClass());
 
     var config = createConfig();
     return (YouTrackDBImpl) YourTracks.instance(dbPath, config);
@@ -126,16 +147,16 @@ public class DbTestBase {
     if (!session.isClosed()) {
       session.activateOnCurrentThread();
       session.close();
-      this.session = (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
+      this.session = youTrackDB.open(this.databaseName, user, password);
     }
   }
 
   public DatabaseSessionEmbedded openDatabase() {
-    return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, adminUser, adminPassword);
+    return youTrackDB.open(this.databaseName, adminUser, adminPassword);
   }
 
   public DatabaseSessionEmbedded openDatabase(String user, String password) {
-    return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
+    return youTrackDB.open(this.databaseName, user, password);
   }
 
   protected Configuration createConfig() {

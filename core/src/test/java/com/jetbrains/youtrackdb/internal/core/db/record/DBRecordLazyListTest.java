@@ -2,8 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.db.record;
 
 import static org.junit.Assert.assertNotNull;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -22,15 +26,13 @@ public class DBRecordLazyListTest {
 
   @Before
   public void init() throws Exception {
-    youTrackDb =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            DBRecordLazyListTest.class.getSimpleName(), "embedded:.",
-            CreateDatabaseUtil.TYPE_MEMORY);
-    db =
-        (DatabaseSessionEmbedded) youTrackDb.open(
-            DBRecordLazyListTest.class.getSimpleName(),
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDb = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    youTrackDb.create(DBRecordLazyListTest.class.getSimpleName(), DatabaseType.MEMORY,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    db = youTrackDb.open(
+        DBRecordLazyListTest.class.getSimpleName(),
+        "admin",
+        DbTestBase.ADMIN_PASSWORD);
   }
 
   @Test

@@ -3,10 +3,11 @@ package com.jetbrains.youtrackdb.api.common;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.AcquireTimeoutException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
-public interface SessionPool<S extends BasicDatabaseSession<?, ?>> extends AutoCloseable {
+public interface SessionPool extends AutoCloseable {
 
-  S acquire() throws AcquireTimeoutException;
+  DatabaseSessionEmbedded acquire() throws AcquireTimeoutException;
 
   boolean isClosed();
 

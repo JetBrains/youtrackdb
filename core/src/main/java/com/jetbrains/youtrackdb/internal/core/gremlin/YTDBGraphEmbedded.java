@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import org.apache.commons.configuration2.Configuration;
@@ -15,9 +14,9 @@ public class YTDBGraphEmbedded extends YTDBGraphImplAbstract {
     registerOptimizationStrategies(YTDBGraphEmbedded.class);
   }
 
-  private final SessionPool<DatabaseSession> sessionPool;
+  private final SessionPool sessionPool;
 
-  public YTDBGraphEmbedded(SessionPool<DatabaseSession> sessionPool,
+  public YTDBGraphEmbedded(SessionPool sessionPool,
       Configuration configuration) {
     super(configuration);
     this.sessionPool = sessionPool;
@@ -36,6 +35,6 @@ public class YTDBGraphEmbedded extends YTDBGraphImplAbstract {
 
   @Override
   public DatabaseSessionEmbedded acquireSession() {
-    return (DatabaseSessionEmbedded) sessionPool.acquire();
+    return sessionPool.acquire();
   }
 }

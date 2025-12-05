@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
@@ -31,7 +30,7 @@ public class LiveIndexRebuildTest {
   @Ignore
   public void testLiveIndexRebuild() throws Exception {
     try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(LiveIndexRebuildTest.class))) {
+        DbTestBase.getBaseDirectoryPathStr(LiveIndexRebuildTest.class))) {
       if (youTrackDb.exists(LiveIndexRebuildTest.class.getSimpleName())) {
         youTrackDb.drop(LiveIndexRebuildTest.class.getSimpleName());
       }
@@ -94,9 +93,9 @@ public class LiveIndexRebuildTest {
 
   private final class Writer implements Callable<Void> {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private Writer(SessionPool<DatabaseSession> pool) {
+    private Writer(SessionPool pool) {
       this.pool = pool;
     }
 
@@ -139,9 +138,9 @@ public class LiveIndexRebuildTest {
 
   private final class Reader implements Callable<long[]> {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    private Reader(SessionPool<DatabaseSession> pool) {
+    private Reader(SessionPool pool) {
       this.pool = pool;
     }
 

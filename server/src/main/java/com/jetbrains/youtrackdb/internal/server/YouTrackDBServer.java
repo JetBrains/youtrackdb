@@ -15,10 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.server;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
@@ -49,28 +46,15 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.TokenAuthInfo;
 import com.jetbrains.youtrackdb.internal.core.security.InvalidPasswordException;
-import com.jetbrains.youtrackdb.internal.core.security.ParsedToken;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
-import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
-import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfigurationManager;
 import com.jetbrains.youtrackdb.internal.server.handler.ConfigurableHooksManager;
-import com.jetbrains.youtrackdb.internal.server.network.ServerNetworkListener;
-import com.jetbrains.youtrackdb.internal.server.network.ServerSocketFactory;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocolData;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpSessionManager;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPlugin;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginInfo;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginManager;
-import com.jetbrains.youtrackdb.internal.server.token.TokenHandlerImpl;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfigurationManager;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -101,22 +85,14 @@ public class YouTrackDBServer {
 
   protected ReentrantLock lock = new ReentrantLock();
   protected volatile boolean running = false;
-  protected volatile boolean rejectRequests = true;
   protected ServerConfigurationManager serverCfg;
   protected ContextConfiguration contextConfiguration;
   protected ServerShutdownHook shutdownHook;
-  protected Map<String, Class<? extends NetworkProtocol>> networkProtocols = new HashMap<>();
-  protected Map<String, ServerSocketFactory> networkSocketFactories = new HashMap<>();
-  protected List<ServerNetworkListener> networkListeners = new ArrayList<>();
   protected List<ServerLifecycleListener> lifecycleListeners = new ArrayList<>();
   protected ServerPluginManager pluginManager;
   protected ConfigurableHooksManager hookManager;
   private String serverRootDirectory;
   private String databaseDirectory;
-  private ClientConnectionManager clientConnectionManager;
-  private HttpSessionManager httpSessionManager;
-  private PushManager pushManager;
-  private TokenHandler tokenHandler;
 
   private YouTrackDBImpl context;
   private YTDBInternalProxy databases;
@@ -189,18 +165,6 @@ public class YouTrackDBServer {
 
   public boolean isActive() {
     return running;
-  }
-
-  public ClientConnectionManager getClientConnectionManager() {
-    return clientConnectionManager;
-  }
-
-  public HttpSessionManager getHttpSessionManager() {
-    return httpSessionManager;
-  }
-
-  public PushManager getPushManager() {
-    return pushManager;
   }
 
   /**
@@ -299,11 +263,6 @@ public class YouTrackDBServer {
 
     initFromConfiguration();
 
-    clientConnectionManager = new ClientConnectionManager(this);
-    httpSessionManager = new HttpSessionManager(this);
-    pushManager = new PushManager();
-    rejectRequests = false;
-
     if (contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP)) {
       System.out.println("Dumping environment after server startup...");
@@ -337,7 +296,7 @@ public class YouTrackDBServer {
             .build();
 
     databases = new YTDBInternalProxy(
-        (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
+        YouTrackDBInternal.embedded(this.databaseDirectory,
             config, true));
     context = databases.newYouTrackDb();
 
@@ -347,7 +306,6 @@ public class YouTrackDBServer {
     return this;
   }
 
-  @SuppressWarnings("unchecked")
   public YouTrackDBServer activate()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException {
     lock.lock();
@@ -363,50 +321,6 @@ public class YouTrackDBServer {
       }
 
       final var configuration = serverCfg.getConfiguration();
-
-      tokenHandler =
-          new TokenHandlerImpl(
-              this.databases.getSecuritySystem().getTokenSign(), this.contextConfiguration);
-
-      if (configuration.network != null) {
-        // REGISTER/CREATE SOCKET FACTORIES
-        if (configuration.network.sockets != null) {
-          for (var f : configuration.network.sockets) {
-            var fClass =
-                (Class<? extends ServerSocketFactory>) loadClass(f.implementation);
-            var factory = fClass.newInstance();
-            try {
-              factory.config(f.name, f.parameters);
-              networkSocketFactories.put(f.name, factory);
-            } catch (ConfigurationException e) {
-              LogManager.instance().error(this, "Error creating socket factory", e);
-            }
-          }
-        }
-
-        // REGISTER PROTOCOLS
-        for (var p : configuration.network.protocols) {
-          networkProtocols.put(
-              p.name, (Class<? extends NetworkProtocol>) loadClass(p.implementation));
-        }
-
-        // STARTUP LISTENERS
-        for (var l : configuration.network.listeners) {
-          networkListeners.add(
-              new ServerNetworkListener(
-                  this,
-                  networkSocketFactories.get(l.socket),
-                  l.ipAddress,
-                  l.portRange,
-                  l.protocol,
-                  networkProtocols.get(l.protocol),
-                  l.parameters,
-                  l.commands));
-        }
-
-      } else {
-        LogManager.instance().warn(this, "Network configuration was not found");
-      }
 
       try {
         loadStorages();
@@ -427,27 +341,6 @@ public class YouTrackDBServer {
 
       running = true;
 
-      var httpAddress = "localhost:2480";
-      var ssl = false;
-      for (var listener : networkListeners) {
-        if (listener.getProtocolType().getName().equals(NetworkProtocolHttpDb.class.getName())) {
-          httpAddress = listener.getListeningAddress(true);
-          ssl = listener.getSocketFactory().isEncrypted();
-        }
-      }
-      String proto;
-      if (ssl) {
-        proto = "https";
-      } else {
-        proto = "http";
-      }
-
-      LogManager.instance()
-          .info(
-              this,
-              "YouTrackDB Studio available at $ANSI{blue %s://%s/studio/index.html}",
-              proto,
-              httpAddress);
       LogManager.instance()
           .info(
               this,
@@ -503,26 +396,6 @@ public class YouTrackDBServer {
 
       lock.lock();
       try {
-        if (!networkListeners.isEmpty()) {
-          // SHUTDOWN LISTENERS
-          LogManager.instance().info(this, "Shutting down listeners:");
-          // SHUTDOWN LISTENERS
-          for (var l : networkListeners) {
-            LogManager.instance().info(this, "- %s", l);
-            try {
-              l.shutdown();
-            } catch (Exception e) {
-              LogManager.instance().error(this, "Error during shutdown of listener %s.", e, l);
-            }
-          }
-        }
-
-        if (!networkProtocols.isEmpty()) {
-          // PROTOCOL SHUTDOWN
-          LogManager.instance().info(this, "Shutting down protocols");
-          networkProtocols.clear();
-        }
-
         for (var l : lifecycleListeners) {
           try {
             l.onAfterDeactivate();
@@ -532,16 +405,10 @@ public class YouTrackDBServer {
           }
         }
 
-        rejectRequests = true;
-        pushManager.shutdown();
-        clientConnectionManager.shutdown();
-        httpSessionManager.shutdown();
-
         if (pluginManager != null) {
           pluginManager.shutdown();
         }
 
-        networkListeners.clear();
       } finally {
         lock.unlock();
       }
@@ -570,10 +437,6 @@ public class YouTrackDBServer {
     }
 
     return true;
-  }
-
-  public boolean rejectRequests() {
-    return rejectRequests;
   }
 
   public void waitForShutdown() {
@@ -620,43 +483,8 @@ public class YouTrackDBServer {
   }
 
 
-  /**
-   * Authenticate a server user.
-   *
-   * @param iUserName Username to authenticate
-   * @param iPassword Password in clear
-   * @return true if authentication is ok, otherwise false
-   */
-  public boolean authenticate(
-      final String iUserName, final String iPassword, final String iResourceToCheck) {
-    // FALSE INDICATES WRONG PASSWORD OR NO AUTHORIZATION
-    return authenticateUser(iUserName, iPassword, iResourceToCheck) != null;
-  }
-
-  // Returns null if the user cannot be authenticated. Otherwise returns the
-  // ServerUserConfiguration user.
-  public SecurityUser authenticateUser(
-      final String iUserName, final String iPassword, final String iResourceToCheck) {
-    return databases
-        .getSecuritySystem()
-        .authenticateAndAuthorize(null, iUserName, iPassword, iResourceToCheck);
-  }
-
   public ServerConfiguration getConfiguration() {
     return serverCfg.getConfiguration();
-  }
-
-  @SuppressWarnings("unchecked")
-  @Nullable
-  public <RET extends ServerNetworkListener> RET getListenerByProtocol(
-      final Class<? extends NetworkProtocol> iProtocolClass) {
-    for (var l : networkListeners) {
-      if (iProtocolClass.isAssignableFrom(l.getProtocolType())) {
-        return (RET) l;
-      }
-    }
-
-    return null;
   }
 
   @Nullable
@@ -701,33 +529,6 @@ public class YouTrackDBServer {
   public YouTrackDBServer unregisterLifecycleListener(final ServerLifecycleListener iListener) {
     lifecycleListeners.remove(iListener);
     return this;
-  }
-
-  public DatabaseSessionEmbedded openSession(final ParsedToken iToken) {
-    return databases.open(new TokenAuthInfo(iToken), YouTrackDBConfig.defaultConfig());
-  }
-
-  public DatabaseSessionEmbedded openSession(
-      final String iDbUrl, final String user, final String password) {
-    return openSession(iDbUrl, user, password, null);
-  }
-
-  public DatabaseSessionEmbedded openSession(
-      final String iDbUrl, final String user, final String password, NetworkProtocolData data) {
-    final DatabaseSessionEmbedded database;
-    var serverAuth = false;
-    database = (DatabaseSessionEmbedded) databases.open(iDbUrl, user, password);
-    if (SecurityUser.SERVER_USER_TYPE.equals(database.getCurrentUser().getUserType())) {
-      serverAuth = true;
-    }
-    if (serverAuth && data != null) {
-      data.serverUser = true;
-      data.serverUsername = user;
-    } else if (data != null) {
-      data.serverUser = false;
-      data.serverUsername = null;
-    }
-    return database;
   }
 
   public DatabaseSessionEmbedded openSession(String database) {
@@ -930,24 +731,44 @@ public class YouTrackDBServer {
 
     if (systemDbEnabled) {
       if (!existsRoot) {
-        context.execute(
-            "CREATE SYSTEM USER "
-                + ServerConfiguration.DEFAULT_ROOT_USER
-                + " IDENTIFIED BY ? ROLE root",
-            rootPassword);
+        var password = rootPassword;
+        databases.getSystemDatabase().executeWithDB(session -> {
+          session.executeInTx(transaction -> {
+            var metadata = session.getMetadata();
+            var security = metadata.getSecurity();
+
+            if (security.getUser(ServerConfiguration.DEFAULT_ROOT_USER) == null) {
+              security.createUser(ServerConfiguration.DEFAULT_ROOT_USER, password, "root");
+            }
+          });
+          return null;
+        });
       }
 
-      if (!existsSystemUser(ServerConfiguration.GUEST_USER)) {
-        context.execute(
-            "CREATE SYSTEM USER " + ServerConfiguration.GUEST_USER + " IDENTIFIED BY ? ROLE guest",
-            ServerConfiguration.DEFAULT_GUEST_PASSWORD);
-      }
+      databases.getSystemDatabase().executeWithDB(session -> {
+        session.executeInTx(transaction -> {
+          var metadata = session.getMetadata();
+          var security = metadata.getSecurity();
+
+          if (security.getUser(ServerConfiguration.GUEST_USER) == null) {
+            security.createUser(ServerConfiguration.GUEST_USER,
+                ServerConfiguration.DEFAULT_GUEST_PASSWORD, "guest");
+          }
+        });
+        return null;
+      });
     }
   }
 
+  @SuppressWarnings("SameParameterValue")
   private boolean existsSystemUser(String user) {
-    return Boolean.TRUE.equals(
-        context.execute("EXISTS SYSTEM USER ?", user).next().getProperty("exists"));
+    return databases.getSystemDatabase()
+        .executeWithDB(session -> session.computeInTx(transaction -> {
+          var metadata = session.getMetadata();
+          var security = metadata.getSecurity();
+
+          return security.getUser(user) != null;
+        }));
   }
 
   public ServerPluginManager getPluginManager() {
@@ -1035,14 +856,6 @@ public class YouTrackDBServer {
   protected void defaultSettings() {
   }
 
-  public TokenHandler getTokenHandler() {
-    return tokenHandler;
-  }
-
-  public static ThreadGroup getThreadGroup() {
-    return YouTrackDBEnginesManager.instance().getThreadGroup();
-  }
-
   private void initSystemDatabase() {
     databases.getSystemDatabase().init();
   }
@@ -1051,7 +864,7 @@ public class YouTrackDBServer {
     return databases;
   }
 
-  public YouTrackDBImpl getContext() {
+  public YouTrackDBImpl getYouTrackDB() {
     return context;
   }
 
@@ -1068,10 +881,6 @@ public class YouTrackDBServer {
     return databases.exists(databaseName, null, null);
   }
 
-  public void createDatabase(String databaseName, DatabaseType type, YouTrackDBConfigImpl config) {
-    databases.create(databaseName, null, null, type, config);
-  }
-
   public Set<String> listDatabases() {
     var dbs = databases.listDatabases(null, null);
     if (dbs.contains(SystemDatabase.SYSTEM_DB_NAME)) {
@@ -1083,13 +892,7 @@ public class YouTrackDBServer {
     return dbs;
   }
 
-  public void restore(String name, String path) {
-    databases.restore(name, null, null, null, path, YouTrackDBConfig.defaultConfig());
-  }
-
-  public final class YTDBInternalProxy implements YouTrackDBInternal<DatabaseSession>,
-      ServerAware {
-
+  public final class YTDBInternalProxy implements YouTrackDBInternal, ServerAware {
     private final YouTrackDBInternalEmbedded internal;
 
     private YTDBInternalProxy(YouTrackDBInternalEmbedded internal) {
@@ -1102,7 +905,7 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public DatabaseSession open(String name, String user, String password) {
+    public DatabaseSessionEmbedded open(String name, String user, String password) {
       return internal.open(name, user, password);
     }
 
@@ -1143,6 +946,7 @@ public class YouTrackDBServer {
 
     }
 
+
     @Override
     public boolean exists(String name, String user, String password) {
       //system database is managed inside of embedded instance autonomously
@@ -1171,47 +975,47 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user,
+    public DatabasePoolInternal openPool(String name, String user,
         String password) {
       return internal.openPool(name, user, password);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user, String password,
+    public DatabasePoolInternal openPool(String name, String user, String password,
         YouTrackDBConfig config) {
       return internal.openPool(name, user, password, config);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+    public DatabasePoolInternal cachedPool(String database, String user,
         String password) {
       return internal.cachedPool(database, user, password);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+    public DatabasePoolInternal cachedPool(String database, String user,
         String password, YouTrackDBConfig config) {
       return internal.cachedPool(database, user, password, config);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPoolNoAuthentication(String database,
+    public DatabasePoolInternal cachedPoolNoAuthentication(String database,
         String user, YouTrackDBConfig config) {
       return internal.cachedPoolNoAuthentication(database, user, config);
     }
 
     @Override
-    public DatabaseSession poolOpen(String name, String user, String password,
-        DatabasePoolInternal<DatabaseSession> pool) {
+    public DatabaseSessionEmbedded poolOpen(String name, String user, String password,
+        DatabasePoolInternal pool) {
       return internal.poolOpen(name, user, password, pool);
     }
 
     @Override
-    public void restore(String name, String user, String password, DatabaseType type, String path,
+    public void restore(String name, DatabaseType type, String path,
         YouTrackDBConfig config) {
       dbCreationLock.lock();
       try {
-        internal.restore(name, user, password, type, path, config);
+        internal.restore(name, type, path, config);
         dbNamesCache.add(name);
       } finally {
         dbCreationLock.unlock();
@@ -1242,7 +1046,7 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void removePool(DatabasePoolInternal<DatabaseSession> toRemove) {
+    public void removePool(DatabasePoolInternal toRemove) {
       internal.removePool(toRemove);
     }
 
@@ -1267,49 +1071,17 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public BasicResultSet<BasicResult> executeServerStatementNamedParams(String script, String user,
-        String pw, Map<String, Object> params) {
-      var statement = SQLEngine.parseServerStatement(script, this);
-
-      var original = statement.execute(this, params, true);
-      LocalResultSetLifecycleDecorator result;
-      var prefetched = new InternalResultSet(null);
-      original.forEachRemaining(prefetched::add);
-      original.close();
-      result = new LocalResultSetLifecycleDecorator(prefetched);
-
-      //noinspection unchecked,rawtypes
-      return (BasicResultSet) result;
-    }
-
-    @Override
-    public BasicResultSet<BasicResult> executeServerStatementPositionalParams(String script,
-        String user, String pw, Object... params) {
-      var statement = SQLEngine.parseServerStatement(script, this);
-
-      var original = statement.execute(this, params, true);
-      LocalResultSetLifecycleDecorator result;
-      var prefetched = new InternalResultSet(null);
-      original.forEachRemaining(prefetched::add);
-      original.close();
-
-      result = new LocalResultSetLifecycleDecorator(prefetched);
-
-      //noinspection unchecked,rawtypes
-      return (BasicResultSet) result;
-    }
-
-    @Override
     public void create(String name, String user, String password, DatabaseType type,
-        YouTrackDBConfig config, DatabaseTask<Void> createOps) {
+        YouTrackDBConfig config, boolean failIfExists, DatabaseTask<Void> createOps) {
       dbCreationLock.lock();
       try {
-        internal.create(name, user, password, type, config, createOps);
+        internal.create(name, user, password, type, config, true, createOps);
         dbNamesCache.add(name);
       } finally {
         dbCreationLock.unlock();
       }
     }
+
 
     @Override
     public YouTrackDBConfigImpl getConfiguration() {

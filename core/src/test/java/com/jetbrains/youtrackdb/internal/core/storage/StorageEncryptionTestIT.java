@@ -27,7 +27,7 @@ public class StorageEncryptionTestIT {
 
   @Before
   public void before() {
-    FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
+    FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPathStr(getClass())));
   }
 
   @Test
@@ -36,7 +36,7 @@ public class StorageEncryptionTestIT {
     config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
         "T1JJRU5UREJfSVNfQ09PTA==");
     try (final var youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             config)) {
       youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(), DatabaseType.DISK,
           config,
@@ -83,7 +83,7 @@ public class StorageEncryptionTestIT {
 
     try (final var youTrackDB =
         (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()))) {
+            DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       try {
         try (final var ignored = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
             "admin", "admin")) {
@@ -98,7 +98,7 @@ public class StorageEncryptionTestIT {
     wrongConfig.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
         "T1JJRU5UREJfSVNfQ09PTA==");
     try (final var youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             wrongConfig)) {
       try {
         try (final var ignored = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
@@ -114,7 +114,7 @@ public class StorageEncryptionTestIT {
     wrongKeyTwoConfig.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
         "DD0ViGecppQOx4ijWL4XGBwun9NAfbqFaDnVpn9+lj8");
     try (final var youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             wrongKeyTwoConfig)) {
       try {
         try (final var ignored = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName()
@@ -127,7 +127,7 @@ public class StorageEncryptionTestIT {
     }
 
     try (final var youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             config)) {
       try (final var session =
           (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
@@ -167,13 +167,13 @@ public class StorageEncryptionTestIT {
   public void testEncryptionSingleDatabase() {
     try (final var youTrackDB =
         YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()))) {
+            DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(), DatabaseType.DISK,
           "admin", "admin", "admin");
     }
     try (final var youTrackDB =
         (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()))) {
+            DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       final var youTrackDBConfig =
           (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
               .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,

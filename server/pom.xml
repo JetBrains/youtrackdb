@@ -45,18 +45,12 @@ nse, Version 2.0 (the "License");
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-client</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-tools</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.youtrackdb</groupId>
       <artifactId>tinkergraph-gremlin</artifactId>
-      <version>${gremlin.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-core</artifactId>
+      <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
