@@ -6,6 +6,7 @@ import static org.apache.tinkerpop.gremlin.process.traversal.GraphOp.TX_ROLLBACK
 
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.Timer;
+import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
