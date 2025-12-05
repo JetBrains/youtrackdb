@@ -6,11 +6,11 @@ import static org.apache.tinkerpop.gremlin.process.traversal.GraphOp.TX_ROLLBACK
 
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.Timer;
-import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
+import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import java.lang.reflect.UndeclaredThrowableException;

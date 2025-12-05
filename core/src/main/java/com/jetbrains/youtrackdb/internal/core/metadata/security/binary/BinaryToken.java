@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security.binary;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Token;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.BinaryTokenPayload;

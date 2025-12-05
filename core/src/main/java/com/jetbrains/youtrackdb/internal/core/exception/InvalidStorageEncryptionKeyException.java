@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
-
 /**
  * Storage key is invalid. Used in cryptography.
  */

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedSet;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;

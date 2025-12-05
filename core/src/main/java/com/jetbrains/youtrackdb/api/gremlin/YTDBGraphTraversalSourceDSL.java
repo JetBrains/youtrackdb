@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
-import com.jetbrains.youtrackdb.api.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;

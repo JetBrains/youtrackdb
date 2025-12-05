@@ -111,6 +111,9 @@ public class YTDBDriverRemoteTraversal<S, E> extends AbstractRemoteTraversal<S, 
       throw new NoSuchElementException();
     }
 
+    if (0L == this.lastTraverser.bulk()) {
+      this.lastTraverser = this.traversers.next();
+    }
     if (1L == this.lastTraverser.bulk()) {
       final var result = this.lastTraverser.get();
       this.lastTraverser = EmptyTraverser.instance();

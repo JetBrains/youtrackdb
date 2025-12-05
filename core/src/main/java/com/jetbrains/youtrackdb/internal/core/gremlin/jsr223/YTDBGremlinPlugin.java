@@ -16,7 +16,7 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import org.apache.tinkerpop.gremlin.jsr223.AbstractGremlinPlugin;

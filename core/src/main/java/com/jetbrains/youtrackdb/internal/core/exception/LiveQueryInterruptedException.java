@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 
 /**
  *

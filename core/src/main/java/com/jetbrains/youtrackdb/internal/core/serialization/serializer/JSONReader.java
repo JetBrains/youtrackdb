@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import java.io.BufferedReader;

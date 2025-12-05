@@ -20,11 +20,11 @@
 
 package com.jetbrains.youtrackdb.internal.core.db.record.ridbag;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;

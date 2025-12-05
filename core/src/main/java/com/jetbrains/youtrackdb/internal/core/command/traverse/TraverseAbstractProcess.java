@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandProcess;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import javax.annotation.Nullable;
 
 public abstract class TraverseAbstractProcess<T>

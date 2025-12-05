@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.server.config;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;

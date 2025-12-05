@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.config;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -18,6 +16,8 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageFileConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageSegmentConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;

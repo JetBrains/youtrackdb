@@ -17,8 +17,8 @@
  */
 package com.jetbrains.youtrackdb.internal.common.factory;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;

@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Collection;
 import javax.annotation.Nullable;
 

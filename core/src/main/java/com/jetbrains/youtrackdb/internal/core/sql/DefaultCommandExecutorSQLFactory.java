@@ -15,9 +15,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutor;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
