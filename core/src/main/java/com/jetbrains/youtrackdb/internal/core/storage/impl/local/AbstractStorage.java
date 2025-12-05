@@ -20,9 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CollectionDoesNotExistException;
@@ -37,7 +34,6 @@ import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedExc
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrackdb.api.exception.StorageExistsException;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
@@ -62,7 +58,6 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfigurat
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -92,12 +87,10 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueInd
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.StreamSerializerRID;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
@@ -5712,21 +5705,6 @@ public abstract class AbstractStorage
             new ThreadInterruptedException("Interrupted wait for backup to finish"), e, name);
       }
     }
-  }
-
-  @Override
-  public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Map<String, ?> args) {
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, (Map) args);
-    return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
-  }
-
-  @Override
-  public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Object... args) {
-    var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, args);
-    return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
 
   protected void checkBackupRunning() {

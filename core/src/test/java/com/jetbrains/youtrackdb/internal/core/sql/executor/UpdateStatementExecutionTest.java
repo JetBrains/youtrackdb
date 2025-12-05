@@ -3,12 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,28 +23,26 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
 
-/**
- *
- */
 public class UpdateStatementExecutionTest {
 
+  private static final String ADMIN_PASSWORD = "adminpwd";
   @Rule
   public TestName name = new TestName();
 
   private DatabaseSessionInternal session;
 
   private String className;
-  private YouTrackDBAbstract<?, ?> youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   @Before
   public void before() {
-    youTrackDB =
-        CreateDatabaseUtil.createDatabase(
-            name.getMethodName(), DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    session =
-        (DatabaseSessionInternal)
-            youTrackDB.open(name.getMethodName(), "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    if (youTrackDB.exists("test")) {
+      youTrackDB.drop("test");
+    }
+
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    session = youTrackDB.open("test", "admin", ADMIN_PASSWORD);
 
     className = name.getMethodName();
     session.getMetadata().getSchema().createClass(className);

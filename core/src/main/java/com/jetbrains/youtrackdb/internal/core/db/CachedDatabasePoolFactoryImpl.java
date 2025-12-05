@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import java.util.TimerTask;
@@ -18,8 +17,7 @@ import java.util.TimerTask;
  * pool 4. First we will remove pool which used long time ago from pool cache 5. Then we add new
  * pool from point 3 to pool cache
  */
-public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>> implements
-    CachedDatabasePoolFactory<S> {
+public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory {
 
   /**
    * Max size of connections which one pool can contains
@@ -119,14 +117,13 @@ public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>>
   }
 
   @Override
-  public DatabasePoolInternal<S> getOrCreateNoAuthentication(String database, String username,
+  public DatabasePoolInternal getOrCreateNoAuthentication(String database, String username,
       YouTrackDBConfigImpl parentConfig) {
     checkForClose();
     var key = database + "!!" + username;
 
     var pool = poolCache.get(key);
     if (pool != null && !pool.isClosed()) {
-      //noinspection unchecked
       return pool;
     }
 

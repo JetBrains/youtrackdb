@@ -17,16 +17,11 @@
 
 package com.jetbrains.youtrackdb.internal.core;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -57,6 +52,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class PostponedEngineStartTest {
+
   private static YouTrackDBEnginesManager YOUTRACKDB;
 
   private static Engine ENGINE1;
@@ -605,19 +601,6 @@ public class PostponedEngineStartTest {
 
         @Override
         public YouTrackDBInternalEmbedded getContext() {
-          return null;
-        }
-
-        @Override
-        public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool,
-            String query, BasicLiveQueryResultListener<DatabaseSession, Result> listener,
-            Map<String, ?> args) {
-          return null;
-        }
-
-        @Override
-        public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-            BasicLiveQueryResultListener listener, Object... args) {
           return null;
         }
       };

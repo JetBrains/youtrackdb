@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
@@ -8,7 +11,6 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
@@ -26,7 +28,7 @@ public class StorageBackupTest {
 
   @Before
   public void before() {
-    testDirectory = DbTestBase.getBaseDirectoryPath(getClass());
+    testDirectory = DbTestBase.getBaseDirectoryPathStr(getClass());
   }
 
   @Test
@@ -35,10 +37,9 @@ public class StorageBackupTest {
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
-    youTrackDB.execute(
-        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
-
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    var db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -77,15 +78,13 @@ public class StorageBackupTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         YouTrackDBConfig.defaultConfig());
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+            youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD),
+            youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD),
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -114,10 +113,9 @@ public class StorageBackupTest {
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
 
     final var dbName = StorageBackupTest.class.getSimpleName();
-    youTrackDB.execute(
-        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
-
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -178,15 +176,13 @@ public class StorageBackupTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         YouTrackDBConfig.defaultConfig());
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+            youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD),
+            youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD),
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -214,10 +210,9 @@ public class StorageBackupTest {
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
 
     final var dbName = StorageBackupTest.class.getSimpleName();
-    youTrackDB.execute(
-        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
-
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -278,15 +273,13 @@ public class StorageBackupTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         config);
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+            youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD),
+            youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD),
             System.out::println);
 
     Assert.assertTrue(compare.compare());

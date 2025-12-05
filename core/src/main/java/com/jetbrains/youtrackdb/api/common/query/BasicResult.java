@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import java.math.BigDecimal;
@@ -34,12 +33,6 @@ import javax.annotation.Nullable;
 /// @see Transaction#execute(String, Object...)
 /// @see Transaction#command(String, Map)
 /// @see Transaction#command(String, Object...)
-/// @see RemoteDatabaseSession#query(String, Map)
-/// @see RemoteDatabaseSession#query(String, Object...)
-/// @see RemoteDatabaseSession#execute(String, Map)
-/// @see RemoteDatabaseSession#execute(String, Object...)
-/// @see RemoteDatabaseSession#command(String, Map)
-/// @see RemoteDatabaseSession#command(String, Object...)
 public interface BasicResult {
 
   /// Returns either value of a single property in [Entity] or

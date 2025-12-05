@@ -82,7 +82,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
             null,
             null,
             dbType,
-            configBuilder.build(),
+            configBuilder.build(), true,
             (session) -> {
               if (!users.isEmpty()) {
                 session.executeInTx(

@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
@@ -45,8 +48,8 @@ public class BTreeTestIT {
     FileUtils.deleteRecursively(dbDirectory);
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
-    youTrackDB.execute(
-        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
 
     AbstractStorage storage;
     try (var databaseDocumentTx = youTrackDB.open(dbName, "admin", "admin")) {
