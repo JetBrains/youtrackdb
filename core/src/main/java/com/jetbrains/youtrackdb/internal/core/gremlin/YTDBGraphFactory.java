@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class YTDBGraphFactory {
+
   private static final Logger logger = LoggerFactory.getLogger(YTDBGraphFactory.class);
 
   /// Path to the root folder that contains all embedded databases managed by [YouTrackDB], this
@@ -168,8 +169,13 @@ public class YTDBGraphFactory {
 
         return null;
       } else {
-        throw new IllegalStateException(
-            "There is another YTDB instance registered for the same path: " + p);
+        if (ytdb != null) {
+          throw new IllegalStateException(
+              "There is another YTDB instance registered for the same path: " + p);
+        } else {
+          throw new IllegalStateException(
+              "There is no YTDB instance registered for the path: " + p);
+        }
       }
     });
   }

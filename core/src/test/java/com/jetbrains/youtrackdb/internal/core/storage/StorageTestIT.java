@@ -331,6 +331,6 @@ public class StorageTestIT {
     youTrackDB.close();
 
     var dbPath = DbTestBase.getBaseDirectoryPath(getClass());
-    FileUtils.deleteDirectory(new java.io.File(dbPath));
+    FileUtils.deleteDirectory(dbPath.toFile());
   }
 }
