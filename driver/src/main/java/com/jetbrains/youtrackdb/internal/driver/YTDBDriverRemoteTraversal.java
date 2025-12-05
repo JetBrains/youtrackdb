@@ -43,7 +43,7 @@ public class YTDBDriverRemoteTraversal<S, E> extends AbstractRemoteTraversal<S, 
 
   public YTDBDriverRemoteTraversal(final ResultSet rs, final Client client, final boolean attach,
       final HashMap<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDs,
-      final Optional<Configuration> conf) {
+      @SuppressWarnings("OptionalUsedAsFieldOrParameterType") final Optional<Configuration> conf) {
     // attaching is really just for testing purposes. it doesn't make sense in any real-world scenario as it would
     // require that the client have access to the Graph instance that produced the result. tests need that
     // attachment process to properly execute in full hence this little hack.
@@ -66,7 +66,12 @@ public class YTDBDriverRemoteTraversal<S, E> extends AbstractRemoteTraversal<S, 
 
   @Override
   public boolean hasNext() {
-    var result = this.lastTraverser.bulk() > 0L || this.traversers.hasNext();
+    var result = this.lastTraverser.bulk() > 0L;
+
+    while (!result && this.traversers.hasNext()) {
+      lastTraverser = traversers.next();
+      result = lastTraverser.bulk() > 0L;
+    }
 
     if (!result) {
       updateRidsFromResultSet();
@@ -106,9 +111,6 @@ public class YTDBDriverRemoteTraversal<S, E> extends AbstractRemoteTraversal<S, 
       throw new NoSuchElementException();
     }
 
-    if (0L == this.lastTraverser.bulk()) {
-      this.lastTraverser = this.traversers.next();
-    }
     if (1L == this.lastTraverser.bulk()) {
       final var result = this.lastTraverser.get();
       this.lastTraverser = EmptyTraverser.instance();
