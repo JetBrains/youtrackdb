@@ -20,9 +20,9 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;

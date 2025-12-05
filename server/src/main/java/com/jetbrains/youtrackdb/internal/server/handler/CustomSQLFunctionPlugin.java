@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.server.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.CustomSQLFunctionFactory;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;

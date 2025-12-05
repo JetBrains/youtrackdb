@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.command;
 
-import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**

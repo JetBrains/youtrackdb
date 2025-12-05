@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;

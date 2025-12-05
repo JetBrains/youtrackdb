@@ -8,13 +8,13 @@ import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClass
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
-import com.jetbrains.youtrackdb.api.gremlin.service.YTDBRemovePropertyService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBRemovePropertyService;
 import java.util.HashSet;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.P;

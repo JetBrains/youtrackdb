@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import java.util.TimerTask;
 
 /**

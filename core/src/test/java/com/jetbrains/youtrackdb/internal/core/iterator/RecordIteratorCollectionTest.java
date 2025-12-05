@@ -2,12 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;

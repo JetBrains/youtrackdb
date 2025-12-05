@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import org.junit.Test;
 
 public class VertexAndEdgeTest extends DbTestBase {

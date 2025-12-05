@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
-import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.TokenAuthInfo;

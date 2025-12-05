@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;

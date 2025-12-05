@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
-import com.jetbrains.youtrackdb.api.gremlin.service.YTDBServices;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBServices;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;

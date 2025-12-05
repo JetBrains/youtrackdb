@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.NoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 

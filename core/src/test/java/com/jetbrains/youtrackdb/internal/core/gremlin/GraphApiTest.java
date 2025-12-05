@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.__;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.Direction;

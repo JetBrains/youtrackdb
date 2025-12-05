@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationMetadata;
 import java.util.HashSet;

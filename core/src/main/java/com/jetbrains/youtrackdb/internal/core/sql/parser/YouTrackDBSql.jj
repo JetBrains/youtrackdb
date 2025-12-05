@@ -36,7 +36,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import java.io.InputStream;
 import java.util.List;
 import java.util.ArrayList;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
 
 /** YouTrackDB Sql grammar. */
