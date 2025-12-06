@@ -13,6 +13,7 @@ import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.assertj.core.api.ListAssert;
 import org.junit.Test;
@@ -30,9 +31,9 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
   }
 
   private void createSimpleHierarchy() {
-    g().command("CREATE CLASS Grandparent EXTENDS V");
-    g().command("CREATE CLASS Parent EXTENDS Grandparent");
-    g().command("CREATE CLASS Child EXTENDS Parent");
+    g().command("CREATE CLASS Grandparent IF NOT EXISTS EXTENDS V");
+    g().command("CREATE CLASS Parent IF NOT EXISTS EXTENDS Grandparent");
+    g().command("CREATE CLASS Child IF NOT EXISTS EXTENDS Parent");
   }
 
   @Test
@@ -107,7 +108,7 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     checkSize(1, () -> gn().V().hasLabel("Grandparent"));
   }
 
-  private static void checkSize(int size, Supplier<YTDBGraphTraversal<Vertex, Vertex>> query) {
+  private static void checkSize(int size, Supplier<GraphTraversal<Vertex, Vertex>> query) {
     assertEquals(size, query.get().toList().size());
     assertEquals(size, query.get().count().next().longValue());
   }
@@ -121,14 +122,14 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     //        /     \     \
     //      cat    human   bee
 
-    g().command("CREATE CLASS animal EXTENDS V");
-    g().command("CREATE CLASS fish EXTENDS animal");
-    g().command("CREATE CLASS mammal EXTENDS animal");
-    g().command("CREATE CLASS bird EXTENDS animal");
-    g().command("CREATE CLASS insect EXTENDS animal");
-    g().command("CREATE CLASS bee EXTENDS insect");
-    g().command("CREATE CLASS cat EXTENDS mammal");
-    g().command("CREATE CLASS human EXTENDS mammal");
+    g().command("CREATE CLASS animal IF NOT EXISTS EXTENDS V");
+    g().command("CREATE CLASS fish IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS mammal IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS bird IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS insect IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS bee IF NOT EXISTS EXTENDS insect");
+    g().command("CREATE CLASS cat IF NOT EXISTS EXTENDS mammal");
+    g().command("CREATE CLASS human IF NOT EXISTS EXTENDS mammal");
 
     g().addV("animal").property("name", "someAnimal").iterate();
     g().addV("fish").property("name", "someFish").iterate();
@@ -482,6 +483,33 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
             .V().hasLabel("Parent")
             .V().hasLabel("Grandparent").not(__.hasLabel("Parent"))
     );
+  }
+
+  @Test
+  public void testCompoundQuery() {
+    createSimpleHierarchy();
+
+    g().addV("Child").property("name", "child1").property("age", 15).iterate();
+    g().addV("Child").property("name", "child2").property("age", 25).iterate();
+    g().addV("Child").property("name", "child3").property("age", 35).iterate();
+
+    for (var label : List.of("Child", "Parent", "Grandparent")) {
+      final var result = g()
+          .union(
+              __.V().hasLabel(label).has("name", "child1"),
+              __.V().hasLabel(label).has("name", "child2")
+          )
+          .aggregate("var1")
+          .fold()
+          .V()
+          .hasLabel(label)
+          .has("age", P.gt(20))
+          .where(P.within("var1"))
+          .toList();
+
+      assertEquals(1, result.size());
+      assertEquals("child2", result.getFirst().value("name"));
+    }
   }
 
   private ListAssert<String> assertThatNames(String clazz, boolean polymorphic) {

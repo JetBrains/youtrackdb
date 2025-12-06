@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -160,7 +161,7 @@ public class StorageTestIT {
     db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     try {
-      db.query("select from PageBreak").close();
+      db.query("select from PageBreak").toEntityList();
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
@@ -326,7 +327,10 @@ public class StorageTestIT {
   }
 
   @After
-  public void after() {
-    youTrackDB.drop(StorageTestIT.class.getSimpleName());
+  public void after() throws Exception {
+    youTrackDB.close();
+
+    var dbPath = DbTestBase.getBaseDirectoryPath(getClass());
+    FileUtils.deleteDirectory(dbPath.toFile());
   }
 }

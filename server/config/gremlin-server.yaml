@@ -34,10 +34,10 @@ scriptEngines: {
                },
                org.apache.tinkerpop.gremlin.jsr223.ImportGremlinPlugin: {
                  classImports: [ java.lang.Math ],
-                 methodImports: [ java.lang.Math#* ] },
+                 methodImports: [ java.lang.Math#* ]
+               }
     }
-        }
-    }
+  }
 }
 serializers:
   - { className: org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1, config: {

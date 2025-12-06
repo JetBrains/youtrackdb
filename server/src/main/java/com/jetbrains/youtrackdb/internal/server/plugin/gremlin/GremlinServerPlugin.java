@@ -11,8 +11,6 @@ import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginAbstract;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
-import javax.annotation.Nonnull;
-import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings.ScriptEngineSettings;
 
@@ -23,7 +21,6 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
   public static final String NAME = "gremlinserver";
 
   private GremlinServer gremlinServer;
-  private YTDBGraphManager graphManager;
 
   @Override
   public String getName() {
@@ -92,7 +89,6 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
   public void startup() throws Exception {
     if (gremlinServer != null) {
       gremlinServer.start();
-      graphManager = (YTDBGraphManager) gremlinServer.getServerGremlinExecutor().getGraphManager();
     }
   }
 
@@ -103,31 +99,6 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
     }
   }
 
-  @Override
-  public void onCreate(@Nonnull DatabaseSessionInternal session) {
-    if (session.getDatabaseName().equals(SystemDatabase.SYSTEM_DB_NAME)) {
-      return;
-    }
-
-    var databaseName = session.getDatabaseName();
-    var contextConfig = session.getConfiguration();
-    var config = new BaseConfiguration();
-    contextConfig.merge(config);
-    config.setProperty(YTDBGraphFactory.CONFIG_DB_NAME, databaseName);
-
-    graphManager.openGraph(databaseName,
-        name -> graphManager.newGraphProxyInstance(databaseName, config));
-  }
-
-  @Override
-  public void onDrop(@Nonnull DatabaseSessionInternal session) {
-    if (session.getDatabaseName().equals(SystemDatabase.SYSTEM_DB_NAME)) {
-      return;
-    }
-
-    var databaseName = session.getDatabaseName();
-    graphManager.removeGraph(databaseName);
-  }
 
   public GremlinServer getGremlinServer() {
     return gremlinServer;
