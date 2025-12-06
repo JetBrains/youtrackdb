@@ -31,9 +31,9 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
   }
 
   private void createSimpleHierarchy() {
-    g().command("CREATE CLASS Grandparent EXTENDS V");
-    g().command("CREATE CLASS Parent EXTENDS Grandparent");
-    g().command("CREATE CLASS Child EXTENDS Parent");
+    g().command("CREATE CLASS Grandparent IF NOT EXISTS EXTENDS V");
+    g().command("CREATE CLASS Parent IF NOT EXISTS EXTENDS Grandparent");
+    g().command("CREATE CLASS Child IF NOT EXISTS EXTENDS Parent");
   }
 
   @Test
@@ -122,14 +122,14 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     //        /     \     \
     //      cat    human   bee
 
-    g().command("CREATE CLASS animal EXTENDS V");
-    g().command("CREATE CLASS fish EXTENDS animal");
-    g().command("CREATE CLASS mammal EXTENDS animal");
-    g().command("CREATE CLASS bird EXTENDS animal");
-    g().command("CREATE CLASS insect EXTENDS animal");
-    g().command("CREATE CLASS bee EXTENDS insect");
-    g().command("CREATE CLASS cat EXTENDS mammal");
-    g().command("CREATE CLASS human EXTENDS mammal");
+    g().command("CREATE CLASS animal IF NOT EXISTS EXTENDS V");
+    g().command("CREATE CLASS fish IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS mammal IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS bird IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS insect IF NOT EXISTS EXTENDS animal");
+    g().command("CREATE CLASS bee IF NOT EXISTS EXTENDS insect");
+    g().command("CREATE CLASS cat IF NOT EXISTS EXTENDS mammal");
+    g().command("CREATE CLASS human IF NOT EXISTS EXTENDS mammal");
 
     g().addV("animal").property("name", "someAnimal").iterate();
     g().addV("fish").property("name", "someFish").iterate();

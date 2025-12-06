@@ -342,7 +342,6 @@ public class WOWCacheTestIT {
           wowCache.internalFileId(fileHandler.fileId()),
           i,
           dataContent,
-          new LogSequenceNumber(0, 0),
           nativeFileName,
           aesKey,
           iv);
@@ -618,7 +617,6 @@ public class WOWCacheTestIT {
           wowCache.internalFileId(fileHandler.fileId()),
           (int) entry.getKey().longValue(),
           entry.getValue(),
-          new LogSequenceNumber(0, 0),
           nativeFileName,
           aesKey,
           iv);
@@ -949,7 +947,6 @@ public class WOWCacheTestIT {
       int fileId,
       int pageIndex,
       byte[] value,
-      LogSequenceNumber lsn,
       String fileName,
       final byte[] aesKey,
       final byte[] iv)
@@ -1005,12 +1002,7 @@ public class WOWCacheTestIT {
         value);
 
     Assert.assertEquals(WOWCache.MAGIC_NUMBER_WITH_CHECKSUM_ENCRYPTED, magicNumber & 0xFF);
-
-    var readLsn = DurablePage.getLogSequenceNumber(0, content);
-
-    Assert.assertEquals(readLsn, lsn);
-
-    fileClassic.close();
+   fileClassic.close();
   }
 
   public static final class TestRecord extends AbstractWALRecord {

@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.google.common.collect.Sets;
-import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
@@ -71,8 +70,8 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
 
     if (configuration != null) {
       var ytdb = YTDBGraphFactory.getYTDBInstance(
-          configuration.getString(DatabaseConfigurationParameters.CONFIG_DB_PATH));
-      var dbName = configuration.getString(DatabaseConfigurationParameters.CONFIG_DB_NAME);
+          configuration.getString(YTDBGraphFactory.CONFIG_DB_PATH));
+      var dbName = configuration.getString(YTDBGraphFactory.CONFIG_DB_NAME);
 
       if (ytdb != null && ytdb.exists(dbName)) {
         ytdb.drop(dbName);

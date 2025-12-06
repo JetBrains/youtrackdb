@@ -70,6 +70,24 @@
 
   <profiles>
     <profile>
+      <id>docker-run</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>buildnumber-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-number</id>
+                <phase>none</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
       <id>localDeploy</id>
       <activation>
         <property>
@@ -93,6 +111,7 @@
         <artifactId>buildnumber-maven-plugin</artifactId>
         <executions>
           <execution>
+            <id>build-number</id>
             <phase>validate</phase>
             <goals>
               <goal>create</goal>

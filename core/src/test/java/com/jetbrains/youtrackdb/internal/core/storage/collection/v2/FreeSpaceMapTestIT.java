@@ -124,7 +124,7 @@ public class FreeSpaceMapTestIT {
     final var checks = 1_000;
 
     final var pageSpaceMap = new HashMap<Integer, Integer>();
-    final var seed = 1107466507161549L; // System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("randomPages seed - " + seed);
     final var random = new Random(seed);
 
@@ -136,9 +136,7 @@ public class FreeSpaceMapTestIT {
           null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
-            final var freeSpaceIndex =
-                (freeSpace - FreeSpaceMap.NORMALIZATION_INTERVAL + 1)
-                    / FreeSpaceMap.NORMALIZATION_INTERVAL;
+            final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
             if (maxFreeSpaceIndex[0] < freeSpaceIndex) {
               maxFreeSpaceIndex[0] = freeSpaceIndex;
             }
@@ -152,7 +150,7 @@ public class FreeSpaceMapTestIT {
       final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
       final var pageIndex = freeSpaceMap.findFreePage(freeSpace);
       final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
-      if (freeSpaceIndex <= maxFreeSpaceIndex[0]) {
+      if (freeSpaceIndex < maxFreeSpaceIndex[0]) {
         Assert.assertTrue(pageSpaceMap.get(pageIndex) >= freeSpace);
       } else {
         Assert.assertEquals(-1, pageIndex);
@@ -165,8 +163,8 @@ public class FreeSpaceMapTestIT {
     final var pages = 1_000;
     final var checks = 1_000;
 
-    final var pageSpaceMap = new HashMap<Integer, Integer>();
-    final var sizeMap = new TreeMap<Integer, Integer>();
+    final var pageFreeSpaceMap = new HashMap<Integer, Integer>();
+    final var inMemoryFreeSpaceMap = new TreeMap<Integer, Integer>();
 
     final var seed = System.nanoTime();
     System.out.println("randomPagesUpdate seed - " + seed);
@@ -180,8 +178,8 @@ public class FreeSpaceMapTestIT {
           null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
-            pageSpaceMap.put(pageIndex, freeSpace);
-            sizeMap.compute(
+            pageFreeSpaceMap.put(pageIndex, freeSpace);
+            inMemoryFreeSpaceMap.compute(
                 freeSpace,
                 (k, v) -> {
                   if (v == null) {
@@ -202,10 +200,10 @@ public class FreeSpaceMapTestIT {
           null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
-            final int oldFreeSpace = pageSpaceMap.get(pageIndex);
+            final int oldFreeSpace = pageFreeSpaceMap.get(pageIndex);
 
-            pageSpaceMap.put(pageIndex, freeSpace);
-            sizeMap.compute(
+            pageFreeSpaceMap.put(pageIndex, freeSpace);
+            inMemoryFreeSpaceMap.compute(
                 freeSpace,
                 (k, v) -> {
                   if (v == null) {
@@ -215,7 +213,7 @@ public class FreeSpaceMapTestIT {
                   return v + 1;
                 });
 
-            sizeMap.compute(
+            inMemoryFreeSpaceMap.compute(
                 oldFreeSpace,
                 (k, v) -> {
                   //noinspection ConstantConditions
@@ -231,16 +229,14 @@ public class FreeSpaceMapTestIT {
     }
 
     final var maxFreeSpaceIndex =
-        (sizeMap.lastKey() - (FreeSpaceMap.NORMALIZATION_INTERVAL - 1))
-            / FreeSpaceMap.NORMALIZATION_INTERVAL;
-
+        inMemoryFreeSpaceMap.lastKey() / FreeSpaceMap.NORMALIZATION_INTERVAL;
     for (var i = 0; i < checks; i++) {
       final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
       final var pageIndex = freeSpaceMap.findFreePage(freeSpace);
       final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
 
-      if (freeSpaceIndex <= maxFreeSpaceIndex) {
-        Assert.assertTrue(pageSpaceMap.get(pageIndex) >= freeSpace);
+      if (freeSpaceIndex < maxFreeSpaceIndex) {
+        Assert.assertTrue(pageFreeSpaceMap.get(pageIndex) >= freeSpace);
       } else {
         Assert.assertEquals(-1, pageIndex);
       }

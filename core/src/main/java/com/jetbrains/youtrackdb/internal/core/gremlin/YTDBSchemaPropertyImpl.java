@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBDomainObject;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
