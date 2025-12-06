@@ -12,7 +12,6 @@ public final class YourTracks {
 
   private YourTracks() {
   }
-
   /// Create a new YouTrackDB manager instance for an embedded deployment with the default
   /// configuration.
   ///

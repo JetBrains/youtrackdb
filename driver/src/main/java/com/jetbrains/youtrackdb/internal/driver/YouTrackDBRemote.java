@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.driver;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.remote.RemoteProtocolConstants;
@@ -24,6 +25,7 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBRemote implements YouTrackDB {
+
   private final Cluster cluster;
 
   public static YouTrackDBRemote instance(@Nonnull String serverAddress,
@@ -170,6 +172,18 @@ public class YouTrackDBRemote implements YouTrackDB {
   }
 
   @Override
+  public @Nonnull YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
+      @Nonnull String userPassword) {
+    throw new UnsupportedOperationException("Not supported for server connections");
+  }
+
+  @Override
+  public @Nonnull YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
+      @Nonnull String userPassword, @Nonnull Configuration config) {
+    throw new UnsupportedOperationException("Not supported for server connections");
+  }
+
+  @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
     var remoteConnection = new YTDBDriverRemoteConnection(cluster, false, databaseName);
@@ -178,6 +192,7 @@ public class YouTrackDBRemote implements YouTrackDB {
         .traversal(YTDBGraphTraversalSource.class)
         .with(remoteConnection);
   }
+
 
   private void executeServerRequestNoResult(String op, Map<String, Object> args) {
     var requestMessageBuilder = RequestMessage.build(op);

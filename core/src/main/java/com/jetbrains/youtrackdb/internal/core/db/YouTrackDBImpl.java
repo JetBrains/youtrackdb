@@ -205,6 +205,9 @@ public final class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     return sessionPool.asGraph();
   }
 
+  /// Drop a database
+  ///
+  /// @param databaseName database name
   @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
