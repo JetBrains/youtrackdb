@@ -4,6 +4,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Stage;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import io.cucumber.guice.CucumberModules;
 import io.cucumber.guice.GuiceFactory;
 import io.cucumber.guice.InjectorSource;
@@ -72,7 +73,7 @@ public class YTDBRemoteGraphBinaryFormatFeatureTest {
       return doGetTraversalSource(graphData);
     }
 
-    private static GraphTraversalSource doGetTraversalSource(GraphData graphData) {
+    private static YTDBGraphTraversalSource doGetTraversalSource(GraphData graphData) {
       final var graph = (switch (graphData) {
         case null -> initGraph(null);
         case CLASSIC -> initGraph(GraphData.CLASSIC);
@@ -95,7 +96,9 @@ public class YTDBRemoteGraphBinaryFormatFeatureTest {
 
     private static void cleanEmpty() {
       var traversal = doGetTraversalSource(null);
-      traversal.V().drop().iterate();
+      traversal.autoExecuteInTx(g ->
+          g.V().drop()
+      );
     }
 
     @Override

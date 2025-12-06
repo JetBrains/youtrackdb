@@ -29,10 +29,8 @@ import java.util.Map;
 import java.util.logging.Level;
 import javax.annotation.Nullable;
 
-/**
- * Keeps all configuration settings. At startup assigns the configuration values by reading system
- * properties.
- */
+/// Keeps all configuration settings. At startup assigns the configuration values by reading system
+/// properties.
 public enum GlobalConfiguration {
   ENVIRONMENT_DUMP_CFG_AT_STARTUP(
       "youtrackdb.environment.dumpCfgAtStartup",

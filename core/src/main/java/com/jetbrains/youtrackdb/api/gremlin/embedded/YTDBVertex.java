@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.api.gremlin.embedded;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Iterator;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -8,12 +7,8 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty.Cardinality;
 
 public interface YTDBVertex extends Vertex, YTDBElement {
-
   @Override
   RID id();
-
-  @Override
-  YTDBGraph graph();
 
   @Override
   YTDBEdge addEdge(String label, Vertex inVertex, Object... keyValues);

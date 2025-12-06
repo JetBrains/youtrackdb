@@ -1,12 +1,12 @@
 package com.jetbrains.youtrackdb.api.gremlin.embedded;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectInToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBDomainObjectEdge;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBDomainObjectVertexProperty;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;

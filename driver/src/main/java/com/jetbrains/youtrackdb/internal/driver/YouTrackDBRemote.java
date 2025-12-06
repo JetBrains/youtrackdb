@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.driver;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.remote.RemoteProtocolConstants;
@@ -172,25 +171,13 @@ public class YouTrackDBRemote implements YouTrackDB {
   }
 
   @Override
-  public @Nonnull YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
-      @Nonnull String userPassword) {
-    throw new UnsupportedOperationException("Not supported for server connections");
-  }
-
-  @Override
-  public @Nonnull YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
-      @Nonnull String userPassword, @Nonnull Configuration config) {
-    throw new UnsupportedOperationException("Not supported for server connections");
-  }
-
-  @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
     var remoteConnection = new YTDBDriverRemoteConnection(cluster, false, databaseName);
 
     return AnonymousTraversalSource
         .traversal(YTDBGraphTraversalSource.class)
-        .withRemote(remoteConnection);
+        .with(remoteConnection);
   }
 
 
