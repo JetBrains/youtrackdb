@@ -101,7 +101,7 @@ public final class YTDBDemoGraphFactory {
 
       var realPath = tempFile.toRealPath().toString();
       traversal.autoExecuteInTx(g ->
-          (YTDBGraphTraversal<?, ?>) g.io(realPath)
+          g.io(realPath).read()
       );
     } catch (Exception ex) {
       throw new IllegalStateException(ex);
