@@ -19,7 +19,7 @@ import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.jspecify.annotations.NonNull;
 
-public final class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
+public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
           .maximumWeightedCapacity(100)
@@ -436,12 +436,9 @@ public final class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   }
 
   public void invalidateCachedPools() {
-    lock.lock();
-    try {
+    synchronized (this) {
       cachedPools.forEach((internalPool, pool) -> pool.close());
       cachedPools.clear();
-    } finally {
-      lock.unlock();
     }
   }
 
@@ -449,6 +446,13 @@ public final class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
 
     private StandaloneYTDBGraphTraversalSource(Graph graph) {
       super(graph);
+    }
+
+    @Override
+    public String toString() {
+      var config = getGraph().configuration();
+      final var graphString = config.getString(YTDBGraphFactory.CONFIG_DB_NAME);
+      return "ytdbGraphTraversalSource[" + graphString + "]:v-" + YouTrackDBConstants.getVersion();
     }
 
     @Override

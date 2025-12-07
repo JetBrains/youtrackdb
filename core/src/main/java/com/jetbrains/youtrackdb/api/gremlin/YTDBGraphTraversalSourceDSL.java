@@ -10,6 +10,7 @@ import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
 public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
@@ -97,6 +98,16 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             YTDBCommandService.ARGUMENTS, arguments
         )
     ).iterate();
+  }
+
+  @Override
+  public <S> YTDBGraphTraversal<S, S> io(final String file) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep("io", file);
+    var traversal = new DefaultYTDBGraphTraversal<>(clone);
+    traversal.addStep(new IoStep<>(traversal, file));
+    //noinspection unchecked
+    return (YTDBGraphTraversal<S, S>) traversal;
   }
 
   @Override
