@@ -1,14 +1,13 @@
 name: Java CI/CD Pipeline
 on:
+  workflow_dispatch:
   push:
-    branches: [ "develop"]
+    branches: [ "develop" ]
   pull_request:
-    branches: [ "develop"]
+    branches: [ "develop" ]
+  merge_group:
+    types: [ checks_requested ]
 jobs:
-  # ------------------------------------------------------------------
-  # JOB 1: Unit tests
-  # Runs on Ubuntu (x86/ARM) and Windows (x86) for JDK 21 & 25
-  # ------------------------------------------------------------------
   test:
     name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }}
     runs-on: ${{ matrix.platform.os }}
@@ -22,7 +21,7 @@ jobs:
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci'
           - os: ubuntu-24.04-arm
             arch: arm64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci'
+            mvn_opts: '-Dmaven.test.failure.ignore=true'
           - os: windows-latest
             arch: x64
             mvn_opts: '`-Dmaven.test.failure.ignore=true'
@@ -39,48 +38,65 @@ jobs:
           architecture: ${{ matrix.platform.arch }}
           cache: 'maven'
 
-      - name: Run Maven Test (Linux)
-        if: runner.os == 'Linux'
-        run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
-
-      - name: Run Maven Test (Windows)
-        if: runner.os == 'Windows'
+      - name: Run Maven Tests
         run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY
-    # Runs only if all Test jobs pass. Uses JDK 25 sings artifacts with GPG.
+    # Runs only if all Test jobs pass. Uses JDK 21
     # ------------------------------------------------------------------
-#  deploy:
-#    needs: test
-#    runs-on: ubuntu-latest
-#    if: github.event_name == 'push' # Only deploy on push, not PRs
-#
-#    steps:
-#      - name: Checkout Source Code
-#        uses: actions/checkout@v6
-#
-#      - name: Set up JDK 25 with GPG & Settings
-#        uses: actions/setup-java@v5
-#        with:
-#          java-version: '25'
-#          distribution: 'temurin'
-#          cache: 'maven'
-#          # Repository Credentials
-#          server-id: central
-#          server-username: MAVEN_USERNAME
-#          server-password: MAVEN_PASSWORD
-#          # GPG Signing Configuration
-#          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-#          gpg-passphrase: MAVEN_GPG_PASSPHRASE
-#
-#      - name: Maven Deploy with Signing
-#        run: |
-#          mvn deploy -DskipTests -B \
-#            -P release \
-#            -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
-#        env:
-#          # Credentials mapped to environment variables
-#          MAVEN_USERNAME: ${{ secrets.DEPLOY_USER }}
-#          MAVEN_PASSWORD: ${{ secrets.DEPLOY_TOKEN }}
-#          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' # Only deploy on push, not PRs
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Set Short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK 21 settings
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          # Repository Credentials
+          server-id: central
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+      - name: Maven Deploy with Signing
+        #1. Deploy to Maven Central as SNAPSHOT
+        #2. Deploy to Maven Central with as SNAPSHOT SHA suffix
+        #3. Deploy to REPL console to Docker Hub
+        run: |
+          mvn clean deploy -DskipTests -B
+          mvn clean -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
+          mvn clean deploy -pl console -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \ 
+          -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -B
+        env:
+          # Credentials mapped to environment variables
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+  test-notify-failure:
+    name: Notify on tests failure
+    needs: [ test, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Zulip notification
+        uses: zulip/github-actions-zulip@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BUILD FAILED** :rotating_light:
+            Build failed for commit ${{ github.sha }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
