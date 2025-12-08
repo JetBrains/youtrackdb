@@ -11,6 +11,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
@@ -18,13 +20,13 @@ import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
-
   private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
           .maximumWeightedCapacity(100)
           .build();
 
-  public YouTrackDBInternal internal;
+  private final Lock lock = new ReentrantLock();
+  public final YouTrackDBInternal internal;
 
   public YouTrackDBImpl(YouTrackDBInternal internal) {
     this.internal = internal;
@@ -203,6 +205,9 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     return sessionPool.asGraph();
   }
 
+  /// Drop a database
+  ///
+  /// @param databaseName database name
   @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
@@ -267,13 +272,20 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   /// Close the current YouTrackDB database manager with all related databases and pools.
   @Override
   public void close() {
-    this.cachedPools.clear();
-    this.internal.close();
+    lock.lock();
+    try {
+      if (isOpen()) {
+        this.cachedPools.clear();
+        this.internal.close();
 
-    YTDBGraphFactory.unregisterYTDBInstance(this, () -> {
-      this.cachedPools.clear();
-      this.internal.close();
-    });
+        YTDBGraphFactory.unregisterYTDBInstance(this, () -> {
+          this.cachedPools.clear();
+          this.internal.close();
+        });
+      }
+    } finally {
+      lock.unlock();
+    }
   }
 
   /// Check if the current YouTrackDB database manager is open

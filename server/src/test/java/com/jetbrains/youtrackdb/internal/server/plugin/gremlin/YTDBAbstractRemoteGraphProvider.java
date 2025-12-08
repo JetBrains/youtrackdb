@@ -6,7 +6,9 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
-import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
@@ -14,8 +16,8 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData;
@@ -24,7 +26,6 @@ import org.apache.tinkerpop.gremlin.driver.remote.AbstractRemoteGraphProvider;
 import org.apache.tinkerpop.gremlin.driver.remote.DriverRemoteConnection;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.TestClientFactory;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Graph.Features;
@@ -37,7 +38,8 @@ import org.apache.tinkerpop.gremlin.util.MessageSerializer;
     reason = "Query and modification are performed in different pending transactions.")
 public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGraphProvider {
 
-  private static final AtomicLong idGenerator = new AtomicLong(0);
+  private static final AtomicLong idGenerator = new AtomicLong(
+      ThreadLocalRandom.current().nextLong(Long.MAX_VALUE >> 1));
 
   public static final String ADMIN_USER_NAME = "adminuser";
   public static final String ADMIN_USER_PASSWORD = "adminpwd";
@@ -76,11 +78,6 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
   }
 
   private void reloadAllTestGraphs() throws Exception {
-    if (graphGetterSessionPools != null) {
-      graphGetterSessionPools.values().forEach(SessionPool::close);
-    }
-    graphGetterSessionPools = new HashMap<>();
-
     var serverContext = ytdbServer.getYouTrackDB();
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
@@ -98,6 +95,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       var location = graphToLoad.location();
       var graphName = getServerGraphName(graphToLoad);
 
+      SessionPool cachedPool;
       if (serverContext.exists(graphName)) {
         if (graphToLoad == GraphData.GRATEFUL) {
           //this graph is read-only so no need to re-load it if it already exists
@@ -107,19 +105,34 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
           continue;
         }
 
-        serverContext.drop(graphName);
+        cachedPool = graphGetterSessionPools.get(graphName);
+        if (cachedPool == null) {
+          cachedPool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD);
+          graphGetterSessionPools.put(graphName, cachedPool);
+        }
+      } else {
+        serverContext.create(graphName, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
+        cachedPool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD);
+
+        graphGetterSessionPools.put(graphName, cachedPool);
       }
 
-      serverContext.create(graphName, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
-
-      var cachedPool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD);
-      readIntoGraph(cachedPool.asGraph(), location);
-
-      graphGetterSessionPools.put(graphName, cachedPool);
+      var graph = cachedPool.asGraph();
+      graph.traversal().autoExecuteInTx(g -> g.V().drop());
+      readIntoGraph(graph, location);
     }
 
     if (serverContext.exists(DEFAULT_DB_NAME)) {
-      serverContext.drop(DEFAULT_DB_NAME);
+      var cachedPool = graphGetterSessionPools.get(DEFAULT_DB_NAME);
+      if (cachedPool != null) {
+        cachedPool.asGraph().traversal().autoExecuteInTx(g ->
+            g.V().drop()
+        );
+      } else {
+        graphGetterSessionPools.put(DEFAULT_DB_NAME,
+            serverContext.cachedPool(DEFAULT_DB_NAME, ADMIN_USER_NAME, ADMIN_USER_PASSWORD));
+      }
+      return;
     }
 
     serverContext.create(DEFAULT_DB_NAME, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
@@ -135,6 +148,9 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
 
   @Override
   public void stopServer() {
+    graphGetterSessionPools.forEach((k, v) -> v.close());
+    graphGetterSessionPools.clear();
+
     ytdbServer.shutdown();
     ytdbServer = null;
     server = null;
@@ -147,8 +163,6 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       final LoadGraphWith.GraphData loadGraphWith) {
     final var serverGraphName = getServerGraphName(loadGraphWith);
 
-    final Supplier<Graph> graphGetter = () -> graphGetterSessionPools.get(serverGraphName)
-        .asGraph();
     return new HashMap<>() {{
       put(Graph.GRAPH, RemoteGraph.class.getName());
       put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS,
@@ -157,11 +171,6 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
           serverGraphName);
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
-
-      if (!YTDBRemoteGraphBinaryFormatFeatureTest.YTDB_REMOTE_TEST.equals(testMethodName)
-          && !YTDBTemporaryRidConversionTest.class.isAssignableFrom(test)) {
-        put(GREMLIN_REMOTE + "attachment", graphGetter);
-      }
     }};
   }
 
@@ -220,7 +229,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
 
   // overriding to create an instance of YTDBGraphTraversalSource
   @Override
-  public GraphTraversalSource traversal(final Graph graph) {
+  public YTDBGraphTraversalSource traversal(final Graph graph) {
     assert graph instanceof RemoteGraph;
 
     return AnonymousTraversalSource

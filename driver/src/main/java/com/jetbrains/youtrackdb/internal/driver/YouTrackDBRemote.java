@@ -24,6 +24,7 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBRemote implements YouTrackDB {
+
   private final Cluster cluster;
 
   public static YouTrackDBRemote instance(@Nonnull String serverAddress,
@@ -178,6 +179,7 @@ public class YouTrackDBRemote implements YouTrackDB {
         .traversal(YTDBGraphTraversalSource.class)
         .with(remoteConnection);
   }
+
 
   private void executeServerRequestNoResult(String op, Map<String, Object> args) {
     var requestMessageBuilder = RequestMessage.build(op);
