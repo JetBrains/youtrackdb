@@ -25,7 +25,7 @@ jobs:
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci'
           - os: windows-latest
             arch: x64
-            mvn_opts: '-Dmaven.test.failure.ignore=true'
+            mvn_opts: '`-Dmaven.test.failure.ignore=true'
 
     steps:
       - name: Checkout Source Code
