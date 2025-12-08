@@ -1,0 +1,86 @@
+name: Java CI/CD Pipeline
+on:
+  push:
+    branches: [ "develop"]
+  pull_request:
+    branches: [ "develop"]
+jobs:
+  # ------------------------------------------------------------------
+  # JOB 1: Unit tests
+  # Runs on Ubuntu (x86/ARM) and Windows (x86) for JDK 21 & 25
+  # ------------------------------------------------------------------
+  test:
+    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        platform:
+          - os: ubuntu-latest
+            arch: x64
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci'
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci'
+          - os: windows-latest
+            arch: x64
+            mvn_opts: '-Dmaven.test.failure.ignore=true'
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          architecture: ${{ matrix.platform.arch }}
+          cache: 'maven'
+
+      - name: Run Maven Test (Linux)
+        if: runner.os == 'Linux'
+        run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
+
+      - name: Run Maven Test (Windows)
+        if: runner.os == 'Windows'
+        run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
+
+    # ------------------------------------------------------------------
+    # JOB 2: DEPLOY
+    # Runs only if all Test jobs pass. Uses JDK 25 sings artifacts with GPG.
+    # ------------------------------------------------------------------
+#  deploy:
+#    needs: test
+#    runs-on: ubuntu-latest
+#    if: github.event_name == 'push' # Only deploy on push, not PRs
+#
+#    steps:
+#      - name: Checkout Source Code
+#        uses: actions/checkout@v6
+#
+#      - name: Set up JDK 25 with GPG & Settings
+#        uses: actions/setup-java@v5
+#        with:
+#          java-version: '25'
+#          distribution: 'temurin'
+#          cache: 'maven'
+#          # Repository Credentials
+#          server-id: central
+#          server-username: MAVEN_USERNAME
+#          server-password: MAVEN_PASSWORD
+#          # GPG Signing Configuration
+#          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+#          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+#
+#      - name: Maven Deploy with Signing
+#        run: |
+#          mvn deploy -DskipTests -B \
+#            -P release \
+#            -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
+#        env:
+#          # Credentials mapped to environment variables
+#          MAVEN_USERNAME: ${{ secrets.DEPLOY_USER }}
+#          MAVEN_PASSWORD: ${{ secrets.DEPLOY_TOKEN }}
+#          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
