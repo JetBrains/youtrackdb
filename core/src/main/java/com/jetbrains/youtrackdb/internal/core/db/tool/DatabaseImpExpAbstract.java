@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
 import java.util.List;
 
 /**

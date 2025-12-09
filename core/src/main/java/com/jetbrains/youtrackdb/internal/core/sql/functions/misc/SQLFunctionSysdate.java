@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.text.SimpleDateFormat;

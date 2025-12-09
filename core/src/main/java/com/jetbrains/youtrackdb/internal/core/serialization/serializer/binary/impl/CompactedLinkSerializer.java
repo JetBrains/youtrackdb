@@ -3,10 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.i
 import static com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol.bytes2short;
 import static com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol.short2bytes;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;

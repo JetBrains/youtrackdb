@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 
 /**
  * Exception thrown in case the execution of the command has been interrupted.

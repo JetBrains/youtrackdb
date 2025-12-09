@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.log;
 
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;

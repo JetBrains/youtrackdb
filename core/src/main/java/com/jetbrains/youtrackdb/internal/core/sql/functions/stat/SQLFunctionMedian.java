@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 
 /**
  * Computes the median for a field. Nulls are ignored in the calculation.

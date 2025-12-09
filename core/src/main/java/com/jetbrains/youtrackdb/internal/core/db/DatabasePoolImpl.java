@@ -23,18 +23,15 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_AC
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_MAX;
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_MIN;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.exception.AcquireTimeoutException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolListener;
+import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 
-public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
-    DatabasePoolInternal<S> {
+public class DatabasePoolImpl implements DatabasePoolInternal {
 
-  private volatile ResourcePool<Void, S> pool;
-  private final YouTrackDBInternal<S> factory;
+  private volatile ResourcePool<Void, DatabaseSessionEmbedded> pool;
+  private final YouTrackDBInternal factory;
   private final YouTrackDBConfigImpl config;
   private final String databaseName;
   private final String userName;
@@ -43,7 +40,7 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
 
 
   public DatabasePoolImpl(
-      YouTrackDBInternal<S> factory,
+      YouTrackDBInternal factory,
       String database,
       String user,
       String password,
@@ -61,14 +58,14 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
             max,
             new ResourcePoolListener<>() {
               @Override
-              public S createNewResource(
+              public DatabaseSessionEmbedded createNewResource(
                   Void iKey, Object... iAdditionalArgs) {
                 return factory.poolOpen(database, user, password, DatabasePoolImpl.this);
               }
 
               @Override
               public boolean reuseResource(
-                  Void iKey, Object[] iAdditionalArgs, S iValue) {
+                  Void iKey, Object[] iAdditionalArgs, DatabaseSessionEmbedded iValue) {
                 var polledSession = (PooledSession) iValue;
                 if (polledSession.isBackendClosed()) {
                   return false;
@@ -80,7 +77,7 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
   }
 
   public DatabasePoolImpl(
-      YouTrackDBInternal<S> factory,
+      YouTrackDBInternal factory,
       String database,
       String user,
       YouTrackDBConfigImpl config) {
@@ -98,12 +95,11 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
             max,
             new ResourcePoolListener<>() {
               @Override
-              public S createNewResource(
+              public DatabaseSessionEmbedded createNewResource(
                   Void iKey, Object... iAdditionalArgs) {
                 if (factory instanceof YouTrackDBInternalEmbedded embedded) {
-                  //noinspection unchecked
-                  return (S) embedded.poolOpenNoAuthenticate(database, user,
-                      (DatabasePoolInternal<DatabaseSession>) DatabasePoolImpl.this);
+                  return embedded.poolOpenNoAuthenticate(database, user,
+                      DatabasePoolImpl.this);
                 } else {
                   throw new UnsupportedOperationException(
                       "Opening database without password is not supported");
@@ -112,7 +108,7 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
 
               @Override
               public boolean reuseResource(
-                  Void iKey, Object[] iAdditionalArgs, S iValue) {
+                  Void iKey, Object[] iAdditionalArgs, DatabaseSessionEmbedded iValue) {
                 var pooledSession = (PooledSession) iValue;
                 if (pooledSession.isBackendClosed()) {
                   return false;
@@ -126,8 +122,8 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
 
 
   @Override
-  public S acquire() throws AcquireTimeoutException {
-    ResourcePool<Void, S> p;
+  public DatabaseSessionEmbedded acquire() throws AcquireTimeoutException {
+    ResourcePool<Void, DatabaseSessionEmbedded> p;
     synchronized (this) {
       p = pool;
     }
@@ -141,7 +137,7 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
 
   @Override
   public synchronized void close() {
-    ResourcePool<Void, S> p;
+    ResourcePool<Void, DatabaseSessionEmbedded> p;
     synchronized (this) {
       p = pool;
       pool = null;
@@ -156,8 +152,8 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
   }
 
   @Override
-  public void release(S database) {
-    ResourcePool<Void, S> p;
+  public void release(DatabaseSessionEmbedded database) {
+    ResourcePool<Void, DatabaseSessionEmbedded> p;
     synchronized (this) {
       p = pool;
     }

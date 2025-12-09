@@ -2,11 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import org.junit.Assert;
 import org.junit.Test;
 

@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.api.exception;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import java.io.Serial;
 import java.util.Objects;

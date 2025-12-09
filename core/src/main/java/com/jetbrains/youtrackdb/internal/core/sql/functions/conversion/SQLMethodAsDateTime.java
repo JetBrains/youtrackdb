@@ -16,9 +16,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.conversion;
 
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.method.misc.AbstractSQLMethod;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.text.ParseException;

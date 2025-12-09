@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
-import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
 
 /**
  * Interface for storage components that support freeze/release operations.

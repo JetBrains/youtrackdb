@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 
 @SuppressWarnings("serial")
 public class DatabaseImportException extends BaseException {

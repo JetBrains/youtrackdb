@@ -5,7 +5,7 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Iterator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -23,7 +23,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
 
   public YTDBVertexImpl(
       final YTDBGraphInternal graph,
-      final com.jetbrains.youtrackdb.api.record.Vertex rawElement
+      final com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex rawElement
   ) {
     super(graph, rawElement);
   }
@@ -132,7 +132,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
       try (var copy = session.copy()) {
         var schemaCopy = copy.getSchema();
         var edgeCls = schemaCopy.getClass(
-            com.jetbrains.youtrackdb.api.record.Edge.CLASS_NAME);
+            com.jetbrains.youtrackdb.internal.core.db.record.record.Edge.CLASS_NAME);
         schemaCopy.getOrCreateClass(label, edgeCls);
       }
     }
@@ -153,7 +153,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
   }
 
   @Override
-  public com.jetbrains.youtrackdb.api.record.Vertex getRawEntity() {
+  public com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex getRawEntity() {
     return super.getRawEntity().asVertex();
   }
 }

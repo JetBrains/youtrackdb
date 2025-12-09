@@ -1,15 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.command.script.transformer;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptResultSet;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptResultSets;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.result.MapTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.resultset.ResultSetTransformer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;

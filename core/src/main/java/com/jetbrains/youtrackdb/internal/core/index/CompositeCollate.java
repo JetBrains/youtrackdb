@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.api.schema.Collate;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;

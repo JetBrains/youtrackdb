@@ -28,26 +28,38 @@ import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
  */
 @GremlinDsl
 public interface SocialTraversalDsl<S, E> extends GraphTraversal.Admin<S, E> {
-    public default GraphTraversal<S, Vertex> knows(final String personName) {
-        return ((SocialTraversalDsl) out("knows")).person().has("name", personName);
+
+  public default GraphTraversal<S, Vertex> knows(final String personName) {
+    return ((SocialTraversalDsl) out("knows")).person().has("name", personName);
+  }
+
+  public default <E2 extends Number> GraphTraversal<S, E2> meanAgeOfFriends() {
+    return ((SocialTraversalDsl) out("knows")).person().values("age").mean();
+  }
+
+  @GremlinDsl.AnonymousMethod(returnTypeParameters = {"A", "A"}, methodTypeParameters = {"A"})
+  public default GraphTraversal<S, E> person() {
+    return hasLabel("person");
+  }
+
+  @GremlinDsl.AnonymousMethod(returnTypeParameters = {"A",
+      "org.apache.tinkerpop.gremlin.structure.Vertex"}, methodTypeParameters = {"A"})
+  public default GraphTraversal<S, Vertex> knowsOverride(final String personName) {
+    return out("knows").hasLabel("person").has("name", personName);
+  }
+
+  @GremlinDsl.AnonymousMethod(returnTypeParameters = {"A", "E2"}, methodTypeParameters = {"A",
+      "E2 extends java.lang.Number"})
+  public default <E2 extends Number> GraphTraversal<S, E2> meanAgeOfFriendsOverride() {
+    return out("knows").hasLabel("person").values("age").mean();
+  }
+
+  @GremlinDsl.SkipAsAnonymousMethod
+  public default GraphTraversal<S, E> from(Object fromStepLabel) {
+    if (fromStepLabel instanceof String strigValue) {
+      return from(strigValue);
     }
 
-    public default <E2 extends Number> GraphTraversal<S, E2> meanAgeOfFriends() {
-        return ((SocialTraversalDsl) out("knows")).person().values("age").mean();
-    }
-
-    @GremlinDsl.AnonymousMethod(returnTypeParameters = {"A", "A"}, methodTypeParameters = {"A"})
-    public default GraphTraversal<S, E> person() {
-        return hasLabel("person");
-    }
-
-    @GremlinDsl.AnonymousMethod(returnTypeParameters = {"A", "org.apache.tinkerpop.gremlin.structure.Vertex"}, methodTypeParameters = {"A"})
-    public default GraphTraversal<S, Vertex> knowsOverride(final String personName) {
-        return out("knows").hasLabel("person").has("name", personName);
-    }
-
-    @GremlinDsl.AnonymousMethod(returnTypeParameters = {"A", "E2"}, methodTypeParameters = {"A", "E2 extends java.lang.Number"})
-    public default <E2 extends Number> GraphTraversal<S, E2> meanAgeOfFriendsOverride() {
-        return out("knows").hasLabel("person").values("age").mean();
-    }
+    return  from(fromStepLabel);
+  }
 }

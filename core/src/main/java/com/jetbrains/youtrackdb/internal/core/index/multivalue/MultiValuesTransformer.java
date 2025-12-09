@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.multivalue;
 
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import java.util.Collection;
 

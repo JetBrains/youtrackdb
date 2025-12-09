@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.command.script.transformer.resultset;
 
-import com.jetbrains.youtrackdb.api.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 
 /**
  *

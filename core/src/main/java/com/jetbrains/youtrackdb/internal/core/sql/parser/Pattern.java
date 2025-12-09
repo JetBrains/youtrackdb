@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.PatternEdge;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.PatternNode;
 import java.util.ArrayList;

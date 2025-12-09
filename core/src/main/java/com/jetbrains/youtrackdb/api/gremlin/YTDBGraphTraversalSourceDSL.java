@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
-import com.jetbrains.youtrackdb.api.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
-
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
@@ -11,6 +10,7 @@ import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
 public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
@@ -49,7 +49,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   public <X extends Exception> void executeInTx(
       @Nonnull FailableConsumer<YTDBGraphTraversalSource, X> code) throws X {
     var tx = tx();
-    YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
+    YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
   }
 
   /// Start a new transaction if it is not yet started and executes passed in code in it.
@@ -64,7 +64,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
       @Nonnull FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code)
       throws X {
     var tx = tx();
-    YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
+    YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
   }
 
   /// Start a new transaction if it is not yet started and executes passed in code in it and then
@@ -75,8 +75,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// method.
   public <X extends Exception, R> R computeInTx(
       @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
-    var tx = tx();
-    return YTDBTransaction.computeInTx(code, (YTDBTransaction) tx);
+    return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
 
   /// Execute a generic YouTrackDB command. The result of the execution is ignored, so it only makes
@@ -99,5 +98,24 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             YTDBCommandService.ARGUMENTS, arguments
         )
     ).iterate();
+  }
+
+  @Override
+  public <S> YTDBGraphTraversal<S, S> io(final String file) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep("io", file);
+    var traversal = new DefaultYTDBGraphTraversal<>(clone);
+    traversal.addStep(new IoStep<>(traversal, file));
+    //noinspection unchecked
+    return (YTDBGraphTraversal<S, S>) traversal;
+  }
+
+  @Override
+  public void close() {
+    try {
+      super.close();
+    } catch (Exception e) {
+      throw new RuntimeException("Error during closing of GraphTraversalSource", e);
+    }
   }
 }

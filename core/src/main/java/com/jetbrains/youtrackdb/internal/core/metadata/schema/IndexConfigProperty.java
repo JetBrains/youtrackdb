@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition.INDEX_BY;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 
 public class IndexConfigProperty {
 

@@ -35,12 +35,12 @@ public class YTDBGraphUtils {
     return URLDecoder.decode(iClassName, StandardCharsets.UTF_8);
   }
 
-  public static com.jetbrains.youtrackdb.api.record.Direction mapDirection(
+  public static com.jetbrains.youtrackdb.internal.core.db.record.record.Direction mapDirection(
       Direction direction) {
     return switch (direction) {
-      case Direction.OUT -> com.jetbrains.youtrackdb.api.record.Direction.OUT;
-      case Direction.IN -> com.jetbrains.youtrackdb.api.record.Direction.IN;
-      case Direction.BOTH -> com.jetbrains.youtrackdb.api.record.Direction.BOTH;
+      case Direction.OUT -> com.jetbrains.youtrackdb.internal.core.db.record.record.Direction.OUT;
+      case Direction.IN -> com.jetbrains.youtrackdb.internal.core.db.record.record.Direction.IN;
+      case Direction.BOTH -> com.jetbrains.youtrackdb.internal.core.db.record.record.Direction.BOTH;
     };
   }
 }

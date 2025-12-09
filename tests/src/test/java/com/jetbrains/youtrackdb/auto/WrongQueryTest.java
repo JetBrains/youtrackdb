@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import org.testng.Assert;
 
 public class WrongQueryTest extends BaseDBTest {

@@ -19,20 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.server.plugin;
 
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.common.util.Service;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpAbstract;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent.StaticContent;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
-import java.io.BufferedInputStream;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -229,59 +223,6 @@ public class ServerPluginManager implements Service {
     return pluginFileName;
   }
 
-  protected void registerStaticDirectory(final ServerPluginInfo pluginData) {
-    var pluginWWW = pluginData.getParameter("www");
-    if (pluginWWW == null) {
-      pluginWWW = pluginData.getName();
-    }
-
-    final var httpListener =
-        server.getListenerByProtocol(NetworkProtocolHttpAbstract.class);
-
-    if (httpListener == null) {
-      throw new ConfigurationException(
-          "HTTP listener not registered while installing Static Content command");
-    }
-
-    final var command =
-        (ServerCommandGetStaticContent)
-            httpListener.getCommand(ServerCommandGetStaticContent.class);
-
-    if (command != null) {
-      final var wwwURL = pluginData.getClassLoader().findResource("www/");
-
-      final CallableFunction<Object, String> callback;
-      if (wwwURL != null) {
-        callback = createStaticLinkCallback(pluginData);
-      } else
-      // LET TO THE COMMAND TO CONTROL IT
-      {
-        callback =
-            argument -> pluginData.getInstance().getContent(argument);
-      }
-
-      command.registerVirtualFolder(pluginWWW.toString(), callback);
-    }
-  }
-
-  protected static CallableFunction<Object, String> createStaticLinkCallback(
-      final ServerPluginInfo iPluginData) {
-    return iArgument -> {
-      var fileName = "www/" + iArgument;
-      final var url = iPluginData.getClassLoader().findResource(fileName);
-
-      if (url != null) {
-        final var content = new StaticContent();
-        content.is =
-            new BufferedInputStream(iPluginData.getClassLoader().getResourceAsStream(fileName));
-        content.contentSize = -1;
-        content.type = ServerCommandGetStaticContent.getContentType(url.getFile());
-        return content;
-      }
-      return null;
-    };
-  }
-
   @SuppressWarnings("unchecked")
   protected ServerPlugin startPluginClass(
       final String iClassName,
@@ -435,24 +376,11 @@ public class ServerPluginManager implements Service {
 
         registerPlugin(currentPluginData);
         loadedPlugins.put(pluginFile.getName(), pluginName);
-
-        registerStaticDirectory(currentPluginData);
       }
 
     } catch (Exception e) {
       LogManager.instance().error(this, "Error on installing dynamic plugin '%s'", e, pluginName);
     }
-  }
-
-  public ServerPluginManager registerLifecycleListener(final PluginLifecycleListener iListener) {
-    pluginListeners.add(iListener);
-    return this;
-  }
-
-  public ServerPluginManager unregisterLifecycleListener(
-      final PluginLifecycleListener iListener) {
-    pluginListeners.remove(iListener);
-    return this;
   }
 
   public void callListenerBeforeConfig(

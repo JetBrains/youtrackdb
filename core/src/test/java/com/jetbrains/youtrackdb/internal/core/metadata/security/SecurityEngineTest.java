@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -20,6 +22,7 @@ public class SecurityEngineTest {
   static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
   private static final String DB_NAME = "test";
+  private static final String PASSWORD = "adminpwd";
 
   @BeforeClass
   public static void beforeClass() {
@@ -27,7 +30,7 @@ public class SecurityEngineTest {
     config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     youTrackDB =
         (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(SecurityEngineTest.class),
+            DbTestBase.getBaseDirectoryPathStr(SecurityEngineTest.class),
             config);
   }
 
@@ -38,17 +41,9 @@ public class SecurityEngineTest {
 
   @Before
   public void before() {
-    youTrackDB.execute(
-        "create database "
-            + DB_NAME
-            + " "
-            + "memory"
-            + " users ( admin identified by '"
-            + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-            + "' role admin)");
-    this.session =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
+        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+    this.session = youTrackDB.open(DB_NAME, "admin", PASSWORD);
   }
 
   @After
@@ -230,9 +225,7 @@ public class SecurityEngineTest {
             + " 'admin'");
     session.commit();
     session.close();
-    session =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    session = youTrackDB.open(DB_NAME, "admin", PASSWORD);
 
     var security = session.getSharedContext().getSecurity();
 

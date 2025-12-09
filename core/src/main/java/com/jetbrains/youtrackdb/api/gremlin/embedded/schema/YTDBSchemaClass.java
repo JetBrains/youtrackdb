@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectInToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassInToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassOutToken;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;

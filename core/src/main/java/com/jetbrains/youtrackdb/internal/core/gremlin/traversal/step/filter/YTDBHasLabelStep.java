@@ -35,6 +35,10 @@ public class YTDBHasLabelStep<S extends YTDBElement> extends FilterStep<S> {
     return EnumSet.of(TraverserRequirement.OBJECT);
   }
 
+  public List<P<? super String>> getPredicates() {
+    return predicates;
+  }
+
   private boolean test(String className) {
     return predicates.stream().anyMatch(p -> p.test(className));
   }

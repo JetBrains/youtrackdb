@@ -2,10 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
-import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;

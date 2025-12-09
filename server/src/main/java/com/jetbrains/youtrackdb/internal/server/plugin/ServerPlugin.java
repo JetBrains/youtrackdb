@@ -20,10 +20,8 @@
 package com.jetbrains.youtrackdb.internal.server.plugin;
 
 import com.jetbrains.youtrackdb.internal.common.util.Service;
-import com.jetbrains.youtrackdb.internal.server.ClientConnection;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 
 /**
  * Server handler interface. Used when configured in the server configuration.
@@ -31,44 +29,9 @@ import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfigurati
 public interface ServerPlugin extends Service {
 
   /**
-   * Callback invoked when a client connection begins.
-   */
-  void onClientConnection(ClientConnection iConnection);
-
-  /**
-   * Callback invoked when a client connection ends.
-   */
-  void onClientDisconnection(ClientConnection iConnection);
-
-  /**
-   * Callback invoked before a client request is processed.
-   */
-  void onBeforeClientRequest(ClientConnection iConnection, byte iRequestType);
-
-  /**
-   * Callback invoked after a client request is processed.
-   */
-  void onAfterClientRequest(ClientConnection iConnection, byte iRequestType);
-
-  /**
-   * Callback invoked when a client connection has errors.
-   *
-   * @param iThrowable Throwable instance received
-   */
-  void onClientError(ClientConnection iConnection, Throwable iThrowable);
-
-  /**
    * Configures the handler. Called at startup.
    */
   void config(YouTrackDBServer youTrackDBServer, ServerParameterConfiguration[] iParams) throws Exception;
 
-  default void onSocketAccepted(NetworkProtocol protocol) {
-  }
-
-  default void onSocketDestroyed(NetworkProtocol protocol) {
-  }
-
   void sendShutdown();
-
-  Object getContent(final String iURL);
 }

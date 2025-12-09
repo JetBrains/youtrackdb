@@ -2,9 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.ridbag;
 
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import org.junit.Test;
 

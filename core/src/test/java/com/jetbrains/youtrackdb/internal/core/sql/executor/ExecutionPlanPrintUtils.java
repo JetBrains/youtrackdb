@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
 
 /**
  *

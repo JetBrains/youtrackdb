@@ -1,15 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 
+public interface DatabasePoolInternal extends AutoCloseable {
 
-public interface DatabasePoolInternal<S extends BasicDatabaseSession<?, ?>> extends AutoCloseable {
-  S acquire();
+  DatabaseSessionEmbedded acquire();
 
   @Override
   void close();
 
-  void release(S database);
+  void release(DatabaseSessionEmbedded database);
 
   YouTrackDBConfigImpl getConfig();
 

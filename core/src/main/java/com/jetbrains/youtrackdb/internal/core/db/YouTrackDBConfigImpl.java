@@ -19,11 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.api.YouTrackDB.DatabaseConfigurationParameters;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.security.DefaultSecurityConfig;
 import com.jetbrains.youtrackdb.internal.core.security.GlobalUser;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityConfig;
@@ -96,22 +95,22 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
       var value = entry.getValue();
       switch (entry.getKey()) {
         case LOCALE_COUNTRY -> {
-          conf.setProperty(ConfigurationParameters.CONFIG_DB_LOCALE_COUNTRY, value);
+          conf.setProperty(DatabaseConfigurationParameters.CONFIG_DB_LOCALE_COUNTRY, value);
         }
         case LOCALE_LANGUAGE -> {
-          conf.setProperty(ConfigurationParameters.CONFIG_DB_LOCALE_LANGUAGE, value);
+          conf.setProperty(DatabaseConfigurationParameters.CONFIG_DB_LOCALE_LANGUAGE, value);
         }
         case TIMEZONE -> {
-          conf.setProperty(ConfigurationParameters.CONFIG_DB_TIME_ZONE, value);
+          conf.setProperty(DatabaseConfigurationParameters.CONFIG_DB_TIME_ZONE, value);
         }
         case CHARSET -> {
-          conf.setProperty(ConfigurationParameters.CONFIG_DB_CHARSET, value);
+          conf.setProperty(DatabaseConfigurationParameters.CONFIG_DB_CHARSET, value);
         }
         case DATE_TIME_FORMAT -> {
-          conf.setProperty(ConfigurationParameters.CONFIG_DB_DATE_TIME_FORMAT, value);
+          conf.setProperty(DatabaseConfigurationParameters.CONFIG_DB_DATE_TIME_FORMAT, value);
         }
         case DATEFORMAT -> {
-          conf.setProperty(ConfigurationParameters.CONFIG_DB_DATE_FORMAT, value);
+          conf.setProperty(DatabaseConfigurationParameters.CONFIG_DB_DATE_FORMAT, value);
         }
       }
     }

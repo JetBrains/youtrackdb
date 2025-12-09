@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-
 public class QueryParsingException extends CommandSQLParsingException {
 
   private String text;

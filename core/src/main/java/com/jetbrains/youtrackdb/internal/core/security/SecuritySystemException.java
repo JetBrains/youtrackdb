@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.security;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 
 /**
  * SecuritySystem Exception

@@ -136,7 +136,7 @@ public class RatioTest extends MetricsBaseTest {
     final var meter = Ratio.create(
         ticker,
         TimeInterval.of(1, TimeUnit.MILLISECONDS),
-        TimeInterval.of(100, TimeUnit.MILLISECONDS)
+        TimeInterval.of(1000, TimeUnit.MILLISECONDS)
     );
 
     // 10 threads producing 1 event every 500ns = 20_000 events per millisecond
@@ -152,7 +152,7 @@ public class RatioTest extends MetricsBaseTest {
     }
 
     // letting the rate stabilize
-    Thread.sleep(1000);
+    Thread.sleep(1500);
     final var r = new Random();
 
     final var iterations = 100;

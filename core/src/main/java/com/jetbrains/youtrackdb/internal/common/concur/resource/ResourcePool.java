@@ -19,11 +19,11 @@
  */
 package com.jetbrains.youtrackdb.internal.common.concur.resource;
 
-import com.jetbrains.youtrackdb.api.exception.AcquireTimeoutException;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;

@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.st
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.server.handler.AutomaticBackup;
 import com.jetbrains.youtrackdb.internal.server.handler.AutomaticBackup.AutomaticBackupListener;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;

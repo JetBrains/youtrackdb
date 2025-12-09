@@ -25,10 +25,10 @@ import static com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtoco
 import static com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol.long2bytes;
 import static com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol.short2bytes;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;

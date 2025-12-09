@@ -45,12 +45,11 @@ nse, Version 2.0 (the "License");
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-client</artifactId>
-      <version>${project.version}</version>
+      <artifactId>tinkergraph-gremlin</artifactId>
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-tools</artifactId>
+      <artifactId>youtrackdb-core</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -91,16 +90,16 @@ nse, Version 2.0 (the "License");
     </dependency>
 
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-server</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-util</artifactId>
     </dependency>
 
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
     </dependency>

@@ -17,9 +17,9 @@ package com.jetbrains.youtrackdb.auto;
 
 import static org.assertj.core.api.Java6Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;

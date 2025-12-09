@@ -15,13 +15,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.method;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.coll.SQLMethodMultiValue;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.conversion.SQLMethodAsDate;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.conversion.SQLMethodAsDateTime;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.conversion.SQLMethodAsDecimal;
-import com.jetbrains.youtrackdb.internal.core.sql.functions.conversion.SQLMethodBeforeUpdate;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.conversion.SQLMethodConvert;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLMethodExclude;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLMethodInclude;
@@ -118,7 +117,6 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
     register(SQLMethodSubString.NAME, new SQLMethodSubString());
     register(SQLMethodToJSON.NAME, new SQLMethodToJSON());
     register(SQLMethodValues.NAME, new SQLMethodValues());
-    register(SQLMethodBeforeUpdate.NAME, new SQLMethodBeforeUpdate());
 
     // SEQUENCE
     register(SQLMethodCurrent.NAME, new SQLMethodCurrent());

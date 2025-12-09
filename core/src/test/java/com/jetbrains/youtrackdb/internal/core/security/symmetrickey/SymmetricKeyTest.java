@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.security.symmetrickey;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
 import org.junit.Test;
 
 /**

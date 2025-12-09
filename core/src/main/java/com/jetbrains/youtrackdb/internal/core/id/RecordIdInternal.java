@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.id;
 
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol;
 import com.jetbrains.youtrackdb.internal.core.serialization.MemoryStream;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;

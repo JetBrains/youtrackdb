@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.db.graph;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import org.junit.Assert;
 import org.junit.Test;
 

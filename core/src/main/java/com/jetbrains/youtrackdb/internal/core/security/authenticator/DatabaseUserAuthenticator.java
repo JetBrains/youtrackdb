@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
-import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.TokenAuthInfo;
@@ -10,12 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.UserPasswor
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.core.security.TokenSign;
-import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.TokenSecurityException;
 import java.util.Map;
 import javax.annotation.Nullable;
 
 public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
-
   private TokenSign tokenSign;
 
   @Override
@@ -36,7 +34,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
       var token = ((TokenAuthInfo) info).getToken();
 
       if (tokenSign != null && !tokenSign.verifyTokenSign(token)) {
-        throw new TokenSecurityException(session.getDatabaseName(),
+        throw new SecurityAccessException(session.getDatabaseName(),
             "The token provided is expired");
       }
       if (!token.getToken().getIsValid()) {

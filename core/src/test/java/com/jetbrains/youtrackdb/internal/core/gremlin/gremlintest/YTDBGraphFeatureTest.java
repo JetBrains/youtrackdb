@@ -4,7 +4,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Stage;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import io.cucumber.guice.CucumberModules;
 import io.cucumber.guice.GuiceFactory;
 import io.cucumber.guice.InjectorSource;
@@ -38,7 +38,9 @@ import org.junit.runner.RunWith;
         + "and not @UserSuppliedVertexIds "
         + "and not @TinkerServiceRegistry "
         + "and not @DisallowNullPropertyValues "
-        + "and not @InsertionOrderingRequired",
+        + "and not @InsertionOrderingRequired "
+        + "and not @DataUUID "
+        + "and not @DataDateTime",
     glue = "org.apache.tinkerpop.gremlin.features",
     objectFactory = GuiceFactory.class,
     features = "classpath:/org/apache/tinkerpop/gremlin/test/features",

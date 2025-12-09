@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
 import org.junit.Assert;
 import org.junit.Test;
 

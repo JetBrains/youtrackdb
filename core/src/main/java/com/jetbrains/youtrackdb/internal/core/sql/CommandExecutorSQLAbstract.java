@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 
 /**
  * SQL abstract Command Executor implementation.

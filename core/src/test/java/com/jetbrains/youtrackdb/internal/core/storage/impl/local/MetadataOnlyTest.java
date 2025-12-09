@@ -3,10 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -24,10 +26,10 @@ public class MetadataOnlyTest {
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
     youTrackDb =
         (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()),
+            DbTestBase.getBaseDirectoryPathStr(getClass()),
             config);
-    youTrackDb.execute(
-        "create database testMetadataOnly disk users (admin identified by 'admin' role admin)");
+    youTrackDb.create("testMetadataOnly", DatabaseType.DISK,
+        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
   }
 
   @Test
@@ -37,13 +39,13 @@ public class MetadataOnlyTest {
         new byte[]{
             1, 2, 3, 4, 5, 6,
         };
-    ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage()).metadataOnly(blob);
+    ((AbstractStorage) db.getStorage()).metadataOnly(blob);
     db.close();
-    YouTrackDBInternal.extract((YouTrackDBImpl) youTrackDb).forceDatabaseClose(
+    YouTrackDBInternal.extract(youTrackDb).forceDatabaseClose(
         "testMetadataOnly");
     db = youTrackDb.open("testMetadataOnly", "admin", "admin");
     var loaded =
-        ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage())
+        ((AbstractStorage) db.getStorage())
             .getLastMetadata();
     assertTrue(loaded.isPresent());
     assertArrayEquals(loaded.get(), blob);

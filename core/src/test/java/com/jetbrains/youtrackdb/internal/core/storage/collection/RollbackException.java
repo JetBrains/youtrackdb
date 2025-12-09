@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 
 final class RollbackException extends BaseException implements HighLevelException {
 

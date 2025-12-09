@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static org.junit.Assert.assertThat;
 
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.StringWriter;

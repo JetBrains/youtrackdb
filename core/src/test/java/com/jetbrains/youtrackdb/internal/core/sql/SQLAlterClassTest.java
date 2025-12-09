@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import org.junit.Assert;
 import org.junit.Test;
 

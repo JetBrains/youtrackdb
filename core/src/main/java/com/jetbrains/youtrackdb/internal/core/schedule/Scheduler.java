@@ -16,7 +16,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.schedule;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import java.util.Map;
 
 /**

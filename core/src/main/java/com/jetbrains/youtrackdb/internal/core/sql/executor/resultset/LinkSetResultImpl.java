@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkSet;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;

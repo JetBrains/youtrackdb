@@ -70,6 +70,24 @@
 
   <profiles>
     <profile>
+      <id>docker-run</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>buildnumber-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-number</id>
+                <phase>none</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
       <id>localDeploy</id>
       <activation>
         <property>
@@ -93,6 +111,7 @@
         <artifactId>buildnumber-maven-plugin</artifactId>
         <executions>
           <execution>
+            <id>build-number</id>
             <phase>validate</phase>
             <goals>
               <goal>create</goal>
@@ -264,20 +283,28 @@
       <version>1.2.0</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
-      <artifactId>gremlin-groovy</artifactId>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>gremlin-util</artifactId>
       <version>${gremlin.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>gremlin-groovy</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
     </dependency>
-
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>tinkergraph-gremlin</artifactId>
+      <scope>test</scope>
+    </dependency>
 
     <!-- json parser -->
     <dependency>

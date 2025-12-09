@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.util.URLHelper;
 import java.io.File;
 import org.junit.Test;

@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.security;
 
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 
 /**
  * Provides a default credential interceptor that does nothing.

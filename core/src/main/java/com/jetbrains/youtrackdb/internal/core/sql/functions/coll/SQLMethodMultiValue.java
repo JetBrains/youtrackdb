@@ -16,9 +16,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.ArrayList;

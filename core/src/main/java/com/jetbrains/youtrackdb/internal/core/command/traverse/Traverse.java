@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.Command;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrackdb.internal.core.command.CommandPredicate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;

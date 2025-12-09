@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
@@ -19,12 +19,8 @@ public class TransactionTest {
 
   @Before
   public void before() {
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase("test",
-            DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    db = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
+    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @Test

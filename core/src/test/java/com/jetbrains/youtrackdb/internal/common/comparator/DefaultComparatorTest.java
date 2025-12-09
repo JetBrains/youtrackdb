@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.comparator;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.Comparator;
 import org.junit.Assert;
 import org.junit.Test;

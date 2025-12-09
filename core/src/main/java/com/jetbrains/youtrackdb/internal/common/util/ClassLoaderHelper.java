@@ -20,9 +20,9 @@
 
 package com.jetbrains.youtrackdb.internal.common.util;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import java.util.Iterator;
 import java.util.ServiceLoader;
 

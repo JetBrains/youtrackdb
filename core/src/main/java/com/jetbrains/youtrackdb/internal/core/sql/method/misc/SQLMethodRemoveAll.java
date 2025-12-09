@@ -16,10 +16,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
  * Remove all the occurrences of elements from a collection.

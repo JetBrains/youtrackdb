@@ -4,12 +4,13 @@ import static junit.framework.Assert.assertTrue;
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ import org.junit.Test;
 
 public class BrowseCollectionTest {
 
+  private static final String PASSWORD = "adminpwd";
   private DatabaseSession db;
   private YouTrackDBImpl youTrackDb;
 
@@ -31,16 +33,11 @@ public class BrowseCollectionTest {
     config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
 
     youTrackDb =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()), config);
-    youTrackDb.execute(
-        "create database "
-            + "test"
-            + " "
-            + "memory"
-            + " users ( admin identified by '"
-            + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-            + "' role admin)");
-    db = youTrackDb.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
+            config);
+    youTrackDb.create("test", DatabaseType.MEMORY,
+        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+    db = youTrackDb.open("test", "admin", PASSWORD);
     db.getSchema().createVertexClass("One");
   }
 

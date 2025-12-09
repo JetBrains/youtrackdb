@@ -17,7 +17,7 @@
  */
 package com.jetbrains.youtrackdb.internal.server.plugin;
 
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 
 /**
  * Interface for monitoring plugin events.

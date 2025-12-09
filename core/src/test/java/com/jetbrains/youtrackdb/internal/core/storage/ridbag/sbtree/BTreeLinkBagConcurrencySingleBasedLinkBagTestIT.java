@@ -1,20 +1,19 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.sbtree;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.RawTriple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -56,7 +55,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(30);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(20);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(
         BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class));
 
     if (youTrackDB.exists(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName())) {
@@ -152,11 +151,10 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   }
 
   public class RidAdder implements Callable<Void> {
-
     private final int id;
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    public RidAdder(int id, SessionPool<DatabaseSession> pool) {
+    public RidAdder(int id, SessionPool pool) {
       this.id = id;
       this.pool = pool;
     }
@@ -217,11 +215,10 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   }
 
   public class RidDeleter implements Callable<HashSet<RID>> {
-
     private final int id;
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool pool;
 
-    public RidDeleter(int id, SessionPool<DatabaseSession> pool) {
+    public RidDeleter(int id, SessionPool pool) {
       this.id = id;
       this.pool = pool;
     }

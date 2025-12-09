@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.edgebtree.btree;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -35,7 +35,7 @@ public class BTreeTestIT {
 
   public static final String DB_NAME = "bTreeTest";
   public static final String DIR_NAME = "/globalBTreeTest";
-  private static YouTrackDBAbstract<?, ?> youTrackDB;
+  private static YouTrackDBImpl youTrackDB;
   private static SharedLinkBagBTree bTree;
   private static AtomicOperationsManager atomicOperationsManager;
   private static AbstractStorage storage;
@@ -69,8 +69,7 @@ public class BTreeTestIT {
       youTrackDB.drop(DB_NAME);
     }
 
-    youTrackDB.execute(
-        "create database " + DB_NAME + " disk users ( admin identified by 'admin' role admin)");
+    youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
 
     var databaseSession = youTrackDB.open(DB_NAME, "admin", "admin");
     storage = (AbstractStorage) ((DatabaseSessionInternal) databaseSession).getStorage();

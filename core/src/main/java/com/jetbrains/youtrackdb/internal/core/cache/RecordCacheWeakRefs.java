@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.cache;
 
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import java.util.function.BiConsumer;
 import javax.annotation.Nullable;

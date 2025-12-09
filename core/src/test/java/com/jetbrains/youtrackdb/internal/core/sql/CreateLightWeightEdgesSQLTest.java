@@ -2,13 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.common.SessionPool;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.IntStream;
@@ -22,20 +23,17 @@ public class CreateLightWeightEdgesSQLTest {
 
   @Before
   public void before() {
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            CreateLightWeightEdgesSQLTest.class.getSimpleName(),
-            DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    youTrackDB.create(CreateLightWeightEdgesSQLTest.class.getSimpleName(), DatabaseType.MEMORY,
+        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
   }
 
   @Test
   public void test() {
-    var session =
-        youTrackDB.open(
-            CreateLightWeightEdgesSQLTest.class.getSimpleName(),
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    var session = youTrackDB.open(
+        CreateLightWeightEdgesSQLTest.class.getSimpleName(),
+        "admin",
+        DbTestBase.ADMIN_PASSWORD);
 
     session.getSchema().createLightweightEdgeClass("lightweight");
 
@@ -57,13 +55,11 @@ public class CreateLightWeightEdgesSQLTest {
 
   @Test
   public void mtTest() throws InterruptedException {
-    @SuppressWarnings("unchecked")
-    SessionPool<DatabaseSession> pool =
-        new SessionPoolImpl<>(
-            (YouTrackDBAbstract<?, DatabaseSession>) youTrackDB,
-            CreateLightWeightEdgesSQLTest.class.getSimpleName(),
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    SessionPool pool = new SessionPoolImpl(
+        youTrackDB,
+        CreateLightWeightEdgesSQLTest.class.getSimpleName(),
+        "admin",
+        DbTestBase.ADMIN_PASSWORD);
 
     var session = pool.acquire();
 
