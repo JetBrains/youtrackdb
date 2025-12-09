@@ -1,0 +1,113 @@
+name: Java CI/CD Integration Tests Pipeline
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+permissions:
+  contents: read
+  packages: write
+  actions: write
+jobs:
+  check-changes:
+    name: Check for Code Changes
+    runs-on: ubuntu-latest
+    # Define outputs so the next job can read them
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: 'develop'
+          # We only need the tip (depth 1) to get the current SHA. Very fast.
+          fetch-depth: 1
+      - name: Check against last successful run
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 1. If this is a manual trigger, always run.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual trigger detected. Force run."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # 2. Get the current commit SHA (on develop)
+          CURRENT_SHA=$(git rev-parse HEAD)
+          
+          # 3. Get the SHA of the LAST SUCCESSFUL run of THIS specific workflow on 'develop'
+          # We use the GitHub CLI (gh) to look up workflow history
+          LAST_SUCCESS_SHA=$(gh run list --branch develop \
+            --workflow "Java CI/CD Integration Tests Pipeline" \
+            --status success \
+            --limit 1 \
+            --json headSha \
+            -q '.[0].headSha')
+          
+          echo "Current SHA: $CURRENT_SHA"
+          echo "Last Success SHA: $LAST_SUCCESS_SHA"
+          
+          # 4. Compare
+          if [ "$CURRENT_SHA" == "$LAST_SUCCESS_SHA" ]; then
+            echo "The current commit has already been successfully tested."
+            echo "Skipping tests to save resources."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "New code detected (or no previous success found). Proceeding."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+  test:
+    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }}
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        platform:
+          - os: ubuntu-latest
+            arch: x64
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests'
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests'
+          - os: windows-latest
+            arch: x64
+            mvn_opts: '`-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci -P ci-integration-tests'
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: 'develop'
+          fetch-depth: 0
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          architecture: ${{ matrix.platform.arch }}
+          cache: 'maven'
+      - name: Run Maven Test
+        run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
+  notify-failure:
+    name: Notify on Failure
+    needs: test
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BUILD FAILED** :rotating_light:
+            Integration tests failed for commit ${{ github.sha }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
