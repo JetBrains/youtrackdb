@@ -93,13 +93,13 @@ jobs:
       - name: Run Maven Test
         run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
   notify-failure:
-    name: Notify on Failure
+    name: Notify build failure on Zulip
     needs: test
     if: failure()
     runs-on: ubuntu-latest
     steps:
       - name: Send Zulip Notification
-        uses: zulip/github-actions-zulip@v1
+        uses: zulip/github-actions-zulip/send-message@v1
         with:
           api-key: ${{ secrets.ZULIP_API_KEY }}
           email: ci-status-bot@youtrackdb.zulipchat.com
