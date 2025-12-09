@@ -16,7 +16,7 @@ jobs:
       should_run: ${{ steps.check.outputs.should_run }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: 'develop'
           # We only need the tip (depth 1) to get the current SHA. Very fast.

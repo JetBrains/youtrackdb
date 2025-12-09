@@ -74,7 +74,7 @@ jobs:
         #3. Deploy to REPL console to Docker Hub
         run: |
           mvn clean deploy -DskipTests -B
-          mvn clean -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
+          mvn clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
           mvn clean deploy -pl console -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \
           -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -B
         env:
