@@ -68,13 +68,13 @@ jobs:
       matrix:
         java: [ '21', '25' ]
         platform:
-          - os: ubuntu-latest
+          - os: ubuntu-latest-8-core-x64
             arch: x64
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests'
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-24.04-8-core-arm64
             arch: arm64
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests'
-          - os: windows-latest
+          - os: windows-latest-8-core-x64
             arch: x64
             mvn_opts: '`-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci -P ci-integration-tests'
     steps:
