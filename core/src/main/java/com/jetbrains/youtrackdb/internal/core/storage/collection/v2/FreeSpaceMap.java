@@ -78,7 +78,7 @@ public final class FreeSpaceMap extends DurableComponent {
     final var normalizedSpace = freeSpace / NORMALIZATION_INTERVAL;
     final var secondLevelPageIndex = 1 + pageIndex / FreeSpaceMapPage.CELLS_PER_PAGE;
 
-    final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler.fileId());
+    final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
     for (var i = 0; i < secondLevelPageIndex - filledUpTo + 1; i++) {
       try (final var cacheEntry = addPage(atomicOperation, fileHandler)) {

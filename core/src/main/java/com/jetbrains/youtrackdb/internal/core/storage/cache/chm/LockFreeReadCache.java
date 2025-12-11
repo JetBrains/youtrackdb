@@ -27,11 +27,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.io.IOException;
+import java.util.Spliterators;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 
 /**
@@ -51,7 +54,7 @@ public final class LockFreeReadCache implements ReadCache {
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
 
-  private final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
+  private static final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
       new CacheEntryPlaceholder();
 
   private final ConcurrentHashMap<Long/*fileId*/, FileHandler> data; // todo replace with primitive concurrent hash map
@@ -565,6 +568,15 @@ public final class LockFreeReadCache implements ReadCache {
       emptyBuffers();
 
       final var fileHandler = data.remove(fileId);
+      // todo remove after development is done
+      if (fileHandler == null) {
+        var joinedKeys = StreamSupport.stream(
+                Spliterators.spliteratorUnknownSize(data.keys().asIterator(), 0), false)
+            .map(Object::toString)
+            .collect(Collectors.joining(", "));
+        throw new AssertionError("File with id " + fileId
+            + " not found and could not be cleared. Available fileIds are: " + joinedKeys);
+      }
       @SuppressWarnings("unchecked") final var pageEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
       for (var pageIndex = 0; pageIndex < pageEntries.size(); pageIndex++) {
         final var cacheEntry = pageEntries.get(pageIndex);
@@ -644,7 +656,7 @@ public final class LockFreeReadCache implements ReadCache {
     return 1 << -Integer.numberOfLeadingZeros(x - 1);
   }
 
-  private class CacheEntryPlaceholder implements CacheEntry {
+  private static class CacheEntryPlaceholder implements CacheEntry {
 
     private final long fileId = -1;
     private final int pageIndex = -1;

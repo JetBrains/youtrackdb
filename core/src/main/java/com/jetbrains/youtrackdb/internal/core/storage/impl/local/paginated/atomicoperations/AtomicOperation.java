@@ -33,7 +33,7 @@ public interface AtomicOperation {
 
   void releasePageFromWrite(CacheEntry cacheEntry) throws IOException;
 
-  long filledUpTo(long fileId);
+  long filledUpTo(FileHandler fileHandler);
 
   FileHandler addFile(String fileName) throws IOException;
 
@@ -47,7 +47,7 @@ public interface AtomicOperation {
 
   long fileIdByName(String name);
 
-  void truncateFile(long fileId) throws IOException;
+  void truncateFile(FileHandler fileHandler) throws IOException;
 
   boolean containsInLockedObjects(String lockName);
 

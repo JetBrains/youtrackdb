@@ -103,11 +103,12 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     atomicOperationsManager.executeInsideComponentOperation(operation, this, consumer);
   }
 
-  protected long getFilledUpTo(final AtomicOperation atomicOperation, final long fileId) {
+  protected long getFilledUpTo(final AtomicOperation atomicOperation,
+      final FileHandler fileHandler) {
     if (atomicOperation == null) {
-      return writeCache.getFilledUpTo(fileId);
+      return writeCache.getFilledUpTo(fileHandler);
     }
-    return atomicOperation.filledUpTo(fileId);
+    return atomicOperation.filledUpTo(fileHandler);
   }
 
   protected static CacheEntry loadPageForWrite(
@@ -186,9 +187,9 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     return atomicOperation.isFileExists(fileName);
   }
 
-  protected void truncateFile(final AtomicOperation atomicOperation, final long filedId)
+  protected void truncateFile(final AtomicOperation atomicOperation, final FileHandler fileHandler)
       throws IOException {
     assert atomicOperation != null;
-    atomicOperation.truncateFile(filedId);
+    atomicOperation.truncateFile(fileHandler);
   }
 }

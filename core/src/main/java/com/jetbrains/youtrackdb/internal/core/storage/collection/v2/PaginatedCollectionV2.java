@@ -223,7 +223,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       additionalArgs1);
 
               freeSpaceMap.create(atomicOperation);
-              final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler.fileId());
+              final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
               for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
 
                 try (final var cacheEntry =
@@ -1396,7 +1396,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         loadPageForWrite(atomicOperation, fileHandler, STATE_ENTRY_INDEX, true)) {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
-      final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler.fileId());
+      final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
       if (fileSize == filledUpTo - 1) {
         cacheEntry = addPage(atomicOperation, fileHandler);
@@ -1413,7 +1413,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   private void initCusterState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
-    if (getFilledUpTo(atomicOperation, fileHandler.fileId()) == 0) {
+    if (getFilledUpTo(atomicOperation, fileHandler) == 0) {
       stateEntry = addPage(atomicOperation, fileHandler);
     } else {
       stateEntry = loadPageForWrite(atomicOperation, fileHandler, STATE_ENTRY_INDEX, false);

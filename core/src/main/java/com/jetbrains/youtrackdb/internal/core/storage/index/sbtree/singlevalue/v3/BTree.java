@@ -876,7 +876,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       acquireSharedLock();
       try {
         final var pages = new IntOpenHashSet();
-        final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileHandler.fileId());
+        final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileHandler);
 
         for (var i = 2; i < filledUpTo; i++) {
           pages.add(i);
@@ -1604,12 +1604,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
         entryPoint.setFreeListHead(bucket.getNextFreeListPage());
       } else {
         var pageSize = entryPoint.getPagesSize();
-        if (pageSize < getFilledUpTo(atomicOperation, fileHandler.fileId()) - 1) {
+        if (pageSize < getFilledUpTo(atomicOperation, fileHandler) - 1) {
           pageSize++;
           rightBucketEntry = loadPageForWrite(atomicOperation, fileHandler, pageSize, false);
           entryPoint.setPagesSize(pageSize);
         } else {
-          assert pageSize == getFilledUpTo(atomicOperation, fileHandler.fileId()) - 1;
+          assert pageSize == getFilledUpTo(atomicOperation, fileHandler) - 1;
 
           rightBucketEntry = addPage(atomicOperation, fileHandler);
           entryPoint.setPagesSize(rightBucketEntry.getPageIndex());

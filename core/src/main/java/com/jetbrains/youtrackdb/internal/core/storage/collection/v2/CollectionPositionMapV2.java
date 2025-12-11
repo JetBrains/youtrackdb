@@ -56,7 +56,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileHandler = addFile(atomicOperation, getFullName());
 
-    if (getFilledUpTo(atomicOperation, fileHandler.fileId()) == 0) {
+    if (getFilledUpTo(atomicOperation, fileHandler) == 0) {
       try (final var cacheEntry = addPage(atomicOperation, fileHandler)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);
         mapEntryPoint.setFileSize(0);
@@ -102,7 +102,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     try (final var entryPointEntry = loadPageForWrite(atomicOperation, fileHandler, 0, true)) {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       final var lastPage = mapEntryPoint.getFileSize();
-      var filledUpTo = getFilledUpTo(atomicOperation, fileHandler.fileId());
+      var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
       assert lastPage <= filledUpTo - 1;
 
@@ -167,7 +167,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       final var lastPage = mapEntryPoint.getFileSize();
 
-      var filledUpTo = getFilledUpTo(atomicOperation, fileHandler.fileId());
+      var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
       assert lastPage <= filledUpTo - 1;
 

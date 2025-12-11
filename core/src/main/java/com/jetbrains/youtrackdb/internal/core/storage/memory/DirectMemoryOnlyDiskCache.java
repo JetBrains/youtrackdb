@@ -297,8 +297,8 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public long getFilledUpTo(final long fileId) {
-    final var intId = extractFileId(fileId);
+  public long getFilledUpTo(final FileHandler fileHandler) {
+    final var intId = extractFileId(fileHandler.fileId());
     final var memoryFile = getFile(intId);
     return memoryFile.size();
   }
@@ -631,7 +631,8 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void closeFile(final FileHandler fileHandler, final boolean flush, final WriteCache writeCache) {
+  public void closeFile(final FileHandler fileHandler, final boolean flush,
+      final WriteCache writeCache) {
     close(fileHandler, flush);
   }
 

@@ -1270,9 +1270,9 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long getFilledUpTo(long inputFileId) {
+  public long getFilledUpTo(final FileHandler fileHandler) {
     // handler should have external id already, do we really need this check?
-    final var split = splitFileId(inputFileId);
+    final var split = splitFileId(fileHandler.fileId());
 
     filesLock.acquireReadLock();
     try {

@@ -56,7 +56,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
-import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -1510,13 +1509,13 @@ public class DiskStorage extends AbstractStorage {
       final var fileName = entry.getKey();
 
       var fileHandler = entry.getValue();
-      final var fileId = writeCache.externalFileId(writeCache.internalFileId(fileHandler.fileId()));
-      final var filledUpTo = writeCache.getFilledUpTo(fileId);
+      final var filledUpTo = writeCache.getFilledUpTo(fileHandler);
       final var zipEntry = new ZipEntry(fileName);
 
       stream.putNextEntry(zipEntry);
 
       final var binaryFileId = new byte[LongSerializer.LONG_SIZE];
+      final var fileId = writeCache.externalFileId(writeCache.internalFileId(fileHandler.fileId()));
       LongSerializer.serializeLiteral(fileId, binaryFileId, 0);
       stream.write(binaryFileId, 0, binaryFileId.length);
 

@@ -103,7 +103,7 @@ public interface WriteCache {
 
   void flush();
 
-  long getFilledUpTo(long fileId);
+  long getFilledUpTo(FileHandler fileHandler);
 
   long getExclusiveWriteCachePagesSize();
 
