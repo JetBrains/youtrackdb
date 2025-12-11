@@ -17,11 +17,8 @@ package com.jetbrains.youtrackdb.internal.server;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.console.ConsoleReader;
-import com.jetbrains.youtrackdb.internal.common.console.DefaultConsoleReader;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.log.AnsiCode;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
@@ -46,7 +43,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrackdb.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
@@ -59,6 +55,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -77,7 +75,7 @@ import javax.annotation.Nullable;
 
 public class YouTrackDBServer {
 
-  private static final String ROOT_PASSWORD_VAR = "YOUTRACKDB_ROOT_PASSWORD";
+  private static final String ROOT_PASSWORD_FILE = "secrets/root_password";
 
   private CountDownLatch startupLatch;
   private CountDownLatch shutdownLatch;
@@ -139,7 +137,9 @@ public class YouTrackDBServer {
       throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
     var server = new YouTrackDBServer(false);
     server.startup(config);
-    server.activate();
+    if (!server.activate()) {
+      System.exit(1);
+    }
     return server;
   }
 
@@ -147,7 +147,9 @@ public class YouTrackDBServer {
       throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
     var server = new YouTrackDBServer(false);
     server.startup(Thread.currentThread().getContextClassLoader().getResourceAsStream(config));
-    server.activate();
+    if (!server.activate()) {
+      System.exit(1);
+    }
     return server;
   }
 
@@ -155,7 +157,9 @@ public class YouTrackDBServer {
       throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
     var server = new YouTrackDBServer(false);
     server.startup(config);
-    server.activate();
+    if (!server.activate()) {
+      System.exit(1);
+    }
     return server;
   }
 
@@ -306,7 +310,7 @@ public class YouTrackDBServer {
     return this;
   }
 
-  public YouTrackDBServer activate()
+  public boolean activate()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException {
     lock.lock();
     try {
@@ -320,11 +324,11 @@ public class YouTrackDBServer {
         l.onBeforeActivate();
       }
 
-      final var configuration = serverCfg.getConfiguration();
-
       try {
         loadStorages();
-        loadUsers();
+        if (!loadUsers()) {
+          return false;
+        }
         loadDatabases();
       } catch (IOException e) {
         final var message = "Error on reading server configuration";
@@ -357,7 +361,7 @@ public class YouTrackDBServer {
       startupLatch.countDown();
     }
 
-    return this;
+    return true;
   }
 
   @SuppressWarnings("unused")
@@ -555,16 +559,16 @@ public class YouTrackDBServer {
     hookManager = new ConfigurableHooksManager(cfg);
   }
 
-  protected void loadUsers() throws IOException {
+  protected boolean loadUsers() throws IOException {
     final var configuration = serverCfg.getConfiguration();
 
     if (configuration.isAfterFirstTime) {
-      return;
+      return true;
     }
 
     configuration.isAfterFirstTime = true;
 
-    createDefaultServerUsers();
+    return createDefaultServerUsers();
   }
 
   /**
@@ -606,139 +610,53 @@ public class YouTrackDBServer {
     }
   }
 
-  protected void createDefaultServerUsers() throws IOException {
-
+  protected boolean createDefaultServerUsers() throws IOException {
     if (databases.getSecuritySystem() != null
         && !databases.getSecuritySystem().arePasswordsStored()) {
-      return;
-    }
-
-    var rootPassword = SystemVariableResolver.resolveVariable(ROOT_PASSWORD_VAR);
-
-    if (rootPassword != null) {
-      rootPassword = rootPassword.trim();
-      if (rootPassword.isEmpty()) {
-        rootPassword = null;
-      }
+      return true;
     }
     final var systemDbEnabled =
         contextConfiguration.getValueAsBoolean(GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED);
+
+    var rootSecretFile = Path.of(ROOT_PASSWORD_FILE);
+    String rootSecretFilePassword = null;
+
+    if (Files.exists(rootSecretFile)) {
+      rootSecretFilePassword = Files.readString(rootSecretFile).trim();
+    }
+
     var existsRoot =
         serverCfg.existsUser(ServerConfiguration.DEFAULT_ROOT_USER) ||
             systemDbEnabled && existsSystemUser(ServerConfiguration.DEFAULT_ROOT_USER);
 
-    if (rootPassword == null && !existsRoot) {
-      try {
-        // WAIT ANY LOG IS PRINTED
-        Thread.sleep(1000);
-      } catch (InterruptedException ignored) {
+    if (!existsRoot) {
+      if (rootSecretFilePassword.isEmpty()) {
+        LogManager.instance()
+            .error(this,
+                "Root password is not set and root user does not exist. "
+                    + "Root user credentials has to provided either by server settings or "
+                    + "in secrets/root_password file. Exiting...", null);
+        return false;
+      } else {
+        LogManager.instance()
+            .info(
+                this,
+                "Found %s file, using it's content as root's password",
+                ROOT_PASSWORD_FILE);
       }
-
-      System.out.println();
-      System.out.println();
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow +---------------------------------------------------------------+}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow |                WARNING: FIRST RUN CONFIGURATION               |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow +---------------------------------------------------------------+}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | This is the first time the server is running. Please type a   |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | password of your choice for the 'root' user or leave it blank |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | to auto-generate it.                                          |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow |                                                               |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | To avoid this message set the environment variable or JVM     |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | setting YOUTRACKDB_ROOT_PASSWORD to the root password to use.   |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow +---------------------------------------------------------------+}"));
-
-      final ConsoleReader console = new DefaultConsoleReader();
-
-      // ASK FOR PASSWORD + CONFIRM
-      do {
-        System.out.print(
-            AnsiCode.format("\n$ANSI{yellow Root password [BLANK=auto generate it]: }"));
-        rootPassword = console.readPassword();
-
-        if (rootPassword != null) {
-          rootPassword = rootPassword.trim();
-          if (rootPassword.isEmpty()) {
-            rootPassword = null;
-          }
-        }
-
-        if (rootPassword != null) {
-          System.out.print(AnsiCode.format("$ANSI{yellow Please confirm the root password: }"));
-
-          var rootConfirmPassword = console.readPassword();
-          if (rootConfirmPassword != null) {
-            rootConfirmPassword = rootConfirmPassword.trim();
-            if (rootConfirmPassword.isEmpty()) {
-              rootConfirmPassword = null;
-            }
-          }
-
-          if (!rootPassword.equals(rootConfirmPassword)) {
-            System.out.println(
-                AnsiCode.format(
-                    "$ANSI{red ERROR: Passwords don't match, please reinsert both of them, or press"
-                        + " ENTER to auto generate it}"));
-          } else
-          // PASSWORDS MATCH
-
-          {
-            try {
-              if (getSecurity() != null) {
-                getSecurity().validatePassword("root", rootPassword);
-              }
-              // PASSWORD IS STRONG ENOUGH
-              break;
-            } catch (InvalidPasswordException ex) {
-              System.out.println(
-                  AnsiCode.format(
-                      "$ANSI{red ERROR: Root password does not match the password policies}"));
-              if (ex.getMessage() != null) {
-                System.out.println(ex.getMessage());
-              }
-            }
-          }
-        }
-
-      } while (rootPassword != null);
-
-    } else {
-      LogManager.instance()
-          .info(
-              this,
-              "Found YOUTRACKDB_ROOT_PASSWORD variable, using this value as root's password",
-              rootPassword);
     }
 
     if (systemDbEnabled) {
       if (!existsRoot) {
-        var password = rootPassword;
+        var rootPassword = rootSecretFilePassword;
         databases.getSystemDatabase().executeWithDB(session -> {
           session.executeInTx(transaction -> {
             var metadata = session.getMetadata();
             var security = metadata.getSecurity();
 
             if (security.getUser(ServerConfiguration.DEFAULT_ROOT_USER) == null) {
-              security.createUser(ServerConfiguration.DEFAULT_ROOT_USER, password, "root");
+              security.createUser(ServerConfiguration.DEFAULT_ROOT_USER,
+                  rootPassword, "root");
             }
           });
           return null;
@@ -758,6 +676,8 @@ public class YouTrackDBServer {
         return null;
       });
     }
+
+    return true;
   }
 
   @SuppressWarnings("SameParameterValue")
@@ -893,6 +813,7 @@ public class YouTrackDBServer {
   }
 
   public final class YTDBInternalProxy implements YouTrackDBInternal, ServerAware {
+
     private final YouTrackDBInternalEmbedded internal;
 
     private YTDBInternalProxy(YouTrackDBInternalEmbedded internal) {

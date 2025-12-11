@@ -17,7 +17,6 @@
    ~  * *
    ~  */
    -->
-
 <youtrackdb-server>
   <handlers>
     <!-- AUTOMATIC BACKUP, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
@@ -26,13 +25,6 @@
         <parameter name="enabled" value="false"/>
         <!-- LOCATION OF JSON CONFIGURATION FILE -->
         <parameter name="config" value="${YOUTRACKDB_HOME}/config/automatic-backup.json"/>
-      </parameters>
-    </handler>
-    <!-- CUSTOM SQL FUNCTIONS -->
-    <handler class="com.jetbrains.youtrackdb.internal.server.handler.CustomSQLFunctionPlugin">
-      <parameters>
-        <!-- LOCATION OF JSON CONFIGURATION FILE -->
-        <parameter name="config" value="${YOUTRACKDB_HOME}/config/custom-sql-functions.json"/>
       </parameters>
     </handler>
     <handler class="com.jetbrains.youtrackdb.internal.server.plugin.gremlin.GremlinServerPlugin">
@@ -46,8 +38,5 @@
   <users>
   </users>
   <properties>
-    <!-- PROFILER: configures the profiler as <seconds-for-snapshot>,<archive-snapshot-size>,<summary-size> -->
-    <entry name="profiler.enabled" value="false"/>
-    <!-- <entry name="profiler.config" value="30,10,10" /> -->
   </properties>
 </youtrackdb-server>

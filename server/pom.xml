@@ -305,6 +305,33 @@ nse, Version 2.0 (the "License");
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <configuration>
+          <skipPublishing>true</skipPublishing>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <descriptors>
+            <descriptor>src/assembly/standalone.xml</descriptor>
+          </descriptors>
+          <finalName>${project.artifactId}-${project.version}</finalName>
+          <outputDirectory>target</outputDirectory>
+          <workDirectory>target/assembly/work</workDirectory>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 </project>

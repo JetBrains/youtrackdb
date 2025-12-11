@@ -32,14 +32,14 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
       throws Exception {
     String configFile = null;
     for (var param : params) {
-      if (param.name.equalsIgnoreCase("config")) {
+      if (param.name.equalsIgnoreCase("conf")) {
         configFile = SystemVariableResolver.resolveSystemVariables(param.value);
       }
     }
 
     YTDBSettings ytdbSettings;
     if (configFile == null) {
-      configFile = Path.of(youTrackDBServer.getServerRootDirectory()).resolve("confing")
+      configFile = Path.of(youTrackDBServer.getServerRootDirectory()).resolve("conf")
           .resolve(DEFAULT_GREMLIN_SERVER_CONFIG_NAME).toAbsolutePath().toString();
     }
 

@@ -19,12 +19,10 @@ host: localhost
 port: 8182
 evaluationTimeout: 30000
 channelizer: org.apache.tinkerpop.gremlin.server.channel.WebSocketChannelizer
-graphManager: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBGraphManager
-graphs: {}
 scriptEngines: {
   gremlin-groovy: {
-    plugins: { org.apache.tinkerpop.gremlin.server.jsr223.GremlinServerGremlinPlugin: {},
-               org.apache.tinkerpop.gremlin.tinkergraph.jsr223.TinkerGraphGremlinPlugin: {},
+    plugins: { org.apache.tinkerpop.gremlin.server.jsr223.GremlinServerGremlinPlugin: { },
+               org.apache.tinkerpop.gremlin.tinkergraph.jsr223.TinkerGraphGremlinPlugin: { },
                com.jetbrains.youtrackdb.internal.core.gremlin.jsr223.YTDBGremlinPlugin: { },
                org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin: {
                  enableThreadInterrupt: true,
@@ -41,20 +39,25 @@ scriptEngines: {
 }
 serializers:
   - { className: org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1, config: {
-    ioRegistries: [ com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry , org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3]
+    ioRegistries: [ com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry ,
+                    org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3
+    ]
   } }         # application/json
 processors:
-  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor,
-      config: { sessionTimeout: 28800000 }
+  - {
+    className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor,
+    config: { sessionTimeout: 28800000 }
   }
   - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBTraversalOpProcessor,
       config: { cacheExpirationTime: 600000, cacheMaxSize: 1000 }
   }
 metrics: {
-  consoleReporter: {enabled: true, interval: 180000},
-  csvReporter: {enabled: true, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv},
-  jmxReporter: {enabled: true},
-  slf4jReporter: {enabled: true, interval: 180000}}
+  consoleReporter: { enabled: true, interval: 180000 },
+  csvReporter: { enabled: true, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv },
+  jmxReporter: { enabled: true },
+  slf4jReporter: { enabled: true, interval: 180000 }
+}
+
 strictTransactionManagement: false
 maxInitialLineLength: 4096
 maxHeaderSize: 8192

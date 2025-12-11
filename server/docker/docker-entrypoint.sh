@@ -1,3 +1,6 @@
+#!/bin/bash
+#
+#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,30 +17,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+#
 
-FROM eclipse-temurin:21
-
-RUN apt-get update
-RUN apt-get install -y dos2unix
-RUN rm -rf /var/lib/apt/lists/*
-
-ARG DISTRIBUTION_DIR
-
-COPY docker/docker-entrypoint.sh /
-COPY ${DISTRIBUTION_DIR} /opt/ytdb-console
-
-
-RUN dos2unix /docker-entrypoint.sh
-RUN dos2unix /opt/ytdb-console/bin/ytdb.sh
-
-RUN groupadd -r ytdb
-RUN useradd -m -r -g ytdb -s /bin/false ytdb
-RUN chown -R ytdb:ytdb /opt/ytdb-console
-USER ytdb
-
-WORKDIR /opt/ytdb-console
-
-VOLUME /opt/ytdb-console/conf
-VOLUME /opt/ytdb-console/databases
-
-ENTRYPOINT ["/docker-entrypoint.sh"]
+set -e
+exec /opt/ytdb-server/bin/ytdb.sh "$@"

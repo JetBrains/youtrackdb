@@ -47,7 +47,9 @@ public class ServerMain {
           public void run() {
             try {
               instance = ServerMain.create();
-              instance.startup().activate();
+              if (!instance.startup().activate()) {
+                System.exit(1);
+              }
               instance.waitForShutdown();
             } catch (Exception e) {
               LogManager.instance().error(this, "Error during server execution", e);

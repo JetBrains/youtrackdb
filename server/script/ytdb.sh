@@ -26,19 +26,16 @@ done
 PRGDIR=`dirname "$PRG"`
 
 # Only set YOUTRACKDB_HOME if not already set
-[ -f "$YOUTRACKDB_HOME"/bin/server.sh ] || YOUTRACKDB_HOME=`cd "$PRGDIR/.." ; pwd`
+[ -f "$YOUTRACKDB_HOME"/bin/ytdb.sh ] || YOUTRACKDB_HOME=`cd "$PRGDIR/.." ; pwd`
 export YOUTRACKDB_HOME
-cd "$YOUTRACKDB_HOME/bin"
+
+cd "$YOUTRACKDB_HOME"
 
 if [ ! -f "${CONFIG_FILE}" ]
 then
-  CONFIG_FILE=$YOUTRACKDB_HOME/config/youtrackdb-server-config.xml
+  CONFIG_FILE=$YOUTRACKDB_HOME/conf/youtrackdb-server-config.xml
 fi
 
-# Raspberry Pi check (Java VM does not run with -server argument on ARMv6)
-if [ `uname -m` != "armv6l" ]; then
-  JAVA_OPTS="$JAVA_OPTS -server "
-fi
 export JAVA_OPTS
 
 # Set JavaHome if it exists
@@ -52,11 +49,6 @@ export JAVA
 if [ -z "$YOUTRACKDB_LOG_CONF" ] ; then
     YOUTRACKDB_LOG_CONF=$YOUTRACKDB_HOME/config/youtrackdb-server-log.properties
 fi
-
-if [ -z "$YOUTRACKDB_WWW_PATH" ] ; then
-    YOUTRACKDB_WWW_PATH=$YOUTRACKDB_HOME/www
-fi
-
 if [ -z "$YOUTRACKDB_PID" ] ; then
     YOUTRACKDB_PID=$YOUTRACKDB_HOME/bin/youtrack.pid
 fi
@@ -66,19 +58,17 @@ if [ -f "$YOUTRACKDB_PID" ]; then
     rm "$YOUTRACKDB_PID"
 fi
 
-# DEBUG OPTS, SIMPLY USE 'server.sh debug'
 DEBUG_OPTS=""
 ARGS='';
 for var in "$@"; do
     if [ "$var" = "debug" ]; then
-        DEBUG_OPTS="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=1044"
+        DEBUG_OPTS="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=1044"
     else
         ARGS="$ARGS $var"
     fi
 done
 
 # YOUTRACKDB memory options, default to 2GB of heap.
-
 if [ -z "$YOUTRACKDB_OPTS_MEMORY" ] ; then
     YOUTRACKDB_OPTS_MEMORY="-Xms2G -Xmx2G"
 fi
@@ -102,7 +92,6 @@ exec "$JAVA" $JAVA_OPTS \
     -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager \
     -Djava.util.logging.config.file="$YOUTRACKDB_LOG_CONF" \
     -Dyoutrackdb.config.file="$CONFIG_FILE" \
-    -Dyoutrackdb.www.path="$YOUTRACKDB_WWW_PATH" \
     -Dyoutrackdb.build.number="@BUILD@" \
     -cp "$YOUTRACKDB_HOME/lib/youtrackdb-server-@VERSION@.jar:$YOUTRACKDB_HOME/lib/*:$YOUTRACKDB_HOME/plugins/*" \
     $ARGS com.jetbrains.youtrackdb.internal.server.ServerMain

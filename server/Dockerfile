@@ -24,20 +24,24 @@ RUN rm -rf /var/lib/apt/lists/*
 ARG DISTRIBUTION_DIR
 
 COPY docker/docker-entrypoint.sh /
-COPY ${DISTRIBUTION_DIR} /opt/ytdb-console
+COPY ${DISTRIBUTION_DIR} /opt/ytdb-server
 
 
 RUN dos2unix /docker-entrypoint.sh
-RUN dos2unix /opt/ytdb-console/bin/ytdb.sh
+RUN dos2unix /opt/ytdb-server/bin/ytdb.sh
 
 RUN groupadd -r ytdb
 RUN useradd -m -r -g ytdb -s /bin/false ytdb
-RUN chown -R ytdb:ytdb /opt/ytdb-console
+RUN chown -R ytdb:ytdb /opt/ytdb-server
 USER ytdb
 
-WORKDIR /opt/ytdb-console
+WORKDIR /opt/ytdb-server
+ENV YOUTRACKDB_HOME /opt/ytdb-server
 
-VOLUME /opt/ytdb-console/conf
-VOLUME /opt/ytdb-console/databases
+VOLUME /opt/ytdb-server/conf
+VOLUME /opt/ytdb-server/log
+VOLUME /opt/ytdb-server/databases
+VOLUME /opt/ytdb-server/secrets
+
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
