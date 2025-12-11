@@ -203,4 +203,18 @@ public class CASObjectArrayTest {
       Assert.assertEquals(i + 21, array.get(i).intValue());
     }
   }
+
+  @Test
+  public void shouldThrowIfIndexIsOutOfBounds() {
+    final var array = new CASObjectArray<Integer>();
+
+    Assert.assertThrows(IndexOutOfBoundsException.class, () -> array.get(0));
+  }
+
+  @Test
+  public void shouldReturnNullIfElementDoesNotExistsLikeAMap() {
+    final var array = new CASObjectArray<Integer>();
+
+    Assert.assertNull(array.getOrNull(0));
+  }
 }
