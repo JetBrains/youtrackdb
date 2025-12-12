@@ -31,13 +31,6 @@
       <outputDirectory>config/cert</outputDirectory>
     </fileSet>
 
-    <!--
-     | Plugins
-    -->
-    <fileSet>
-      <directory>${basedir}/plugins</directory>
-      <outputDirectory>plugins</outputDirectory>
-    </fileSet>
 
     <!--
      | Secrets
