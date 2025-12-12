@@ -36,7 +36,7 @@ RUN chown -R ytdb:ytdb /opt/ytdb-server
 USER ytdb
 
 WORKDIR /opt/ytdb-server
-ENV YOUTRACKDB_HOME /opt/ytdb-server
+ENV YOUTRACKDB_HOME=/opt/ytdb-server
 
 VOLUME /opt/ytdb-server/conf
 VOLUME /opt/ytdb-server/log

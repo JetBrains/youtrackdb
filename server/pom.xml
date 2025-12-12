@@ -141,17 +141,6 @@ nse, Version 2.0 (the "License");
         </argLine>
       </properties>
     </profile>
-
-    <profile>
-      <id>development</id>
-      <activation>
-        <activeByDefault>true</activeByDefault>
-      </activation>
-      <properties>
-        <exclude.test.1>**/AutomaticBackupTest.java</exclude.test.1>
-      </properties>
-    </profile>
-
     <profile>
       <id>ci</id>
       <activation>
@@ -163,56 +152,71 @@ nse, Version 2.0 (the "License");
       <properties>
         <exclude.test.1>empty.java</exclude.test.1>
       </properties>
-
     </profile>
     <profile>
-      <id>release</id>
-      <activation>
-        <property>
-          <name>youtrackdb.test.env</name>
-          <value>release</value>
-        </property>
-      </activation>
-      <properties>
-        <exclude.test.1>empty.java</exclude.test.1>
-      </properties>
-
-    </profile>
-    <profile>
-      <id>localDeploy</id>
-      <activation>
-        <property>
-          <name>localDeploy</name>
-        </property>
-      </activation>
-    </profile>
-    <profile>
-      <id>crash-tests</id>
+      <id>docker-images</id>
       <build>
         <plugins>
+          <!--
+          Deploying docker images will happen out of the normal jvm artifact deployment flow, so disable that
+          -->
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-failsafe-plugin</artifactId>
-            <version>${surefire.version}</version>
+            <artifactId>maven-deploy-plugin</artifactId>
             <configuration>
-              <skipTests>true</skipTests>
+              <skip>true</skip>
             </configuration>
           </plugin>
-        </plugins>
-      </build>
-    </profile>
-    <profile>
-      <id>secondary-tests</id>
-      <build>
-        <plugins>
           <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire.version}</version>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
             <configuration>
-              <includes>
-                <include>**/*ST.java</include>
-              </includes>
+              <skipPublishing>true</skipPublishing>
+            </configuration>
+          </plugin>
+
+          <plugin>
+            <groupId>io.fabric8</groupId>
+            <artifactId>docker-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>docker:build</id>
+                <goals>
+                  <goal>build</goal>
+                </goals>
+                <phase>package</phase>
+              </execution>
+              <execution>
+                <id>docker:push</id>
+                <goals>
+                  <goal>push</goal>
+                </goals>
+                <phase>deploy</phase>
+              </execution>
+            </executions>
+            <configuration>
+              <images>
+                <image>
+                  <name>youtrackdb/youtrackdb-server</name>
+                  <build>
+                    <dockerFile>${project.build.directory}/../Dockerfile</dockerFile>
+                    <args>
+                      <DISTRIBUTION_DIR>
+                        target/${project.artifactId}-${project.version}-standalone
+                      </DISTRIBUTION_DIR>
+                    </args>
+                    <tags>
+                      <tag>${docker.tags.majorVersion.minorVersion}</tag>
+                      <tag>${docker.tags.latest}</tag>
+                    </tags>
+                    <buildx>
+                      <platforms>
+                        <platform>${docker.platforms}</platform>
+                      </platforms>
+                    </buildx>
+                  </build>
+                </image>
+              </images>
             </configuration>
           </plugin>
         </plugins>

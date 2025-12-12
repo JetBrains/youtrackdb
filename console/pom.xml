@@ -152,6 +152,30 @@
                 <phase>deploy</phase>
               </execution>
             </executions>
+            <configuration>
+              <images>
+                <image>
+                  <name>youtrackdb/youtrackdb-console</name>
+                  <build>
+                    <dockerFile>${project.build.directory}/../Dockerfile</dockerFile>
+                    <args>
+                      <DISTRIBUTION_DIR>
+                        target/${project.artifactId}-${project.version}-standalone
+                      </DISTRIBUTION_DIR>
+                    </args>
+                    <tags>
+                      <tag>${docker.tags.majorVersion.minorVersion}</tag>
+                      <tag>${docker.tags.latest}</tag>
+                    </tags>
+                    <buildx>
+                      <platforms>
+                        <platform>${docker.platforms}</platform>
+                      </platforms>
+                    </buildx>
+                  </build>
+                </image>
+              </images>
+            </configuration>
           </plugin>
         </plugins>
       </build>

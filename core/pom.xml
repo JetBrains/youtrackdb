@@ -86,15 +86,6 @@
         </plugins>
       </build>
     </profile>
-
-    <profile>
-      <id>localDeploy</id>
-      <activation>
-        <property>
-          <name>localDeploy</name>
-        </property>
-      </activation>
-    </profile>
   </profiles>
 
 
