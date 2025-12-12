@@ -70,10 +70,10 @@ jobs:
         platform:
           - os: ubuntu-latest
             arch: x64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
           - os: ubuntu-24.04-arm
             arch: arm64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
           - os: windows-latest
             arch: x64
             mvn_opts: '`-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci -P ci-integration-tests'
