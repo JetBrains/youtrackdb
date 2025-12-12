@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
+package com.jetbrains.youtrackdb.internal.server.gremlin;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites.YTDBProcessSuiteRemote;
 import org.apache.tinkerpop.gremlin.GraphProviderClass;

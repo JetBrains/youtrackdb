@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
+package com.jetbrains.youtrackdb.internal.server.gremlin;
 
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 

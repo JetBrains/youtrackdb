@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
+package com.jetbrains.youtrackdb.internal.server.gremlin;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
@@ -40,7 +40,7 @@ import org.junit.runner.RunWith;
         + "and not @DataUUID "
         + "and not @DataDateTime",
     glue = {"org.apache.tinkerpop.gremlin.features",
-        "com.jetbrains.youtrackdb.internal.server.plugin.gremlin.features"},
+        "com.jetbrains.youtrackdb.internal.server.gremlin.features"},
     objectFactory = GuiceFactory.class,
     features = {"classpath:/org/apache/tinkerpop/gremlin/test/features"},
     plugin = {"progress", "junit:target/cucumber.xml"})
