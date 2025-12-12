@@ -7,9 +7,6 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
-import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
-import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
-import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.nio.file.Path;
@@ -37,7 +34,6 @@ import org.apache.tinkerpop.gremlin.util.MessageSerializer;
     method = "g_E_properties_order_value",
     reason = "Query and modification are performed in different pending transactions.")
 public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGraphProvider {
-
   private static final AtomicLong idGenerator = new AtomicLong(
       ThreadLocalRandom.current().nextLong(Long.MAX_VALUE >> 1));
 
@@ -61,8 +57,8 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       ytdbServer.setServerRootDirectory(
           buildDirectory.resolve("gremlinServerRoot")
               .resolve("serverHome" + idGenerator.incrementAndGet()).toAbsolutePath().toString());
-      ytdbServer.startup(getClass().getResourceAsStream(
-          "/com/jetbrains/youtrackdb/internal/server/youtrackdb-server-config.xml"));
+      ytdbServer.startup(
+          "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
       ytdbServer.activate();
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -70,11 +66,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
 
     reloadAllTestGraphs();
 
-    var pluginManager = ytdbServer.getPluginManager();
-    var pluginInfo = pluginManager.getPluginByName(GremlinServerPlugin.NAME);
-    var plugin = (GremlinServerPlugin) pluginInfo.getInstance();
-
-    server = plugin.getGremlinServer();
+    server = ytdbServer.getGremlinServer();
   }
 
   private void reloadAllTestGraphs() throws Exception {

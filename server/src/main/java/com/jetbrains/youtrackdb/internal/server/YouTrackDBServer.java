@@ -17,17 +17,14 @@ package com.jetbrains.youtrackdb.internal.server;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseTask;
@@ -39,29 +36,19 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
-import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfigurationManager;
-import com.jetbrains.youtrackdb.internal.server.handler.ConfigurableHooksManager;
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPlugin;
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginInfo;
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginManager;
-import java.io.ByteArrayInputStream;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSettings;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -71,10 +58,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantLock;
-import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.server.GremlinServer;
 
 public class YouTrackDBServer {
 
+  public static final String DEFAULT_ROOT_USER = "root";
+  public static final String GUEST_USER = "guest";
+  public static final String DEFAULT_GUEST_PASSWORD = "!!!TheGuestPw123";
+
+  public static final String DEFAULT_CONFIG_CLASSPATH = "classpath:com/jetbrains/youtrackdb/internal/server/conf/youtrackdb-server.yaml";
+  public static final String PROPERTY_CONFIG_FILE = "youtrackdb.config.file";
+  public static final String DEFAULT_CONFIG_LOCATION = "conf/youtrackdb-server.yaml";
   private static final String ROOT_PASSWORD_FILE = "secrets/root_password";
 
   private CountDownLatch startupLatch;
@@ -87,8 +81,6 @@ public class YouTrackDBServer {
   protected ContextConfiguration contextConfiguration;
   protected ServerShutdownHook shutdownHook;
   protected List<ServerLifecycleListener> lifecycleListeners = new ArrayList<>();
-  protected ServerPluginManager pluginManager;
-  protected ConfigurableHooksManager hookManager;
   private String serverRootDirectory;
   private String databaseDirectory;
 
@@ -97,6 +89,7 @@ public class YouTrackDBServer {
 
   private final Set<String> dbNamesCache = ConcurrentHashMap.newKeySet();
   private final ReentrantLock dbCreationLock = new ReentrantLock();
+  private GremlinServer gremlinServer;
 
   public YouTrackDBServer() {
     this(!YouTrackDBEnginesManager.instance().isInsideWebContainer());
@@ -143,25 +136,6 @@ public class YouTrackDBServer {
     return server;
   }
 
-  public static YouTrackDBServer startFromClasspathConfig(String config)
-      throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
-    var server = new YouTrackDBServer(false);
-    server.startup(Thread.currentThread().getContextClassLoader().getResourceAsStream(config));
-    if (!server.activate()) {
-      System.exit(1);
-    }
-    return server;
-  }
-
-  public static YouTrackDBServer startFromStreamConfig(InputStream config)
-      throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
-    var server = new YouTrackDBServer(false);
-    server.startup(config);
-    if (!server.activate()) {
-      System.exit(1);
-    }
-    return server;
-  }
 
   public SecuritySystem getSecurity() {
     return databases.getSecuritySystem();
@@ -171,87 +145,47 @@ public class YouTrackDBServer {
     return running;
   }
 
-  /**
-   * Load an extension class by name.
-   */
-  private Class<?> loadClass(final String name) throws ClassNotFoundException {
-    var loaded = tryLoadClass(Thread.currentThread().getContextClassLoader(), name);
-
-    if (loaded == null) {
-      loaded = tryLoadClass(getClass().getClassLoader(), name);
-      if (loaded == null) {
-        loaded = Class.forName(name);
-      }
+  public YouTrackDBServer startup() throws ConfigurationException, IOException {
+    String config = null;
+    if (System.getProperty(PROPERTY_CONFIG_FILE) != null) {
+      config = System.getProperty(PROPERTY_CONFIG_FILE);
     }
-
-    return loaded;
-  }
-
-  /**
-   * Attempt to load a class from givenstar class-loader.
-   */
-  @Nullable
-  private static Class<?> tryLoadClass(/* @Nullable */ final ClassLoader classLoader,
-      final String name) {
-    if (classLoader != null) {
-      try {
-        return classLoader.loadClass(name);
-      } catch (ClassNotFoundException e) {
-        // ignore
+    if (config == null) {
+      if (Files.exists(Path.of(DEFAULT_CONFIG_LOCATION))) {
+        config = DEFAULT_CONFIG_LOCATION;
+      } else {
+        config = DEFAULT_CONFIG_CLASSPATH;
       }
-    }
-    return null;
-  }
-
-  public YouTrackDBServer startup() throws ConfigurationException {
-    var config = ServerConfiguration.DEFAULT_CONFIG_FILE;
-    if (System.getProperty(ServerConfiguration.PROPERTY_CONFIG_FILE) != null) {
-      config = System.getProperty(ServerConfiguration.PROPERTY_CONFIG_FILE);
     }
 
     YouTrackDBEnginesManager.instance().startup();
 
-    startup(new File(SystemVariableResolver.resolveSystemVariables(config)));
+    startup(SystemVariableResolver.resolveSystemVariables(config));
 
     return this;
   }
 
-  public YouTrackDBServer startup(final File iConfigurationFile) throws ConfigurationException {
-    // Startup function split to allow pre-activation changes
+  public void startup(final String configuration) {
     try {
-      serverCfg = new ServerConfigurationManager(iConfigurationFile);
-      return startupFromConfiguration();
+      serverCfg = new ServerConfigurationManager(configuration, this);
+      startupFromConfiguration();
 
     } catch (IOException e) {
       final var message =
-          "Error on reading server configuration from file: " + iConfigurationFile;
+          "Error on reading server configuration from file: " + configuration;
       LogManager.instance().error(this, message, e);
       throw BaseException.wrapException(new ConfigurationException(message), e, (String) null);
     }
   }
 
-  public YouTrackDBServer startup(final String iConfiguration) throws IOException {
-    return startup(new ByteArrayInputStream(iConfiguration.getBytes()));
-  }
-
-  public YouTrackDBServer startup(final InputStream iInputStream) throws IOException {
-    if (iInputStream == null) {
-      throw new ConfigurationException("Configuration file is null");
-    }
-
-    serverCfg = new ServerConfigurationManager(iInputStream);
-
-    // Startup function split to allow pre-activation changes
-    return startupFromConfiguration();
-  }
-
-  public YouTrackDBServer startup(final ServerConfiguration iConfiguration)
+  public void startup(final YTDBSettings iConfiguration)
       throws IllegalArgumentException, SecurityException, IOException {
+    iConfiguration.server = this;
     serverCfg = new ServerConfigurationManager(iConfiguration);
-    return startupFromConfiguration();
+    startupFromConfiguration();
   }
 
-  public YouTrackDBServer startupFromConfiguration() throws IOException {
+  public void startupFromConfiguration() throws IOException {
     LogManager.instance()
         .info(this,
             "YouTrackDB Server v" + YouTrackDBConstants.getVersion() + " is starting up...");
@@ -290,7 +224,7 @@ public class YouTrackDBServer {
 
     var builder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
     for (var user : serverCfg.getUsers()) {
-      builder.addGlobalUser(user.getName(), user.getPassword(), user.getResources());
+      builder.addGlobalUser(user.name, user.password, user.resources);
     }
 
     YouTrackDBConfig config =
@@ -307,7 +241,6 @@ public class YouTrackDBServer {
     LogManager.instance()
         .info(this, "Databases directory: " + new File(databaseDirectory).getAbsolutePath());
 
-    return this;
   }
 
   public boolean activate()
@@ -337,11 +270,12 @@ public class YouTrackDBServer {
         throw BaseException.wrapException(new ConfigurationException(message), e, (String) null);
       }
 
-      registerPlugins();
-
       for (var l : lifecycleListeners) {
         l.onAfterActivate();
       }
+
+      gremlinServer = new GremlinServer(serverCfg.getConfiguration());
+      gremlinServer.start().join();
 
       running = true;
 
@@ -350,12 +284,12 @@ public class YouTrackDBServer {
               this,
               "$ANSI{green:italic YouTrackDB Server is active} v" + YouTrackDBConstants.getVersion()
                   + ".");
-    } catch (ClassNotFoundException
-             | InstantiationException
-             | IllegalAccessException
-             | RuntimeException e) {
+    } catch (RuntimeException e) {
       deinit();
       throw e;
+    } catch (Exception e) {
+      deinit();
+      throw new RuntimeException(e);
     } finally {
       lock.unlock();
       startupLatch.countDown();
@@ -388,6 +322,10 @@ public class YouTrackDBServer {
     try {
       running = false;
 
+      if (gremlinServer != null) {
+        gremlinServer.stop().join();
+      }
+
       LogManager.instance().info(this, "YouTrackDB Server is shutting down...");
 
       if (shutdownHook != null) {
@@ -408,11 +346,6 @@ public class YouTrackDBServer {
                 .error(this, "Error during deactivation of server lifecycle listener %s", e, l);
           }
         }
-
-        if (pluginManager != null) {
-          pluginManager.shutdown();
-        }
-
       } finally {
         lock.unlock();
       }
@@ -453,16 +386,6 @@ public class YouTrackDBServer {
     }
   }
 
-  public Map<String, String> getAvailableStorageNames() {
-    var dbs = listDatabases();
-    Map<String, String> toSend = new HashMap<>();
-    for (var dbName : dbs) {
-      toSend.put(dbName, dbName);
-    }
-
-    return toSend;
-  }
-
   /**
    * Opens all the available server's databases.
    */
@@ -487,40 +410,16 @@ public class YouTrackDBServer {
   }
 
 
-  public ServerConfiguration getConfiguration() {
+  public YTDBSettings getConfiguration() {
     return serverCfg.getConfiguration();
-  }
-
-  @Nullable
-  public Collection<ServerPluginInfo> getPlugins() {
-    return pluginManager != null ? pluginManager.getPlugins() : null;
   }
 
   public ContextConfiguration getContextConfiguration() {
     return contextConfiguration;
   }
 
-  @SuppressWarnings("unchecked")
-  @Nullable
-  public <RET extends ServerPlugin> RET getPlugin(final String iName) {
-    if (startupLatch == null) {
-      throw new DatabaseException("Error on plugin lookup: the server did not start correctly");
-    }
-
-    try {
-      startupLatch.await();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-    if (!running) {
-      throw new DatabaseException("Error on plugin lookup: the server did not start correctly");
-    }
-
-    final var p = pluginManager.getPluginByName(iName);
-    if (p != null) {
-      return (RET) p.getInstance();
-    }
-    return null;
+  public GremlinServer getGremlinServer() {
+    return gremlinServer;
   }
 
   @SuppressWarnings("unused")
@@ -535,11 +434,6 @@ public class YouTrackDBServer {
     return this;
   }
 
-  public DatabaseSessionEmbedded openSession(String database) {
-    return databases.openNoAuthorization(database);
-  }
-
-
   public void setServerRootDirectory(final String rootDirectory) {
     this.serverRootDirectory = rootDirectory;
   }
@@ -551,12 +445,10 @@ public class YouTrackDBServer {
     contextConfiguration = new ContextConfiguration();
 
     if (cfg.properties != null) {
-      for (var prop : cfg.properties) {
-        contextConfiguration.setValue(prop.name, prop.value);
+      for (var prop : cfg.properties.entrySet()) {
+        contextConfiguration.setValue(prop.getKey(), prop.getValue());
       }
     }
-
-    hookManager = new ConfigurableHooksManager(cfg);
   }
 
   protected boolean loadUsers() throws IOException {
@@ -626,8 +518,8 @@ public class YouTrackDBServer {
     }
 
     var existsRoot =
-        serverCfg.existsUser(ServerConfiguration.DEFAULT_ROOT_USER) ||
-            systemDbEnabled && existsSystemUser(ServerConfiguration.DEFAULT_ROOT_USER);
+        serverCfg.existsUser(DEFAULT_ROOT_USER) ||
+            systemDbEnabled && existsSystemUser(DEFAULT_ROOT_USER);
 
     if (!existsRoot) {
       if (rootSecretFilePassword.isEmpty()) {
@@ -654,8 +546,8 @@ public class YouTrackDBServer {
             var metadata = session.getMetadata();
             var security = metadata.getSecurity();
 
-            if (security.getUser(ServerConfiguration.DEFAULT_ROOT_USER) == null) {
-              security.createUser(ServerConfiguration.DEFAULT_ROOT_USER,
+            if (security.getUser(DEFAULT_ROOT_USER) == null) {
+              security.createUser(DEFAULT_ROOT_USER,
                   rootPassword, "root");
             }
           });
@@ -668,9 +560,9 @@ public class YouTrackDBServer {
           var metadata = session.getMetadata();
           var security = metadata.getSecurity();
 
-          if (security.getUser(ServerConfiguration.GUEST_USER) == null) {
-            security.createUser(ServerConfiguration.GUEST_USER,
-                ServerConfiguration.DEFAULT_GUEST_PASSWORD, "guest");
+          if (security.getUser(GUEST_USER) == null) {
+            security.createUser(GUEST_USER,
+                DEFAULT_GUEST_PASSWORD, "guest");
           }
         });
         return null;
@@ -691,87 +583,6 @@ public class YouTrackDBServer {
         }));
   }
 
-  public ServerPluginManager getPluginManager() {
-    return pluginManager;
-  }
-
-  protected void registerPlugins()
-      throws InstantiationException, IllegalAccessException, ClassNotFoundException {
-    pluginManager = new ServerPluginManager();
-    pluginManager.config(this);
-    pluginManager.startup();
-
-    // PLUGINS CONFIGURED IN XML
-    final var configuration = serverCfg.getConfiguration();
-
-    if (configuration.handlers != null) {
-      // ACTIVATE PLUGINS
-      final List<ServerPlugin> plugins = new ArrayList<>();
-
-      for (var h : configuration.handlers) {
-        if (h.parameters != null) {
-          // CHECK IF IT'S ENABLED
-          var enabled = true;
-
-          for (var p : h.parameters) {
-            if (p.name.equals("enabled")) {
-              enabled = false;
-
-              var value = SystemVariableResolver.resolveSystemVariables(p.value);
-              if (value != null) {
-                value = value.trim();
-
-                if ("true".equalsIgnoreCase(value)) {
-                  enabled = true;
-                  break;
-                }
-              }
-            }
-          }
-
-          if (!enabled)
-          // SKIP IT
-          {
-            continue;
-          }
-        }
-
-        final var plugin = (ServerPlugin) loadClass(h.clazz).newInstance();
-        pluginManager.registerPlugin(
-            new ServerPluginInfo(plugin.getName(), null, null, null, plugin, null, 0, null));
-
-        try {
-          pluginManager.callListenerBeforeConfig(plugin, h.parameters);
-          plugin.config(this, h.parameters);
-          if (plugin instanceof DatabaseLifecycleListener databaseLifecycleListener) {
-            YouTrackDBEnginesManager.instance().addDbLifecycleListener(databaseLifecycleListener);
-          }
-          pluginManager.callListenerAfterConfig(plugin, h.parameters);
-
-          plugins.add(plugin);
-        } catch (Exception e) {
-          pluginManager.callListenerAfterConfigError(plugin, e);
-
-          LogManager.instance()
-              .error(this, "Error on plugin registration: %s", e, plugin.getName());
-        }
-      }
-
-      // START ALL THE CONFIGURED PLUGINS
-      for (var plugin : plugins) {
-        try {
-          pluginManager.callListenerBeforeStartup(plugin);
-          plugin.startup();
-          pluginManager.callListenerAfterStartup(plugin);
-        } catch (Exception e) {
-          pluginManager.callListenerAfterStartupError(plugin, e);
-          var msg = "Error on plugin startup: " + e.getMessage();
-          LogManager.instance().error(this, msg, e);
-          throw BaseException.wrapException(new SystemException(msg), e, (String) null);
-        }
-      }
-    }
-  }
 
   protected void defaultSettings() {
   }
@@ -799,17 +610,6 @@ public class YouTrackDBServer {
 
   public boolean existsDatabase(String databaseName) {
     return databases.exists(databaseName, null, null);
-  }
-
-  public Set<String> listDatabases() {
-    var dbs = databases.listDatabases(null, null);
-    if (dbs.contains(SystemDatabase.SYSTEM_DB_NAME)) {
-      var result = new HashSet<>(dbs);
-      result.remove(SystemDatabase.SYSTEM_DB_NAME);
-      return result;
-    }
-
-    return dbs;
   }
 
   public final class YTDBInternalProxy implements YouTrackDBInternal, ServerAware {
@@ -1046,24 +846,12 @@ public class YouTrackDBServer {
       internal.initCustomStorage(name, path);
     }
 
-    public DatabaseSessionEmbedded openNoAuthenticate(String name, String user) {
-      return internal.openNoAuthenticate(name, user);
-    }
-
     public <X> Future<X> execute(Callable<X> task) {
       return internal.execute(task);
     }
 
     public Future<?> execute(Runnable task) {
       return internal.execute(task);
-    }
-
-    public Collection<Storage> getStorages() {
-      return internal.getStorages();
-    }
-
-    public void networkRestore(String name, InputStream in, Callable<Object> callable) {
-      internal.networkRestore(name, in, callable);
     }
 
     @Override
@@ -1081,8 +869,5 @@ public class YouTrackDBServer {
       return internal.getBasePath();
     }
 
-    public ScriptManager getScriptManager() {
-      return internal.getScriptManager();
-    }
   }
 }

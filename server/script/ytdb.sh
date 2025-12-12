@@ -31,11 +31,6 @@ export YOUTRACKDB_HOME
 
 cd "$YOUTRACKDB_HOME"
 
-if [ ! -f "${CONFIG_FILE}" ]
-then
-  CONFIG_FILE=$YOUTRACKDB_HOME/conf/youtrackdb-server-config.xml
-fi
-
 export JAVA_OPTS
 
 # Set JavaHome if it exists
@@ -89,9 +84,10 @@ exec "$JAVA" $JAVA_OPTS \
     $JAVA_OPTS_SCRIPT \
     $YOUTRACKDB_SETTINGS \
     $DEBUG_OPTS \
+    --enable-native-access=ALL-UNNAMED \
+    -Dpolyglot.engine.WarnInterpreterOnly=false \
     -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager \
     -Djava.util.logging.config.file="$YOUTRACKDB_LOG_CONF" \
-    -Dyoutrackdb.config.file="$CONFIG_FILE" \
     -Dyoutrackdb.build.number="@BUILD@" \
     -cp "$YOUTRACKDB_HOME/lib/youtrackdb-server-@VERSION@.jar:$YOUTRACKDB_HOME/lib/*:$YOUTRACKDB_HOME/plugins/*" \
     $ARGS com.jetbrains.youtrackdb.internal.server.ServerMain

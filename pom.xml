@@ -97,7 +97,6 @@
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
     <heapSize>4096m</heapSize>
     <javaassist.version>3.30.2-GA</javaassist.version>
-    <jaxb.api.version>2.3.0</jaxb.api.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
     <slf4j.version>2.0.17</slf4j.version>
     <log4j.version>2.25.2</log4j.version>
@@ -243,6 +242,22 @@
         <artifactId>cucumber-junit</artifactId>
         <version>${cucumber.version}</version>
         <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.github.jnr</groupId>
+        <artifactId>jnr-posix</artifactId>
+        <version>3.1.21</version>
+      </dependency>
+      <dependency>
+        <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
+        <artifactId>concurrentlinkedhashmap-lru</artifactId>
+        <version>1.4.2</version>
+        <exclusions>
+          <exclusion>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
     </dependencies>
   </dependencyManagement>

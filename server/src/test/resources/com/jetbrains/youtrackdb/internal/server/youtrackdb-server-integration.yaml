@@ -35,6 +35,9 @@ metrics: {
 authentication: {
   authenticator: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSimpleAuthenticator
 }
+users:
+  - { name: "root", password: "root", resources: "*" }
+
 ssl: {
   enabled: false
 }

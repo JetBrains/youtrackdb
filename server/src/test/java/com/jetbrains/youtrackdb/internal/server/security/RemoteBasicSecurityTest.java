@@ -17,7 +17,8 @@ public class RemoteBasicSecurityTest {
   @Ignore
   @Before
   public void before() throws Exception {
-    server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
+    server = YouTrackDBServer.startFromFileConfig(
+        "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     var youTrackDB = YourTracks.instance("localhost", "root", "root");
     youTrackDB.create("test", DatabaseType.MEMORY,
         new UserCredential("admin", "admin", PredefinedRole.ADMIN),
