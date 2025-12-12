@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.common.log;
 
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
@@ -40,7 +42,6 @@ import org.slf4j.event.Level;
  * @see SL4JLogManager
  */
 public class LogManager extends SL4JLogManager {
-
   private static final String ENV_INSTALL_CUSTOM_FORMATTER = "youtrackdb.installCustomFormatter";
   private static final LogManager instance = new LogManager();
 
@@ -63,6 +64,23 @@ public class LogManager extends SL4JLogManager {
     }
 
     try {
+      //check if we are running in the server mode.
+      var ytdbHome = System.getenv("YOUTRACKDB_HOME");
+      if (ytdbHome != null) {
+        var logManager = java.util.logging.LogManager.getLogManager();
+        var logConfig = Paths.get(ytdbHome).resolve("conf")
+            .resolve("youtrackdb-server-log.properties");
+        if (Files.exists(logConfig)) {
+          logManager.readConfiguration(Files.newInputStream(logConfig));
+        } else {
+          var classPathConfig = LogManager.class.getClassLoader().getResourceAsStream(
+              "com/jetbrains/youtrackdb/internal/server/conf/youtrackdb-server-log.properties");
+          if (classPathConfig == null) {
+            logManager.readConfiguration(classPathConfig);
+          }
+        }
+      }
+
       // ASSURE TO HAVE THE YouTrackDB LOG FORMATTER TO THE CONSOLE EVEN IF NO CONFIGURATION FILE IS
       // TAKEN
       final var log = Logger.getLogger("");
@@ -86,35 +104,10 @@ public class LogManager extends SL4JLogManager {
     }
   }
 
-  public static boolean isLevelEnabled(final java.util.logging.Level level,
-      org.slf4j.Logger logger) {
-    if (level.equals(java.util.logging.Level.FINER)
-        || level.equals(java.util.logging.Level.FINE)
-        || level.equals(java.util.logging.Level.FINEST)) {
-      return logger.isDebugEnabled();
-    } else if (level.equals(java.util.logging.Level.INFO)) {
-      return logger.isInfoEnabled();
-    } else if (level.equals(java.util.logging.Level.WARNING)) {
-      return logger.isWarnEnabled();
-    } else if (level.equals(java.util.logging.Level.SEVERE)) {
-      return logger.isErrorEnabled();
-    }
-    return false;
-  }
-
   public static void flush() {
     for (var h : Logger.getLogger(Logger.GLOBAL_LOGGER_NAME).getHandlers()) {
       h.flush();
     }
   }
 
-  public static Level fromJulToSLF4JLevel(java.util.logging.Level level) {
-    return switch (level.intValue()) {
-      case 300 -> Level.ERROR;
-      case 400 -> Level.TRACE;
-      case 800 -> Level.WARN;
-      case 1000 -> Level.DEBUG;
-      default -> Level.INFO;
-    };
-  }
 }
