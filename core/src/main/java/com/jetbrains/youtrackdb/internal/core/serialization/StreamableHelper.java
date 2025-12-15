@@ -32,6 +32,8 @@ import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.io.Serializable;
 import javax.annotation.Nullable;
+import java.util.function.Predicate;
+
 
 /**
  * Helper class to serialize Streamable objects.
@@ -49,24 +51,31 @@ public class StreamableHelper {
   static final byte BOOLEAN = 14;
 
   private static ClassLoader streamableClassLoader;
+  
+  private static Predicate<String> deserializableClassValidator = className -> true;
 
 
   /**
-   * Hook for validating classes during deserialization.
-   * Default implementation allows all classes to preserve
-   * existing behavior.
-   */
-  protected static boolean isDeserializableClassAllowed(String className) {
-    return true;
-  }
-
-  /**
-   * Set the preferred {@link ClassLoader} used to load streamable types.
-   */
+  * Set the preferred {@link ClassLoader} used to load streamable types.
+  */
   public static void setStreamableClassLoader(
       /* @Nullable */ final ClassLoader streamableClassLoader) {
     StreamableHelper.streamableClassLoader = streamableClassLoader;
   }
+
+   /**
+     * Sets a validator to control which classes are allowed during deserialization.
+     * By default, all classes are allowed.
+     *
+     * @param validator predicate that returns true for allowed classes,
+     *                  or null to reset to the default (allow all)
+     */
+    public static void setDeserializableClassValidator(
+        @Nullable Predicate<String> validator) {
+      deserializableClassValidator =
+          validator != null ? validator : className -> true;
+    }
+
 
   public static void toStream(final DataOutput out, final Object object) throws IOException {
     switch (object) {
@@ -146,7 +155,7 @@ public class StreamableHelper {
                 protected Class<?> resolveClass(ObjectStreamClass desc)
                     throws IOException, ClassNotFoundException {
                   final String className = desc.getName();
-                  if (!isDeserializableClassAllowed(className)) {
+                  if (!deserializableClassValidator.test(className)) {
                     throw new InvalidClassException(
                         "Class not allowed for deserialization", className);
                   }
