@@ -26,6 +26,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
@@ -48,6 +49,16 @@ public class StreamableHelper {
   static final byte BOOLEAN = 14;
 
   private static ClassLoader streamableClassLoader;
+
+
+  /**
+   * Hook for validating classes during deserialization.
+   * Default implementation allows all classes to preserve
+   * existing behavior.
+   */
+  protected static boolean isDeserializableClassAllowed(String className) {
+    return true;
+  }
 
   /**
    * Set the preferred {@link ClassLoader} used to load streamable types.
@@ -134,7 +145,12 @@ public class StreamableHelper {
                 @Override
                 protected Class<?> resolveClass(ObjectStreamClass desc)
                     throws IOException, ClassNotFoundException {
-                  return streamableClassLoader.loadClass(desc.getName());
+                  final String className = desc.getName();
+                  if (!isDeserializableClassAllowed(className)) {
+                    throw new InvalidClassException(
+                        "Class not allowed for deserialization", className);
+                  }
+                  return streamableClassLoader.loadClass(className);
                 }
               };
         } else {
