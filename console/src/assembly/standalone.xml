@@ -35,8 +35,8 @@ limitations under the License.
       <outputDirectory>/ext</outputDirectory>
     </fileSet>
     <fileSet>
-      <directory>src/data</directory>
-      <outputDirectory>/data</outputDirectory>
+      <directory>src/databases</directory>
+      <outputDirectory>/databases</outputDirectory>
     </fileSet>
     <fileSet>
       <directory>target/*.jar</directory>
