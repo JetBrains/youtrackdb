@@ -522,7 +522,7 @@ public class YouTrackDBServer {
             systemDbEnabled && existsSystemUser(DEFAULT_ROOT_USER);
 
     if (!existsRoot) {
-      if (rootSecretFilePassword.isEmpty()) {
+      if (rootSecretFilePassword == null || rootSecretFilePassword.isEmpty()) {
         LogManager.instance()
             .error(this,
                 "Root password is not set and root user does not exist. "
