@@ -75,7 +75,7 @@ public class LogManager extends SL4JLogManager {
         } else {
           var classPathConfig = LogManager.class.getClassLoader().getResourceAsStream(
               "com/jetbrains/youtrackdb/internal/server/conf/youtrackdb-server-log.properties");
-          if (classPathConfig == null) {
+          if (classPathConfig != null) {
             logManager.readConfiguration(classPathConfig);
           }
         }
