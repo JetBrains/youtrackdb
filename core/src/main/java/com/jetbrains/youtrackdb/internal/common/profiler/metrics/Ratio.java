@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Meter.Mode;
-import org.apache.commons.lang.Validate;
+import org.apache.commons.lang3.Validate;
 
 /**
  * A metric that calculates the ratio of successful events to the total number of events.

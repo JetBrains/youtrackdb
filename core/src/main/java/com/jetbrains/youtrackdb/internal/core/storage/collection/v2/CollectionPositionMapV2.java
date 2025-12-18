@@ -31,11 +31,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import java.io.IOException;
 import java.util.Arrays;
 import javax.annotation.Nullable;
-import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang3.ArrayUtils;
 
-/**
- * @since 10/7/13
- */
 public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   private long fileId;

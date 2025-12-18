@@ -61,6 +61,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -73,9 +74,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
-import org.apache.commons.lang.NullArgumentException;
-
-
 public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
   /**
@@ -1296,9 +1294,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   private void checkDatabaseName(String name) {
-    if (name == null) {
-      throw new NullArgumentException("database");
-    }
+    Objects.requireNonNull(name, "Database name is required");
     if (name.contains("/") || name.contains(":")) {
       throw new DatabaseException(basePath.toString(),
           String.format("Invalid database name:'%s'", name));

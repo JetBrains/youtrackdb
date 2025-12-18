@@ -33,7 +33,6 @@ nse, Version 2.0 (the "License");
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
-    <guice.version>6.0.0</guice.version>
   </properties>
 
   <dependencies>
@@ -112,7 +111,6 @@ nse, Version 2.0 (the "License");
     <dependency>
       <groupId>com.google.inject</groupId>
       <artifactId>guice</artifactId>
-      <version>${guice.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

@@ -19,49 +19,6 @@
       <filtered>true</filtered>
       <lineEnding>unix</lineEnding>
     </fileSet>
-
-    <!--
-     | configurations
-    -->
-    <fileSet>
-      <directory>${basedir}/conf</directory>
-      <outputDirectory>conf</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/conf/cert</directory>
-      <outputDirectory>config/cert</outputDirectory>
-    </fileSet>
-
-
-    <!--
-     | Secrets
-    -->
-    <fileSet>
-      <directory>${basedir}/secrets</directory>
-      <outputDirectory>secrets</outputDirectory>
-    </fileSet>
-
-    <!--
-     | creates an empty log directory
-    -->
-    <fileSet>
-      <directory>${basedir}/conf</directory>
-      <outputDirectory>log</outputDirectory>
-      <excludes>
-        <exclude>*</exclude>
-      </excludes>
-    </fileSet>
-
-    <!--
-     | creates an empty databases directory
-    -->
-    <fileSet>
-      <directory>${basedir}/conf</directory>
-      <outputDirectory>databases</outputDirectory>
-      <excludes>
-        <exclude>*</exclude>
-      </excludes>
-    </fileSet>
   </fileSets>
   <!--
    | includes legals

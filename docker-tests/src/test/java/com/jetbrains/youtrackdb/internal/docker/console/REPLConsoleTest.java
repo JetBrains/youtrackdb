@@ -1,34 +1,32 @@
 package com.jetbrains.youtrackdb.internal.docker.console;
 
-import com.github.dockerjava.api.model.PortBinding;
+import com.jetbrains.youtrackdb.internal.docker.StdOutConsumer;
 import io.github.classgraph.ClassGraph;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.output.ToStringConsumer;
 import org.testcontainers.containers.startupcheck.OneShotStartupCheckStrategy;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
 @RunWith(Parameterized.class)
-public class EmbeddedConsoleTest {
-
+public class REPLConsoleTest {
   private final String scriptFilePath;
   private final String scriptName;
 
-  public EmbeddedConsoleTest(String scriptFileName, String scriptName) {
+  public REPLConsoleTest(String scriptFileName, String scriptName) {
     this.scriptFilePath = scriptFileName;
     this.scriptName = scriptName;
   }
 
   @Test
   public void testScripts() {
-    var logConsumer = new ToStringConsumer();
     var debug = Boolean.getBoolean("ytdb.testcontainer.debug.container");
     try (var console = new GenericContainer<>(
         DockerImageName.parse("youtrackdb/youtrackdb-console"))) {
@@ -39,15 +37,11 @@ public class EmbeddedConsoleTest {
 
       if (debug) {
         console.withEnv("JAVA_OPTIONS",
-            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:6006");
-        console.withCreateContainerCmdModifier(cmd ->
-            cmd.getHostConfig().withPortBindings(
-                PortBinding.parse("6006:6006")
-            )
-        );
-        console.withExposedPorts(6006);
+            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005");
+        console.setPortBindings(List.of("5005:6006"));
+        console.withExposedPorts(5005);
       }
-      console.withLogConsumer(logConsumer);
+      console.withLogConsumer(new StdOutConsumer<>("console:"));
 
       if (!debug) {
         console.withStartupCheckStrategy(
@@ -60,17 +54,13 @@ public class EmbeddedConsoleTest {
       }
 
       console.start();
-      var output = logConsumer.toUtf8String();
-      System.out.println("--- Container Output ---");
-      System.out.println(output);
-      System.out.println("------------------------");
     }
   }
 
   @Parameters(name = "Test {index}, script name: {1} ")
   public static Collection<Object[]> data() {
     try (var scanResult = new ClassGraph()
-        .acceptPaths(EmbeddedConsoleTest.class.getPackageName().replace(".", "/") + "/scripts")
+        .acceptPaths(REPLConsoleTest.class.getPackageName().replace(".", "/") + "/scripts")
         .scan()) {
       var resources = scanResult.getAllResources();
 

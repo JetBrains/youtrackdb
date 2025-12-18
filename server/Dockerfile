@@ -35,6 +35,12 @@ RUN useradd -m -r -g ytdb -s /bin/false ytdb
 RUN chown -R ytdb:ytdb /opt/ytdb-server
 USER ytdb
 
+RUN mkdir -p /opt/ytdb-server/memory-dumps
+RUN mkdir -p /opt/ytdb-server/conf
+RUN mkdir -p /opt/ytdb-server/log
+RUN mkdir -p /opt/ytdb-server/databases
+RUN mkdir -p /opt/ytdb-server/secrets
+
 WORKDIR /opt/ytdb-server
 ENV YOUTRACKDB_HOME=/opt/ytdb-server
 
@@ -42,6 +48,7 @@ VOLUME /opt/ytdb-server/conf
 VOLUME /opt/ytdb-server/log
 VOLUME /opt/ytdb-server/databases
 VOLUME /opt/ytdb-server/secrets
+VOLUME /opt/ytdb-server/memory-dumps
 
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

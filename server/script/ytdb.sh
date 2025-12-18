@@ -57,7 +57,7 @@ DEBUG_OPTS=""
 ARGS='';
 for var in "$@"; do
     if [ "$var" = "debug" ]; then
-        DEBUG_OPTS="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=1044"
+        DEBUG_OPTS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005"
     else
         ARGS="$ARGS $var"
     fi
@@ -69,7 +69,9 @@ if [ -z "$YOUTRACKDB_OPTS_MEMORY" ] ; then
 fi
 
 if [ -z "$JAVA_OPTS_SCRIPT" ] ; then
-    JAVA_OPTS_SCRIPT="-Djna.nosys=true -XX:+HeapDumpOnOutOfMemoryError -Djava.awt.headless=true -Dfile.encoding=UTF8 -Drhino.opt.level=9"
+    JAVA_OPTS_SCRIPT="-server -Djna.nosys=true -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=$YOUTRACKDB_HOME/memory-dumps -Djava.awt.headless=true"
+    JAVA_OPTS_SCRIPT="$JAVA_OPTS_SCRIPT --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED"
+    JAVA_OPTS_SCRIPT="$JAVA_OPTS_SCRIPT --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED"
 fi
 
 # YOUTRACKDB SETTINGS LIKE DISKCACHE, ETC
@@ -78,6 +80,12 @@ if [ -z "$YOUTRACKDB_SETTINGS" ]; then
 fi
 
 echo $$ > $YOUTRACKDB_PID
+
+mkdir -p "$YOUTRACKDB_HOME/conf"
+mkdir -p "$YOUTRACKDB_HOME/databases"
+mkdir -p "$YOUTRACKDB_HOME/log"
+mkdir -p "$YOUTRACKDB_HOME/memory-dumps"
+mkdir -p "$YOUTRACKDB_HOME/secrets"
 
 exec "$JAVA" $JAVA_OPTS \
     $YOUTRACKDB_OPTS_MEMORY \
