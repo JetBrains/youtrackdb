@@ -5,14 +5,17 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import java.math.BigDecimal;
@@ -217,12 +220,11 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @SuppressWarnings({"rawtypes", "unchecked", "OverwrittenKey"})
   @Test
   public void testSimpleLiteralSet() throws InterruptedException {
-    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
-      ctx.execute(
-          "create database testSimpleLiteralSet memory users(admin identified by 'adminpwd' role"
-              + " admin)");
-      try (var session = (DatabaseSessionEmbedded) ctx.open("testSimpleLiteralSet", "admin",
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("testSimpleLiteralSet", DatabaseType.MEMORY,
+          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+      try (var session = ytdb.open("testSimpleLiteralSet", "admin",
           "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
@@ -313,10 +315,11 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   @Test
   public void testLinkCollections() {
-    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
-      ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("test", DatabaseType.MEMORY,
+          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+      try (var session = ytdb.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
         var linkSet = session.newLinkSet();
@@ -342,7 +345,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         assertEquals(extr.getLinkList("linkList"), document.getLinkList("linkList"));
         session.rollback();
       }
-      ctx.drop("test");
+      ytdb.drop("test");
     }
   }
 
@@ -507,10 +510,11 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @Test
   public void testMapOfLink() {
     // needs a database because of the lazy loading
-    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
-      ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("test", DatabaseType.MEMORY,
+          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+      try (var session = (DatabaseSessionEmbedded) ytdb.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
 
@@ -526,16 +530,17 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         assertEquals(extr.<Object>getProperty("map"), document.getProperty("map"));
         session.rollback();
       }
-      ctx.drop("test");
+      ytdb.drop("test");
     }
   }
 
   @Test
   public void testDocumentSimple() {
-    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
-      ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("test", DatabaseType.MEMORY,
+          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+      try (var session = (DatabaseSessionEmbedded) ytdb.open("test", "admin", "adminpwd")) {
         session.createClass("TestClass");
 
         session.begin();
@@ -550,7 +555,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         assertEquals(extr.<Object>getProperty("test"), document.getProperty("test"));
         session.rollback();
       }
-      ctx.drop("test");
+      ytdb.drop("test");
     }
   }
 

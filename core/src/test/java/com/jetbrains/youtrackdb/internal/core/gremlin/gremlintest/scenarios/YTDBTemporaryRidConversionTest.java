@@ -4,7 +4,7 @@ import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.stream.IntStream;
 import org.apache.tinkerpop.gremlin.FeatureRequirement;
@@ -20,7 +20,6 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -177,7 +176,8 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
     }
 
     private GraphTraversal<?, ?> createGraph() {
-      return g.inject(IntStream.rangeClosed(1, 128).toArray()).unfold().
+      //noinspection unchecked
+      return g.inject(IntStream.rangeClosed(1, 128).boxed().toList()).unfold().
           addV("person").property("property", "value").as("from").
           addV("person").property("property", "value").as("to").
           addE("knows").from("from").to("to").as("e");

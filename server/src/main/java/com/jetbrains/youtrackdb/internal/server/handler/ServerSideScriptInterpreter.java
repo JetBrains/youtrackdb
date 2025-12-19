@@ -19,14 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.server.handler;
 
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.ScriptInterceptor;
 import com.jetbrains.youtrackdb.internal.core.command.script.CommandExecutorScript;
 import com.jetbrains.youtrackdb.internal.core.command.script.CommandScript;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginAbstract;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;

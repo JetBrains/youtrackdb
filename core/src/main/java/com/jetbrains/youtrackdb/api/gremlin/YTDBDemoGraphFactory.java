@@ -1,126 +1,119 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
-import static org.apache.tinkerpop.gremlin.structure.io.IoCore.gryo;
-
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import org.apache.tinkerpop.gremlin.structure.T;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import java.nio.file.Files;
 
-public class YTDBDemoGraphFactory {
-
+public final class YTDBDemoGraphFactory {
   private YTDBDemoGraphFactory() {
   }
 
   /// Create the "classic" graph which was the original toy graph from TinkerPop 2.x.
-  public static YTDBGraph createClassic(YouTrackDB youTrackDB) {
+  public static YTDBGraphTraversalSource createClassic(YouTrackDB youTrackDB) {
     final var g = createYTDBGraph(youTrackDB, "classic");
     generateClassic(g);
     return g;
   }
 
   /// Generate the graph in [#createClassic()] into an existing graph.
-  public static void generateClassic(final YTDBGraph graph) {
-    final var marko = graph.addVertex("name", "marko", "age", 29);
-    final var vadas = graph.addVertex("name", "vadas", "age", 27);
-    final var lop = graph.addVertex("name", "lop", "lang", "java");
-    final var josh = graph.addVertex("name", "josh", "age", 32);
-    final var ripple = graph.addVertex("name", "ripple", "lang", "java");
-    final var peter = graph.addVertex("name", "peter", "age", 35);
-
-    marko.addEdge("knows", vadas, "weight", 0.5f);
-    marko.addEdge("knows", josh, "weight", 1.0f);
-    marko.addEdge("created", lop, "weight", 0.4f);
-    josh.addEdge("created", ripple, "weight", 1.0f);
-    josh.addEdge("created", lop, "weight", 0.4f);
-    peter.addEdge("created", lop, "weight", 0.2f);
-    graph.tx().commit();
+  public static void generateClassic(final YTDBGraphTraversalSource traversal) {
+    traversal.autoExecuteInTx(g ->
+        g.addV().property("name", "marko").property("age", 29).as("marko")
+            .addV().property("name", "vadas").property("age", 27).as("vadas").
+            addV().property("name", "lop").property("lang", "java").as("lop").
+            addV().property("name", "josh").property("age", 32).as("josh").
+            addV().property("name", "ripple").property("lang", "java").as("ripple").
+            addV().property("name", "peter").property("age", 35).
+            select("marko").addE("knows").to("vadas").property("weight", 0.5f).
+            select("marko").addE("knows").to("josh").property("weight", 1.0f).
+            select("marko").addE("created").to("lop").property("weight", 0.4f).
+            select("josh").addE("created").to("ripple").property("weight", 1.0f).
+            select("josh").addE("created").to("lop").property("weight", 0.4f).
+            select("peter").addE("created").to("lop").property("weight", 0.2f)
+    );
   }
 
   /// Create the "modern" graph which has the same structure as the "classic" graph from TinkerPop
   /// 2.x but includes 3.x features like vertex labels.
-  public static YTDBGraph createModern(YouTrackDB youTrackDB) {
+  public static YTDBGraphTraversalSource createModern(YouTrackDB youTrackDB) {
     final var g = createYTDBGraph(youTrackDB, "modern");
     generateModern(g);
     return g;
   }
 
   /// Generate the graph in [#createModern()] into an existing graph.
-  public static void generateModern(final YTDBGraph graph) {
-    final var marko = graph.addVertex(T.label, "person");
-    marko.property("name", "marko");
-    marko.property("age", 29);
-    final var vadas = graph.addVertex(T.label, "person");
-    vadas.property("name", "vadas");
-    vadas.property("age", 27);
-    final var lop = graph.addVertex(T.label, "software");
-    lop.property("name", "lop");
-    lop.property("lang", "java");
-    final var josh = graph.addVertex(T.label, "person");
-    josh.property("name", "josh");
-    josh.property("age", 32);
-    final var ripple = graph.addVertex(T.label, "software");
-    ripple.property("name", "ripple");
-    ripple.property("lang", "java");
-    final var peter = graph.addVertex(T.label, "person");
-    peter.property("name", "peter");
-    peter.property("age", 35);
-
-    marko.addEdge("knows", vadas, "weight", 0.5d);
-    marko.addEdge("knows", josh, "weight", 1.0d);
-    marko.addEdge("created", lop, "weight", 0.4d);
-    josh.addEdge("created", ripple, "weight", 1.0d);
-    josh.addEdge("created", lop, "weight", 0.4d);
-    peter.addEdge("created", lop, "weight", 0.2d);
-    graph.tx().commit();
+  public static void generateModern(final YTDBGraphTraversalSource traversal) {
+    traversal.autoExecuteInTx(g ->
+        g.addV("person").property("name", "marko").property("age", 29).as("marko").
+            addV("person").property("name", "vadas").property("age", 27).as("vadas").
+            addV("software").property("name", "lop").property("lang", "java").as("lop").
+            addV("person").property("name", "josh").property("age", 32).as("josh").
+            addV("software").property("name", "ripple").property("lang", "java").as("ripple").
+            addV("person").property("name", "peter").property("age", 35).as("peter").
+            select("marko").addE("knows").to("vadas").property("weight", 0.5f).
+            select("marko").addE("knows").to("josh").property("weight", 1.0f).
+            select("marko").addE("created").to("lop").property("weight", 0.4f).
+            select("josh").addE("created").to("ripple").property("weight", 1.0f).
+            select("peter").addE("created").to("lop").property("weight", 0.2f)
+    );
   }
 
 
   /// Creates the "kitchen sink" graph which is a collection of structures (e.g. self-loops) that
   /// aren't represented in other graphs and are useful for various testing scenarios.
-  public static YTDBGraph createKitchenSink(YouTrackDB youTrackDB) {
+  public static YTDBGraphTraversalSource createKitchenSink(YouTrackDB youTrackDB) {
     final var g = createYTDBGraph(youTrackDB, "kitchen-sink");
     generateKitchenSink(g);
     return g;
   }
 
   /// Generate the graph in [#createKitchenSink()] into an existing graph.
-  public static void generateKitchenSink(final YTDBGraph graph) {
-    final var g = graph.traversal();
-    g.addV("loops").property("name", "loop").as("me").
-        addE("self").to("me").iterate();
-    g.addV("message").property("name", "a").as("a").
-        addV("message").property("name", "b").as("b").
-        addE("link").from("a").to("b").
-        addE("link").from("a").to("a").iterate();
-    graph.tx().commit();
+  public static void generateKitchenSink(final YTDBGraphTraversalSource traversal) {
+    traversal.autoExecuteInTx(g ->
+        g.addV("loops").property("name", "loop").as("me").
+            addE("self").to("me").
+            addV("message").property("name", "a").as("a").
+            addV("message").property("name", "b").as("b").
+            addE("link").from("a").to("b").
+            addE("link").from("a").to("a")
+    );
+
   }
 
   /// Creates the "grateful dead" graph which is a larger graph than most of the toy graphs but has
   /// real-world structure and application and is therefore useful for demonstrating more complex
   /// traversals.
-  public static YTDBGraph createGratefulDead(YouTrackDB youTrackDB) {
+  public static YTDBGraphTraversalSource createGratefulDead(YouTrackDB youTrackDB) {
     final var g = createYTDBGraph(youTrackDB, "grateful-dead");
     generateGratefulDead(g);
     return g;
   }
 
   /// Generate the graph in [#createGratefulDead()] into an existing graph.
-  public static void generateGratefulDead(final YTDBGraph graph) {
-    final var stream = YTDBDemoGraphFactory.class.getResourceAsStream("grateful-dead.kryo");
+  public static void generateGratefulDead(final YTDBGraphTraversalSource traversal) {
+    final var iStream = YTDBDemoGraphFactory.class.getResourceAsStream("grateful-dead.kryo");
     try {
-      graph.io(gryo()).reader().create().readGraph(stream, graph);
-      graph.tx().commit();
+      var tempFile = Files.createTempFile("grateful-dead", ".kryo");
+      try (var oStream = Files.newOutputStream(tempFile)) {
+        IOUtils.copyStream(iStream, oStream);
+      }
+
+      var realPath = tempFile.toRealPath().toString();
+      traversal.autoExecuteInTx(g ->
+          g.io(realPath).read()
+      );
     } catch (Exception ex) {
       throw new IllegalStateException(ex);
     }
   }
 
-  private static YTDBGraph createYTDBGraph(YouTrackDB ytdb, String name) {
+  private static YTDBGraphTraversalSource createYTDBGraph(YouTrackDB ytdb, String name) {
     if (ytdb.exists(name)) {
       ytdb.drop(name);
     }
 
     ytdb.create(name, DatabaseType.MEMORY, "superuser", "password", "admin");
-    return ytdb.openGraph(name, "superuser", "password");
+    return ytdb.openTraversal(name, "superuser", "password");
   }
 }

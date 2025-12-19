@@ -20,15 +20,15 @@
 
 package com.jetbrains.youtrackdb.internal.server.handler;
 
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerHookConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerHookConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.List;

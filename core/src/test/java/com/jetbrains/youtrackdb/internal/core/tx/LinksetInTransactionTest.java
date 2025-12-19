@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Assert;

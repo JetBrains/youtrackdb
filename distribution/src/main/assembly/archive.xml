@@ -54,11 +54,6 @@
       <fileMode>600</fileMode>
     </fileSet>
     <fileSet>
-      <directory>${basedir}/../tools/config</directory>
-      <outputDirectory>config</outputDirectory>
-      <fileMode>600</fileMode>
-    </fileSet>
-    <fileSet>
       <directory>${basedir}/../server/config/cert</directory>
       <outputDirectory>config/cert</outputDirectory>
       <fileMode>600</fileMode>
@@ -109,4 +104,15 @@
       <fileMode>444</fileMode>
     </file>
   </files>
+
+  <!--
+   | Add dependencies to lib directory
+  -->
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>lib</outputDirectory>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+    </dependencySet>
+  </dependencySets>
 </assembly>

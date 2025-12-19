@@ -6,16 +6,17 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import java.util.Map;
 import org.junit.Test;
@@ -114,11 +115,13 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionEmbedded session = null;
     YouTrackDBImpl ytdb = null;
     try {
-      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, DbTestBase.embeddedDBUrl(
-              EntityImplTest.class) + "temp",
-          CreateDatabaseUtil.TYPE_MEMORY);
-      session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      ytdb = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp");
+      ytdb.create(dbName, DatabaseType.MEMORY,
+          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+
+      session = ytdb.open(dbName, defaultDbAdminCredentials,
+          DbTestBase.ADMIN_PASSWORD);
 
       var clazz = session.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("integer", PropertyType.INTEGER);
@@ -177,15 +180,12 @@ public class EntityImplTest extends DbTestBase {
 
   @Test
   public void testRemovingReadonlyField() {
-    DatabaseSessionInternal db = null;
-    YouTrackDBImpl ytdb = null;
-    try {
-      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName,
-          embeddedDBUrl(DbTestBase.class),
-          CreateDatabaseUtil.TYPE_MEMORY);
-      db = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new UserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
+            PredefinedRole.ADMIN));
+    try (var db = youTrackDB.open(dbName, defaultDbAdminCredentials,
+        DbTestBase.ADMIN_PASSWORD)) {
       Schema schema = db.getMetadata().getSchema();
       var classA = schema.createClass("TestRemovingField2");
       classA.createProperty("name", PropertyType.STRING);
@@ -207,26 +207,16 @@ public class EntityImplTest extends DbTestBase {
       doc.undo("property"); // we decided undo readonly field
 
       db.commit();
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (ytdb != null) {
-        ytdb.drop(dbName);
-        ytdb.close();
-      }
     }
   }
 
   @Test
   public void testUndo() {
-    DatabaseSessionInternal session = null;
-    YouTrackDBAbstract<?, ?> ytdb = null;
-    try {
-      ytdb = CreateDatabaseUtil.createDatabase(dbName,
-          DbTestBase.embeddedDBUrl(EntityImplTest.class) + "temp", CreateDatabaseUtil.TYPE_MEMORY);
-      session = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new UserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
+            PredefinedRole.ADMIN));
+    try (var session = youTrackDB.open(dbName, defaultDbAdminCredentials,
+        DbTestBase.ADMIN_PASSWORD)) {
 
       Schema schema = session.getMetadata().getSchema();
       var classA = schema.createClass("TestUndo");
@@ -278,14 +268,6 @@ public class EntityImplTest extends DbTestBase {
       assertEquals("My Name 4", doc.getProperty("name"));
       assertEquals("value1", doc.getProperty("property"));
       session.commit();
-    } finally {
-      if (session != null) {
-        session.close();
-      }
-      if (ytdb != null) {
-        ytdb.drop(dbName);
-        ytdb.close();
-      }
     }
   }
 

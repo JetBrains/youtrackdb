@@ -6,9 +6,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDB
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.ComparabilitySemanticsTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.ComplexTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.OrderabilityTest;
-import org.apache.tinkerpop.gremlin.process.traversal.step.TernaryBooleanLogicsTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.BranchTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.ChooseTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.LocalTest;
@@ -68,7 +68,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.InjectTest
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SackTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectCapTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectTest;
-import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.StoreTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SubgraphTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.TreeTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.ElementIdStrategyProcessTest;
@@ -154,7 +153,6 @@ public class YTDBGremlinProcessTests {
       SackTest.Traversals.class,
       SideEffectCapTest.Traversals.class,
       SideEffectTest.Traversals.class,
-      StoreTest.Traversals.class,
       SubgraphTest.Traversals.class,
       TreeTest.Traversals.class,
 
@@ -180,7 +178,7 @@ public class YTDBGremlinProcessTests {
 
       // semantics
       OrderabilityTest.Traversals.class,
-      TernaryBooleanLogicsTest.class,
+      ComparabilitySemanticsTest.class,
 
       // ytdb
       YTDBPropertiesProcessTest.class,

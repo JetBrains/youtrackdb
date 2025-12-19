@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.Map;
 import java.util.Objects;

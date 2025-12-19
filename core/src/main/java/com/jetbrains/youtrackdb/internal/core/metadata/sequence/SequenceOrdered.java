@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
-import com.jetbrains.youtrackdb.api.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**

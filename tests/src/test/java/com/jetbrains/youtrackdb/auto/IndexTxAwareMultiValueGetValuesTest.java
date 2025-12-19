@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;

@@ -30,17 +30,13 @@
 
   <modules>
     <module>test-commons</module>
-    <module>client</module>
     <module>core</module>
     <module>server</module>
-    <module>security</module>
-    <module>tools</module>
     <module>tests</module>
-    <module>lucene</module>
     <module>distribution</module>
-    <module>console-distribution</module>
     <module>gremlin-annotations</module>
     <module>driver</module>
+    <module>examples</module>
     <module>console</module>
   </modules>
 
@@ -108,7 +104,9 @@
     <log4j.version>2.25.2</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
+    <gremlin.version>3.8.1-YTDB-SNAPSHOT</gremlin.version>
+    <hamcrest.version>3.0</hamcrest.version>
+    <cucumber.version>7.31.0</cucumber.version>
   </properties>
 
 
@@ -160,49 +158,42 @@
         <version>${jackson.verson}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-core</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-groovy</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
+        <artifactId>tinkergraph-gremlin</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-test</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-driver</artifactId>
         <version>${gremlin.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-server</artifactId>
         <version>${gremlin.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-util</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-console</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
@@ -222,6 +213,36 @@
         <version>${log4j.version}</version>
         <scope>import</scope>
         <type>pom</type>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-core</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.cucumber</groupId>
+        <artifactId>cucumber-java</artifactId>
+        <version>${cucumber.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.cucumber</groupId>
+        <artifactId>cucumber-core</artifactId>
+        <version>${cucumber.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.cucumber</groupId>
+        <artifactId>cucumber-junit</artifactId>
+        <version>${cucumber.version}</version>
+        <scope>test</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -500,6 +521,7 @@
         <artifactId>buildnumber-maven-plugin</artifactId>
         <executions>
           <execution>
+            <id>build-number</id>
             <phase>validate</phase>
             <goals>
               <goal>create</goal>
@@ -588,6 +610,24 @@
   </build>
 
   <profiles>
+    <profile>
+      <id>docker-run</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>buildnumber-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-number</id>
+                <phase>none</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
     <profile>
       <id>java17</id>
       <activation>
@@ -695,12 +735,6 @@
                   <buildDirectory>${project.build.directory}</buildDirectory>
                   <youtrackdb.test.env>ci</youtrackdb.test.env>
                 </systemPropertyVariables>
-                <properties>
-                  <property>
-                    <name>listener</name>
-                    <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
-                  </property>
-                </properties>
               </configuration>
             </plugin>
           </plugins>

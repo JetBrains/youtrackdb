@@ -19,19 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage;
@@ -43,7 +38,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
-import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import javax.annotation.Nonnull;
@@ -278,12 +272,4 @@ public interface Storage extends Backupable, StorageInfo {
   }
 
   YouTrackDBInternalEmbedded getContext();
-
-  LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener,
-      Map<String, ?> args);
-
-  LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener,
-      Object... args);
 }

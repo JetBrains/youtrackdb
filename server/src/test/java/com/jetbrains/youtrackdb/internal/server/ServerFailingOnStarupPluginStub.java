@@ -1,12 +1,10 @@
 package com.jetbrains.youtrackdb.internal.server;
 
 
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginAbstract;
 
-/**
- *
- */
+
 public class ServerFailingOnStarupPluginStub extends ServerPluginAbstract {
 
   @Override

@@ -5,41 +5,36 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
+import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class TransactionChangesDetectionTest {
 
-  private YouTrackDBImpl factory;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionInternal db;
 
   @Before
   public void before() {
-    factory =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            TransactionChangesDetectionTest.class.getSimpleName(),
-            DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    db =
-        (DatabaseSessionInternal)
-            factory.open(
-                TransactionChangesDetectionTest.class.getSimpleName(),
-                "admin",
-                CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = DbTestBase.createYTDBManagerAndDb(getClass().getSimpleName(), DatabaseType.MEMORY,
+        getClass());
+    db = youTrackDB.open(
+        TransactionChangesDetectionTest.class.getSimpleName(),
+        "admin",
+        DbTestBase.ADMIN_PASSWORD);
     db.createClass("test");
   }
 
   @After
   public void after() {
     db.close();
-    factory.drop(TransactionChangesDetectionTest.class.getSimpleName());
-    factory.close();
+    youTrackDB.drop(TransactionChangesDetectionTest.class.getSimpleName());
+    youTrackDB.close();
   }
 
   @Test

@@ -19,11 +19,11 @@ host: localhost
 port: 8182
 evaluationTimeout: 30000
 channelizer: org.apache.tinkerpop.gremlin.server.channel.WebSocketChannelizer
-graphManager: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBGraphManager
 graphs: {}
 scriptEngines: {
   gremlin-groovy: {
     plugins: { org.apache.tinkerpop.gremlin.server.jsr223.GremlinServerGremlinPlugin: {},
+               org.apache.tinkerpop.gremlin.tinkergraph.jsr223.TinkerGraphGremlinPlugin: {},
                com.jetbrains.youtrackdb.internal.core.gremlin.jsr223.YTDBGremlinPlugin: { },
                org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin: {
                  enableThreadInterrupt: true,
@@ -33,14 +33,14 @@ scriptEngines: {
                },
                org.apache.tinkerpop.gremlin.jsr223.ImportGremlinPlugin: {
                  classImports: [ java.lang.Math ],
-                 methodImports: [ java.lang.Math#* ] },
+                 methodImports: [ java.lang.Math#* ]
+               }
     }
-        }
-    }
+  }
 }
 serializers:
-  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3, config: {
-    ioRegistries: [ com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry ]
+  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1, config: {
+    ioRegistries: [ com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry , org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3]
   } }         # application/json
 processors:
   - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor,

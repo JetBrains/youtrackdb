@@ -14,6 +14,7 @@ import com.palantir.javapoet.TypeVariableName;
 import com.palantir.javapoet.WildcardTypeName;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -55,6 +56,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A custom Java annotation processor for the {@link GremlinDsl} annotation that helps to generate
@@ -67,6 +70,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 public class GremlinDslProcessor extends AbstractProcessor {
 
   private static final Pattern EXTENDS_PATTERN = Pattern.compile(" extends ");
+  private static final Logger log = LoggerFactory.getLogger(GremlinDslProcessor.class);
 
   private Messager messager;
   private Elements elementUtils;
@@ -364,13 +368,14 @@ public class GremlinDslProcessor extends AbstractProcessor {
           .addAnnotation(Override.class)
           .addParameter(Object[].class, "vertexIds")
           .varargs(true)
+          .addStatement("final Object[] ids = null == vertexIds ? new Object[] { null } : vertexIds;")
           .addStatement("$N clone = this.clone()", ctx.traversalSourceClazz)
-          .addStatement("clone.getBytecode().addStep($T.V, vertexIds)",
+          .addStatement("clone.getBytecode().addStep($T.V, ids)",
               GraphTraversal.Symbols.class)
           .addStatement("$N traversal = new $N(clone)", ctx.defaultTraversalClazz,
               ctx.defaultTraversalClazz)
           .addStatement(
-              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, vertexIds))",
+              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, ids))",
               ctx.traversalClassName, GraphStep.class, Vertex.class)
           .returns(ParameterizedTypeName.get(ctx.traversalClassName, ClassName.get(Vertex.class),
               ClassName.get(Vertex.class)))
@@ -380,12 +385,13 @@ public class GremlinDslProcessor extends AbstractProcessor {
           .addAnnotation(Override.class)
           .addParameter(Object[].class, "edgeIds")
           .varargs(true)
+          .addStatement("final Object[] ids = null == edgeIds ? new Object[] { null } : edgeIds;")
           .addStatement("$N clone = this.clone()", ctx.traversalSourceClazz)
-          .addStatement("clone.getBytecode().addStep($T.E, edgeIds)", GraphTraversal.Symbols.class)
+          .addStatement("clone.getBytecode().addStep($T.E, ids)", GraphTraversal.Symbols.class)
           .addStatement("$N traversal = new $N(clone)", ctx.defaultTraversalClazz,
               ctx.defaultTraversalClazz)
           .addStatement(
-              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, edgeIds))",
+              "return ($T) traversal.asAdmin().addStep(new $T(traversal, $T.class, true, ids))",
               ctx.traversalClassName, GraphStep.class, Edge.class)
           .returns(ParameterizedTypeName.get(ctx.traversalClassName, ClassName.get(Edge.class),
               ClassName.get(Edge.class)))
@@ -498,11 +504,14 @@ public class GremlinDslProcessor extends AbstractProcessor {
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
         .addSuperinterface(TypeName.get(ctx.annotatedDslType.asType()));
 
+    var constructedMethods = new HashSet<MethodDefinition>();
     // process the methods of the GremlinDsl annotated class
     for (var templateMethod : findMethodsOfElement(ctx.annotatedDslType, null)) {
-      traversalInterface.addMethod(
-          constructMethod(templateMethod, ctx.traversalClassName, ctx.dslName,
-              Modifier.PUBLIC, Modifier.DEFAULT));
+      var methodToAdd = constructMethod(templateMethod, ctx.traversalClassName, ctx.dslName,
+          Modifier.PUBLIC, Modifier.DEFAULT);
+      traversalInterface.addMethod(methodToAdd);
+      var methodDefinition = MethodDefinition.of(templateMethod);
+      constructedMethods.add(methodDefinition);
     }
 
     // process the methods of GraphTraversal
@@ -511,9 +520,15 @@ public class GremlinDslProcessor extends AbstractProcessor {
     final Predicate<ExecutableElement> ignore = e -> e.getSimpleName().contentEquals("asAdmin")
         || e.getSimpleName().contentEquals("iterate");
     for (var templateMethod : findMethodsOfElement(graphTraversalElement, ignore)) {
-      traversalInterface.addMethod(
-          constructMethod(templateMethod, ctx.traversalClassName, ctx.dslName,
-              Modifier.PUBLIC, Modifier.DEFAULT));
+      var methodToAdd = constructMethod(templateMethod, ctx.traversalClassName, ctx.dslName,
+          Modifier.PUBLIC, Modifier.DEFAULT);
+
+      var methodDefinition = MethodDefinition.of(templateMethod);
+      if (constructedMethods.add(methodDefinition)) {
+        traversalInterface.addMethod(methodToAdd);
+      } else {
+        log.warn("Skipping method {} as it has already been added", methodToAdd);
+      }
     }
 
     // there are weird things with generics that require this method to be implemented if it isn't already present
@@ -688,6 +703,14 @@ public class GremlinDslProcessor extends AbstractProcessor {
       return gremlinDslAnnotation.packageName().isEmpty() ?
           elementUtils.getPackageOf(dslElement).getQualifiedName().toString() :
           gremlinDslAnnotation.packageName();
+    }
+  }
+
+  record MethodDefinition(String name, List<String> parameterTypes) {
+
+    static MethodDefinition of(ExecutableElement templateMethod) {
+      return new MethodDefinition(templateMethod.getSimpleName().toString(),
+          templateMethod.getParameters().stream().map(p -> p.asType().toString()).toList());
     }
   }
 }

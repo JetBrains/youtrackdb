@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.test.ConcurrentTestHelper;
 import com.jetbrains.youtrackdb.internal.test.TestFactory;
 import java.util.concurrent.Callable;

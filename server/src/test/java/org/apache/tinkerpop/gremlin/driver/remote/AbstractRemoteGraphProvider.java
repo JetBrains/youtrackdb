@@ -2,13 +2,13 @@ package org.apache.tinkerpop.gremlin.driver.remote;
 
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.AbstractGraphProvider;
@@ -192,8 +192,6 @@ import org.apache.tinkerpop.gremlin.util.ser.Serializers;
 public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider implements
     AutoCloseable {
 
-  protected static final AtomicLong CONFIG_ID_GENERATOR = new AtomicLong(0);
-  private final int AVAILABLE_PROCESSORS = Runtime.getRuntime().availableProcessors();
   private static final Set<Class> IMPLEMENTATION = new HashSet<>() {{
     add(RemoteGraph.class);
   }};
@@ -260,7 +258,7 @@ public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider 
             }
           }
 
-          return RemoteGraph.open(new DriverRemoteConnection(cluster, config), config);
+          return RemoteGraph.open(new YTDBDriverRemoteConnection(cluster, config), config);
         });
   }
 

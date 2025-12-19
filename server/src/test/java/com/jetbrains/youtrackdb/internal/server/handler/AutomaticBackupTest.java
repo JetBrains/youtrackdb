@@ -1,14 +1,18 @@
 package com.jetbrains.youtrackdb.internal.server.handler;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -98,8 +102,9 @@ public class AutomaticBackupTest {
       server.dropDatabase(DBNAME);
     }
     server
-        .getContext()
-        .execute("create database ? disk users (admin identified by 'admin' role admin)", DBNAME);
+        .getYouTrackDB().create(DBNAME, DatabaseType.DISK,
+            new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+
     db = server.getDatabases().openNoAuthorization(DBNAME);
 
     db.getSchema().createClass("TestBackup");
@@ -157,9 +162,8 @@ public class AutomaticBackupTest {
       server.dropDatabase(DBNAME2);
     }
     server
-        .getContext()
-        .execute(
-            "create database ? disk users (admin identified by 'admin' role admin)", DBNAME2);
+        .getYouTrackDB().create(DBNAME2, DatabaseType.DISK,
+            new YouTrackDB.UserCredential("admin", "admin", PredefinedRole.ADMIN));
     var database2 = server.getDatabases().openNoAuthorization(DBNAME2);
 
     // database2.restore(new FileInputStream(BACKUPDIR + "/testautobackup.zip"), null, null, null);
@@ -356,10 +360,8 @@ public class AutomaticBackupTest {
       server.dropDatabase(DBNAME3);
     }
     server
-        .getContext()
-        .execute(
-            "create database ? disk users (admin identified by 'admin' role admin)", DBNAME3);
-
+        .getYouTrackDB().create(DBNAME3, DatabaseType.DISK,
+            new UserCredential("admin", "admin", PredefinedRole.ADMIN));
     var database2 = server.getDatabases().openNoAuthorization(DBNAME3);
 
     new DatabaseImport(database2, BACKUPDIR + "/fullExport.json.gz", null).importDatabase();

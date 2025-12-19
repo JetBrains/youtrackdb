@@ -1,14 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.common.SessionPool;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.AcquireTimeoutException;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
-import com.jetbrains.youtrackdb.internal.core.util.URLHelper;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 
 /**
  * A Pool of databases.
@@ -52,11 +48,11 @@ import com.jetbrains.youtrackdb.internal.core.util.URLHelper;
  *
  * <p>
  */
-public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
-    SessionPool<S> {
+public class SessionPoolImpl implements
+    SessionPool {
 
-  private final YouTrackDBAbstract<?, S> youTrackDb;
-  private final DatabasePoolInternal<S> internal;
+  private final YouTrackDBImpl youTrackDb;
+  private final DatabasePoolInternal internal;
   private final boolean autoclose;
 
   /**
@@ -67,7 +63,7 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
    * @param user        the database user for the current pool of databases.
    * @param password    the password relative to the user name
    */
-  public SessionPoolImpl(YouTrackDBAbstract<?, S> environment, String database, String user,
+  public SessionPoolImpl(YouTrackDBImpl environment, String database, String user,
       String password) {
     this(environment, database, user, password,
         (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig());
@@ -84,7 +80,7 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
    * @param configuration the configuration relative for the current pool.
    */
   public SessionPoolImpl(
-      YouTrackDBAbstract<?, S> environment,
+      YouTrackDBImpl environment,
       String database,
       String user,
       String password,
@@ -94,80 +90,8 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     internal = youTrackDb.openPool(database, user, password, configuration);
   }
 
-  /**
-   * Open a new database pool from a url, useful in case the application access to only a database
-   * or do not manipulate databases.
-   *
-   * @param url      the full url for a database, like "embedded:/full/path/to/database" or
-   *                 "remote:localhost/database"
-   * @param user     the database user for the current pool of databases.
-   * @param password the password relative to the user
-   */
-  public SessionPoolImpl(String url, String user, String password) {
-    this(url, user, password, (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig());
-  }
 
-  /**
-   * Open a new database pool from a url and additional configuration, useful in case the
-   * application access to only a database or do not manipulate databases.
-   *
-   * @param url           the full url for a database, like "embedded:/full/path/to/database" or
-   *                      "remote:localhost/database"
-   * @param user          the database user for the current pool of databases.
-   * @param password      the password relative to the user
-   * @param configuration the configuration relative to the current pool.
-   */
-  public SessionPoolImpl(String url, String user, String password,
-      YouTrackDBConfigImpl configuration) {
-    var val = URLHelper.parseNew(url);
-    //noinspection unchecked
-    youTrackDb = (YouTrackDBAbstract<?, S>)
-        YouTrackDBInternal.fromUrl(val.getType() + ":" + val.getPath(), configuration)
-            .newYouTrackDb();
-    autoclose = true;
-    internal = youTrackDb.openPool(val.getDbName(), user, password, configuration);
-  }
-
-  /**
-   * Open a new database pool from a environment and a database name, useful in case the application
-   * access to only a database or do not manipulate databases.
-   *
-   * @param environment the url for an environemnt, like "embedded:/the/environment/path/" or
-   *                    "remote:localhost"
-   * @param database    the database for the current url.
-   * @param user        the database user for the current pool of databases.
-   * @param password    the password relative to the user
-   */
-  public SessionPoolImpl(String environment, String database, String user, String password) {
-    this(environment, database, user, password,
-        (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig());
-  }
-
-  /**
-   * Open a new database pool from a environment and a database name with a custom configuration,
-   * useful in case the application access to only a database or do not manipulate databases.
-   *
-   * @param environment   the url for an environemnt, like "embedded:/the/environment/path/" or
-   *                      "remote:localhost"
-   * @param database      the database for the current url.
-   * @param user          the database user for the current pool of databases.
-   * @param password      the password relative to the user
-   * @param configuration the configuration relative to the current pool.
-   */
-  public SessionPoolImpl(
-      String environment,
-      String database,
-      String user,
-      String password,
-      YouTrackDBConfigImpl configuration) {
-    //noinspection unchecked
-    youTrackDb = (YouTrackDBAbstract<?, S>) YouTrackDBInternal.fromUrl(environment, configuration)
-        .newYouTrackDb();
-    autoclose = true;
-    internal = youTrackDb.openPool(database, user, password, configuration);
-  }
-
-  public SessionPoolImpl(YouTrackDBAbstract<?, S> environment, DatabasePoolInternal<S> internal) {
+  public SessionPoolImpl(YouTrackDBImpl environment, DatabasePoolInternal internal) {
     this.youTrackDb = environment;
     this.internal = internal;
     autoclose = false;
@@ -181,7 +105,7 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
    * @throws AcquireTimeoutException in case the timeout for waiting for a session is reached.
    */
   @Override
-  public S acquire() throws AcquireTimeoutException {
+  public DatabaseSessionEmbedded acquire() throws AcquireTimeoutException {
     return internal.acquire();
   }
 
@@ -205,14 +129,9 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
 
   @Override
   public YTDBGraph asGraph() {
-    if (!(youTrackDb instanceof YouTrackDBImpl ytdbImpl)) {
-      throw new UnsupportedOperationException("Only embedded databases are supported");
-    }
-
-    var configuration = ytdbImpl.internal.getConfiguration().toApacheConfiguration();
-    configuration.setProperty(ConfigurationParameters.CONFIG_DB_NAME, getDbName());
-    //noinspection unchecked
-    return new YTDBGraphEmbedded((SessionPool<DatabaseSession>) this, configuration);
+    var configuration = youTrackDb.internal.getConfiguration().toApacheConfiguration();
+    configuration.setProperty(YTDBGraphFactory.CONFIG_DB_NAME, getDbName());
+    return new YTDBGraphEmbedded(this, configuration);
   }
 
   /**

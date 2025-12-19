@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
