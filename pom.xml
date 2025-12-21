@@ -38,6 +38,7 @@
     <module>driver</module>
     <module>examples</module>
     <module>console</module>
+    <module>binary-compat</module>
   </modules>
 
   <scm>

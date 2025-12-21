@@ -21,9 +21,9 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>youtrackdb-tests</artifactId>
+  <artifactId>youtrackdb-binary-compat</artifactId>
 
-  <name>YouTrackDB Tests</name>
+  <name>YouTrackDB Binary Compatibility Tests</name>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->
@@ -55,6 +55,18 @@
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-client</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-tools</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-server</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
@@ -64,18 +76,6 @@
       <artifactId>youtrackdb-test-commons</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testng</groupId>
-      <artifactId>testng</artifactId>
-      <version>7.11.0</version>
-      <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.beanshell</groupId>
-          <artifactId>bsh</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <dependency>
@@ -237,81 +237,6 @@
           <skip>true</skip>
         </configuration>
         <inherited>false</inherited>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <configuration>
-          <systemPropertyVariables>
-            <youtrackdb.storage.lockTimeout>60000</youtrackdb.storage.lockTimeout>
-            <youtrackdb.storage.makeFullCheckpointAfterCreate>false
-            </youtrackdb.storage.makeFullCheckpointAfterCreate>
-            <storage.makeFullCheckpointAfterCollectionCreate>false
-            </storage.makeFullCheckpointAfterCollectionCreate>
-            <storage.wal.syncOnPageFlush>false</storage.wal.syncOnPageFlush>
-            <storage.configuration.syncOnUpdate>false</storage.configuration.syncOnUpdate>
-            <index.flushAfterCreate>false</index.flushAfterCreate>
-            <youtrackdb.security.userPasswordSaltIterations>10
-            </youtrackdb.security.userPasswordSaltIterations>
-            <buildDirectory>${project.build.directory}</buildDirectory>
-            <testPath>${project.basedir}</testPath>
-            <youtrackdb.memory.directMemory.preallocate>false
-            </youtrackdb.memory.directMemory.preallocate>
-          </systemPropertyVariables>
-          <properties>
-            <property>
-              <name>listener</name>
-              <value>com.jetbrains.youtrackdb.TestNGTestListener</value>
-            </property>
-          </properties>
-          <redirectTestOutputToFile>false</redirectTestOutputToFile>
-        </configuration>
-        <executions>
-          <execution>
-            <id>default-test</id>
-            <configuration>
-              <skip>true</skip>
-            </configuration>
-          </execution>
-          <execution>
-            <id>test-embedded</id>
-            <goals>
-              <goal>test</goal>
-            </goals>
-            <configuration>
-              <suiteXmlFiles>
-                <suiteXmlFile>
-                  src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml
-                </suiteXmlFile>
-              </suiteXmlFiles>
-            </configuration>
-          </execution>
-          <!--          <execution>-->
-          <!--            <id>test-remote</id>-->
-          <!--            <goals>-->
-          <!--              <goal>test</goal>-->
-          <!--            </goals>-->
-          <!--            <configuration>-->
-          <!--              <systemPropertyVariables>-->
-          <!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
-          <!--                </youtrackdb.config.file>-->
-          <!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
-          <!--              </systemPropertyVariables>-->
-          <!--              <suiteXmlFiles>-->
-          <!--                <suiteXmlFile>-->
-          <!--                  src/test/java/com/jetbrains/youtrackdb/auto/remote-test-db-from-scratch.xml-->
-          <!--                </suiteXmlFile>-->
-          <!--              </suiteXmlFiles>-->
-          <!--            </configuration>-->
-          <!--          </execution>-->
-        </executions>
-        <dependencies>
-          <dependency>
-            <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-testng</artifactId>
-            <version>${surefire.version}</version>
-          </dependency>
-        </dependencies>
       </plugin>
     </plugins>
   </build>

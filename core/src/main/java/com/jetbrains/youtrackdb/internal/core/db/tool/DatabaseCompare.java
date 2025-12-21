@@ -34,7 +34,9 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -53,10 +55,19 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   private final Set<String> excludeIndexes = new HashSet<>();
 
   private int collectionDifference = 0;
+  private Map<String, Set<String>> excludedProperties;
 
   public DatabaseCompare(
       DatabaseSessionEmbedded sessionOne,
       DatabaseSessionEmbedded sessionTwo,
+      final CommandOutputListener iListener) {
+    this(sessionOne, sessionTwo, Collections.emptyMap(), iListener);
+  }
+
+  public DatabaseCompare(
+      DatabaseSessionEmbedded sessionOne,
+      DatabaseSessionEmbedded sessionTwo,
+      final Map<String, Set<String>> excludedProperties,
       final CommandOutputListener iListener) {
     super(null, null, iListener);
 
@@ -73,6 +84,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     // exclude automatically generated collections
     excludeIndexes.add(DatabaseImport.EXPORT_IMPORT_INDEX_NAME);
+    this.excludedProperties = excludedProperties;
 
     final Schema schemaTwo = sessionTwo.getMetadata().getSchema();
     final var cls = schemaTwo.getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME);
@@ -768,7 +780,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                     }
 
                     if (!EntityHelper.hasSameContentOf(
-                        entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
+                        entity1, sessionOne, entity2, sessionTwo, ridMapper, true,
+                        excludedProperties.get(collectionName))) {
                       listener.onMessage(
                           "\n- ERR: RID="
                               + collectionId1
