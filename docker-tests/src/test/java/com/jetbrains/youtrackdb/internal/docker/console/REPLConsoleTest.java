@@ -2,10 +2,15 @@ package com.jetbrains.youtrackdb.internal.docker.console;
 
 import com.jetbrains.youtrackdb.internal.docker.StdOutConsumer;
 import io.github.classgraph.ClassGraph;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -17,6 +22,7 @@ import org.testcontainers.utility.MountableFile;
 
 @RunWith(Parameterized.class)
 public class REPLConsoleTest {
+
   private final String scriptFilePath;
   private final String scriptName;
 
@@ -41,7 +47,16 @@ public class REPLConsoleTest {
         console.setPortBindings(List.of("5005:6006"));
         console.withExposedPorts(5005);
       }
-      console.withLogConsumer(new StdOutConsumer<>("console:"));
+
+      var arrayStream = new ByteArrayOutputStream();
+      var accumulatedErrStream =
+          new PrintStream(arrayStream, true, StandardCharsets.UTF_8);
+      console.withLogConsumer(new StdOutConsumer<>("console:", accumulatedErrStream));
+      var errString = arrayStream.toString(StandardCharsets.UTF_8);
+
+      if (errString.toLowerCase(Locale.ROOT).contains("exception")) {
+        Assert.fail("Error during script execution: " + errString.trim());
+      }
 
       if (!debug) {
         console.withStartupCheckStrategy(
