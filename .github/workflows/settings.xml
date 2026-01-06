@@ -4,15 +4,9 @@
                       http://maven.apache.org/xsd/settings-1.0.0.xsd">
   <servers>
     <server>
-      <id>maven-central-mirror</id>
-      <configuration>
-        <httpHeaders>
-          <property>
-            <name>Authorization</name>
-            <value>Bearer ${env.MAVEN_BEARER_TOKEN}</value>
-          </property>
-        </httpHeaders>
-      </configuration>
+      <id>space-maven-central</id>
+      <username>${env.MAVEN_MIROR_USERNAME}</username>
+      <password>${env.MAVEN_MIROR_PASSWORD}</password>
     </server>
     <server>
       <id>central</id>
@@ -26,7 +20,7 @@
       <id>build-profile</id>
       <repositories>
         <repository>
-          <id>maven-central-mirror</id>
+          <id>space-maven-central</id>
           <url>https://packages.jetbrains.team/maven/p/youtrackdb/maven-central</url>
           <releases>
             <enabled>true</enabled>
