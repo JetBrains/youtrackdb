@@ -15,25 +15,12 @@
     </server>
   </servers>
 
-  <profiles>
-    <profile>
-      <id>build-profile</id>
-      <repositories>
-        <repository>
-          <id>space-maven-central</id>
-          <url>https://packages.jetbrains.team/maven/p/youtrackdb/maven-central</url>
-          <releases>
-            <enabled>true</enabled>
-          </releases>
-          <snapshots>
-            <enabled>false</enabled>
-          </snapshots>
-        </repository>
-      </repositories>
-    </profile>
-  </profiles>
-
-  <activeProfiles>
-    <activeProfile>build-profile</activeProfile>
-  </activeProfiles>
+  <mirrors>
+    <mirror>
+      <id>space-maven-central</id>
+      <mirrorOf>central</mirrorOf>
+      <name>YTDB mirror of Maven Central</name>
+      <url>https://packages.jetbrains.team/maven/p/youtrackdb/maven-central</url>
+    </mirror>
+  </mirrors>
 </settings>
