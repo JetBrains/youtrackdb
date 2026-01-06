@@ -12,7 +12,6 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class AbstractRemoteTest {
-
   protected static final String SERVER_DIRECTORY = "./target/remotetest";
 
   private YouTrackDBServer server;
@@ -22,13 +21,10 @@ public class AbstractRemoteTest {
 
   @Before
   public void setup() throws Exception {
-
     System.setProperty("YOUTRACKDB_HOME", SERVER_DIRECTORY);
-
-    var stream =
-        ClassLoader.getSystemResourceAsStream("abstract-youtrackdb-server-config.xml");
     server = ServerMain.create(false);
-    server.startup(stream);
+    server.startup(
+        "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     server.activate();
 
     final var dbName = name.getMethodName();

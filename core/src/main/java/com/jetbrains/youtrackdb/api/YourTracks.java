@@ -9,6 +9,7 @@ import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;
 
 public final class YourTracks {
+
   private YourTracks() {
   }
 

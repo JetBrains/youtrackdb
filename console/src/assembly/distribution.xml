@@ -46,8 +46,8 @@ limitations under the License.
       <outputDirectory>lib</outputDirectory>
     </fileSet>
     <fileSet>
-      <directory>target/${project.artifactId}-${project.version}-standalone/data</directory>
-      <outputDirectory>data</outputDirectory>
+      <directory>target/${project.artifactId}-${project.version}-standalone/databases</directory>
+      <outputDirectory>databases</outputDirectory>
     </fileSet>
   </fileSets>
   <files>

@@ -1,0 +1,26 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                      http://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <servers>
+    <server>
+      <id>space-maven-central</id>
+      <username>${env.MAVEN_MIROR_USERNAME}</username>
+      <password>${env.MAVEN_MIROR_PASSWORD}</password>
+    </server>
+    <server>
+      <id>central</id>
+      <username>${env.MAVEN_USERNAME}</username>
+      <password>${env.MAVEN_PASSWORD}</password>
+    </server>
+  </servers>
+
+  <mirrors>
+    <mirror>
+      <id>space-maven-central</id>
+      <mirrorOf>central</mirrorOf>
+      <name>YTDB mirror of Maven Central</name>
+      <url>https://packages.jetbrains.team/maven/p/youtrackdb/maven-central</url>
+    </mirror>
+  </mirrors>
+</settings>

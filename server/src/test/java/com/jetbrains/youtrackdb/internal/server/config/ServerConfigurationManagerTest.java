@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.server.config;
 
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSettings;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -27,21 +28,21 @@ public class ServerConfigurationManagerTest {
   @Test
   public void testManagerUsers() {
     final var cfgManager =
-        new ServerConfigurationManager(new ServerConfiguration());
+        new ServerConfigurationManager(new YTDBSettings());
 
-    Assert.assertNull(cfgManager.getConfiguration().users);
+    Assert.assertEquals(0, cfgManager.getConfiguration().users.size());
 
     // ADD USERS AND REMOVE FROM THE END
     cfgManager.setUser("a0", "b", "c");
 
     Assert.assertNotNull(cfgManager.getConfiguration().users);
-    Assert.assertEquals(1, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(1, cfgManager.getConfiguration().users.size());
 
     cfgManager.setUser("a1", "b", "c");
     cfgManager.setUser("a2", "b", "c");
     cfgManager.setUser("a3", "b", "c");
 
-    Assert.assertEquals(4, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(4, cfgManager.getConfiguration().users.size());
 
     Assert.assertEquals(4, cfgManager.getUsers().size());
 
@@ -57,42 +58,42 @@ public class ServerConfigurationManagerTest {
     cfgManager.dropUser("A1");
     cfgManager.dropUser("A0");
 
-    Assert.assertEquals(0, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(0, cfgManager.getConfiguration().users.size());
 
     // ADD USERS AND REMOVE FROM THE BEGINNING
     cfgManager.setUser("a0", "b", "c");
 
-    Assert.assertEquals(1, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(1, cfgManager.getConfiguration().users.size());
 
     cfgManager.setUser("a1", "b", "c");
     cfgManager.setUser("a2", "b", "c");
     cfgManager.setUser("a3", "b", "c");
 
-    Assert.assertEquals(4, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(4, cfgManager.getConfiguration().users.size());
 
     cfgManager.dropUser("A0");
     cfgManager.dropUser("A1");
     cfgManager.dropUser("A2");
     cfgManager.dropUser("A3");
 
-    Assert.assertEquals(0, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(0, cfgManager.getConfiguration().users.size());
 
     // ADD USERS AND REMOVE FROM THE MIDDLE
     cfgManager.setUser("a0", "b", "c");
 
-    Assert.assertEquals(1, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(1, cfgManager.getConfiguration().users.size());
 
     cfgManager.setUser("a1", "b", "c");
     cfgManager.setUser("a2", "b", "c");
     cfgManager.setUser("a3", "b", "c");
 
-    Assert.assertEquals(4, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(4, cfgManager.getConfiguration().users.size());
 
     cfgManager.dropUser("A2");
     cfgManager.dropUser("A1");
     cfgManager.dropUser("A0");
     cfgManager.dropUser("A3");
 
-    Assert.assertEquals(0, cfgManager.getConfiguration().users.length);
+    Assert.assertEquals(0, cfgManager.getConfiguration().users.size());
   }
 }

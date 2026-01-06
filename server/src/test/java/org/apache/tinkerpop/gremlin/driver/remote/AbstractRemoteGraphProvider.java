@@ -334,7 +334,8 @@ public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider 
   }
 
   public void startServer() throws Exception {
-    final var stream = GremlinServer.class.getResourceAsStream("gremlin-server-integration.yaml");
+    final var stream = GremlinServer.class.getResourceAsStream(
+        "youtrackdb-server-integration.yaml");
     final var settings = Settings.read(stream);
     ServerTestHelper.rewritePathsInGremlinServerSettings(settings);
 

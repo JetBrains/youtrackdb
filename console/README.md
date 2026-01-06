@@ -24,23 +24,7 @@ The following points summarize the key features discussed in each use case:
 
 #### Use Case: Installation
 
-YTDB Console can be installed either by downloading a zip archive from the GitHub releases page.
-
-```bash
-$ unzip youtrackdb-console-{ytdb-version}.zip
-$ cd youtrackdb-console-{ytdb-version}
-$ bin/ytdb.sh
-
-         \,,,/
-         (o o)
------oOOo-(3)-oOOo-----
-plugin activated: tinkerpop.server
-plugin activated: tinkerpop.utilities
-plugin activated: jetbrains.youtrackdb
-gremlin>
-```
-
-or (and that is a recommended way to install the YTDB Console) by using a Docker image.
+YTDB Console can be installed either by using a Docker image.
 
 ```bash
 $ docker run -it youtrackdb/youtrackdb-console
@@ -79,8 +63,8 @@ the faster you can advance your knowledge.
 You can create an empty YouTrackDB Graph as follows:
 
 ```
-gremlin> ytdb = YourTracks.instance("data")(1)
-==>youtrackdb:/opt/ytdb-console/data:v-0.5.0-SNAPSHOT
+gremlin> ytdb = YourTracks.instance("databases")(1)
+==>youtrackdb:/opt/ytdb-console/databases:v-0.5.0-SNAPSHOT
 gremlin> ytdb.create("tg", DatabaseType.MEMORY, "superuser", "adminpwd", "admin")(2)
 gremlin> g = ytdb.openTraversal("tg", "superuser", "adminpwd") (3)
 ==>ytdbGraphTraversalSource[tg]:v-0.5.0-SNAPSHOT
@@ -112,7 +96,7 @@ TinkerPop examples and test cases.
   edge property is a `double` rather than a`float` [diagram](images/tinkerpop-modern.png).
 
 ```
-gremlin> ytdb = YourTracks.instance("data")
+gremlin> ytdb = YourTracks.instance("databases")
 gremlin> g = YTDBDemoGraphFactory.createModern(ytdb)
 ==>ytdbGraphTraversalSource[modern]:v-0.5.0-SNAPSHOT
 ```
@@ -127,7 +111,7 @@ However, if you find that a larger graph might be helpful,
 there is another option: The Grateful Dead [schema](/images/grateful-dead-schema.png).
 
 ```
-gremlin> ytdb = YourTracks.instance("data")
+gremlin> ytdb = YourTracks.instance("databases")
 gremlin> g = YTDBDemoGraphFactory.createGratefulDead(ytdb)
 ==>ytdbGraphTraversalSource[grateful-dead]:v-0.5.0-SNAPSHOT
 gremlin> g.V().count()

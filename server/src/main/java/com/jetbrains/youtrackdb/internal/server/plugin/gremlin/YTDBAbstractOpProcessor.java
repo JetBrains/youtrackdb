@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import com.jetbrains.youtrackdb.internal.remote.RemoteProtocolConstants;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import java.lang.reflect.UndeclaredThrowableException;
@@ -400,7 +401,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
         @Override
         public void onAfterTxCommit(Transaction transaction,
             @Nullable Map<RID, RID> ridMapping) {
-          metadata.put(GremlinServerPlugin.RESULT_METADATA_COMMITTED_RIDS_KEY, ridMapping);
+          metadata.put(RemoteProtocolConstants.RESULT_METADATA_COMMITTED_RIDS_KEY, ridMapping);
         }
       });
       traversalSource.tx().commit();

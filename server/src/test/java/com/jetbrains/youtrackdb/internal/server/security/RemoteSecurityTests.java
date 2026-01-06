@@ -23,7 +23,8 @@ public class RemoteSecurityTests {
   @Before
   public void before()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException, IOException {
-    server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
+    server = YouTrackDBServer.startFromFileConfig(
+        "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     youTrackDB = YourTracks.instance("localhost", "root", "root");
     youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
         new UserCredential("admin", "admin", PredefinedRole.ADMIN),
