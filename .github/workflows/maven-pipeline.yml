@@ -39,7 +39,7 @@ jobs:
           overwrite-settings: false
 
       - name: Run Maven Tests
-        run: mvn -s .github/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
+        run: mvn -s .github/workflows/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
         env:
           MAVEN_BEARER_TOKEN: ${{ secrets.MAVEN_BEARER_TOKEN }}
 
@@ -71,8 +71,8 @@ jobs:
         #1. Deploy to Maven Central as SNAPSHOT
         #2. Deploy to Maven Central with as SNAPSHOT SHA suffix
         run: |
-          mvn -s .github/settings.xml clean deploy -DskipTests -B
-          mvn -s .github/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
+          mvn -s .github/workflows/settings.xml clean deploy -DskipTests -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
         env:
           # Credentials mapped to environment variables
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -102,7 +102,7 @@ jobs:
       - name: Docker deploy
         #Deploy REPL console and server docker images to Docker Hub
         run: |
-          mvn -s .github/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \
+          mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \
           -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -B
         env:
           MAVEN_BEARER_TOKEN: ${{ secrets.MAVEN_BEARER_TOKEN }}
