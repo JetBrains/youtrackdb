@@ -321,7 +321,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return 0;
     }
 
-    return writeCache.getFilledUpTo(fileHandler);
+    return writeCache.getFilledUpTo(fileId);
   }
 
   /**
@@ -570,7 +570,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               }
 
               // where to get handler from?
-              cacheEntry = readCache.allocateNewPage(new FileHandler(fileId, null), writeCache,
+              cacheEntry = readCache.allocateNewPage(fileChanges.fileHandler, writeCache,
                   startLSN);
             } while (cacheEntry.getPageIndex() != pageIndex);
           }

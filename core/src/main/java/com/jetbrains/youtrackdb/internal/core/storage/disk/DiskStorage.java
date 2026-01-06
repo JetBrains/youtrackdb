@@ -1509,7 +1509,7 @@ public class DiskStorage extends AbstractStorage {
       final var fileName = entry.getKey();
 
       var fileHandler = entry.getValue();
-      final var filledUpTo = writeCache.getFilledUpTo(fileHandler);
+      final var filledUpTo = writeCache.getFilledUpTo(fileHandler.fileId());
       final var zipEntry = new ZipEntry(fileName);
 
       stream.putNextEntry(zipEntry);

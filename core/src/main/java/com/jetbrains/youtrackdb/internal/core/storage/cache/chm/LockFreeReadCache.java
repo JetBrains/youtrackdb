@@ -54,7 +54,7 @@ public final class LockFreeReadCache implements ReadCache {
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
 
-  private static final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
+   static final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
       new CacheEntryPlaceholder();
 
   private final ConcurrentHashMap<Long/*fileId*/, FileHandler> data; // todo replace with primitive concurrent hash map
@@ -205,7 +205,7 @@ public final class LockFreeReadCache implements ReadCache {
         @SuppressWarnings("unchecked")
         var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
         //search for page in an array
-        cacheEntry = casArray.get(pageIndex);
+        cacheEntry = casArray.getOrNull(pageIndex);
         var read = true;
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
@@ -286,7 +286,9 @@ public final class LockFreeReadCache implements ReadCache {
     @SuppressWarnings("unchecked")
     var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
     //if cas does not work, it means old entry is present
-    final var oldCacheEntryPresent = !casArray.compareAndSet(pageIndex, null, cacheEntry);
+    final var oldCacheEntryPresent = !casArray.compareAndSet(pageIndex,
+        LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER, cacheEntry,
+        LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
     if (oldCacheEntryPresent) {
       throw new IllegalStateException(
           "Page  " + fileHandler.fileId() + ":" + pageIndex + " was allocated in other thread");
@@ -568,6 +570,10 @@ public final class LockFreeReadCache implements ReadCache {
       emptyBuffers();
 
       final var fileHandler = data.remove(fileId);
+      if (fileHandler == null) {
+        // file is not cached, nothing to remove
+        return;
+      }
       // todo remove after development is done
       if (fileHandler == null) {
         var joinedKeys = StreamSupport.stream(
@@ -656,7 +662,7 @@ public final class LockFreeReadCache implements ReadCache {
     return 1 << -Integer.numberOfLeadingZeros(x - 1);
   }
 
-  private static class CacheEntryPlaceholder implements CacheEntry {
+   static class CacheEntryPlaceholder implements CacheEntry {
 
     private final long fileId = -1;
     private final int pageIndex = -1;

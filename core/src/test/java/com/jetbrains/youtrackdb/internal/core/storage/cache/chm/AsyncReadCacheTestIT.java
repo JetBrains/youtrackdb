@@ -451,7 +451,7 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public long getFilledUpTo(final FileHandler fileHandler) {
+    public long getFilledUpTo(final long fileHandler) {
       return 0;
     }
 

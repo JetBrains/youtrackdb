@@ -164,8 +164,8 @@ public final class WTinyLFUPolicy {
         victim.getPageKey().fileId());
 
     @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
-    final var removed = casArray.compareAndSet(victim.getPageIndex(), victim, null);
-    return removed;
+    return casArray.compareAndSet(victim.getPageIndex(), victim,
+        LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
   }
 
   void onRemove(final CacheEntry cacheEntry) {
@@ -206,8 +206,18 @@ public final class WTinyLFUPolicy {
 
   void assertSize() {
     assert eden.size() + probation.size() + protection.size() == cacheSize.get()
-        && data.size() == cacheSize.get()
+        && dataSize(data) == cacheSize.get()
         && cacheSize.get() <= maxSize;
+  }
+
+  // ONLY USE IT FOR TESTING
+  private int dataSize(ConcurrentHashMap<Long, FileHandler> data) {
+    var localSum = 0;
+    for (var handler : data.values()) {
+      @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
+      localSum += casArray.size();
+    }
+    return localSum;
   }
 
   void assertConsistency() {

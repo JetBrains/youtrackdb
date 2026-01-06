@@ -106,7 +106,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   protected long getFilledUpTo(final AtomicOperation atomicOperation,
       final FileHandler fileHandler) {
     if (atomicOperation == null) {
-      return writeCache.getFilledUpTo(fileHandler);
+      return writeCache.getFilledUpTo(fileHandler.fileId());
     }
     return atomicOperation.filledUpTo(fileHandler);
   }

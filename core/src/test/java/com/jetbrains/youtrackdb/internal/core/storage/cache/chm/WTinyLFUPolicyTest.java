@@ -22,8 +22,7 @@ import org.mockito.Mockito;
 
 public class WTinyLFUPolicyTest {
 
-  private static final CacheEntry CACHE_ENTRY_PLACEHOLDER = new CacheEntryImpl(-1, -1, null, false,
-      null);
+  private static final CacheEntry CACHE_ENTRY_PLACEHOLDER = new LockFreeReadCache.CacheEntryPlaceholder();
 
   @Test
   public void testEden() {
@@ -719,6 +718,6 @@ public class WTinyLFUPolicyTest {
     var handler = data.get(1L);
     @SuppressWarnings("unchecked")
     var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
-    casArray.set(pageIndex, null, CACHE_ENTRY_PLACEHOLDER);
+    casArray.set(pageIndex, CACHE_ENTRY_PLACEHOLDER, CACHE_ENTRY_PLACEHOLDER);
   }
 }
