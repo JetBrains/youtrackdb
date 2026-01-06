@@ -14,7 +14,7 @@ public class RunServerTest {
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.startup(
-        RunServerTest.class.getClassLoader().getResourceAsStream("youtrackdb-server-config.xml"));
+        "classpath:com/jetbrains/youtrackdb/internal/server/config/youtrack-server-integration.yaml");
     server.activate();
   }
 

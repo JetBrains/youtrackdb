@@ -21,98 +21,94 @@ package com.jetbrains.youtrackdb.internal.server.config;
 
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
-import java.io.File;
+import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSettings;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSettings.YTDBUser;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSimpleAuthenticator;
 import java.io.IOException;
-import java.io.InputStream;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nullable;
 
-/**
- * Server configuration manager. It manages the youtrackdb-server-config.xml file.
- */
 public class ServerConfigurationManager {
 
-  private final ServerConfigurationLoaderXml configurationLoader;
-  private ServerConfiguration configuration;
+  private final ServerConfigurationLoader configurationLoader;
+  private YTDBSettings configuration;
+  private final YouTrackDBServer server;
 
-  public ServerConfigurationManager(final InputStream iInputStream) throws IOException {
-    configurationLoader =
-        new ServerConfigurationLoaderXml(ServerConfiguration.class, iInputStream);
+  public ServerConfigurationManager(final String filePath, YouTrackDBServer server)
+      throws IOException {
+    configurationLoader = new ServerConfigurationLoader(filePath);
     configuration = configurationLoader.load();
+    configuration.server = server;
+
+    var config = configuration.authentication.config;
+    if (config == null) {
+      config = new HashMap<>();
+      configuration.authentication.config = config;
+    }
+
+    config.put(YTDBSimpleAuthenticator.YTDB_SERVER_PARAM, server);
+    this.server = server;
   }
 
-  public ServerConfigurationManager(final File iFile) throws IOException {
-    configurationLoader = new ServerConfigurationLoaderXml(ServerConfiguration.class, iFile);
-    configuration = configurationLoader.load();
-  }
-
-  public ServerConfigurationManager(final ServerConfiguration iConfiguration) {
+  public ServerConfigurationManager(final YTDBSettings ytdbSettings) {
     configurationLoader = null;
-    configuration = iConfiguration;
+    configuration = ytdbSettings;
+    server = configuration.server;
   }
 
-  public ServerConfiguration getConfiguration() {
+  public YTDBSettings getConfiguration() {
     return configuration;
   }
 
-  public ServerConfigurationManager setUser(
-      final String iServerUserName, final String iServerUserPasswd, final String iPermissions) {
-    if (iServerUserName == null || iServerUserName.length() == 0) {
+  public void setUser(
+      final String serverUserName, final String serverUserPasswd, final String permissions) {
+    if (serverUserName == null || serverUserName.isEmpty()) {
       throw new IllegalArgumentException("User name is null or empty");
     }
 
     // An empty password is permissible as some security implementations do not require it.
-    if (iServerUserPasswd == null) {
+    if (serverUserPasswd == null) {
       throw new IllegalArgumentException("User password is null or empty");
     }
 
-    if (iPermissions == null || iPermissions.length() == 0) {
+    if (permissions == null || permissions.isEmpty()) {
       throw new IllegalArgumentException("User permissions is null or empty");
     }
 
     var userPositionInArray = -1;
 
     if (configuration.users == null) {
-      configuration.users = new ServerUserConfiguration[1];
-      userPositionInArray = 0;
-    } else {
-      // LOOK FOR EXISTENT USER
-      for (var i = 0; i < configuration.users.length; ++i) {
-        final var u = configuration.users[i];
-
-        if (u != null && iServerUserName.equalsIgnoreCase(u.name)) {
-          // FOUND
-          userPositionInArray = i;
-          break;
-        }
-      }
-
-      if (userPositionInArray == -1) {
-        // NOT FOUND
-        userPositionInArray = configuration.users.length;
-        configuration.users = Arrays.copyOf(configuration.users, configuration.users.length + 1);
-      }
-    }
-
-    configuration.users[userPositionInArray] =
-        new ServerUserConfiguration(iServerUserName, iServerUserPasswd, iPermissions);
-
-    return this;
-  }
-
-  public void saveConfiguration() throws IOException {
-    if (configurationLoader == null) {
+      configuration.users = new ArrayList<>();
+      configuration.users.add(new YTDBUser(serverUserName, serverUserPasswd, permissions));
       return;
     }
 
-    configurationLoader.save(configuration);
+    // LOOK FOR EXISTENT USER
+    for (var i = 0; i < configuration.users.size(); ++i) {
+      final var u = configuration.users.get(i);
+      if (u != null && serverUserName.equalsIgnoreCase(u.name)) {
+        // FOUND
+        userPositionInArray = i;
+        break;
+      }
+    }
+
+    if (userPositionInArray == -1) {
+      configuration.users.add(new YTDBUser(serverUserName, serverUserPasswd, permissions));
+      return;
+    }
+
+    configuration.users.set(userPositionInArray,
+        new YTDBUser(serverUserName, serverUserPasswd, permissions));
   }
 
   @Nullable
-  public ServerUserConfiguration getUser(final String iServerUserName) {
-    if (iServerUserName == null || iServerUserName.length() == 0) {
+  public YTDBUser getUser(final String serverUserName) {
+    if (serverUserName == null || serverUserName.isEmpty()) {
       throw new IllegalArgumentException("User name is null or empty");
     }
 
@@ -120,7 +116,7 @@ public class ServerConfigurationManager {
 
     if (configuration.users != null) {
       for (var user : configuration.users) {
-        if (iServerUserName.equalsIgnoreCase(user.name)) {
+        if (serverUserName.equalsIgnoreCase(user.name)) {
           // FOUND
           return user;
         }
@@ -130,45 +126,36 @@ public class ServerConfigurationManager {
     return null;
   }
 
-  public boolean existsUser(final String iServerUserName) {
-    return getUser(iServerUserName) != null;
+  public boolean existsUser(final String serverUserName) {
+    return getUser(serverUserName) != null;
   }
 
-  public void dropUser(final String iServerUserName) {
-    if (iServerUserName == null || iServerUserName.length() == 0) {
+  public void dropUser(final String serverUserName) {
+    if (serverUserName == null || serverUserName.isEmpty()) {
       throw new IllegalArgumentException("User name is null or empty");
     }
 
     checkForAutoReloading();
 
     // LOOK FOR EXISTENT USER
-    for (var i = 0; i < configuration.users.length; ++i) {
-      final var u = configuration.users[i];
+    for (var i = 0; i < configuration.users.size(); ++i) {
+      final var u = configuration.users.get(i);
 
-      if (u != null && iServerUserName.equalsIgnoreCase(u.name)) {
-        // FOUND
-        final var newArray =
-            new ServerUserConfiguration[configuration.users.length - 1];
-        // COPY LEFT PART
-        System.arraycopy(configuration.users, 0, newArray, 0, i);
-        // COPY RIGHT PART
-        if (newArray.length - i >= 0) {
-          System.arraycopy(configuration.users, i + 1, newArray, i, newArray.length - i);
-        }
-        configuration.users = newArray;
+      if (u != null && serverUserName.equalsIgnoreCase(u.name)) {
+        configuration.users.remove(i);
         break;
       }
     }
   }
 
-  public Set<ServerUserConfiguration> getUsers() {
+  public Set<YTDBUser> getUsers() {
     checkForAutoReloading();
 
-    final var result = new HashSet<ServerUserConfiguration>();
+    final var result = new HashSet<YTDBUser>();
     if (configuration.users != null) {
-      for (var i = 0; i < configuration.users.length; ++i) {
-        if (configuration.users[i] != null) {
-          result.add(configuration.users[i]);
+      for (var i = 0; i < configuration.users.size(); ++i) {
+        if (configuration.users.get(i) != null) {
+          result.add(configuration.users.get(i));
         }
       }
     }
@@ -181,6 +168,7 @@ public class ServerConfigurationManager {
       if (configurationLoader.checkForAutoReloading()) {
         try {
           configuration = configurationLoader.load();
+          configuration.server = server;
         } catch (IOException e) {
           throw BaseException.wrapException(
               new ConfigurationException("Cannot load server configuration"), e, (String) null);

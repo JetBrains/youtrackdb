@@ -2,6 +2,10 @@ package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.apache.tinkerpop.gremlin.server.Settings;
@@ -12,19 +16,27 @@ import org.yaml.snakeyaml.constructor.Constructor;
 
 public class YTDBSettings extends Settings {
   public YouTrackDBServer server;
+  public boolean isAfterFirstTime;
+
+  public List<YTDBUser> users = new ArrayList<>();
+  public Map<String, String> properties = new HashMap<>();
+  public List<YTDBStorage> storages = new ArrayList<>();
 
   protected static Constructor createDefaultYamlConstructor() {
     final var options = new LoaderOptions();
 
     final var constructor = new Constructor(YTDBSettings.class, options);
-    final var settingsDescription = new TypeDescription(Settings.class);
-    settingsDescription.setExcludes("server", "scheduledExecutorService");
+    final var settingsDescription = new TypeDescription(YTDBSettings.class);
+    settingsDescription.setExcludes("server", "scheduledExecutorService", "isAfterFirstTime");
+
+    settingsDescription.addPropertyParameters("users", YTDBUser.class);
+    settingsDescription.addPropertyParameters("properties", String.class, String.class);
+    settingsDescription.addPropertyParameters("storages", YTDBStorage.class);
 
     settingsDescription.addPropertyParameters("graphs", String.class, String.class);
     settingsDescription.addPropertyParameters("scriptEngines", String.class,
         ScriptEngineSettings.class);
     settingsDescription.addPropertyParameters("serializers", SerializerSettings.class);
-    settingsDescription.addPropertyParameters("plugins", String.class);
     settingsDescription.addPropertyParameters("processors", ProcessorSettings.class);
     constructor.addTypeDescription(settingsDescription);
 
@@ -41,6 +53,12 @@ public class YTDBSettings extends Settings {
     scriptEngineSettingsDescription.addPropertyParameters("config", String.class, Object.class);
     scriptEngineSettingsDescription.addPropertyParameters("plugins", String.class, Object.class);
     constructor.addTypeDescription(scriptEngineSettingsDescription);
+
+    final var userSettings = new TypeDescription(YTDBUser.class);
+    constructor.addTypeDescription(userSettings);
+
+    final var storageSettings = new TypeDescription(YTDBStorage.class);
+    constructor.addTypeDescription(storageSettings);
 
     final var sslSettings = new TypeDescription(SslSettings.class);
     constructor.addTypeDescription(sslSettings);
@@ -88,5 +106,28 @@ public class YTDBSettings extends Settings {
     final var constructor = createDefaultYamlConstructor();
     final var yaml = new Yaml(constructor);
     return yaml.loadAs(stream, YTDBSettings.class);
+  }
+
+  public static class YTDBUser {
+
+    public YTDBUser() {
+    }
+
+    public YTDBUser(String name, String password, String resources) {
+      this.name = name;
+      this.password = password;
+      this.resources = resources;
+    }
+
+    public String name;
+    public String password;
+    public String resources;
+  }
+
+  public static class YTDBStorage {
+
+    public String name;
+    public String path;
+    public boolean loadOnStartup;
   }
 }

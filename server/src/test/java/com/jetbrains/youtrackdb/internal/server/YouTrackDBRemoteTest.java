@@ -14,6 +14,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class YouTrackDBRemoteTest {
+
   private YouTrackDBServer server;
   private YouTrackDB youTrackDB;
 
@@ -22,10 +23,7 @@ public class YouTrackDBRemoteTest {
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(DbTestBase.getBaseDirectoryPathStr(YouTrackDBRemoteTest.class));
     server.startup(
-        getClass()
-            .getClassLoader()
-            .getResourceAsStream(
-                "com/jetbrains/youtrackdb/internal/server/youtrackdb-server-config.xml"));
+        "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     server.activate();
 
     youTrackDB = YourTracks.instance("localhost", 45940, "root", "root");

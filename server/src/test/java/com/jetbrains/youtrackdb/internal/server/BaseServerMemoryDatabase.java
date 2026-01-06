@@ -14,6 +14,7 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class BaseServerMemoryDatabase {
+
   protected YTDBGraphTraversalSource traversal;
   protected YouTrackDB youTrackDB;
 
@@ -25,8 +26,8 @@ public class BaseServerMemoryDatabase {
   public void beforeTest() {
     server = new YouTrackDBServer(false);
     try {
-      server.startup(getClass().getResourceAsStream(
-          "/com/jetbrains/youtrackdb/internal/server/youtrackdb-server-config.xml"));
+      server.startup(
+          "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
       server.activate();
     } catch (Exception e) {
       throw new RuntimeException(e);

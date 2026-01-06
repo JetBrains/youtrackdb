@@ -21,10 +21,10 @@ RUN apt-get update
 RUN apt-get install -y dos2unix
 RUN rm -rf /var/lib/apt/lists/*
 
-ARG YTDB_CONSOLE_DIR
+ARG DISTRIBUTION_DIR
 
 COPY docker/docker-entrypoint.sh /
-COPY ${YTDB_CONSOLE_DIR} /opt/ytdb-console
+COPY ${DISTRIBUTION_DIR} /opt/ytdb-console
 
 
 RUN dos2unix /docker-entrypoint.sh
@@ -38,6 +38,6 @@ USER ytdb
 WORKDIR /opt/ytdb-console
 
 VOLUME /opt/ytdb-console/conf
-VOLUME /opt/ytdb-console/data
+VOLUME /opt/ytdb-console/databases
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
