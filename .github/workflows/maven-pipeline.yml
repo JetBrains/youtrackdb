@@ -30,15 +30,18 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5.0.0
+        uses: actions/setup-java@v5
         with:
           java-version: ${{ matrix.java }}
           distribution: 'temurin'
           architecture: ${{ matrix.platform.arch }}
           cache: 'maven'
+          overwrite-settings: false
 
       - name: Run Maven Tests
-        run: mvn clean package -B ${{ matrix.platform.mvn_opts }}
+        run: mvn -s .github/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
+        env:
+          MAVEN_BEARER_TOKEN: ${{ secrets.MAVEN_BEARER_TOKEN }}
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY
@@ -58,25 +61,23 @@ jobs:
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 21 settings
-        uses: actions/setup-java@v5.0.0
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-          # Repository Credentials
-          server-id: central
-          server-username: MAVEN_USERNAME
-          server-password: MAVEN_PASSWORD
+          overwrite-settings: false
       - name: Maven deploy
         #1. Deploy to Maven Central as SNAPSHOT
         #2. Deploy to Maven Central with as SNAPSHOT SHA suffix
         run: |
-          mvn clean deploy -DskipTests -B
-          mvn clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
+          mvn -s .github/settings.xml clean deploy -DskipTests -B
+          mvn -s .github/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
         env:
           # Credentials mapped to environment variables
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_BEARER_TOKEN: ${{ secrets.MAVEN_BEARER_TOKEN }}
   deploy-docker:
     needs: test
     runs-on: ${{ matrix.platform.os }}
@@ -92,16 +93,19 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v6
       - name: Set up JDK 21 settings
-        uses: actions/setup-java@v5.0.0
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
+          overwrite-settings: false
       - name: Docker deploy
         #Deploy REPL console and server docker images to Docker Hub
         run: |
-          mvn clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \
+          mvn -s .github/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \
           -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -B
+        env:
+          MAVEN_BEARER_TOKEN: ${{ secrets.MAVEN_BEARER_TOKEN }}
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test, deploy, deploy-docker]
