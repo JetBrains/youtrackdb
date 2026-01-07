@@ -109,6 +109,8 @@ jobs:
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test, deploy, deploy-docker]
