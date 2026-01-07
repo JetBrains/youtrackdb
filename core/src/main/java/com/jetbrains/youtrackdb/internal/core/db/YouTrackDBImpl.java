@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.nio.file.Path;
@@ -20,6 +21,7 @@ import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
+
   private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
           .maximumWeightedCapacity(100)
@@ -205,15 +207,18 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     return sessionPool.asGraph();
   }
 
-  /// Drop a database
-  ///
-  /// @param databaseName database name
+
   @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
     var graph = openGraph(databaseName, userName, userPassword);
 
     return new StandaloneYTDBGraphTraversalSource(graph);
+  }
+
+  @Override
+  public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName) {
+    throw new DatabaseException("This method can be used only for remote databases");
   }
 
   /**

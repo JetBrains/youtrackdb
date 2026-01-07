@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 import static org.apache.tinkerpop.gremlin.groovy.jsr223.dsl.credential.CredentialGraphTokens.PROPERTY_PASSWORD;
 import static org.apache.tinkerpop.gremlin.groovy.jsr223.dsl.credential.CredentialGraphTokens.PROPERTY_USERNAME;
 
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
+import com.jetbrains.youtrackdb.internal.core.security.SecuritySystemException;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.net.InetAddress;
@@ -19,6 +21,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class YTDBSimpleAuthenticator implements Authenticator {
+
+  private static final String PROPERTY_DB_NAME = "dbName";
   public static final String YTDB_SERVER_PARAM = "com.jetbrains.youtrackdb.server.gremlin.YouTrackDBServer";
 
   private static final Logger logger = LoggerFactory.getLogger(SimpleAuthenticator.class);
@@ -60,6 +64,7 @@ public class YTDBSimpleAuthenticator implements Authenticator {
 
     final var username = credentials.get(PROPERTY_USERNAME);
     final var password = credentials.get(PROPERTY_PASSWORD);
+    final var dbName = credentials.getOrDefault(PROPERTY_DB_NAME, "");
 
     var databases = server.getDatabases();
     var security = server.getSecurity();
@@ -67,9 +72,18 @@ public class YTDBSimpleAuthenticator implements Authenticator {
     SecurityUser securityUser;
     try (var systemDatabaseSession = databases.getSystemDatabase().openSystemDatabaseSession()) {
       securityUser = security.authenticate(systemDatabaseSession, username, password);
-
       if (securityUser == null) {
-        throw new AuthenticationException("Username and/or password are incorrect");
+        if (dbName.isEmpty()) {
+          throw new AuthenticationException("Username and/or password are incorrect");
+        }
+
+        try {
+          var session = databases.cachedPool(dbName, username, password);
+          session.close();
+        } catch (SecurityException exception) {
+          throw new AuthenticationException(
+              "Combination of username/databasename/password are incorrect", exception);
+        }
       }
 
       return new AuthenticatedUser(securityUser.getName(systemDatabaseSession));
@@ -82,6 +96,7 @@ public class YTDBSimpleAuthenticator implements Authenticator {
 
     private String username;
     private String password;
+    private String dbName;
 
     @Override
     @Nullable
@@ -104,6 +119,8 @@ public class YTDBSimpleAuthenticator implements Authenticator {
       final Map<String, String> credentials = new HashMap<>();
       credentials.put(PROPERTY_USERNAME, username);
       credentials.put(PROPERTY_PASSWORD, password);
+      credentials.put(PROPERTY_DB_NAME, dbName);
+
       return authenticate(credentials);
     }
 
@@ -117,6 +134,7 @@ public class YTDBSimpleAuthenticator implements Authenticator {
     private void decodeCredentials(byte[] bytes) throws AuthenticationException {
       byte[] user = null;
       byte[] pass = null;
+      byte[] db = null;
 
       var end = bytes.length;
       for (var i = bytes.length - 1; i >= 0; i--) {
@@ -125,9 +143,15 @@ public class YTDBSimpleAuthenticator implements Authenticator {
             pass = Arrays.copyOfRange(bytes, i + 1, end);
           } else if (user == null) {
             user = Arrays.copyOfRange(bytes, i + 1, end);
+          } else if (db == null) {
+            db = Arrays.copyOfRange(bytes, i + 1, end);
           }
           end = i;
         }
+      }
+
+      if (end != 0) {
+        db = Arrays.copyOfRange(bytes, 0, end);
       }
 
       if (null == user) {
@@ -136,6 +160,11 @@ public class YTDBSimpleAuthenticator implements Authenticator {
 
       username = new String(user, StandardCharsets.UTF_8);
       password = new String(pass, StandardCharsets.UTF_8);
+      if (db != null) {
+        dbName = new String(db, StandardCharsets.UTF_8);
+      } else {
+        dbName = "";
+      }
     }
   }
 }

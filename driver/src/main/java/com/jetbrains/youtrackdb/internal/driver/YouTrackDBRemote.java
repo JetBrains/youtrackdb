@@ -15,6 +15,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
+import org.apache.tinkerpop.gremlin.driver.Cluster.Builder;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3;
@@ -24,6 +25,7 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBRemote implements YouTrackDB {
+  private static final String CLUSTER_CONFIGURATION_PREFIX = "clusterConfiguration.";
 
   private final Cluster cluster;
 
@@ -39,6 +41,17 @@ public class YouTrackDBRemote implements YouTrackDB {
     builder.port(serverPort);
     builder.credentials(username, password);
 
+    return createRemoteYTDBInstance(builder);
+  }
+
+  public static YouTrackDBRemote instance(@Nonnull String serverAddress, int serverPort) {
+    var builder = Cluster.build(serverAddress);
+
+    builder.port(serverPort);
+    return createRemoteYTDBInstance(builder);
+  }
+
+  private static @NonNull YouTrackDBRemote createRemoteYTDBInstance(Builder builder) {
     builder.channelizer(YTDBDriverWebSocketChannelizer.class);
 
     var graphBinarySerializer = new GraphBinaryMessageSerializerV1();
@@ -180,6 +193,14 @@ public class YouTrackDBRemote implements YouTrackDB {
         .with(remoteConnection);
   }
 
+  @Override
+  public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName) {
+    var remoteConnection = new YTDBDriverRemoteConnection(cluster, false, databaseName);
+
+    return AnonymousTraversalSource
+        .traversal(YTDBGraphTraversalSource.class)
+        .with(remoteConnection);
+  }
 
   private void executeServerRequestNoResult(String op, Map<String, Object> args) {
     var requestMessageBuilder = RequestMessage.build(op);

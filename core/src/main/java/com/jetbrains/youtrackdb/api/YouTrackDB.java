@@ -267,17 +267,28 @@ public interface YouTrackDB extends AutoCloseable {
   boolean isOpen();
 
   /// Opens [YTDBGraphTraversalSource] instance for the given embedded database by database name,
-  /// using provided user name and password.
+  /// using provided the username and password.
   ///
   /// Please keep a single instance of this traversal source per application.
   ///
   /// @param databaseName Database name
-  /// @param userName     user name. For remote database this parameter is ignored, and user name
+  /// @param userName     the username. For remote database this parameter is ignored, and the username
   ///                     provided during connection is used.
   /// @param userPassword user password. For remote database this parameter is ignored.
   @Nonnull
   YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName, @Nonnull String userName,
       @Nonnull String userPassword);
+
+  /// Opens [YTDBGraphTraversalSource] instance for the given embedded database by database name,
+  /// using the username and password provided during connection to the server.
+  ///
+  /// This method can be used only for remote databases.
+  ///
+  /// Please keep a single instance of this traversal source per application.
+  ///
+  /// @param databaseName Database name
+  @Nonnull
+  YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName);
 
   /// Creates a database by restoring it from incremental backup. The backup should be created with
   /// [#incrementalBackup(Path)].

@@ -40,6 +40,16 @@ public class YouTrackDBRemoteTest {
     }
   }
 
+  @Test
+  public void createDatabaseLoginWithLocalUser() {
+    youTrackDB.create("testLocalUser", DatabaseType.MEMORY,
+        new UserCredential("superuser", "password", PredefinedRole.ADMIN));
+
+    try (var g = youTrackDB.openTraversal("testLocalUser", "superuser", "password")) {
+      g.addV("label").iterate();
+    }
+  }
+
 
   @Test(expected = RuntimeException.class)
   public void doubleCreateRemoteDatabase() {
