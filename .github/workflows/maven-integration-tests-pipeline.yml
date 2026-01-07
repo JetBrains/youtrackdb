@@ -113,5 +113,5 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
-            Integration tests failed for commit ${{ github.sha }}.
+            Integration tests failed for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
