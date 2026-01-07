@@ -107,8 +107,8 @@ jobs:
           mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DskipTests=true \
           -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -P docker-images -B
         env:
-          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
-          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test, deploy, deploy-docker]
