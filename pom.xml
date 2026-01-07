@@ -867,5 +867,30 @@
         </plugins>
       </build>
     </profile>
+
+    <profile>
+      <id>docker-images</id>
+      <build>
+        <plugins>
+          <!--
+          Deploying docker images will happen out of the normal jvm artifact deployment flow, so disable that
+          -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-deploy-plugin</artifactId>
+            <configuration>
+              <skip>true</skip>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <configuration>
+              <skipPublishing>true</skipPublishing>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 </project>
