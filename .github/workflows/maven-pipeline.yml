@@ -126,5 +126,5 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
-            Build failed for commit ${{ github.sha }}.
+            Build failed for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
