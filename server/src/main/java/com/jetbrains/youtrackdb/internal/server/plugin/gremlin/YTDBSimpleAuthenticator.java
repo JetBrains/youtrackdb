@@ -80,13 +80,15 @@ public class YTDBSimpleAuthenticator implements Authenticator {
         try {
           var session = databases.cachedPool(dbName, username, password);
           session.close();
+
+          return new AuthenticatedUser(username);
         } catch (SecurityException exception) {
           throw new AuthenticationException(
               "Combination of username/databasename/password are incorrect", exception);
         }
+      } else {
+        return new AuthenticatedUser(securityUser.getName(systemDatabaseSession));
       }
-
-      return new AuthenticatedUser(securityUser.getName(systemDatabaseSession));
     }
   }
 

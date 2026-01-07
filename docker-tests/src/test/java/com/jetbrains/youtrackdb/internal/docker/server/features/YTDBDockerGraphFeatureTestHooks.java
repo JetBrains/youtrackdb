@@ -111,8 +111,7 @@ public class YTDBDockerGraphFeatureTestHooks {
           new UserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedRole.ADMIN)
       );
 
-      try (var traversal = youTrackDB.openTraversal(graphName, ROOT_USER_NAME,
-          ROOT_USER_PASSWORD)) {
+      try (var traversal = youTrackDB.openTraversal(graphName)) {
         traversal.autoExecuteInTx(g -> g.V().drop());
         traversal.autoExecuteInTx(g -> g.io(SERVER_DATA_GRAPHS + "/" +
             fileName).read().iterate());

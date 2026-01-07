@@ -13,9 +13,9 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
-import org.apache.tinkerpop.gremlin.driver.Cluster.Builder;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3;
@@ -25,9 +25,13 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBRemote implements YouTrackDB {
-  private static final String CLUSTER_CONFIGURATION_PREFIX = "clusterConfiguration.";
+private static final String PORT_CONFIGURATION =  "port";
+  private static final String USERNAME_CONFIGURATION =  "username";
+  private static final String PASSWORD_CONFIGURATION = "password";
+  private static final String HOSTS_CONFIGURATION = "hosts";
 
   private final Cluster cluster;
+  private final BaseConfiguration configuration;
 
   public static YouTrackDBRemote instance(@Nonnull String serverAddress,
       @Nonnull String username, @Nonnull String password) {
@@ -36,22 +40,32 @@ public class YouTrackDBRemote implements YouTrackDB {
 
   public static YouTrackDBRemote instance(@Nonnull String serverAddress, int serverPort,
       @Nonnull String username, @Nonnull String password) {
-    var builder = Cluster.build(serverAddress);
+    var config = new BaseConfiguration();
+    config.setProperty(PORT_CONFIGURATION, serverPort);
+    config.setProperty(HOSTS_CONFIGURATION, List.of(serverAddress));
 
-    builder.port(serverPort);
-    builder.credentials(username, password);
+    config.setProperty(USERNAME_CONFIGURATION, username);
+    config.setProperty(PASSWORD_CONFIGURATION, password);
 
-    return createRemoteYTDBInstance(builder);
+    return createRemoteYTDBInstance(config);
   }
 
   public static YouTrackDBRemote instance(@Nonnull String serverAddress, int serverPort) {
-    var builder = Cluster.build(serverAddress);
+    var config = new BaseConfiguration();
+    config.setProperty(PORT_CONFIGURATION, serverPort);
+    config.setProperty(HOSTS_CONFIGURATION, List.of(serverAddress));
 
-    builder.port(serverPort);
-    return createRemoteYTDBInstance(builder);
+    return createRemoteYTDBInstance(config);
   }
 
-  private static @NonNull YouTrackDBRemote createRemoteYTDBInstance(Builder builder) {
+  private static @NonNull YouTrackDBRemote createRemoteYTDBInstance(
+      BaseConfiguration configuration) {
+    var cluster = createCluster(configuration);
+    return new YouTrackDBRemote(configuration, cluster);
+  }
+
+  private static @NonNull Cluster createCluster(BaseConfiguration configuration) {
+    var builder = Cluster.build(configuration);
     builder.channelizer(YTDBDriverWebSocketChannelizer.class);
 
     var graphBinarySerializer = new GraphBinaryMessageSerializerV1();
@@ -67,11 +81,14 @@ public class YouTrackDBRemote implements YouTrackDB {
     config.put(AbstractMessageSerializer.TOKEN_IO_REGISTRIES, registries);
     graphBinarySerializer.configure(config, null);
 
-    return new YouTrackDBRemote(builder.serializer(graphBinarySerializer).create());
+    var cluster = builder.serializer(graphBinarySerializer).create();
+    return cluster;
   }
 
-  public YouTrackDBRemote(@Nonnull final Cluster cluster) {
+  public YouTrackDBRemote(@Nonnull BaseConfiguration configuration,
+      @Nonnull final Cluster cluster) {
     this.cluster = cluster;
+    this.configuration = configuration;
   }
 
   @Override
@@ -186,7 +203,14 @@ public class YouTrackDBRemote implements YouTrackDB {
   @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
-    var remoteConnection = new YTDBDriverRemoteConnection(cluster, false, databaseName);
+
+    var newConfig = (BaseConfiguration) configuration.clone();
+
+    newConfig.setProperty(USERNAME_CONFIGURATION, userName);
+    newConfig.setProperty(PASSWORD_CONFIGURATION, userPassword);
+
+    var cluster = createCluster(newConfig);
+    var remoteConnection = new YTDBDriverRemoteConnection(cluster, true, databaseName);
 
     return AnonymousTraversalSource
         .traversal(YTDBGraphTraversalSource.class)

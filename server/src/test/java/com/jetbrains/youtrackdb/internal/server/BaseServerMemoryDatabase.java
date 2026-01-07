@@ -36,7 +36,7 @@ public class BaseServerMemoryDatabase {
     youTrackDB = YourTracks.instance("localhost", 45940, "root", "root");
     youTrackDB.create(name.getMethodName(), DatabaseType.MEMORY,
         new UserCredential("admin", "admin", PredefinedRole.ADMIN));
-    traversal = youTrackDB.openTraversal(name.getMethodName(), "admin", "adminpwd");
+    traversal = youTrackDB.openTraversal(name.getMethodName(), "admin", "admin");
   }
 
   @After
