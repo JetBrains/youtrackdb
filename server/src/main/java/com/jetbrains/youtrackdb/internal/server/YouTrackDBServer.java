@@ -600,7 +600,7 @@ public class YouTrackDBServer {
   }
 
   public void dropDatabase(String databaseName) {
-    if (databases.exists(databaseName, null, null)) {
+    if (databases.exists(databaseName)) {
       databases.drop(databaseName, null, null);
     } else {
       throw new StorageException(databaseName,
@@ -609,7 +609,7 @@ public class YouTrackDBServer {
   }
 
   public boolean existsDatabase(String databaseName) {
-    return databases.exists(databaseName, null, null);
+    return databases.exists(databaseName);
   }
 
   public final class YTDBInternalProxy implements YouTrackDBInternal, ServerAware {
@@ -669,10 +669,10 @@ public class YouTrackDBServer {
 
 
     @Override
-    public boolean exists(String name, String user, String password) {
+    public boolean exists(String name) {
       //system database is managed inside of embedded instance autonomously
       if (SystemDatabase.SYSTEM_DB_NAME.equals(name)) {
-        return internal.exists(name, user, password);
+        return internal.exists(name);
       }
 
       return dbNamesCache.contains(name);

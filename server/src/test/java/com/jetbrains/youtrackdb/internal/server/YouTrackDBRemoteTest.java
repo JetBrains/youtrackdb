@@ -42,14 +42,85 @@ public class YouTrackDBRemoteTest {
 
   @Test
   public void createDatabaseLoginWithLocalUser() {
-    youTrackDB.create("testLocalUser", DatabaseType.MEMORY,
-        new UserCredential("superuser", "password", PredefinedRole.ADMIN));
+    var dbName = "testLocalUser";
+    var userName = "superuser";
+    var password = "password";
 
-    try (var g = youTrackDB.openTraversal("testLocalUser", "superuser", "password")) {
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new UserCredential(userName, password, PredefinedRole.ADMIN));
+
+    try (var g = youTrackDB.openTraversal(dbName, userName, password)) {
       g.addV("label").iterate();
     }
+
+    youTrackDB.drop(dbName);
   }
 
+  @Test
+  public void createDatabaseLoginWithLocalUserAndWrongPassword() {
+    var dbName = "testLocalUser1";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new UserCredential(userName, password, PredefinedRole.ADMIN));
+
+    try {
+      try (var g = youTrackDB.openTraversal(dbName, userName, "pass")) {
+        g.addV("label").iterate();
+      }
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Combination of username/databasename/password are incorrect"));
+    }
+
+    youTrackDB.drop(dbName);
+  }
+
+  @Test
+  public void createDatabaseLoginWithLocalUserAndWrongUsername() {
+    var dbName = "testLocalUser3";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new UserCredential(userName, password, PredefinedRole.ADMIN));
+
+    try {
+      try (var g = youTrackDB.openTraversal(dbName, "super", password)) {
+        g.addV("label").iterate();
+      }
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Combination of username/databasename/password are incorrect"));
+    }
+
+    youTrackDB.drop(dbName);
+  }
+
+  @Test
+  public void createDatabaseLoginWithLocalUserAndWrongDbName() {
+    var dbName = "testLocalUser4";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new UserCredential(userName, password, PredefinedRole.ADMIN));
+
+    try {
+      try (var g = youTrackDB.openTraversal("db", userName, password)) {
+        g.addV("label").iterate();
+      }
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Database 'db' does not exist"));
+    }
+
+    youTrackDB.drop(dbName);
+  }
 
   @Test(expected = RuntimeException.class)
   public void doubleCreateRemoteDatabase() {

@@ -35,7 +35,7 @@ public class SQLDropDatabaseStatement extends SQLSimpleExecServerStatement {
     result.setProperty("operation", "drop database");
     result.setProperty("name", nameString);
 
-    if (ifExists && !server.exists(nameString, null, null)) {
+    if (ifExists && !server.exists(nameString)) {
       result.setProperty("dropped", false);
       result.setProperty("existing", false);
     } else {

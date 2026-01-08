@@ -4,7 +4,6 @@ import static org.apache.tinkerpop.gremlin.groovy.jsr223.dsl.credential.Credenti
 import static org.apache.tinkerpop.gremlin.groovy.jsr223.dsl.credential.CredentialGraphTokens.PROPERTY_USERNAME;
 
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
-import com.jetbrains.youtrackdb.internal.core.security.SecuritySystemException;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.net.InetAddress;
@@ -78,11 +77,14 @@ public class YTDBSimpleAuthenticator implements Authenticator {
         }
 
         try {
-          var session = databases.cachedPool(dbName, username, password);
-          session.close();
-
+          if (databases.exists(dbName)) {
+            var session = databases.cachedPool(dbName, username, password);
+            session.close();
+          } else {
+            throw new AuthenticationException("Database '" + dbName + "' does not exist");
+          }
           return new AuthenticatedUser(username);
-        } catch (SecurityException exception) {
+        } catch (SecurityAccessException exception) {
           throw new AuthenticationException(
               "Combination of username/databasename/password are incorrect", exception);
         }

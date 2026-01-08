@@ -231,7 +231,7 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
    * @return true if the database has been created, false if already exists
    */
   public boolean createIfNotExists(String database, DatabaseType type, YouTrackDBConfig config) {
-    if (!this.internal.exists(database, null, null)) {
+    if (!this.internal.exists(database)) {
       this.internal.create(database, null, null, type, config);
       return true;
     }
@@ -262,7 +262,7 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   /// @return boolean true if exist false otherwise.
   @Override
   public boolean exists(@Nonnull String databaseName) {
-    return this.internal.exists(databaseName, null, null);
+    return this.internal.exists(databaseName);
   }
 
   /// List exiting databases in the current environment
