@@ -24,11 +24,6 @@ import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginate
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.WAL_SEGMENT_EXTENSION;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.BackupInProgressException;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -49,14 +44,19 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
+import com.jetbrains.youtrackdb.internal.core.exception.BackupInProgressException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidStorageEncryptionKeyException;
+import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
-import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -1986,12 +1986,9 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public @Nonnull ReadRecordResult readRecord(
-      DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
-      boolean fetchNextRid) {
-
+  public @Nonnull RawBuffer readRecord(RecordIdInternal iRid) {
     try {
-      return super.readRecord(session, iRid, fetchPreviousRid, fetchNextRid);
+      return super.readRecord(iRid);
     } finally {
       listeners.forEach(EnterpriseStorageOperationListener::onRead);
     }

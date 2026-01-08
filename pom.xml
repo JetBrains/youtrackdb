@@ -30,18 +30,14 @@
 
   <modules>
     <module>test-commons</module>
-    <module>client</module>
     <module>core</module>
     <module>server</module>
-    <module>security</module>
-    <module>tools</module>
     <module>tests</module>
-    <module>lucene</module>
-    <module>distribution</module>
-    <module>console-distribution</module>
     <module>gremlin-annotations</module>
     <module>driver</module>
+    <module>examples</module>
     <module>console</module>
+    <module>docker-tests</module>
   </modules>
 
   <scm>
@@ -60,16 +56,6 @@
       <name>Central Portal Snapshots</name>
       <id>central-portal-snapshots</id>
       <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-      <releases>
-        <enabled>false</enabled>
-      </releases>
-      <snapshots>
-        <enabled>true</enabled>
-      </snapshots>
-    </repository>
-    <repository>
-      <id>space-youtrackdb</id>
-      <url>https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily</url>
       <releases>
         <enabled>false</enabled>
       </releases>
@@ -102,15 +88,16 @@
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
     <heapSize>4096m</heapSize>
     <javaassist.version>3.30.2-GA</javaassist.version>
-    <jaxb.api.version>2.3.0</jaxb.api.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
-    <graalvm.version>22.0.0.2</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
-    <slf4j.version>2.0.17</slf4j.version>
-    <log4j.version>2.25.2</log4j.version>
+    <log4j.version>2.25.3</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
+    <gremlin.version>3.8.1-YTDB-SNAPSHOT</gremlin.version>
+    <hamcrest.version>3.0</hamcrest.version>
+    <cucumber.version>7.31.0</cucumber.version>
+    <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
+    <guice.version>7.0.0</guice.version>
   </properties>
 
 
@@ -162,49 +149,42 @@
         <version>${jackson.verson}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-core</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-groovy</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
+        <artifactId>tinkergraph-gremlin</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-test</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-driver</artifactId>
         <version>${gremlin.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-server</artifactId>
         <version>${gremlin.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-util</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.tinkerpop</groupId>
+        <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-console</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
@@ -224,6 +204,84 @@
         <version>${log4j.version}</version>
         <scope>import</scope>
         <type>pom</type>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-core</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.cucumber</groupId>
+        <artifactId>cucumber-java</artifactId>
+        <version>${cucumber.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.cucumber</groupId>
+        <artifactId>cucumber-core</artifactId>
+        <version>${cucumber.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.cucumber</groupId>
+        <artifactId>cucumber-junit</artifactId>
+        <version>${cucumber.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.github.jnr</groupId>
+        <artifactId>jnr-posix</artifactId>
+        <version>3.1.21</version>
+      </dependency>
+      <dependency>
+        <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
+        <artifactId>concurrentlinkedhashmap-lru</artifactId>
+        <version>1.4.2</version>
+        <exclusions>
+          <exclusion>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers</artifactId>
+        <version>2.0.2</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>junit</groupId>
+        <artifactId>junit</artifactId>
+        <version>4.13.2</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.github.classgraph</groupId>
+        <artifactId>classgraph</artifactId>
+        <version>4.8.184</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.inject</groupId>
+        <artifactId>guice</artifactId>
+        <version>${guice.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>3.20.0</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-io</groupId>
+        <artifactId>commons-io</artifactId>
+        <version>2.21.0</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -295,6 +353,12 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.14.1</version>
+          <configuration>
+            <source>${maven.compiler.source}</source>
+            <target>${maven.compiler.target}</target>
+            <showDeprecation>false</showDeprecation>
+            <showWarnings>true</showWarnings>
+          </configuration>
         </plugin>
 
         <plugin>
@@ -334,7 +398,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-pmd-plugin</artifactId>
-          <version>3.27.0</version>
+          <version>3.28.0</version>
         </plugin>
 
         <plugin>
@@ -353,7 +417,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>animal-sniffer-maven-plugin</artifactId>
-          <version>1.24</version>
+          <version>1.26</version>
           <configuration>
             <!--
             Keep aligned with the maven-compiler-plugins source/target, ATM this is 1.6,
@@ -436,11 +500,6 @@
           <version>3.6.1</version>
         </plugin>
         <plugin>
-          <groupId>io.fabric8</groupId>
-          <artifactId>docker-maven-plugin</artifactId>
-          <version>0.46.0</version>
-        </plugin>
-        <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>flatten-maven-plugin</artifactId>
           <version>1.7.3</version>
@@ -464,6 +523,11 @@
               </goals>
             </execution>
           </executions>
+        </plugin>
+        <plugin>
+          <groupId>io.fabric8</groupId>
+          <artifactId>docker-maven-plugin</artifactId>
+          <version>0.48.0</version>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -496,6 +560,7 @@
         <artifactId>buildnumber-maven-plugin</artifactId>
         <executions>
           <execution>
+            <id>build-number</id>
             <phase>validate</phase>
             <goals>
               <goal>create</goal>
@@ -585,28 +650,58 @@
 
   <profiles>
     <profile>
-      <id>java17</id>
-      <activation>
-        <jdk>[17,)</jdk>
-      </activation>
+      <id>docker-run</id>
       <build>
         <plugins>
           <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <configuration>
-              <source>${maven.compiler.source}</source>
-              <target>${maven.compiler.target}</target>
-              <showDeprecation>false</showDeprecation>
-              <showWarnings>true</showWarnings>
-              <optimize>true</optimize>
-            </configuration>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>buildnumber-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-number</id>
+                <phase>none</phase>
+              </execution>
+            </executions>
           </plugin>
         </plugins>
       </build>
+    </profile>
+
+    <profile>
+      <id>java17</id>
+      <activation>
+        <jdk>[17,23)</jdk>
+      </activation>
       <properties>
-        <additionalparam>-Xdoclint:none</additionalparam>
+        <graalvm.version>22.0.0.2</graalvm.version>
       </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.graalvm.js</groupId>
+          <artifactId>js</artifactId>
+          <version>${graalvm.version}</version>
+          <scope>runtime</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <profile>
+      <id>java23+</id>
+      <activation>
+        <jdk>[23,)</jdk>
+      </activation>
+      <properties>
+        <graalvm.version>25.0.0</graalvm.version>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.graalvm.js</groupId>
+          <artifactId>js</artifactId>
+          <version>${graalvm.version}</version>
+          <type>pom</type>
+          <scope>runtime</scope>
+        </dependency>
+      </dependencies>
     </profile>
 
     <profile>
@@ -679,12 +774,6 @@
                   <buildDirectory>${project.build.directory}</buildDirectory>
                   <youtrackdb.test.env>ci</youtrackdb.test.env>
                 </systemPropertyVariables>
-                <properties>
-                  <property>
-                    <name>listener</name>
-                    <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
-                  </property>
-                </properties>
               </configuration>
             </plugin>
           </plugins>
@@ -774,6 +863,31 @@
                 </goals>
               </execution>
             </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>docker-images</id>
+      <build>
+        <plugins>
+          <!--
+          Deploying docker images will happen out of the normal jvm artifact deployment flow, so disable that
+          -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-deploy-plugin</artifactId>
+            <configuration>
+              <skip>true</skip>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <configuration>
+              <skipPublishing>true</skipPublishing>
+            </configuration>
           </plugin>
         </plugins>
       </build>

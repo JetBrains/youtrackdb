@@ -48,20 +48,43 @@
       -Dyoutrackdb.security.createDefaultUsers=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
-      --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
       -Dyoutrackdb.memory.directMemory.preallocate=false
       -Dyoutrackdb.file.log.deletion=false
+      -XX:+IgnoreUnrecognizedVMOptions
+      --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+      --add-exports=java.base/sun.security.x509=ALL-UNNAMED
+      --add-exports=java.base/sun.security.action=ALL-UNNAMED
+      --add-opens=java.base/java.io=ALL-UNNAMED
+      --add-opens=java.base/java.nio=ALL-UNNAMED
+      --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+      --add-opens=java.base/java.lang=ALL-UNNAMED
+      --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+      --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+      --add-opens=java.base/java.util=ALL-UNNAMED
+      --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+      --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+      --add-opens=java.base/java.net=ALL-UNNAMED
     </argLine>
+    <guice.version>6.0.0</guice.version>
   </properties>
 
   <profiles>
     <profile>
-      <id>localDeploy</id>
-      <activation>
-        <property>
-          <name>localDeploy</name>
-        </property>
-      </activation>
+      <id>docker-run</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>buildnumber-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-number</id>
+                <phase>none</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 
@@ -79,6 +102,7 @@
         <artifactId>buildnumber-maven-plugin</artifactId>
         <executions>
           <execution>
+            <id>build-number</id>
             <phase>validate</phase>
             <goals>
               <goal>create</goal>
@@ -215,18 +239,10 @@
     <dependency>
       <groupId>com.github.jnr</groupId>
       <artifactId>jnr-posix</artifactId>
-      <version>3.1.20</version>
     </dependency>
     <dependency>
       <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
       <artifactId>concurrentlinkedhashmap-lru</artifactId>
-      <version>1.4.2</version>
-      <exclusions>
-        <exclusion>
-          <groupId>com.google.code.findbugs</groupId>
-          <artifactId>jsr305</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.lz4</groupId>
@@ -234,9 +250,8 @@
       <version>1.8.0</version>
     </dependency>
     <dependency>
-      <groupId>commons-lang</groupId>
-      <artifactId>commons-lang</artifactId>
-      <version>2.6</version>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
     </dependency>
     <dependency>
       <groupId>javax.servlet</groupId>
@@ -250,20 +265,28 @@
       <version>1.2.0</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
-      <artifactId>gremlin-groovy</artifactId>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>gremlin-util</artifactId>
       <version>${gremlin.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>gremlin-groovy</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
     </dependency>
-
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>tinkergraph-gremlin</artifactId>
+      <scope>test</scope>
+    </dependency>
 
     <!-- json parser -->
     <dependency>
@@ -317,14 +340,13 @@
     </dependency>
     <dependency>
       <groupId>org.graalvm.js</groupId>
-      <artifactId>js</artifactId>
-      <version>${graalvm.version}</version>
-      <scope>runtime</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.graalvm.js</groupId>
       <artifactId>js-scriptengine</artifactId>
       <version>${graalvm.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

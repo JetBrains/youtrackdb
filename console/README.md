@@ -1,11 +1,10 @@
 ### YTDB Gremlin Console
 
-*Note: This document is an adaptation of the original
-[TinkerPop tutorial](https://tinkerpop.apache.org/docs/current/tutorials/the-gremlin-console/).*
+*Note: This document is an adaptation of the
+original [TinkerPop tutorial](https://tinkerpop.apache.org/docs/current/tutorials/the-gremlin-console/).*
 
 The YTDB Gremlin Console (the YTDB Console) serves for a variety of use cases that can meet the
-needs of
-different types of YTDB users.
+needs of different types of YTDB users.
 This documentation explores the features of the YTDB Console through a number of these different use
 cases to hopefully inspire you to new levels of usage.
 While a use case may not fit your needs, you may well find it worthwhile to read, as it is possible
@@ -25,23 +24,7 @@ The following points summarize the key features discussed in each use case:
 
 #### Use Case: Installation
 
-YTDB Console can be installed either by downloading a zip archive from the GitHub releases page.
-
-```bash
-$ unzip youtrackdb-console-{ytdb-version}.zip
-$ cd youtrackdb-console-{ytdb-version}
-$ bin/ytdb.sh
-
-         \,,,/
-         (o o)
------oOOo-(3)-oOOo-----
-plugin activated: tinkerpop.server
-plugin activated: tinkerpop.utilities
-plugin activated: jetbrains.youtrackdb
-gremlin>
-```
-
-or (and that is a recommended way to install the YTDB Console) by using a Docker image.
+YTDB Console can be installed either by using a Docker image.
 
 ```bash
 $ docker run -it youtrackdb/youtrackdb-console
@@ -68,11 +51,11 @@ You want some "quick wins" with Gremlin and aim to conceptually
 prove that the YouTrackDB stack is a good direction to go.*
 
 It cannot be emphasized enough just how important the YTDB Console is to new users.
-The interactive nature of a
-[REPL](http://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop) makes it possible
+The interactive nature of
+a [REPL](http://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop) makes it possible
 to quickly try some Gremlin code and get some notion of success or failure without the longer
-process of build tools (e.g. [Maven](https://maven.apache.org/)),
-[IDEs](https://en.wikipedia.org/wiki/Integrated_development_environment),
+process of build tools (
+e.g. [Maven](https://maven.apache.org/)), [IDEs](https://en.wikipedia.org/wiki/Integrated_development_environment),
 compilation, and application execution.
 The faster you can iterate through versions of your Gremlin code,
 the faster you can advance your knowledge.
@@ -80,12 +63,11 @@ the faster you can advance your knowledge.
 You can create an empty YouTrackDB Graph as follows:
 
 ```
-gremlin> ytdb = YourTracks.instance("data")(1)
+gremlin> ytdb = YourTracks.instance("databases")(1)
+==>youtrackdb:/opt/ytdb-console/databases:v-0.5.0-SNAPSHOT
 gremlin> ytdb.create("tg", DatabaseType.MEMORY, "superuser", "adminpwd", "admin")(2)
-gremlin> graph = ytdb.openGraph("tg", "superuser", "adminpwd") (3)
-==>YTDBGraph[tg]
-gremlin> g = traversal().withEmbedded(graph) (4)
-==>graphtraversalsource[YTDBGraph[tg], standard]
+gremlin> g = ytdb.openTraversal("tg", "superuser", "adminpwd") (3)
+==>ytdbGraphTraversalSource[tg]:v-0.5.0-SNAPSHOT
 ```
 
 1. Creates an instance of the manager for the YTDB databases.
@@ -94,27 +76,17 @@ gremlin> g = traversal().withEmbedded(graph) (4)
    database instances will be contained.
 2. Creates a new in-memory database with an admin user that has username “superuser” and password
    “amdindpwd”.
-3. Creates the `YTDBGraph` instance that is the API to
-   the [structure](https://tinkerpop.apache.org/docs/3.7.4/reference/#graph-structure) of the graph.
-4. Creates the `TraversalSource` which is the API
+3. Creates the `TraversalSource` which is the API
    for [processing](https://tinkerpop.apache.org/docs/3.7.4/reference/#the-graph-process)
    or [traversing](https://tinkerpop.apache.org/docs/3.7.4/tutorials/getting-started/#_graph_traversal_staying_simple)
-   that `YTDBGraph`.
-
-*Note 1: The `traversal()` method is statically imported from the `AnonymousTraversalSource`
-class so that it can be used in a more fluent fashion.*
-
-*Note 2: In case of usage of the Docker image always use "data" as a root folder for the database
-instance. The "data" folder is mounted to the "/opt/ytdb-console/data" folder of the container.
-Later we plan to introduce possibility to set up default configuration for the YTDB by providing
-`ytdb.properties` file in the classpath so you will not need to provide root folder manually.`*
+   that graph.
 
 Now that you have an empty YouTrackDB Graph instance, you could load a sample of your data
-and get started with some traversals. Of course,
-you might also try one of the "toy" graphs (i.e. graphs with sample data)
-that YTDB packages with the console through the `YTDBDemoGraphFactory`.
+and get started with some traversals. Of course you might also try one of the "toy" graphs
+(i.e. graphs with sample data) that YTDB packages with the console through the
+`YTDBDemoGraphFactory`.
 `YTDBDemoGraphFactory` has a number of static methods that can be called to create these
-standard `YTDBGraph` instances.
+standard graph database instances.
 They are "standard" in the sense that they are typically used for all
 TinkerPop examples and test cases.
 
@@ -124,11 +96,9 @@ TinkerPop examples and test cases.
   edge property is a `double` rather than a`float` [diagram](images/tinkerpop-modern.png).
 
 ```
-gremlin> ytdb = YourTracks.instance("data")
-gremlin> graph = YTDBDemoGraphFactory.createModern(ytdb)
-==>YTDBGraph[modern]
-gremlin> g = traversal().withEmbedded(graph)
-==>graphtraversalsource[YTDBGraph[modern], standard]
+gremlin> ytdb = YourTracks.instance("databases")
+gremlin> g = YTDBDemoGraphFactory.createModern(ytdb)
+==>ytdbGraphTraversalSource[modern]:v-0.5.0-SNAPSHOT
 ```
 
 As you might have noticed from the diagrams of these graphs,
@@ -141,11 +111,9 @@ However, if you find that a larger graph might be helpful,
 there is another option: The Grateful Dead [schema](/images/grateful-dead-schema.png).
 
 ```
-gremlin> ytdb = YourTracks.instance("data")
-gremlin> graph = YTDBDemoGraphFactory.createGratefulDead(ytdb)
-==>YTDBGraph[grateful-dead]
-gremlin> g = traversal().withEmbedded(graph)
-==>graphtraversalsource[YTDBGraph[grateful-dead], standard]
+gremlin> ytdb = YourTracks.instance("databases")
+gremlin> g = YTDBDemoGraphFactory.createGratefulDead(ytdb)
+==>ytdbGraphTraversalSource[grateful-dead]:v-0.5.0-SNAPSHOT
 gremlin> g.V().count()
 ==>808
 gremlin> g.E().count()
@@ -245,8 +213,7 @@ so they do not need to be imported again in that environment.*
 ![Diagram of modern graph](images/tinkerpop-modern.png)
 
 The diagram above displays the "modern" graph for reference.
-Assuming that g refers to a `TraversalSource` generated from a
-`YTDBGraph` instance that refers to that graph, calling `groupAround` with the vertexId argument,
+Assuming that g refers to a `TraversalSource`, calling `groupAround` with the vertexId argument,
 should return a Map with two keys: "knows" and "created",
 where the "knows" key should have vertices "2" and "4" and the "created" key should have vertex "3".
 You write your test, compile your application, and execute your test only to find it failing
@@ -258,7 +225,7 @@ You copy your Gremlin code from the IDE and execute it in the console and confir
 ```
 gremlin> g.V().has("person", "name", "marko")
 ==>v[#23:1]
-gremlin> g.V(RID.of("#23:1")).outE().group().by(label).by(inV().values("name")).next()
+gremlin> g.V("#23:1").outE().group().by(label).by(inV().values("name")).next()
 ==>created=lop
 ==>knows=vadas
 ```
@@ -275,7 +242,7 @@ it pulling a single vertex from the "knows" edges. You can remedy that by adding
 step and will be used as a second argument to `group()` step.
 
 ```
-gremlin> g.V(RID.of("#23:1")).outE().group().by(label).by(inV().values("name").fold()).next()
+gremlin> g.V("#23:1").outE().group().by(label).by(inV().values("name").fold()).next()
 ==>created=[lop]
 ==>knows=[josh, vadas]
 ```

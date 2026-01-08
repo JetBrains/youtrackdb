@@ -97,7 +97,7 @@ if [ ! -z "${JAVA_OPTIONS}" ]; then
     JVM_OPTS+=( "${JAVA_OPTIONS}" )
 fi
 
-JVM_OPTS+=( "-Duser.working_dir=${USER_DIR}" "-Dtinkerpop.ext=${USER_EXT_DIR:-${SYSTEM_EXT_DIR}}" "-Dlog4j2.configurationFile=conf/log4j2.xml" "-Dytdb.log4j.level=$YTDB_LOG_LEVEL" )
+JVM_OPTS+=("-Dpolyglot.engine.WarnInterpreterOnly=false" "-Duser.working_dir=${USER_DIR}" "-Dtinkerpop.ext=${USER_EXT_DIR:-${SYSTEM_EXT_DIR}}" "-Dlog4j2.configurationFile=conf/log4j2.xml" "-Dytdb.log4j.level=$YTDB_LOG_LEVEL" )
 JVM_OPTS=$(awk -v RS=' ' '!/^$/ {if (!x[$0]++) print}' <<< "${JVM_OPTS}" | grep -v '^$' | paste -sd ' ' -)
 JVM_OPTS+=("--add-opens=java.base/sun.nio.ch=ALL-UNNAMED")
 JVM_OPTS+=("--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED")

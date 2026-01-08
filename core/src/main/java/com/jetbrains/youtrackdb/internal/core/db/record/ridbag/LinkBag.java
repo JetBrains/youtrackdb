@@ -21,10 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.record.ridbag;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.DataContainer;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -33,6 +29,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;

@@ -1,20 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
@@ -23,7 +21,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -160,7 +158,9 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return IteratorUtils.map(itty, toA::apply);
     } else {
       var tx = session.getActiveTransaction();
-      var ids = Stream.of(elementIds).map(YTDBGraphImplAbstract::createRecordId);
+      var ids = Stream.of(elementIds)
+          .filter(Objects::nonNull) // looks like Gremlin allows nulls in here.
+          .map(YTDBGraphImplAbstract::createRecordId);
       var entities =
           ids.filter(id -> ((RecordIdInternal) id).isValidPosition()).map(rid -> {
             try {
@@ -255,7 +255,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   @Override
   public String toString() {
     return YTDBGraph.class.getSimpleName() + "[" + configuration.getString(
-        ConfigurationParameters.CONFIG_DB_NAME) + "]";
+        YTDBGraphFactory.CONFIG_DB_NAME) + "]";
   }
 
   public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {

@@ -15,10 +15,10 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
-import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
+import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.Date;

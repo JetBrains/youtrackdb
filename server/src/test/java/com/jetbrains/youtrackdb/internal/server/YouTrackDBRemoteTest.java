@@ -1,252 +1,110 @@
 package com.jetbrains.youtrackdb.internal.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
-import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import java.io.File;
+import com.jetbrains.youtrackdb.api.YouTrackDB;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
-import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- *
- */
 public class YouTrackDBRemoteTest {
 
-  private static final String SERVER_DIRECTORY = "./target/dbfactory";
   private YouTrackDBServer server;
-
-  private YouTrackDBRemoteImpl factory;
+  private YouTrackDB youTrackDB;
 
   @Before
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
-    server.setServerRootDirectory(SERVER_DIRECTORY);
+    server.setServerRootDirectory(DbTestBase.getBaseDirectoryPathStr(YouTrackDBRemoteTest.class));
     server.startup(
-        getClass()
-            .getClassLoader()
-            .getResourceAsStream(
-                "com/jetbrains/youtrackdb/internal/server/network/youtrackdb-server-config.xml"));
+        "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     server.activate();
 
-    var config = new BaseConfiguration();
-    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CAPACITY.getKey(), 2);
-    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT.getKey(), 300_000);
-
-    factory = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root",
-        config);
+    youTrackDB = YourTracks.instance("localhost", 45940, "root", "root");
   }
 
   @Test
   public void createAndUseRemoteDatabase() {
-    if (!factory.exists("test")) {
-      factory.execute("create database test memory users (admin identified by 'admin' role admin)");
+    if (!youTrackDB.exists("test")) {
+      youTrackDB.create("test", DatabaseType.MEMORY, "admin", "admin", "admin");
     }
 
-    var db = factory.open("test", "admin",
-        "admin");
-    db.executeSQLScript("""
-        begin;
-        insert into O;
-        commit;
-        """);
-    db.close();
+    try (var g = youTrackDB.openTraversal("test", "admin", "admin")) {
+      g.addV("label").iterate();
+    }
   }
 
-  // @Test(expected = StorageExistsException.class)
-  // TODO: Uniform database exist exceptions
-  @Test(expected = StorageException.class)
+
+  @Test(expected = RuntimeException.class)
   public void doubleCreateRemoteDatabase() {
-    factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    factory.execute("create database test memory users (admin identified by 'admin' role admin)");
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", "admin", "admin");
   }
 
   @Test
   public void createDropRemoteDatabase() {
-    factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    assertTrue(factory.exists("test"));
-    factory.drop("test");
-    assertFalse(factory.exists("test"));
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+    Assert.assertTrue(youTrackDB.exists("test"));
+    youTrackDB.drop("test");
+    Assert.assertFalse(youTrackDB.exists("test"));
   }
 
-  @Test
-  public void testPool() {
-    if (!factory.exists("test")) {
-      factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    }
-
-    var pool = factory.cachedPool("test", "admin", "admin");
-    var db = pool.acquire();
-    db.executeSQLScript("""
-        begin;
-        insert into O;
-        commit;
-        """);
-    db.close();
-    pool.close();
-  }
 
   @Test
-  @Ignore
-  public void testCachedPool() {
-    if (!factory.exists("testdb")) {
-      factory.execute(
-          "create database testdb memory users (admin identified by 'admin' role admin, reader"
-              + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
-    }
-
-    var poolAdmin1 = factory.cachedPool("testdb", "admin", "admin");
-    var poolAdmin2 = factory.cachedPool("testdb", "admin", "admin");
-    var poolReader1 = factory.cachedPool("testdb", "reader", "reader");
-    var poolReader2 = factory.cachedPool("testdb", "reader", "reader");
-
-    assertEquals(poolAdmin1, poolAdmin2);
-    assertEquals(poolReader1, poolReader2);
-    assertNotEquals(poolAdmin1, poolReader1);
-
-    var poolWriter1 = factory.cachedPool("testdb", "writer", "writer");
-    var poolWriter2 = factory.cachedPool("testdb", "writer", "writer");
-    assertEquals(poolWriter1, poolWriter2);
-
-    var poolAdmin3 = factory.cachedPool("testdb", "admin", "admin");
-    assertNotEquals(poolAdmin1, poolAdmin3);
-
-    poolAdmin1.close();
-    poolReader1.close();
-    poolWriter1.close();
-  }
-
-  @Test
-  public void testCachedPoolFactoryCleanUp() throws Exception {
-    if (!factory.exists("testdb")) {
-      factory.execute(
-          "create database testdb memory users (admin identified by 'admin' role admin)");
-    }
-
-    var poolAdmin1 = factory.cachedPool("testdb", "admin", "admin");
-    var poolAdmin2 = factory.cachedPool("testdb", "admin", "admin");
-
-    assertFalse(poolAdmin1.isClosed());
-    assertEquals(poolAdmin1, poolAdmin2);
-
-    poolAdmin1.close();
-
-    assertTrue(poolAdmin1.isClosed());
-
-    Thread.sleep(5_000);
-
-    var poolAdmin3 = factory.cachedPool("testdb", "admin", "admin");
-    assertNotEquals(poolAdmin1, poolAdmin3);
-    assertFalse(poolAdmin3.isClosed());
-
-    poolAdmin3.close();
-  }
-
-  @Test
-  @Ignore
   public void testMultiThread() {
-    if (!factory.exists("test")) {
-      factory.execute(
-          "create database test memory users (admin identified by 'admin' role admin, reader"
-              + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
+    if (!youTrackDB.exists("test")) {
+      youTrackDB.create("test", DatabaseType.MEMORY,
+          new UserCredential("admin", "admin", PredefinedRole.ADMIN),
+          new UserCredential("reader", "reader", PredefinedRole.READER),
+          new UserCredential("writer", "writer", PredefinedRole.WRITER)
+      );
     }
 
-    var pool = factory.cachedPool("test", "admin", "admin");
+    try (var g = youTrackDB.openTraversal("test", "admin", "admin")) {
+      g.inject(1, 2, 3).addV("label").iterate();
 
-    // do a query and assert on other thread
-    Runnable acquirer =
-        () -> {
-          try (var db = pool.acquire()) {
-            var res = db.query("SELECT * FROM OUser");
-            assertEquals(3, res.stream().count());
-          }
-        };
+      // do a query and assert on other thread
+      Runnable acquirer =
+          () -> {
+            var res = g.V().hasLabel("label").count().next();
+            Assert.assertEquals(3, res.longValue());
+          };
 
-    // spawn 20 threads
-    var futures =
-        IntStream.range(0, 19)
-            .boxed()
-            .map(i -> CompletableFuture.runAsync(acquirer))
-            .toList();
+      // spawn 20 threads
+      var futures =
+          IntStream.range(0, 19)
+              .boxed()
+              .map(i -> CompletableFuture.runAsync(acquirer))
+              .toList();
 
-    futures.forEach(CompletableFuture::join);
-
-    pool.close();
+      futures.forEach(CompletableFuture::join);
+    }
   }
 
   @Test
   public void testListDatabases() {
-    assertEquals(0, factory.listDatabases().size());
-    factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    var databases = factory.listDatabases();
-    assertEquals(1, databases.size());
-    assertTrue(databases.contains("test"));
+    Assert.assertEquals(0, youTrackDB.listDatabases().size());
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+
+    var databases = youTrackDB.listDatabases();
+    Assert.assertEquals(1, databases.size());
+    Assert.assertTrue(databases.contains("test"));
   }
 
-  @Test
-  public void createDatabaseNoUsers() {
-    factory.create(
-        "noUser",
-        DatabaseType.MEMORY,
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-            .build());
-    try (var session = factory.open("noUser", "root", "root")) {
-      assertEquals(0, session.query("select from OUser").stream().count());
-    }
-  }
-
-  @Test
-  public void createDatabaseDefaultUsers() {
-    factory.create(
-        "noUser",
-        DatabaseType.MEMORY,
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
-            .build());
-    try (var session = factory.open("noUser", "root", "root")) {
-      assertEquals(3, session.query("select from OUser").stream().count());
-    }
-  }
-
-  @Test
-  public void testCreateDatabaseViaSQL() {
-    var dbName = "testCreateDatabaseViaSQL";
-
-    try (var result = factory.execute("create database " + dbName + " disk")) {
-      Assert.assertTrue(result.hasNext());
-      var item = result.next();
-      Assert.assertEquals(true, item.getProperty("created"));
-    }
-    Assert.assertTrue(factory.exists(dbName));
-    factory.drop(dbName);
-  }
 
   @After
   public void after() {
-    for (var db : factory.listDatabases()) {
-      factory.drop(db);
+    for (var db : youTrackDB.listDatabases()) {
+      youTrackDB.drop(db);
     }
 
-    factory.close();
+    youTrackDB.close();
     server.shutdown();
-
-    YouTrackDBEnginesManager.instance().shutdown();
-    FileUtils.deleteRecursively(new File(SERVER_DIRECTORY));
-    YouTrackDBEnginesManager.instance().startup();
   }
 }

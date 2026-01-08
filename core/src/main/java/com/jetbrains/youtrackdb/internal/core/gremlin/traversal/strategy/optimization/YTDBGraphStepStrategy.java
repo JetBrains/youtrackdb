@@ -1,19 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceEdge;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceVertex;
 
 public final class YTDBGraphStepStrategy
     extends AbstractTraversalStrategy<ProviderOptimizationStrategy>
@@ -26,11 +28,6 @@ public final class YTDBGraphStepStrategy
 
   @Override
   public void apply(final Admin<?, ?> traversal) {
-    final var startStep = traversal.getStartStep();
-    if (!(startStep instanceof GraphStep<?, ?>) || startStep instanceof YTDBGraphStep) {
-      return;
-    }
-
     final var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
     if (polymorphic == null) {
       // means we couldn't access the graph from the traversal
@@ -38,9 +35,57 @@ public final class YTDBGraphStepStrategy
     }
 
     rebuildTraversal(traversal, polymorphic);
+    rebuildSideEffects(traversal);
   }
 
-  /// Recursive function that rebuilds traversal, replacing TinkerPop steps with YouTrackDB ones.
+  /// This method fixes all String IDs in [ReferenceVertex]es and [ReferenceEdge]s by replacing them
+  /// with [RID]s.
+  private static void rebuildSideEffects(Admin<?, ?> traversal) {
+    final var sideEffects = traversal.getSideEffects();
+    if (sideEffects.isEmpty()) {
+      return;
+    }
+
+    final var replacedVertices = new HashMap<String, ReferenceVertex>();
+    sideEffects.forEach((name, sideEffect) -> {
+      if (sideEffect instanceof String stringIdCandidate && !stringIdCandidate.isEmpty()
+          && stringIdCandidate.charAt(0) == '#') {
+        traversal.getSideEffects().add(name, RID.of(stringIdCandidate));
+      } else if (sideEffect instanceof ReferenceVertex v && v.id() instanceof String) {
+        traversal.getSideEffects().add(name, replaceRefVertex(v, replacedVertices));
+      } else if (sideEffect instanceof ReferenceEdge e && e.id() instanceof String id) {
+        traversal.getSideEffects().add(name, new ReferenceEdge(
+            RID.of(id), e.label(),
+            replaceRefVertex((ReferenceVertex) e.inVertex(), replacedVertices),
+            replaceRefVertex((ReferenceVertex) e.outVertex(), replacedVertices)
+        ));
+      }
+    });
+  }
+
+  private static ReferenceVertex replaceRefVertex(
+      ReferenceVertex v,
+      HashMap<String, ReferenceVertex> replacedVertices
+  ) {
+    if (!(v.id() instanceof String id)) {
+      return v;
+    }
+    var replaced = replacedVertices.get(id);
+    if (replaced == null) {
+      replaced = new ReferenceVertex(RID.of(id), v.label());
+      replacedVertices.put(id, replaced);
+    } else {
+      if (replaced.label() != null && v.label() != null && !replaced.label()
+          .equals(v.label())) {
+        throw new IllegalStateException(
+            "Cannot replace side effect with id " + id
+                + " because it has been replaced with a vertex of a different type");
+      }
+    }
+    return replaced;
+  }
+
+  /// Function that rebuilds traversal, replacing TinkerPop steps with YouTrackDB ones.
   /// Here is what gets replaced:
   /// 1. All "has" steps that strictly follow a GraphStep. They are gonna be handled natively by
   /// YouTrackDB (via SQL FROM and WHERE clauses at the moment).
@@ -61,10 +106,15 @@ public final class YTDBGraphStepStrategy
 
         // replacing GraphStep with YTDBGraphStep
         isTraversalStart = true;
-        currentGraphStep = new YTDBGraphStep<>(graphStep);
-        currentGraphStep.setPolymorphic(polymorphic);
-        traversal.removeStep(idx);
-        traversal.addStep(idx, currentGraphStep);
+
+        if (graphStep instanceof YTDBGraphStep<?, ?> ytdbGraphStep) {
+          currentGraphStep = ytdbGraphStep;
+        } else {
+          currentGraphStep = new YTDBGraphStep<>(graphStep);
+          currentGraphStep.setPolymorphic(polymorphic);
+          traversal.removeStep(idx);
+          traversal.addStep(idx, currentGraphStep);
+        }
       } else if (current instanceof HasStep<?> hch) {
 
         final boolean removeOriginalStep;
@@ -106,11 +156,6 @@ public final class YTDBGraphStepStrategy
         }
       } else {
         isTraversalStart = false;
-      }
-
-      // applying the transformation recursively to all children traversals.
-      if (current instanceof TraversalParent tp) {
-        tp.getLocalChildren().forEach(t -> rebuildTraversal(t, polymorphic));
       }
 
       idx = idx + 1;

@@ -14,7 +14,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -27,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
@@ -1472,25 +1472,29 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Nullable
   @Override
-  public CollectionBrowsePage nextPage(final long lastPosition) throws IOException {
+  public CollectionBrowsePage nextPage(
+      final long prevPagePosition,
+      final boolean forwards
+  ) throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
 
-        final var nextPositions =
-            collectionPositionMap.higherPositionsEntries(lastPosition, atomicOperation);
+        final var nextPositions = forwards ?
+            collectionPositionMap.higherPositionsEntries(prevPagePosition, atomicOperation) :
+            collectionPositionMap.lowerPositionsEntriesReversed(prevPagePosition, atomicOperation);
+
         if (nextPositions.length > 0) {
-          final var newLastPosition = nextPositions[nextPositions.length - 1].getPosition();
-          final List<CollectionBrowseEntry> nexv = new ArrayList<>(nextPositions.length);
+          final List<CollectionBrowseEntry> next = new ArrayList<>(nextPositions.length);
           for (final var pos : nextPositions) {
             final var buff =
                 internalReadRecord(
                     pos.getPosition(), pos.getPage(), pos.getOffset(), atomicOperation);
-            nexv.add(new CollectionBrowseEntry(pos.getPosition(), buff));
+            next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
           }
-          return new CollectionBrowsePage(nexv, newLastPosition);
+          return new CollectionBrowsePage(next);
         } else {
           return null;
         }

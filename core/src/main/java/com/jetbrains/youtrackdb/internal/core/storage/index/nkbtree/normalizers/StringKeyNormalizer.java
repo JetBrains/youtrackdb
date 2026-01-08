@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.nkbtree.normalizers
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.text.Collator;
-import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class StringKeyNormalizer implements KeyNormalizers {
 

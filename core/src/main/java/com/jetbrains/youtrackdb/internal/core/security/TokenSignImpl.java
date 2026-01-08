@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.security;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.KeyProvider;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenHeader;
 import java.security.MessageDigest;

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.command.script.transformer.result;
 
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 
 public interface ResultTransformer<T> {

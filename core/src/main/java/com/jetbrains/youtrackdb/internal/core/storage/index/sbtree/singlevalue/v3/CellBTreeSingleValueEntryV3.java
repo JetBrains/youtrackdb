@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Comparator;
 import java.util.Objects;
 

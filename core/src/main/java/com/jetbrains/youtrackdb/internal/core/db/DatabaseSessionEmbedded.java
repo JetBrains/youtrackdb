@@ -20,64 +20,22 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkList;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkMap;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
-import com.jetbrains.youtrackdb.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
-import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
-import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Blob;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.RecordHook;
-import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
-import com.jetbrains.youtrackdb.api.record.StatefulEdge;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
-import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
-import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
-import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
-import com.jetbrains.youtrackdb.api.transaction.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
@@ -88,12 +46,31 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook.TYPE;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
+import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
@@ -103,16 +80,25 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryI
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryProxy;
-import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
-import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
@@ -134,7 +120,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
-import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -147,6 +132,11 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrackdb.internal.core.tx.RollbackException;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import com.jetbrains.youtrackdb.internal.core.tx.TxBiConsumer;
+import com.jetbrains.youtrackdb.internal.core.tx.TxBiFunction;
+import com.jetbrains.youtrackdb.internal.core.tx.TxConsumer;
+import com.jetbrains.youtrackdb.internal.core.tx.TxFunction;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -330,7 +320,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           user = null;
         }
 
-        checkSecurity(Rule.ResourceGeneric.DATABASE, Role.PERMISSION_READ);
+        checkSecurity(ResourceGeneric.DATABASE, Role.PERMISSION_READ);
       }
 
     } catch (BaseException e) {
@@ -371,7 +361,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 user = null;
               }
 
-              checkSecurity(Rule.ResourceGeneric.DATABASE, Role.PERMISSION_READ);
+              checkSecurity(ResourceGeneric.DATABASE, Role.PERMISSION_READ);
             }
           } catch (BaseException e) {
             activeSession.remove();
@@ -799,7 +789,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
     try {
       if (!"sql".equalsIgnoreCase(language)) {
-        checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
+        checkSecurity(ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
       }
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
@@ -852,7 +842,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               "please move it to the afterCallbackXXX method");
     }
     if (!"sql".equalsIgnoreCase(language)) {
-      checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
+      checkSecurity(ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
     }
 
     try {
@@ -1050,7 +1040,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               + "please use newInstance() method");
     }
 
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+    checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
     var edge = new StatefullEdgeEntityImpl(new ChangeableRecordId(), this, className);
     currentTx.addRecordOperation(edge, RecordOperation.CREATED);
 
@@ -1174,142 +1164,32 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return addEdgeInternal(from, to, type, false);
   }
 
-
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadFirstRecordAndNextRidInCollection(
-      int collectionId) {
-    assert assertIfNotActive();
-
+  public RecordAbstract executeReadRecord(
+      @Nonnull RecordIdInternal rid,
+      @Nullable RawBuffer prefetchedBuffer,
+      boolean throwExceptionIfRecordNotFound
+  ) {
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var firstPosition = storage.ceilingPhysicalPositions(this, collectionId,
-        new PhysicalPosition(0), 1);
-    var firstTxRid = currentTx.getFirstRid(collectionId);
-
-    if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
-      return null;
-    }
-
-    RecordIdInternal firstRid;
-    if (firstPosition == null || firstPosition.length == 0) {
-      firstRid = firstTxRid;
-    } else if (firstTxRid == null) {
-      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
-    } else if (firstPosition[0].collectionPosition < firstTxRid.getCollectionPosition()) {
-      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
-    } else {
-      firstRid = firstTxRid;
-    }
-
-    if (currentTx.isDeletedInTx(firstRid)) {
-      firstRid = fetchNextRid(firstRid);
-    }
-
-    if (firstRid == null) {
-      return null;
-    }
-
-    var recordId = firstRid;
-    while (true) {
-      var result = executeReadRecord(recordId, false, true, false);
-
-      if (result.recordAbstract() == null) {
-        if (result.nextRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.nextRecordId();
-          continue;
-        }
-      }
-
-      //noinspection unchecked
-      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
-    }
-  }
-
-  @Nullable
-  @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadLastRecordAndPreviousRidInCollection(
-      int collectionId) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var lastPosition = storage.floorPhysicalPositions(this, collectionId,
-        new PhysicalPosition(Long.MAX_VALUE), 1);
-    var lastTxRid = currentTx.getLastRid(collectionId);
-
-    if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
-      return null;
-    }
-
-    RecordIdInternal lastRid;
-    if (lastPosition == null || lastPosition.length == 0) {
-      lastRid = lastTxRid;
-    } else if (lastTxRid == null) {
-      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
-    } else if (lastPosition[0].collectionPosition > lastTxRid.getCollectionPosition()) {
-      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
-    } else {
-      lastRid = lastTxRid;
-    }
-
-    if (currentTx.isDeletedInTx(lastRid)) {
-      lastRid = fetchPreviousRid(lastRid);
-    }
-
-    if (lastRid == null) {
-      return null;
-    }
-
-    var recordId = lastRid;
-    while (true) {
-      var result = executeReadRecord(recordId, true, false, false);
-      if (result.recordAbstract() == null) {
-        if (result.previousRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.previousRecordId();
-          continue;
-        }
-      }
-      //noinspection unchecked
-      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
-    }
-  }
-
-  @Override
-  @Nullable
-  public final LoadRecordResult executeReadRecord(final @Nonnull RecordIdInternal rid,
-      boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    RecordIdInternal previousRid = null;
-    RecordIdInternal nextRid = null;
     getMetadata().makeThreadLocalSchemaSnapshot();
     try {
       checkSecurity(
-          Rule.ResourceGeneric.COLLECTION,
+          ResourceGeneric.COLLECTION,
           Role.PERMISSION_READ,
           getCollectionNameById(rid.getCollectionId()));
       // SEARCH IN LOCAL TX
       var txInternal = getTransactionInternal();
       if (txInternal.isDeletedInTx(rid)) {
         // DELETED IN TX
-        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
-            throwExceptionIfRecordNotFound);
+        return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);
       }
 
       var record = getTransactionInternal().getRecord(rid);
-      var cachedRecord = localCache.findRecord(rid);
       if (record == null) {
-        record = cachedRecord;
+        record = localCache.findRecord(rid);
       }
       if (record != null && record.isUnloaded()) {
         throw new IllegalStateException(
@@ -1318,8 +1198,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
       if (record != null) {
         if (beforeReadOperations(record)) {
-          return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
-              throwExceptionIfRecordNotFound);
+          return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);
         }
 
         afterReadOperations(record);
@@ -1332,43 +1211,27 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         assert !record.isUnloaded();
         assert record.getSession() == this;
 
-        if (fetchPreviousRid) {
-          previousRid = fetchPreviousRid(rid);
-        }
-
-        if (fetchNextRid) {
-          nextRid = fetchNextRid(rid);
-        }
-
-        return new LoadRecordResult(record, previousRid, nextRid);
+        return record;
       }
 
       loadedRecordsCount++;
 
-      final RawBuffer recordBuffer;
       if (!rid.isValidPosition()) {
         throw new DatabaseException(getDatabaseName(), "Invalid record id " + rid);
       }
 
-      try {
-        var readRecordResult =
-            storage.readRecord(this, rid, fetchPreviousRid, fetchNextRid);
-        recordBuffer = readRecordResult.buffer();
-
-        previousRid = readRecordResult.previousRecordId();
-        nextRid = readRecordResult.nextRecordId();
-      } catch (RecordNotFoundException e) {
-        if (throwExceptionIfRecordNotFound) {
-          throw e;
-        } else {
-          if (fetchNextRid) {
-            nextRid = fetchNextRid(rid);
+      final RawBuffer recordBuffer;
+      if (prefetchedBuffer != null) {
+        recordBuffer = prefetchedBuffer;
+      } else {
+        try {
+          recordBuffer = storage.readRecord(rid);
+        } catch (RecordNotFoundException e) {
+          if (throwExceptionIfRecordNotFound) {
+            throw e;
+          } else {
+            return null;
           }
-          if (fetchPreviousRid) {
-            previousRid = fetchPreviousRid(rid);
-          }
-
-          return new LoadRecordResult(null, previousRid, nextRid);
         }
       }
 
@@ -1395,8 +1258,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       record.fromStream(recordBuffer.buffer());
 
       if (beforeReadOperations(record)) {
-        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
-            throwExceptionIfRecordNotFound);
+        return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);
       }
 
       afterReadOperations(record);
@@ -1404,39 +1266,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       assert !record.isUnloaded();
       assert record.getSession() == this;
 
-      if (fetchPreviousRid) {
-        var previousTxRid = currentTx.getPreviousRidInCollection(rid);
-
-        if (previousRid == null) {
-          if (previousTxRid != null) {
-            previousRid = previousTxRid;
-          }
-        } else if (previousTxRid != null && previousTxRid.compareTo(previousRid) > 0) {
-          previousRid = previousTxRid;
-        }
-
-        if (previousRid != null && currentTx.isDeletedInTx(previousRid)) {
-          previousRid = fetchPreviousRid(previousRid);
-        }
-      }
-
-      if (fetchNextRid) {
-        var nextTxRid = currentTx.getNextRidInCollection(rid);
-
-        if (nextRid == null) {
-          if (nextTxRid != null) {
-            nextRid = nextTxRid;
-          }
-        } else if (nextTxRid != null && nextTxRid.compareTo(nextRid) < 0) {
-          nextRid = nextTxRid;
-        }
-
-        if (nextRid != null && currentTx.isDeletedInTx(nextRid)) {
-          nextRid = fetchNextRid(nextRid);
-        }
-      }
-
-      return new LoadRecordResult(record, previousRid, nextRid);
+      return record;
     } catch (RecordNotFoundException t) {
       throw t;
     } catch (Exception t) {
@@ -1459,96 +1289,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  private LoadRecordResult createRecordNotFoundResult(RecordIdInternal rid,
-      boolean fetchPreviousRid,
-      boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    RecordIdInternal previousRid = null;
-    RecordIdInternal nextRid = null;
+  @Nullable
+  private RecordAbstract createRecordNotFoundResult(RecordIdInternal rid,
+      boolean throwExceptionIfRecordNotFound) {
     if (throwExceptionIfRecordNotFound) {
       throw new RecordNotFoundException(getDatabaseName(), rid);
     } else {
-      if (fetchNextRid) {
-        nextRid = fetchNextRid(rid);
-      }
-      if (fetchPreviousRid) {
-        previousRid = fetchPreviousRid(rid);
-      }
-
-      return new LoadRecordResult(null, previousRid, nextRid);
+      return null;
     }
-  }
-
-  @Nullable
-  private RecordIdInternal fetchNextRid(RecordIdInternal rid) {
-    RecordIdInternal nextRid;
-    while (true) {
-      var higherPositions = storage.higherPhysicalPositions(this, rid.getCollectionId(),
-          new PhysicalPosition(rid.getCollectionPosition()), 1);
-      var txNextRid = currentTx.getNextRidInCollection(rid);
-
-      if (higherPositions != null && higherPositions.length > 0) {
-        if (txNextRid == null) {
-          nextRid = new RecordId(rid.getCollectionId(),
-              higherPositions[0].collectionPosition);
-        } else if (higherPositions[0].collectionPosition > txNextRid.getCollectionPosition()) {
-          nextRid = txNextRid;
-        } else {
-          nextRid = new RecordId(rid.getCollectionId(),
-              higherPositions[0].collectionPosition);
-        }
-      } else {
-        nextRid = txNextRid;
-      }
-
-      if (nextRid == null) {
-        return null;
-      }
-
-      if (currentTx.isDeletedInTx(nextRid)) {
-        rid = nextRid;
-        continue;
-      }
-
-      break;
-    }
-
-    return nextRid;
-  }
-
-  @Nullable
-  private RecordIdInternal fetchPreviousRid(RecordIdInternal rid) {
-    RecordIdInternal previousRid;
-
-    while (true) {
-      var lowerPositions = storage.lowerPhysicalPositions(this, rid.getCollectionId(),
-          new PhysicalPosition(rid.getCollectionPosition()), 1);
-      var txPreviousRid = currentTx.getPreviousRidInCollection(rid);
-      if (lowerPositions != null && lowerPositions.length > 0) {
-        if (txPreviousRid == null) {
-          previousRid = new RecordId(rid.getCollectionId(),
-              lowerPositions[0].collectionPosition);
-        } else if (lowerPositions[0].collectionPosition < txPreviousRid.getCollectionPosition()) {
-          previousRid = txPreviousRid;
-        } else {
-          previousRid = new RecordId(rid.getCollectionId(),
-              lowerPositions[0].collectionPosition);
-        }
-      } else {
-        previousRid = txPreviousRid;
-      }
-
-      if (previousRid == null) {
-        return null;
-      }
-
-      if (currentTx.isDeletedInTx(previousRid)) {
-        rid = previousRid;
-        continue;
-      }
-
-      break;
-    }
-    return previousRid;
   }
 
   @Override
@@ -1595,7 +1343,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               + "please use newInstance() method");
     }
 
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+    checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
     var vertex = new VertexEntityImpl(new ChangeableRecordId(), this, className);
     currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
     vertex.convertPropertiesToClassAndInitDefaultValues(vertex.getImmutableSchemaClass(this));
@@ -1719,7 +1467,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       ensureLinksConsistencyBeforeModification(entity);
 
       if (clazz != null) {
-        checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
+        checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
         if (clazz.isUser()) {
           entity.validate();
         } else if (clazz.isFunction()) {
@@ -1730,7 +1478,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    callbackHooks(RecordHook.TYPE.BEFORE_CREATE, recordAbstract);
+    callbackHooks(TYPE.BEFORE_CREATE, recordAbstract);
   }
 
   @Override
@@ -1753,7 +1501,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    callbackHooks(RecordHook.TYPE.AFTER_CREATE, recordAbstract);
+    callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
   }
 
   @Override
@@ -1784,7 +1532,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, recordAbstract);
+    callbackHooks(TYPE.BEFORE_UPDATE, recordAbstract);
   }
 
   @Override
@@ -1809,7 +1557,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
-      java.lang.String collectionName) {
+      String collectionName) {
     assert assertIfNotActive();
 
     checkSecurity(Role.PERMISSION_DELETE, recordAbstract, collectionName);
@@ -1829,7 +1577,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    callbackHooks(RecordHook.TYPE.BEFORE_DELETE, recordAbstract);
+    callbackHooks(TYPE.BEFORE_DELETE, recordAbstract);
   }
 
   @Override
@@ -1858,7 +1606,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
 
-    callbackHooks(RecordHook.TYPE.READ, identifiable);
+    callbackHooks(TYPE.READ, identifiable);
   }
 
   @Override
@@ -1869,7 +1617,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
         try {
-          checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clazz.getName());
+          checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_READ, clazz.getName());
         } catch (SecurityException e) {
           return true;
         }
@@ -1937,8 +1685,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           }
         }
 
-        LiveQueryHook.addOp(entity, operation.type, this);
-        LiveQueryHookV2.addOp(this, entity, operation.type);
       }
     }
 
@@ -1960,8 +1706,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    LiveQueryHook.notifyForTxChanges(this);
-    LiveQueryHookV2.notifyForTxChanges(this);
   }
 
 
@@ -2001,8 +1745,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    LiveQueryHook.removePendingDatabaseOps(this);
-    LiveQueryHookV2.removePendingDatabaseOps(this);
   }
 
   @Override
@@ -2051,7 +1793,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     try {
       checkSecurity(
-          Rule.ResourceGeneric.COLLECTION,
+          ResourceGeneric.COLLECTION,
           Role.PERMISSION_READ,
           getCollectionNameById(rid.getCollectionId()));
 
@@ -2091,7 +1833,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public void checkSecurity(
-      final Rule.ResourceGeneric resourceGeneric,
+      final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
       final int iOperation) {
     assert assertIfNotActive();
@@ -2125,7 +1867,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public void checkSecurity(
-      final Rule.ResourceGeneric iResourceGeneric,
+      final ResourceGeneric iResourceGeneric,
       final int iOperation,
       final Object... iResourcesSpecific) {
     assert assertIfNotActive();
@@ -2147,7 +1889,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public void checkSecurity(
-      final Rule.ResourceGeneric iResourceGeneric,
+      final ResourceGeneric iResourceGeneric,
       final int iOperation,
       final Object iResourceSpecific) {
     assert assertIfNotActive();
@@ -2310,7 +2052,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (name == null) {
       return 0;
     }
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
+    checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
     assert assertIfNotActive();
     return storage.count(this, iCollectionId, countTombstones);
   }
@@ -2328,7 +2070,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     String name;
     for (var iCollectionId : iCollectionIds) {
       name = getCollectionNameById(iCollectionId);
-      checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
+      checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
     }
     return storage.count(this, iCollectionIds, countTombstones);
   }
@@ -2343,7 +2085,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
+    checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
 
     final var collectionId = getCollectionIdByName(iCollectionName);
     if (collectionId < 0) {
@@ -2389,7 +2131,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     checkSecurity(
-        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
+        ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
         getCollectionNameById(collectionId));
 
     var schema = metadata.getSchema();
@@ -2476,7 +2218,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
+    checkSecurity(ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
     return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
   }
@@ -2690,7 +2432,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
+    this.checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
     int[] collectionIds;
     if (polimorfic) {
@@ -2725,7 +2467,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
+    checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
 
     var id = getCollectionIdByName(collectionName);
     if (id == -1) {
@@ -2734,19 +2476,19 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
     final var clazz = getMetadata().getSchema().getClassByCollectionId(id);
     if (clazz != null) {
-      checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName());
+      checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName());
     }
 
-    var count = new long[]{0};
-    final var iteratorCollection =
-        new RecordIteratorCollection<>(this, id, true);
+    try (var iteratorCollection = new RecordIteratorCollection<>(this, id, true)) {
 
-    executeInTxBatches(iteratorCollection, (session, record) -> {
-      delete(record);
-      count[0]++;
-    });
+      final var count = new long[]{0};
+      executeInTxBatches(iteratorCollection, (session, record) -> {
+        delete(record);
+        count[0]++;
+      });
 
-    return count[0];
+      return count[0];
+    }
   }
 
   @Override
@@ -2801,49 +2543,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         LogManager.instance().error(this, "Error during call of database listener", e);
       }
     }
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
-      Map<String, ?> args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var youTrackDb = sharedContext.youtrackDB;
-
-    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-    var contextConfig = getConfiguration();
-    var poolConfig = configBuilder.fromContext(contextConfig).build();
-
-    var userName = user.getName(this);
-
-    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
-    var storage = this.storage;
-
-    return storage.live(pool, query, listener, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    var youTrackDb = sharedContext.youtrackDB;
-
-    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-    var contextConfig = getConfiguration();
-    var poolConfig = configBuilder.fromContext(contextConfig).build();
-
-    var userName = user.getName(this);
-
-    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
-    var storage = this.storage;
-
-    return storage.live(pool, query, listener, args);
   }
 
   /**
@@ -2965,7 +2664,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     if (user != null) {
-      if (user.checkIfAllowed(this, Rule.ResourceGeneric.CLASS, SecurityUserImpl.CLASS_NAME,
+      if (user.checkIfAllowed(this, ResourceGeneric.CLASS, SecurityUserImpl.CLASS_NAME,
           Role.PERMISSION_READ)
           != null) {
 
@@ -3186,16 +2885,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
   }
 
-  @Override
-  public RemoteDatabaseSession asRemoteSession() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    openedAsRemoteSession = true;
-    return new RemoteDatabaseSessionWrapper(this);
-  }
 
   @Override
   public String getURL() {
@@ -3361,51 +3050,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    return (RET) currentTx.loadRecord(recordId).recordAbstract();
-  }
-
-  @Nullable
-  @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndNextRidInCollection(
-      @Nonnull RecordIdInternal recordId) {
-    assert assertIfNotActive();
-
-    while (true) {
-      var result = executeReadRecord(recordId, false, true, false);
-
-      if (result.recordAbstract() == null) {
-        if (result.nextRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.nextRecordId();
-          continue;
-        }
-      }
-
-      //noinspection unchecked
-      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
-    }
-  }
-
-  @Nullable
-  @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndPreviousRidInCollection(
-      @Nonnull RecordIdInternal recordId) {
-    assert assertIfNotActive();
-
-    while (true) {
-      var result = executeReadRecord(recordId, true, false, false);
-      if (result.recordAbstract() == null) {
-        if (result.previousRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.previousRecordId();
-          continue;
-        }
-      }
-      //noinspection unchecked
-      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
-    }
+    return (RET) currentTx.loadRecord(recordId);
   }
 
   @Override
@@ -3664,7 +3309,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           "Class '" + className + "' not found in current database");
     }
 
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, className);
+    checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_READ, className);
     return new RecordIteratorClass(this, className, iPolymorphic, forwardDirection);
   }
 
@@ -3675,7 +3320,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
+    checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
     return new RecordIteratorClass(this, (SchemaClassInternal) clz,
         true, true);
   }
@@ -3691,8 +3336,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
-
+    checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
     return new RecordIteratorCollection<>(this, getCollectionIdByName(iCollectionName), true);
   }
 
@@ -3956,12 +3600,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (collection == null) {
       collection = getCollectionNameById(record.getIdentity().getCollectionId());
     }
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, operation, collection);
+    checkSecurity(ResourceGeneric.COLLECTION, operation, collection);
 
     if (record instanceof EntityImpl) {
       var clazzName = ((EntityImpl) record).getSchemaClassName();
       if (clazzName != null) {
-        checkSecurity(Rule.ResourceGeneric.CLASS, operation, clazzName);
+        checkSecurity(ResourceGeneric.CLASS, operation, clazzName);
       }
     }
   }
@@ -4650,8 +4294,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return linkMap;
   }
 
+  @Nonnull
   @Override
-  public @Nonnull FrontendTransaction getActiveTransaction() {
+  public FrontendTransaction getActiveTransaction() {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -4666,7 +4311,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Nullable
   @Override
-  public Transaction getActiveTransactionOrNull() {
+  public FrontendTransaction getActiveTransactionOrNull() {
     assert assertIfNotActive();
 
     checkOpenness();

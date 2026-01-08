@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;

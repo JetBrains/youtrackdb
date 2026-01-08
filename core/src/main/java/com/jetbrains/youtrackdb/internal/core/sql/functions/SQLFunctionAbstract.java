@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import javax.annotation.Nullable;
 
 /**

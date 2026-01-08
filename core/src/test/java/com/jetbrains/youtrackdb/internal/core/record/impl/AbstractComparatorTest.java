@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryComparator;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;

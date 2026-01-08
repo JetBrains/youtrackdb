@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.function;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 
 /**
  *

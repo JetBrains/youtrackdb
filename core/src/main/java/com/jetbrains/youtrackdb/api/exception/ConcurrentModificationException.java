@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.api.exception;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Locale;
 import java.util.Objects;
 

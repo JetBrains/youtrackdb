@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBListenerAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 
 /**
  * Uses Thread Local to store information used by hooks.

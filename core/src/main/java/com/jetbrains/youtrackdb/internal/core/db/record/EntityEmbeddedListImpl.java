@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrackdb.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;

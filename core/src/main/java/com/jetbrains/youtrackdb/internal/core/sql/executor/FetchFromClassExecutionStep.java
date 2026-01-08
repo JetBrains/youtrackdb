@@ -1,25 +1,19 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.query.ExecutionStep;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollections;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
+import it.unimi.dsi.fastutil.ints.IntComparators;
 import java.util.Set;
-import java.util.stream.Collectors;
-import javax.annotation.Nonnull;
 
 /**
  *
@@ -29,7 +23,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
   protected String className;
   protected boolean orderByRidAsc = false;
   protected boolean orderByRidDesc = false;
-  protected List<ExecutionStep> subSteps = new ArrayList<>();
+  private int[] collectionIds;
 
   protected FetchFromClassExecutionStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
@@ -79,35 +73,12 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
         filteredClassCollections.add(collectionId);
       }
     }
-    var collectionIds = new int[filteredClassCollections.size() + 1];
-    for (var i = 0; i < filteredClassCollections.size(); i++) {
-      collectionIds[i] = filteredClassCollections.getInt(i);
+    if (orderByRidAsc) {
+      filteredClassCollections.sort(IntComparators.NATURAL_COMPARATOR);
+    } else if (orderByRidDesc) {
+      filteredClassCollections.sort(IntComparators.OPPOSITE_COMPARATOR);
     }
-    collectionIds[collectionIds.length - 1] = -1; // temporary collection, data in tx
-
-    sortClusers(collectionIds);
-    for (var collectionId : collectionIds) {
-      if (collectionId > 0) {
-        var step =
-            new FetchFromCollectionExecutionStep(collectionId, planningInfo, ctx, profilingEnabled);
-        if (orderByRidAsc) {
-          step.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
-        } else if (orderByRidDesc) {
-          step.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
-        }
-        subSteps.add(step);
-      } else {
-        // current tx
-        var step =
-            new FetchTemporaryFromTxStep(ctx, className, profilingEnabled);
-        if (orderByRidAsc) {
-          step.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
-        } else if (orderByRidDesc) {
-          step.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
-        }
-        subSteps.add(step);
-      }
-    }
+    collectionIds = filteredClassCollections.toArray(new int[0]);
   }
 
   protected static SchemaClass loadClassFromSchema(String className, CommandContext ctx) {
@@ -120,74 +91,26 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     return clazz;
   }
 
-  private void sortClusers(int[] collectionIds) {
-    if (orderByRidAsc) {
-      Arrays.sort(collectionIds);
-    } else if (orderByRidDesc) {
-      Arrays.sort(collectionIds);
-      // revert order
-      for (var i = 0; i < collectionIds.length / 2; i++) {
-        var old = collectionIds[i];
-        collectionIds[i] = collectionIds[collectionIds.length - 1 - i];
-        collectionIds[collectionIds.length - 1 - i] = old;
-      }
-    }
-  }
-
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
 
-    var stepsIter = subSteps;
-
-    var res =
-        new ExecutionStreamProducer() {
-          private final Iterator<ExecutionStep> iter = stepsIter.iterator();
-
-          @Override
-          public ExecutionStream next(CommandContext ctx) {
-            var step = iter.next();
-            return ((AbstractExecutionStep) step).start(ctx);
-          }
-
-          @Override
-          public boolean hasNext(CommandContext ctx) {
-            return iter.hasNext();
-          }
-
-          @Override
-          public void close(CommandContext ctx) {
-          }
-        };
-
-    return new MultipleExecutionStream(res)
-        .map(
-            (result, context) -> {
-              context.setVariable("$current", result);
-              return result;
-            });
-  }
-
-  @Override
-  public void sendTimeout() {
-    for (var step : subSteps) {
-      ((AbstractExecutionStep) step).sendTimeout();
+    if (collectionIds == null || collectionIds.length == 0) {
+      return ExecutionStream.empty();
     }
-    if (prev != null) {
-      prev.sendTimeout();
-    }
-  }
 
-  @Override
-  public void close() {
-    for (var step : subSteps) {
-      ((AbstractExecutionStep) step).close();
-    }
-    if (prev != null) {
-      prev.close();
-    }
+    final var iter = new RecordIteratorCollections<>(
+        ctx.getDatabaseSession(),
+        collectionIds,
+        !orderByRidDesc
+    );
+
+    var set = ExecutionStream.loadIterator(iter);
+
+    set = set.interruptable();
+    return set;
   }
 
   @Override
@@ -200,13 +123,6 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
       builder.append(" (").append(getCostFormatted()).append(")");
     }
     builder.append("\n");
-    for (var i = 0; i < subSteps.size(); i++) {
-      var step = (ExecutionStepInternal) subSteps.get(i);
-      builder.append(step.prettyPrint(depth + 1, indent));
-      if (i < subSteps.size() - 1) {
-        builder.append("\n");
-      }
-    }
     return builder.toString();
   }
 
@@ -231,12 +147,6 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     }
   }
 
-  @Nonnull
-  @Override
-  public List<ExecutionStep> getSubSteps() {
-    return subSteps;
-  }
-
   @Override
   public boolean canBeCached() {
     return true;
@@ -248,10 +158,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     result.className = this.className;
     result.orderByRidAsc = this.orderByRidAsc;
     result.orderByRidDesc = this.orderByRidDesc;
-    result.subSteps =
-        this.subSteps.stream()
-            .map(x -> ((ExecutionStepInternal) x).copy(ctx))
-            .collect(Collectors.toList());
+    result.collectionIds = this.collectionIds;
     return result;
   }
 }

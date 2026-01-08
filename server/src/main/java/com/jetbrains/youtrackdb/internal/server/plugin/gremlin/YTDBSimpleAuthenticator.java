@@ -19,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class YTDBSimpleAuthenticator implements Authenticator {
-
   public static final String YTDB_SERVER_PARAM = "com.jetbrains.youtrackdb.server.gremlin.YouTrackDBServer";
 
   private static final Logger logger = LoggerFactory.getLogger(SimpleAuthenticator.class);
