@@ -1,8 +1,9 @@
 package com.jetbrains.youtrackdb.security;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedSystemRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -26,7 +27,7 @@ public class SystemUsersTest {
         DbTestBase.getBaseDirectoryPathStr(SystemUsersTest.class))) {
       youTrackDB.create("test", DatabaseType.MEMORY,
           new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
-      youTrackDB.createSystemUser("systemxx", "systemxx", PredefinedLocalRole.ADMIN);
+      youTrackDB.createSystemUser("systemxx", "systemxx", PredefinedSystemRole.ROOT);
 
       var db = youTrackDB.open("test", "systemxx", "systemxx");
       db.close();
