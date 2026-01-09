@@ -6,8 +6,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -164,7 +164,7 @@ public class SQLFunctionAbsoluteValueTest {
     try (var ctx = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       ctx.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var db = ctx.open("test", "admin", "adminpwd")) {
         var tx = db.begin();
         try (var result = tx.query("select abs(-45.4) as abs")) {

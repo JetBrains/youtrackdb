@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.server.security;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
@@ -27,9 +27,9 @@ public class RemoteSecurityTests {
         "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     youTrackDB = YourTracks.instance("localhost", "root", "root");
     youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN),
-        new UserCredential("writer", "writer", PredefinedRole.WRITER),
-        new UserCredential("reader", "reader", PredefinedRole.READER)
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN),
+        new LocalUserCredential("writer", "writer", PredefinedLocalRole.WRITER),
+        new LocalUserCredential("reader", "reader", PredefinedLocalRole.READER)
     );
 
     this.traversal = youTrackDB.openTraversal(DB_NAME, "admin", "admin");

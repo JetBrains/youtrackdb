@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.server.security;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import org.junit.After;
@@ -21,9 +21,9 @@ public class RemoteBasicSecurityTest {
         "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     var youTrackDB = YourTracks.instance("localhost", "root", "root");
     youTrackDB.create("test", DatabaseType.MEMORY,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN),
-        new UserCredential("reader", "reader", PredefinedRole.READER),
-        new UserCredential("writer", "writer", PredefinedRole.WRITER)
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN),
+        new LocalUserCredential("reader", "reader", PredefinedLocalRole.READER),
+        new LocalUserCredential("writer", "writer", PredefinedLocalRole.WRITER)
     );
 //    try (var session = youTrackDB.open("test", "admin", "admin")) {
 //      session.executeSQLScript("""

@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -242,8 +243,31 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   public void createSystemUser(@Nonnull String username, @Nonnull String password,
       @Nonnull String... role) {
     internal.getSystemDatabase().executeInDBScope(session -> {
-      var security = session.getMetadata().getSecurity();
-      security.createUser(username, password, role);
+      session.executeInTx(transaction -> {
+        var security = session.getMetadata().getSecurity();
+        security.createUser(username, password, role);
+      });
+      return null;
+    });
+  }
+
+  @Override
+  public List<String> listSystemUsers() {
+    return internal.getSystemDatabase()
+        .executeWithDB(session -> session.computeInTx(transaction -> {
+          var security = session.getMetadata().getSecurity();
+          return security.getAllUsers().stream()
+              .map(entity -> entity.getString(SecurityUserImpl.NAME_PROPERTY)).toList();
+        }));
+  }
+
+  @Override
+  public void dropSystemUser(@NonNull String username) {
+    internal.getSystemDatabase().executeInDBScope(session -> {
+      session.executeInTx(transaction -> {
+        var security = session.getMetadata().getSecurity();
+        security.dropUser(username);
+      });
       return null;
     });
   }

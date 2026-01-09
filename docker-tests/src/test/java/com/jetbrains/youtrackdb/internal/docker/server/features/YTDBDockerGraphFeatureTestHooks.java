@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.docker.server.features;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.docker.StdOutConsumer;
 import io.cucumber.java.AfterAll;
@@ -100,7 +100,7 @@ public class YTDBDockerGraphFeatureTestHooks {
     var dbType = calculateDbType();
 
     youTrackDB.createIfNotExists(DEFAULT_DB_NAME, dbType,
-        new UserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedLocalRole.ADMIN));
 
     for (var graphToLoad : graphsToLoad) {
       var graphName = getServerGraphName(graphToLoad);
@@ -108,7 +108,7 @@ public class YTDBDockerGraphFeatureTestHooks {
       var fileName = location.substring(location.lastIndexOf('/') + 1);
 
       youTrackDB.createIfNotExists(graphName, dbType,
-          new UserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedRole.ADMIN)
+          new LocalUserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedLocalRole.ADMIN)
       );
 
       try (var traversal = youTrackDB.openTraversal(graphName)) {

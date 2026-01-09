@@ -172,7 +172,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
             var traversalSource = initTraversalSourceIfAbsent(context);
             validateEvalMessage(message).orElse(getEvalOp(traversalSource)).accept(ctx);
           } finally {
-            ctx.getChannelHandlerContext().channel().attr(currentTraversalSource).remove();
+            ctx.getChannelHandlerContext().channel().attr(currentTraversalSource).set(null);
           }
         };
       }
@@ -182,7 +182,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
             initTraversalSourceIfAbsent(ctx);
             iterateBytecodeTraversal(ctx);
           } finally {
-            ctx.getChannelHandlerContext().channel().attr(currentTraversalSource).remove();
+            ctx.getChannelHandlerContext().channel().attr(currentTraversalSource).set(null);
           }
         };
       }
@@ -515,6 +515,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
           .statusMessage("User is not authenticated").create());
     }
 
+    final var message = context.getRequestMessage();
+
     return youTrackDB.openTraversalNoAuthenticate(dbName, user.getName());
   }
 
@@ -644,6 +646,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
               tx.rollback();
             }
 
+            //noinspection unchecked
             CloseableIterator.closeIterator(itty);
 
             // wrap up the exception and rethrow. the error will be written to the client by the evalFuture

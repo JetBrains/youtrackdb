@@ -68,25 +68,29 @@ public class YTDBSimpleAuthenticator implements Authenticator {
     var databases = server.getDatabases();
     var security = server.getSecurity();
 
+    var errorMessage = "Combination of username/databasename/password are incorrect";
     SecurityUser securityUser;
     try (var systemDatabaseSession = databases.getSystemDatabase().openSystemDatabaseSession()) {
       securityUser = security.authenticate(systemDatabaseSession, username, password);
       if (securityUser == null) {
         if (dbName.isEmpty()) {
-          throw new AuthenticationException("Username and/or password are incorrect");
+          throw new AuthenticationException(errorMessage);
         }
 
         try {
           if (databases.exists(dbName)) {
-            var session = databases.cachedPool(dbName, username, password);
+            var session = databases.cachedPool(dbName, username, password).acquire();
+            var user = security.authenticate(session, username, password);
+            if (user == null) {
+              throw new AuthenticationException(errorMessage);
+            }
             session.close();
           } else {
             throw new AuthenticationException("Database '" + dbName + "' does not exist");
           }
           return new AuthenticatedUser(username);
         } catch (SecurityAccessException exception) {
-          throw new AuthenticationException(
-              "Combination of username/databasename/password are incorrect", exception);
+          throw new AuthenticationException(errorMessage, exception);
         }
       } else {
         return new AuthenticatedUser(securityUser.getName(systemDatabaseSession));

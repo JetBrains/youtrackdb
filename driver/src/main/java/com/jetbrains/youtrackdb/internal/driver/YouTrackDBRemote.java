@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -25,8 +26,9 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBRemote implements YouTrackDB {
-private static final String PORT_CONFIGURATION =  "port";
-  private static final String USERNAME_CONFIGURATION =  "username";
+
+  private static final String PORT_CONFIGURATION = "port";
+  private static final String USERNAME_CONFIGURATION = "username";
   private static final String PASSWORD_CONFIGURATION = "password";
   private static final String HOSTS_CONFIGURATION = "hosts";
 
@@ -163,6 +165,19 @@ private static final String PORT_CONFIGURATION =  "port";
   }
 
   @Override
+  public List<String> listSystemUsers() {
+    return executeServerRequestWithListResult(
+        RemoteProtocolConstants.SERVER_COMMAND_LIST_SYSTEM_USERS,
+        Map.of(), Result::getString);
+  }
+
+  @Override
+  public void dropSystemUser(@NonNull String username) {
+    executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_DROP_SYSTEM_USER,
+        Map.of(RemoteProtocolConstants.USER_NAME_PARAMETER, username));
+  }
+
+  @Override
   public void drop(@Nonnull String databaseName) {
     executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_DROP_DATABASE, Map.of(
         RemoteProtocolConstants.DATABASE_NAME_PARAMETER, databaseName));
@@ -170,7 +185,7 @@ private static final String PORT_CONFIGURATION =  "port";
 
   @Override
   public boolean exists(@Nonnull String databaseName) {
-    return executeServerRequestWithResult(RemoteProtocolConstants.SERVER_COMMAND_EXISTS,
+    return executeServerRequestWithSingleResult(RemoteProtocolConstants.SERVER_COMMAND_EXISTS,
         Map.of(RemoteProtocolConstants.DATABASE_NAME_PARAMETER, databaseName)).getBoolean();
   }
 
@@ -244,7 +259,7 @@ private static final String PORT_CONFIGURATION =  "port";
   }
 
   @SuppressWarnings("SameParameterValue")
-  private Result executeServerRequestWithResult(String op, Map<String, Object> args) {
+  private Result executeServerRequestWithSingleResult(String op, Map<String, Object> args) {
     var requestMessageBuilder = RequestMessage.build(op);
     requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_NAME);
     for (var entry : args.entrySet()) {
@@ -259,6 +274,25 @@ private static final String PORT_CONFIGURATION =  "port";
       throw new RuntimeException("Server request processing failed", e);
     }
   }
+
+  private <T> List<T> executeServerRequestWithListResult(String op, Map<String, Object> args,
+      Function<Result, T> mapper) {
+    var requestMessageBuilder = RequestMessage.build(op);
+    requestMessageBuilder.processor(RemoteProtocolConstants.PROCESSOR_NAME);
+    for (var entry : args.entrySet()) {
+      requestMessageBuilder.addArg(entry.getKey(), entry.getValue());
+    }
+
+    try (var client = cluster.connect()) {
+      return client.submitAsync(requestMessageBuilder.create()).get().all().get().stream()
+          .map(mapper).toList();
+    } catch (InterruptedException e) {
+      throw new RuntimeException("Server request processing was interrupted", e);
+    } catch (ExecutionException e) {
+      throw new RuntimeException("Server request processing failed", e);
+    }
+  }
+
 
   private static Map<String, ?> convertConfigToMap(@Nonnull Configuration configuration) {
     var map = new HashMap<String, Object>();

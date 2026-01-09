@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.api;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
@@ -69,15 +69,11 @@ public final class YourTracks {
   /// Creates a new YouTrackDB manager instance for a case when YTDB database is managed by Gremlin
   /// Server.
   ///
-  /// As username and password are not passed during establishing the connection,
-  /// the method [YouTrackDB#openTraversal(String, String, String)]
-  /// should be used to send Gremlin queries to the server.
-  ///
   /// @param serverAddress server address
   /// @param serverPort    server port
   ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
-  /// @see YouTrackDB#createSystemUser(String, String, PredefinedRole...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedLocalRole...)
 
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort) {
     try {
@@ -100,14 +96,10 @@ public final class YourTracks {
   /// Creates a new YouTrackDB manager instance for a case when YTDB database is managed by Gremlin
   /// Server.
   ///
-  /// The name of passed in user should belong to the user that is either registered in the server
+  /// The name of passed in user should belong to the user either registered in the server
   /// configuration or system database.
   ///
   /// Integration with SSO and user directories is going to be added soon.
-  ///
-  /// As username and password are already passed during establishing the connection,
-  /// the method [YouTrackDB#openTraversal(String)]
-  /// is recommended to be used to send Gremlin queries to the server.
   ///
   /// @param serverAddress server address
   /// @param serverPort    server port
@@ -115,7 +107,7 @@ public final class YourTracks {
   /// @param password      user password
   ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
-  /// @see YouTrackDB#createSystemUser(String, String, PredefinedRole...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedLocalRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort,
       @Nonnull String username,
       @Nonnull String password) {
@@ -152,7 +144,7 @@ public final class YourTracks {
   /// @param password      user password
   ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
-  /// @see YouTrackDB#createSystemUser(String, String, PredefinedRole...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedLocalRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, @Nonnull String username,
       @Nonnull String password) {
     try {
