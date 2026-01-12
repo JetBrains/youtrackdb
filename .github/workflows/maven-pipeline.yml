@@ -151,7 +151,7 @@ jobs:
   notify-fixed:
     name: Notify build fixed on Zulip
     needs: [ test, deploy, deploy-docker ]
-    if: success()
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
