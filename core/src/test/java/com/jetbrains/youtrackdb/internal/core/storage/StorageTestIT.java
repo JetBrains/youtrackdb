@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -54,7 +54,7 @@ public class StorageTestIT {
         DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var session =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -120,7 +120,7 @@ public class StorageTestIT {
         DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -183,7 +183,7 @@ public class StorageTestIT {
         DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -250,7 +250,7 @@ public class StorageTestIT {
         DbTestBase.getBaseDirectoryPathStr(getClass()),
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
@@ -312,7 +312,7 @@ public class StorageTestIT {
     youTrackDB =
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     final var session =
         youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");

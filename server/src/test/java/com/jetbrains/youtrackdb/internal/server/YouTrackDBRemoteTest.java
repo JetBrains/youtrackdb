@@ -2,19 +2,21 @@ package com.jetbrains.youtrackdb.internal.server;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedSystemRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
+import org.apache.commons.lang3.function.FailableConsumer;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class YouTrackDBRemoteTest {
-
   private YouTrackDBServer server;
   private YouTrackDB youTrackDB;
 
@@ -40,6 +42,87 @@ public class YouTrackDBRemoteTest {
     }
   }
 
+  @Test
+  public void createDatabaseLoginWithLocalUser() {
+    var dbName = "testLocalUser";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new LocalUserCredential(userName, password, PredefinedLocalRole.ADMIN));
+
+    try (var g = youTrackDB.openTraversal(dbName, userName, password)) {
+      g.addV("label").iterate();
+    }
+
+    youTrackDB.drop(dbName);
+  }
+
+  @Test
+  public void createDatabaseLoginWithLocalUserAndWrongPassword() {
+    var dbName = "testLocalUser1";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new LocalUserCredential(userName, password, PredefinedLocalRole.ADMIN));
+
+    try {
+      try (var g = youTrackDB.openTraversal(dbName, userName, "pass")) {
+        g.addV("label").iterate();
+      }
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Combination of username/databasename/password are incorrect"));
+    }
+
+    youTrackDB.drop(dbName);
+  }
+
+  @Test
+  public void createDatabaseLoginWithLocalUserAndWrongUsername() {
+    var dbName = "testLocalUser3";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new LocalUserCredential(userName, password, PredefinedLocalRole.ADMIN));
+
+    try {
+      try (var g = youTrackDB.openTraversal(dbName, "super", password)) {
+        g.addV("label").iterate();
+      }
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Combination of username/databasename/password are incorrect"));
+    }
+
+    youTrackDB.drop(dbName);
+  }
+
+  @Test
+  public void createDatabaseLoginWithLocalUserAndWrongDbName() {
+    var dbName = "testLocalUser4";
+    var userName = "superuser";
+    var password = "password";
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new LocalUserCredential(userName, password, PredefinedLocalRole.ADMIN));
+
+    try {
+      try (var g = youTrackDB.openTraversal("db", userName, password)) {
+        g.addV("label").iterate();
+      }
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Database 'db' does not exist"));
+    }
+
+    youTrackDB.drop(dbName);
+  }
 
   @Test(expected = RuntimeException.class)
   public void doubleCreateRemoteDatabase() {
@@ -60,9 +143,9 @@ public class YouTrackDBRemoteTest {
   public void testMultiThread() {
     if (!youTrackDB.exists("test")) {
       youTrackDB.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN),
-          new UserCredential("reader", "reader", PredefinedRole.READER),
-          new UserCredential("writer", "writer", PredefinedRole.WRITER)
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN),
+          new LocalUserCredential("reader", "reader", PredefinedLocalRole.READER),
+          new LocalUserCredential("writer", "writer", PredefinedLocalRole.WRITER)
       );
     }
 
@@ -95,6 +178,66 @@ public class YouTrackDBRemoteTest {
     var databases = youTrackDB.listDatabases();
     Assert.assertEquals(1, databases.size());
     Assert.assertTrue(databases.contains("test"));
+  }
+
+  @Test
+  public void testCreateRootSystemUser() throws Exception {
+    createAndCheckSystemUser(PredefinedSystemRole.ROOT,
+        graphTraversalSource -> graphTraversalSource.command("create class TestClass")
+    );
+  }
+
+  @Test
+  public void testCreateGuestSystemUser() throws Exception {
+    createAndCheckSystemUser(PredefinedSystemRole.GUEST, graphTraversalSource -> {
+      try {
+        graphTraversalSource.executeInTx(traversalSource ->
+            traversalSource.V().iterate()
+        );
+        Assert.fail("Guests can not read the data");
+      } catch (Exception e) {
+        //expected
+      }
+
+      try (var scopedYtdb = YourTracks.instance("localhost", 45940, "systemUser", "spwd")) {
+        Assert.assertTrue(scopedYtdb.listDatabases().contains("test"));
+        Assert.assertTrue(scopedYtdb.exists("test"));
+      }
+    });
+  }
+
+  private void createAndCheckSystemUser(PredefinedSystemRole role,
+      FailableConsumer<YTDBGraphTraversalSource, Exception> checker) throws Exception {
+    var systemUserName = "systemUser";
+
+    var users = youTrackDB.listSystemUsers();
+    Assert.assertFalse(users.contains(systemUserName));
+
+    var dbName = "test";
+    youTrackDB.createSystemUser(systemUserName, "spwd", role);
+    youTrackDB.create(dbName, DatabaseType.MEMORY,
+        new LocalUserCredential("user", "user", PredefinedLocalRole.ADMIN));
+
+    users = youTrackDB.listSystemUsers();
+    Assert.assertTrue(users.contains(systemUserName));
+
+    try (var traversal = youTrackDB.openTraversal(dbName, systemUserName, "spwd")) {
+      checker.accept(traversal);
+    }
+
+    youTrackDB.dropSystemUser(systemUserName);
+    users = youTrackDB.listSystemUsers();
+    Assert.assertFalse(users.contains(systemUserName));
+
+    try (var traversal = youTrackDB.openTraversal(dbName, systemUserName, "spwd")) {
+      checker.accept(traversal);
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertTrue(
+          e.getMessage().contains("Combination of username/databasename/password are incorrect"));
+    }
+
+    youTrackDB.drop(dbName);
   }
 
 

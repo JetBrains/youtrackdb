@@ -20,7 +20,7 @@ public interface SecurityInternal {
       DatabaseSessionInternal session, Set<Identifiable> iAllowAll,
       Set<Identifiable> iAllowOperation);
 
-  SecurityUserImpl authenticate(DatabaseSessionInternal session, String iUsername,
+  SecurityUser authenticate(DatabaseSessionEmbedded session, String iUsername,
       String iUserPassword);
 
   SecurityUserImpl createUser(
@@ -29,7 +29,7 @@ public interface SecurityInternal {
   SecurityUserImpl createUser(
       DatabaseSessionInternal session, String iUserName, String iUserPassword, Role[] iRoles);
 
-  SecurityUserImpl authenticate(DatabaseSessionInternal session, Token authToken);
+  SecurityUser authenticate(DatabaseSessionEmbedded session, Token authToken);
 
   Role createRole(
       DatabaseSessionInternal session,
@@ -39,7 +39,7 @@ public interface SecurityInternal {
   Role createRole(
       DatabaseSessionInternal session, String iRoleName);
 
-  SecurityUserImpl getUser(DatabaseSession session, String iUserName);
+  SecurityUser getUser(DatabaseSessionEmbedded session, String iUserName);
 
   SecurityUserImpl getUser(DatabaseSession session, RID userId);
 

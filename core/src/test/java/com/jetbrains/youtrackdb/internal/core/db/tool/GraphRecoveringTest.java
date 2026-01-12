@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -85,7 +85,7 @@ public class GraphRecoveringTest {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDB.create("testRecoverPerfectGraphNonLW", DatabaseType.MEMORY,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       try (var session = youTrackDB.open("testRecoverPerfectGraphNonLW",
           "admin", "admin")) {
         init(session);
@@ -109,7 +109,7 @@ public class GraphRecoveringTest {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDB.create("testRecoverBrokenGraphAllEdges", DatabaseType.MEMORY,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       try (var session = youTrackDB.open("testRecoverBrokenGraphAllEdges",
           "admin", "admin")) {
         init(session);
@@ -145,7 +145,7 @@ public class GraphRecoveringTest {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDB.create("testRecoverBrokenGraphLinksInVerticesNonLW", DatabaseType.MEMORY,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       try (var session =
           youTrackDB.open("testRecoverBrokenGraphLinksInVerticesNonLW",
               "admin", "admin")) {

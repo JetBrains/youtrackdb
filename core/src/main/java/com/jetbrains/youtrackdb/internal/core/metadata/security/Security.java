@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import java.util.List;
 import java.util.Set;
 
@@ -36,12 +37,12 @@ public interface Security {
   boolean isAllowed(final Set<Identifiable> iAllowAll, final Set<Identifiable> iAllowOperation);
 
   @Deprecated
-  SecurityUserImpl authenticate(String iUsername, String iUserPassword);
+  SecurityUser authenticate(String iUsername, String iUserPassword);
 
   @Deprecated
-  SecurityUserImpl authenticate(final Token authToken);
+  SecurityUser authenticate(final Token authToken);
 
-  SecurityUserImpl getUser(String iUserName);
+  SecurityUser getUser(String iUserName);
 
   SecurityUserImpl getUser(final RID iUserId);
 

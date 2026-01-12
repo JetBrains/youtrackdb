@@ -24,8 +24,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
@@ -83,7 +83,7 @@ public class DateConversionTestCase extends DbTestBase {
     try (var ctx = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temporal")) {
       ctx.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
 
         var format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");

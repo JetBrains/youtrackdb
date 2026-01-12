@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -45,7 +45,7 @@ public class FreeSpaceMapTestIT {
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
     youTrackDB.create(dbName, DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     final var databaseDocumentTx =
         (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");

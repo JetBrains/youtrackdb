@@ -6,8 +6,10 @@ import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +22,7 @@ import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.jspecify.annotations.NonNull;
 
 public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
+
   private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
           .maximumWeightedCapacity(100)
@@ -205,15 +208,18 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     return sessionPool.asGraph();
   }
 
-  /// Drop a database
-  ///
-  /// @param databaseName database name
+
   @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
     var graph = openGraph(databaseName, userName, userPassword);
 
     return new StandaloneYTDBGraphTraversalSource(graph);
+  }
+
+  @Override
+  public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName) {
+    throw new DatabaseException("This method can be used only for remote databases");
   }
 
   /**
@@ -226,7 +232,7 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
    * @return true if the database has been created, false if already exists
    */
   public boolean createIfNotExists(String database, DatabaseType type, YouTrackDBConfig config) {
-    if (!this.internal.exists(database, null, null)) {
+    if (!this.internal.exists(database)) {
       this.internal.create(database, null, null, type, config);
       return true;
     }
@@ -237,8 +243,31 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   public void createSystemUser(@Nonnull String username, @Nonnull String password,
       @Nonnull String... role) {
     internal.getSystemDatabase().executeInDBScope(session -> {
-      var security = session.getMetadata().getSecurity();
-      security.createUser(username, password, role);
+      session.executeInTx(transaction -> {
+        var security = session.getMetadata().getSecurity();
+        security.createUser(username, password, role);
+      });
+      return null;
+    });
+  }
+
+  @Override
+  public List<String> listSystemUsers() {
+    return internal.getSystemDatabase()
+        .executeWithDB(session -> session.computeInTx(transaction -> {
+          var security = session.getMetadata().getSecurity();
+          return security.getAllUsers().stream()
+              .map(entity -> entity.getString(SecurityUserImpl.NAME_PROPERTY)).toList();
+        }));
+  }
+
+  @Override
+  public void dropSystemUser(@NonNull String username) {
+    internal.getSystemDatabase().executeInDBScope(session -> {
+      session.executeInTx(transaction -> {
+        var security = session.getMetadata().getSecurity();
+        security.dropUser(username);
+      });
       return null;
     });
   }
@@ -257,7 +286,7 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   /// @return boolean true if exist false otherwise.
   @Override
   public boolean exists(@Nonnull String databaseName) {
-    return this.internal.exists(databaseName, null, null);
+    return this.internal.exists(databaseName);
   }
 
   /// List exiting databases in the current environment

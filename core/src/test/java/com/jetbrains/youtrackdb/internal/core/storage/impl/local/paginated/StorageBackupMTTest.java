@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -64,7 +64,7 @@ public class StorageBackupMTTest {
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(
           DbTestBase.getBaseDirectoryPathStr(getClass()));
       youTrackDB.create(dbName, DatabaseType.DISK,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
@@ -170,7 +170,7 @@ public class StorageBackupMTTest {
     try {
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
       youTrackDB.create(dbName, DatabaseType.DISK,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();

@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
@@ -42,7 +42,7 @@ public class SecurityEngineTest {
   @Before
   public void before() {
     youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
-        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN));
     this.session = youTrackDB.open(DB_NAME, "admin", PASSWORD);
   }
 
