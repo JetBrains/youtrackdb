@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -29,7 +29,7 @@ public class IndexFinderTest {
     this.youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDb.create(IndexFinderTest.class.getSimpleName(), DatabaseType.MEMORY,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     this.session =
         this.youTrackDb.open(IndexFinderTest.class.getSimpleName(), "admin",
             DbTestBase.ADMIN_PASSWORD);

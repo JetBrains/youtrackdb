@@ -770,7 +770,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     checkDatabaseName(name);
     final DatabaseSessionEmbedded embedded;
     synchronized (this) {
-      if (!exists(name, user, password)) {
+      if (!exists(name)) {
         try {
           var lowerCaseName = name.toLowerCase(Locale.ROOT);
           if (lowerCaseName.startsWith("ytdb")) {
@@ -842,7 +842,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     final DatabaseSessionEmbedded embedded;
     AbstractStorage storage;
     synchronized (this) {
-      if (!exists(name, null, null)) {
+      if (!exists(name)) {
         try {
           storage =
               (AbstractStorage)
@@ -926,7 +926,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   @Override
-  public synchronized boolean exists(String name, String user, String password) {
+  public synchronized boolean exists(String name) {
     checkOpen();
     Storage storage = storages.get(name);
     if (storage == null) {
@@ -954,7 +954,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       db.close();
     } finally {
       synchronized (this) {
-        if (exists(name, user, password)) {
+        if (exists(name)) {
           var storage = getOrInitStorage(name);
           var sharedContext = sharedContexts.get(name);
           if (sharedContext != null) {

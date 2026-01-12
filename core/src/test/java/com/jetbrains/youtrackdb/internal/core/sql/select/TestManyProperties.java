@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.select;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -20,7 +20,7 @@ public class TestManyProperties {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDB.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       try (var session = youTrackDB.open("test", "admin", "admin")) {
         var clazz = session.getSchema().createClass("test");
         clazz.createProperty("property1", PropertyType.STRING);

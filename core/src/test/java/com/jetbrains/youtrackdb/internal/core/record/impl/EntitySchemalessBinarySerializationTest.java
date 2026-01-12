@@ -6,8 +6,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -223,7 +223,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
       ytdb.create("testSimpleLiteralSet", DatabaseType.MEMORY,
-          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var session = ytdb.open("testSimpleLiteralSet", "admin",
           "adminpwd")) {
         session.begin();
@@ -318,7 +318,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
       ytdb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var session = ytdb.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
@@ -513,7 +513,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
       ytdb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var session = (DatabaseSessionEmbedded) ytdb.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
@@ -539,7 +539,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
       ytdb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var session = (DatabaseSessionEmbedded) ytdb.open("test", "admin", "adminpwd")) {
         session.createClass("TestClass");
 

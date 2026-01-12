@@ -9,8 +9,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -45,7 +45,7 @@ public class YouTrackDBEmbeddedTests {
     try (final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("createAndUseEmbeddedDatabase", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       final var db =
           (DatabaseSessionInternal)
               youTrackDb.open(
@@ -60,9 +60,9 @@ public class YouTrackDBEmbeddedTests {
   public void testEmbeddedDoubleCreate() {
     try (var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       youTrackDb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     }
   }
 
@@ -71,7 +71,7 @@ public class YouTrackDBEmbeddedTests {
     try (var youTrackDb = YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "createDropEmbeddedDatabase")) {
       youTrackDb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       assertTrue(youTrackDb.exists("test"));
       youTrackDb.drop("test");
       assertFalse(youTrackDb.exists("test"));
@@ -83,7 +83,7 @@ public class YouTrackDBEmbeddedTests {
     try (final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("testMultiThread", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       final SessionPool pool =
           new SessionPoolImpl(
               youTrackDb, "testMultiThread", "admin", DbTestBase.ADMIN_PASSWORD);
@@ -119,7 +119,7 @@ public class YouTrackDBEmbeddedTests {
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "listTest1")) {
       assertEquals(0, youTrackDb.listDatabases().size());
       youTrackDb.create("test", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       var databases = youTrackDb.listDatabases();
       assertEquals(1, databases.size());
       assertTrue(databases.contains("test"));
@@ -132,7 +132,7 @@ public class YouTrackDBEmbeddedTests {
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "listTest2")) {
       assertEquals(0, youTrackDb.listDatabases().size());
       youTrackDb.create("testListDatabase", DatabaseType.DISK,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       var databases = youTrackDb.listDatabases();
       assertEquals(1, databases.size());
       assertTrue(databases.contains("testListDatabase"));
@@ -182,7 +182,7 @@ public class YouTrackDBEmbeddedTests {
     try (final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("testCopyOpenedDatabase", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       DatabaseSessionEmbedded db1;
       try (var db =
           youTrackDb.open(
@@ -199,7 +199,7 @@ public class YouTrackDBEmbeddedTests {
     var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDb.close();
     youTrackDb.create("test", DatabaseType.MEMORY,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
   }
 
   @Test(expected = DatabaseException.class)
@@ -247,9 +247,9 @@ public class YouTrackDBEmbeddedTests {
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             config)) {
       youTrackDb.createIfNotExists("some", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       youTrackDb.createIfNotExists("some1", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       var db = youTrackDb.open("some", "admin", DbTestBase.ADMIN_PASSWORD);
       youTrackDb.drop("some1");
       db.close();
@@ -261,7 +261,7 @@ public class YouTrackDBEmbeddedTests {
     try (var youTrackDB = YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "testClosePool")) {
       youTrackDB.createIfNotExists("test", DatabaseType.DISK,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       final SessionPool pool =
           new SessionPoolImpl(
               (YouTrackDBImpl) youTrackDB,
@@ -285,9 +285,9 @@ public class YouTrackDBEmbeddedTests {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()), config)) {
       youTrackDB.createIfNotExists("testdb", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN),
-          new UserCredential("reader", DbTestBase.ADMIN_PASSWORD, PredefinedRole.READER),
-          new UserCredential("writer", DbTestBase.ADMIN_PASSWORD, PredefinedRole.WRITER)
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN),
+          new LocalUserCredential("reader", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.READER),
+          new LocalUserCredential("writer", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.WRITER)
       );
       var poolAdmin1 =
           youTrackDB.cachedPool(
@@ -346,9 +346,9 @@ public class YouTrackDBEmbeddedTests {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()), config)) {
       youTrackDB.createIfNotExists("testdb", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       youTrackDB.createIfNotExists("testdb1", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
 
       var poolNotUsed =
           youTrackDB.cachedPool(
@@ -421,7 +421,7 @@ public class YouTrackDBEmbeddedTests {
     final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()), config);
     youTrackDB.create("testdb", DatabaseType.MEMORY,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     var poolAdmin1 =
         youTrackDB.cachedPool("testdb", "admin", DbTestBase.ADMIN_PASSWORD);
     var poolAdmin2 =
@@ -459,7 +459,7 @@ public class YouTrackDBEmbeddedTests {
     final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "testYouTrackDBDatabaseOnlyMemory");
     youTrackDb.create("test", DatabaseType.MEMORY,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var db =
         (DatabaseSessionInternal)
             youTrackDb.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
@@ -474,7 +474,7 @@ public class YouTrackDBEmbeddedTests {
     try (final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDB.create("testCreateForceCloseOpen", DatabaseType.DISK,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       youTrackDB.internal.forceDatabaseClose("test");
       var db1 =
           youTrackDB.open(
@@ -497,7 +497,7 @@ public class YouTrackDBEmbeddedTests {
         youTrackDB));
     embedded.initAutoClose(3000);
     youTrackDB.create("test", DatabaseType.DISK,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     var db1 = youTrackDB.open("test", "admin",
         DbTestBase.ADMIN_PASSWORD);
     assertFalse(db1.isClosed());
@@ -593,7 +593,7 @@ public class YouTrackDBEmbeddedTests {
     try (final var youTrackDb =
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("testUUID", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       final var session =
           youTrackDb.open("testUUID", "admin", DbTestBase.ADMIN_PASSWORD);
       assertNotNull(
@@ -608,7 +608,7 @@ public class YouTrackDBEmbeddedTests {
     final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.create("testPersistentUUID", DatabaseType.DISK,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var session =
         youTrackDb.open("testPersistentUUID", "admin", DbTestBase.ADMIN_PASSWORD);
     var uuid =

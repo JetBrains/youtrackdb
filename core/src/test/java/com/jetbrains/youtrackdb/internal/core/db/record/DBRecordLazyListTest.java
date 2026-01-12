@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.db.record;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -28,7 +28,7 @@ public class DBRecordLazyListTest {
   public void init() throws Exception {
     youTrackDb = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.create(DBRecordLazyListTest.class.getSimpleName(), DatabaseType.MEMORY,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     db = youTrackDb.open(
         DBRecordLazyListTest.class.getSimpleName(),
         "admin",

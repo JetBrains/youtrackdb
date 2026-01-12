@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -35,7 +35,7 @@ public class IndexChangesQueryTest {
   public void before() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDB.create("test", DatabaseType.MEMORY,
-        new UserCredential("admin", "adminpwd", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
     db =
         youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
 

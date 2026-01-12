@@ -5,8 +5,8 @@ import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -36,7 +36,7 @@ public class BrowseCollectionTest {
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             config);
     youTrackDb.create("test", DatabaseType.MEMORY,
-        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN));
     db = youTrackDb.open("test", "admin", PASSWORD);
     db.getSchema().createVertexClass("One");
   }

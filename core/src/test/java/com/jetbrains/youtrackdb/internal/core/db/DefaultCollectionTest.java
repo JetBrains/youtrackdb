@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -17,7 +17,7 @@ public class DefaultCollectionTest {
     final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDB.create("test", DatabaseType.MEMORY,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     try (final var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD)) {
       var v =
           session.computeInTx(

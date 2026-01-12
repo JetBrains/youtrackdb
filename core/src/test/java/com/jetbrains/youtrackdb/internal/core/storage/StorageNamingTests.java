@@ -20,8 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidDatabaseNameException;
@@ -36,7 +36,7 @@ public class StorageNamingTests {
     try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       try {
         youTrackDB.create("name%", DatabaseType.MEMORY,
-            new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+            new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
         Assert.fail();
       } catch (InvalidDatabaseNameException e) {
         // skip
@@ -49,7 +49,7 @@ public class StorageNamingTests {
     try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       try {
         youTrackDB.create("na.me", DatabaseType.MEMORY,
-            new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+            new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
         Assert.fail();
       } catch (InvalidDatabaseNameException e) {
         // skip
@@ -61,7 +61,7 @@ public class StorageNamingTests {
   public void testSpecialLettersThree() {
     try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       youTrackDB.create("na_me$", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       youTrackDB.drop("na_me$");
     }
   }

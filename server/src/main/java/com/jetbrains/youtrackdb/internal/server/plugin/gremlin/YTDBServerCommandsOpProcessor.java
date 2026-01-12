@@ -25,7 +25,6 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
   private static final Logger logger = LoggerFactory.getLogger(YTDBServerCommandsOpProcessor.class);
 
   public static final String CREATE_DATABASE_ROLE = "database.create";
-  public static final String EXISTS_DATABASE_ROLE = "database.exists";
   public static final String DROP_DATABASE_ROLE = "database.drop";
 
   public static final String LIST_DATABASES_ROLE = "server.listDatabases";
@@ -56,6 +55,10 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
           YTDBServerCommandsOpProcessor::restoreDatabase;
       case RemoteProtocolConstants.SERVER_COMMAND_CREATE_SYSTEM_USER ->
           YTDBServerCommandsOpProcessor::createSystemUser;
+      case RemoteProtocolConstants.SERVER_COMMAND_DROP_SYSTEM_USER ->
+          YTDBServerCommandsOpProcessor::dropSystemUser;
+      case RemoteProtocolConstants.SERVER_COMMAND_LIST_SYSTEM_USERS ->
+          YTDBServerCommandsOpProcessor::listSystemUsers;
       case null, default -> {
         var errorMessage = "Unknown server command: " + op;
         logger.error(errorMessage);
@@ -95,6 +98,35 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     youTrackDB.createSystemUser(userName, userPassword, userRoles.toArray(String[]::new));
 
     ctx.writeAndFlush(ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).create());
+  }
+
+  private static void dropSystemUser(Context ctx) throws OpProcessorException {
+    checkServerRole(ctx, MANAGE_SYSTEM_USERS);
+
+    var msg = ctx.getRequestMessage();
+    var userName = geUserName(msg);
+
+    var settings = (YTDBSettings) ctx.getSettings();
+    var server = settings.server;
+
+    var youTrackDB = server.getYouTrackDB();
+    youTrackDB.dropSystemUser(userName);
+
+    ctx.writeAndFlush(ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).create());
+  }
+
+  private static void listSystemUsers(Context ctx) throws OpProcessorException {
+    checkServerRole(ctx, MANAGE_SYSTEM_USERS);
+
+    var msg = ctx.getRequestMessage();
+    var settings = (YTDBSettings) ctx.getSettings();
+    var server = settings.server;
+
+    var youTrackDB = server.getYouTrackDB();
+    var users = youTrackDB.listSystemUsers();
+
+    ctx.writeAndFlush(
+        ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).result(users).create());
   }
 
   private static void restoreDatabase(Context ctx) throws OpProcessorException {
@@ -153,7 +185,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
 
   private static void isDatabaseExists(final Context ctx)
       throws OpProcessorException {
-    checkServerRole(ctx, EXISTS_DATABASE_ROLE);
+    checkServerRole(ctx, LIST_DATABASES_ROLE);
 
     var msg = ctx.getRequestMessage();
     var databaseName = getDatabaseName(msg);

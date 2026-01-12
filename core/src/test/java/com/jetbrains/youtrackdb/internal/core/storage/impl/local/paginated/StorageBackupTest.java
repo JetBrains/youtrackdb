@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -38,7 +38,7 @@ public class StorageBackupTest {
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.create(dbName, DatabaseType.DISK,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     var db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
@@ -114,7 +114,7 @@ public class StorageBackupTest {
 
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.create(dbName, DatabaseType.DISK,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
@@ -211,7 +211,7 @@ public class StorageBackupTest {
 
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.create(dbName, DatabaseType.DISK,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
