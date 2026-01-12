@@ -80,10 +80,6 @@ public class YTDBSimpleAuthenticator implements Authenticator {
         try {
           if (databases.exists(dbName)) {
             var session = databases.cachedPool(dbName, username, password).acquire();
-            var user = security.authenticate(session, username, password);
-            if (user == null) {
-              throw new AuthenticationException(errorMessage);
-            }
             session.close();
           } else {
             throw new AuthenticationException("Database '" + dbName + "' does not exist");
