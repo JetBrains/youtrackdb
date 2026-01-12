@@ -94,7 +94,7 @@ jobs:
       - name: Run Maven Test
         id: tests
         continue-on-error: true
-        run: mvn -s .github/workflows/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
+        run: mvn -s .github/workflows/settings.xml clean verify -B ${{ matrix.platform.mvn_opts }}
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
