@@ -52,6 +52,7 @@ jobs:
             **/target/failsafe-reports/TEST-*.xml
           action_fail: true
           large_files: true
+          comment_mode: off
           check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
       - name: Publish Test Results (Windows)
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
@@ -62,6 +63,7 @@ jobs:
             **/target/failsafe-reports/TEST-*.xml
           action_fail: true
           large_files: true
+          comment_mode: off
           check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
 
     # ------------------------------------------------------------------
@@ -135,6 +137,14 @@ jobs:
     if: failure()
     runs-on: ubuntu-latest
     steps:
+      - name: Determine Branch Name
+        id: branch_name
+        run: |
+          if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+            echo "branch=${{ github.event.merge_group.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
       - name: Send Zulip notification
         uses: zulip/github-actions-zulip/send-message@v1
         with:
@@ -146,7 +156,7 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
-            Build failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            Build failed on branch `${{ steps.branch_name.outputs.branch }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
   notify-fixed:
     name: Notify build fixed on Zulip
@@ -157,6 +167,15 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v6
 
+      - name: Determine Branch Name
+        id: branch_name
+        run: |
+          if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+            echo "branch=${{ github.event.merge_group.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Get Previous Run Status
         id: previous_run
         env:
@@ -164,7 +183,7 @@ jobs:
         run: |
           previous_conclusion=$(gh run list \
             --repo "${{ github.repository }}" \
-            --branch "${{ github.ref_name }}" \
+            --branch "${{ steps.branch_name.outputs.branch }}" \
             --workflow "${{ github.workflow }}" \
             --limit 2 \
             --json conclusion \
@@ -183,5 +202,5 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FIXED** :white_check_mark:
-            Build fixed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            Build fixed on branch `${{ steps.branch_name.outputs.branch }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
