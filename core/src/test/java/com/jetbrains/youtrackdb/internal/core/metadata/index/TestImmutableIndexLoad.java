@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.metadata.index;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
@@ -23,7 +23,7 @@ public class TestImmutableIndexLoad {
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDB.create(TestImmutableIndexLoad.class.getSimpleName(), DatabaseType.DISK,
-        new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     var db =
         youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),

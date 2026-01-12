@@ -55,6 +55,7 @@ import org.jspecify.annotations.NonNull;
 /// </code>
 /// </pre>
 public interface YouTrackDB extends AutoCloseable {
+
   /// Configuration parameters passed during creation of the database or during opening of the graph
   /// traversal instance using methods of [YouTrackDB]. Except parameters listed in this interface,
   /// you can also specify any other parameter listed in
@@ -63,6 +64,7 @@ public interface YouTrackDB extends AutoCloseable {
   /// database will use the default value from of parameter indicated in
   /// [com.jetbrains.youtrackdb.api.config.GlobalConfiguration].
   interface DatabaseConfigurationParameters {
+
     /// Default date format for the database. This parameter is used during data serialization and
     /// query processing.
     String CONFIG_DB_DATE_FORMAT = "youtrackdb.database.dateFormat";
@@ -82,17 +84,28 @@ public interface YouTrackDB extends AutoCloseable {
     String CONFIG_DB_CHARSET = "youtrackdb.database.charset";
   }
 
-  enum PredefinedRole {
+  /// List of predefined roles for users registered on the database level, not the server level (not
+  /// system users)
+  enum PredefinedLocalRole {
     ADMIN, READER, WRITER
   }
 
-  record UserCredential(String username, String password, PredefinedRole role) {
+  /// List of predefined roles for system users registered on the server level
+  enum PredefinedSystemRole {
+    /// Everything is allowed for user with this role
+    ROOT,
+    /// User can only list databases and test DB exists
+    GUEST
+  }
+
+  /// Credential for a local user on the database level, not the server level.
+  record LocalUserCredential(String username, String password, PredefinedLocalRole role) {
 
   }
 
   /// Creates a new database alongside users, passwords and roles.
   ///
-  /// If you want to create users during creation of a database, you should provide array that
+  /// If you want to create users during the creation of a database, you should provide array that
   /// consists of triple strings. Each triple string should contain the username, password and
   /// role.
   ///
@@ -116,12 +129,12 @@ public interface YouTrackDB extends AutoCloseable {
 
   /// Creates a new database alongside users, passwords and roles. For example:
   ///
-  /// @param databaseName    database name
-  /// @param type            can be disk or memory
-  /// @param userCredentials List of users and their credentials
+  /// @param databaseName         database name
+  /// @param type                 can be disk or memory
+  /// @param localUserCredentials List of users and their credentials
   default void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
-      UserCredential... userCredentials) {
-    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+      LocalUserCredential... localUserCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(localUserCredentials);
     create(databaseName, type, userCredentialsArray);
   }
 
@@ -155,13 +168,13 @@ public interface YouTrackDB extends AutoCloseable {
   /// Creates a new database alongside users, passwords and roles and also allows to specify
   /// database configuration.
   ///
-  /// @param databaseName     database name
-  /// @param type             can be disk or memory
-  /// @param youTrackDBConfig database configuration
-  /// @param userCredentials  List of users and their credentials
+  /// @param databaseName         database name
+  /// @param type                 can be disk or memory
+  /// @param youTrackDBConfig     database configuration
+  /// @param localUserCredentials List of users and their credentials
   default void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
-      @Nonnull Configuration youTrackDBConfig, UserCredential... userCredentials) {
-    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+      @Nonnull Configuration youTrackDBConfig, LocalUserCredential... localUserCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(localUserCredentials);
     create(databaseName, type, youTrackDBConfig, userCredentialsArray);
   }
 
@@ -191,12 +204,12 @@ public interface YouTrackDB extends AutoCloseable {
 
   /// Creates a new database alongside users, passwords and roles if such a one does not exist yet.
   ///
-  /// @param databaseName    database name
-  /// @param type            can be disk or memory
-  /// @param userCredentials List of users and their credentials
+  /// @param databaseName         database name
+  /// @param type                 can be disk or memory
+  /// @param localUserCredentials List of users and their credentials
   default void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
-      UserCredential... userCredentials) {
-    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+      LocalUserCredential... localUserCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(localUserCredentials);
     createIfNotExists(databaseName, type, userCredentialsArray);
   }
 
@@ -230,13 +243,13 @@ public interface YouTrackDB extends AutoCloseable {
   /// Creates a new database alongside users, passwords and roles if such a one does not exist yet
   /// and also allows to specify database configuration.
   ///
-  /// @param databaseName    database name
-  /// @param type            can be disk or memory
-  /// @param config          database configuration
-  /// @param userCredentials List of users and their credentials
+  /// @param databaseName         database name
+  /// @param type                 can be disk or memory
+  /// @param config               database configuration
+  /// @param localUserCredentials List of users and their credentials
   default void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
-      @Nonnull Configuration config, UserCredential... userCredentials) {
-    var userCredentialsArray = createUserCredentialsArray(userCredentials);
+      @Nonnull Configuration config, LocalUserCredential... localUserCredentials) {
+    var userCredentialsArray = createUserCredentialsArray(localUserCredentials);
     createIfNotExists(databaseName, type, config, userCredentialsArray);
   }
 
@@ -267,17 +280,28 @@ public interface YouTrackDB extends AutoCloseable {
   boolean isOpen();
 
   /// Opens [YTDBGraphTraversalSource] instance for the given embedded database by database name,
-  /// using provided user name and password.
+  /// using provided the username and password.
   ///
   /// Please keep a single instance of this traversal source per application.
   ///
   /// @param databaseName Database name
-  /// @param userName     user name. For remote database this parameter is ignored, and user name
-  ///                     provided during connection is used.
+  /// @param userName     the username. For remote database this parameter is ignored, and the
+  ///                     username provided during connection is used.
   /// @param userPassword user password. For remote database this parameter is ignored.
   @Nonnull
   YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName, @Nonnull String userName,
       @Nonnull String userPassword);
+
+  /// Opens [YTDBGraphTraversalSource] instance for the given embedded database by database name,
+  /// using the username and password provided during connection to the server.
+  ///
+  /// This method can be used only for remote databases.
+  ///
+  /// Please keep a single instance of this traversal source per application.
+  ///
+  /// @param databaseName Database name
+  @Nonnull
+  YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName);
 
   /// Creates a database by restoring it from incremental backup. The backup should be created with
   /// [#incrementalBackup(Path)].
@@ -312,21 +336,38 @@ public interface YouTrackDB extends AutoCloseable {
   /// @param password User password
   /// @param role     List of user roles
   default void createSystemUser(@Nonnull String username, @Nonnull String password,
-      @Nonnull PredefinedRole... role) {
+      @Nonnull PredefinedSystemRole... role) {
     var roles = new String[role.length];
     for (var i = 0; i < role.length; i++) {
-      roles[i] = role[i].name();
+      roles[i] = role[i].name().toLowerCase();
     }
     createSystemUser(username, password, roles);
   }
 
-  private static String @NonNull [] createUserCredentialsArray(UserCredential[] userCredentials) {
-    var userCredentialsArray = new String[userCredentials.length * 3];
+  /// List names of the users registered inside the system databases. Those users can be used to
+  /// authenticate for all databases.
+  ///
+  /// This functionality works for both remote and embedded deployments. In the case of the remote
+  /// deployments system users can be used to connect to the server and log in into any database.
+  ///
+  /// @return List of usernames
+  /// @see YouTrackDB#createSystemUser(String, String, String...)
+  List<String> listSystemUsers();
 
-    for (var i = 0; i < userCredentials.length; i++) {
-      userCredentialsArray[i * 3] = userCredentials[i].username();
-      userCredentialsArray[i * 3 + 1] = userCredentials[i].password();
-      userCredentialsArray[i * 3 + 2] = userCredentials[i].role().name();
+  /// Removes user from the system database.
+  ///
+  /// @param username User name
+  /// @see YouTrackDB#createSystemUser(String, String, String...)
+  void dropSystemUser(@Nonnull String username);
+
+  private static String @NonNull [] createUserCredentialsArray(
+      LocalUserCredential[] localUserCredentials) {
+    var userCredentialsArray = new String[localUserCredentials.length * 3];
+
+    for (var i = 0; i < localUserCredentials.length; i++) {
+      userCredentialsArray[i * 3] = localUserCredentials[i].username();
+      userCredentialsArray[i * 3 + 1] = localUserCredentials[i].password();
+      userCredentialsArray[i * 3 + 2] = localUserCredentials[i].role().name();
     }
 
     return userCredentialsArray;

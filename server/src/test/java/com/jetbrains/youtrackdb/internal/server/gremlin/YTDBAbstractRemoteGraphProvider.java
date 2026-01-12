@@ -226,7 +226,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
 
     return AnonymousTraversalSource
         .traversal(YTDBGraphTraversalSource.class)
-        .withRemote(((RemoteGraph) graph).getConnection());
+        .with(((RemoteGraph) graph).getConnection());
   }
 
   public void closeConnections() {

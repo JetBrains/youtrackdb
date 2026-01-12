@@ -52,9 +52,7 @@ public class YTDBDockerGraphBinaryFormatFeatureTest {
     @Override
     public GraphTraversalSource getGraphTraversalSource(GraphData graphData) {
       return YTDBDockerGraphFeatureTestHooks.youTrackDB.openTraversal(
-          YTDBDockerGraphFeatureTestHooks.getServerGraphName(graphData),
-          YTDBDockerGraphFeatureTestHooks.ROOT_USER_NAME,
-          YTDBDockerGraphFeatureTestHooks.ROOT_USER_PASSWORD);
+          YTDBDockerGraphFeatureTestHooks.getServerGraphName(graphData));
     }
 
     @Override
@@ -82,8 +80,7 @@ public class YTDBDockerGraphBinaryFormatFeatureTest {
 
     @Override
     public void afterEachScenario() {
-      try (var traversal = YTDBDockerGraphFeatureTestHooks.youTrackDB.openTraversal("graph", "root",
-          "root")) {
+      try (var traversal = YTDBDockerGraphFeatureTestHooks.youTrackDB.openTraversal("graph")) {
         traversal.autoExecuteInTx(g ->
             g.V().drop()
         );

@@ -65,8 +65,9 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return authenticate(session, userName, password);
   }
 
-  public SecurityUserImpl authenticate(
-      DatabaseSessionInternal session, final String username, final String password) {
+  @Override
+  public SecurityUser authenticate(
+      DatabaseSessionEmbedded session, final String username, final String password) {
     if (delegate == null) {
       throw new SecurityAccessException(
           "OSymmetricKeySecurity.authenticate() Delegate is null for username: " + username);
@@ -94,7 +95,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
     }
 
     try {
-      Identifiable identifiable = user.getIdentity();
+      var identifiable = user.getIdentity();
       var transaction = session.getActiveTransaction();
       var userConfig = new UserSymmetricKeyConfig(
           transaction.loadEntity(identifiable).toMap(false));
@@ -136,27 +137,33 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
 
+  @Override
   public SecurityUserImpl create(DatabaseSessionInternal session) {
     return delegate.create(session);
   }
 
+  @Override
   public void load(DatabaseSessionInternal session) {
     delegate.load(session);
   }
 
+  @Override
   @Nullable
-  public SecurityUserImpl authenticate(DatabaseSessionInternal session, final Token authToken) {
+  public SecurityUser authenticate(DatabaseSessionEmbedded session, final Token authToken) {
     return null;
   }
 
-  public SecurityUserImpl getUser(DatabaseSession session, final String iUserName) {
+  @Override
+  public SecurityUser getUser(DatabaseSessionEmbedded session, final String iUserName) {
     return delegate.getUser(session, iUserName);
   }
 
+  @Override
   public SecurityUserImpl getUser(DatabaseSession session, final RID iUserId) {
     return delegate.getUser(session, iUserId);
   }
 
+  @Override
   public SecurityUserImpl createUser(
       DatabaseSessionInternal session,
       final String iUserName,
@@ -165,6 +172,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.createUser(session, iUserName, iUserPassword, iRoles);
   }
 
+  @Override
   public SecurityUserImpl createUser(
       DatabaseSessionInternal session,
       final String iUserName,
@@ -173,20 +181,24 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.createUser(session, iUserName, iUserPassword, iRoles);
   }
 
+  @Override
   public Role getRole(DatabaseSession session, final String iRoleName) {
     return delegate.getRole(session, iRoleName);
   }
 
+  @Override
   public Role getRole(DatabaseSession session, final Identifiable iRole) {
     return delegate.getRole(session, iRole);
   }
 
+  @Override
   public Role createRole(
       DatabaseSessionInternal session,
       final String iRoleName) {
     return delegate.createRole(session, iRoleName);
   }
 
+  @Override
   public Role createRole(
       DatabaseSessionInternal session,
       final String iRoleName,
@@ -194,10 +206,12 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.createRole(session, iRoleName, iParent);
   }
 
+  @Override
   public List<EntityImpl> getAllUsers(DatabaseSession session) {
     return delegate.getAllUsers(session);
   }
 
+  @Override
   public List<EntityImpl> getAllRoles(DatabaseSession session) {
     return delegate.getAllRoles(session);
   }
@@ -250,10 +264,12 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.toString();
   }
 
+  @Override
   public boolean dropUser(DatabaseSession session, final String iUserName) {
     return delegate.dropUser(session, iUserName);
   }
 
+  @Override
   public boolean dropRole(DatabaseSession session, final String iRoleName) {
     return delegate.dropRole(session, iRoleName);
   }

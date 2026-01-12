@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.server;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import java.io.File;
@@ -31,7 +31,7 @@ public class AbstractRemoteTest {
     if (dbName != null) {
       server
           .getYouTrackDB().create(dbName, DatabaseType.MEMORY,
-              new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+              new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
     }
   }
 

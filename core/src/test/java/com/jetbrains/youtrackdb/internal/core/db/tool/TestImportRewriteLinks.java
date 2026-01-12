@@ -4,8 +4,8 @@ import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPO
 import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -35,7 +35,7 @@ public class TestImportRewriteLinks {
     try (final var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("testDB", DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       try (var session =
           (DatabaseSessionInternal) youTrackDb.open("testDB", "admin",
               DbTestBase.ADMIN_PASSWORD)) {

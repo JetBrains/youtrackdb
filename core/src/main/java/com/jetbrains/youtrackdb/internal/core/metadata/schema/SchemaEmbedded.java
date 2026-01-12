@@ -36,6 +36,7 @@ public class SchemaEmbedded extends SchemaShared {
               + "'");
     }
 
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     SchemaClassImpl result;
     var retry = 0;
 

@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -23,7 +23,7 @@ public class SessionPoolTest {
     final var youTrackDb =
         YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()), config);
     youTrackDb.createIfNotExists("test", DatabaseType.MEMORY,
-        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN));
     final SessionPool pool =
         new SessionPoolImpl((YouTrackDBImpl) youTrackDb, "test", "admin", PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();
@@ -46,7 +46,7 @@ public class SessionPoolTest {
             config);
 
     youTrackDb.createIfNotExists("test", DatabaseType.MEMORY,
-        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN));
     final var pool =
         new SessionPoolImpl(youTrackDb, "test", "admin", PASSWORD);
     var db = pool.acquire();
@@ -72,7 +72,7 @@ public class SessionPoolTest {
             config);
 
     youTrackDb.createIfNotExists("test", DatabaseType.MEMORY,
-        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN));
     final SessionPool pool =
         new SessionPoolImpl(youTrackDb, "test", "admin", PASSWORD);
     var db = pool.acquire();

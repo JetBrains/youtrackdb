@@ -4,8 +4,8 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -29,7 +29,7 @@ public class MetadataOnlyTest {
             DbTestBase.getBaseDirectoryPathStr(getClass()),
             config);
     youTrackDb.create("testMetadataOnly", DatabaseType.DISK,
-        new UserCredential("admin", "admin", PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
   }
 
   @Test
