@@ -100,7 +100,7 @@ jobs:
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()  # Run this even if Maven crashed for non-test reasons
+        if: always() && runner.os != 'Windows'
         with:
           files: |
             target/surefire-reports/*.xml
