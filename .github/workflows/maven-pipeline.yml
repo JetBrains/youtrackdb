@@ -45,12 +45,22 @@ jobs:
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always() && runner.os != 'Windows'
+        if: always() && runner.os == 'Linux'
         with:
           files: |
             target/surefire-reports/*.xml
             target/failsafe-reports/*.xml
           action_fail: true
+          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
+      - name: Publish Test Results (Windows)
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        if: always() && runner.os == 'Windows'
+        with:
+          files: |
+            target/surefire-reports/*.xml
+            target/failsafe-reports/*.xml
+          action_fail: true
+          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY
