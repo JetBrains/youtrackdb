@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.api;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedSystemRole;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
@@ -73,8 +73,7 @@ public final class YourTracks {
   /// @param serverPort    server port
   ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
-  /// @see YouTrackDB#createSystemUser(String, String, PredefinedLocalRole...)
-
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedSystemRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort) {
     try {
       var cls = YourTracks.class.getClassLoader()
@@ -86,7 +85,7 @@ public final class YourTracks {
     } catch (NoSuchMethodException e) {
       throw new RuntimeException("Invalid YTDB remote driver method signature.", e);
     } catch (InvocationTargetException e) {
-      throw new RuntimeException("Error during YTDB remote driver invocation.", e);
+      throw new RuntimeException("Error during YTDB remote driver invocation.", e.getCause());
     } catch (IllegalAccessException e) {
       throw new RuntimeException(e);
     }
@@ -107,7 +106,7 @@ public final class YourTracks {
   /// @param password      user password
   ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
-  /// @see YouTrackDB#createSystemUser(String, String, PredefinedLocalRole...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedSystemRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort,
       @Nonnull String username,
       @Nonnull String password) {
@@ -144,7 +143,7 @@ public final class YourTracks {
   /// @param password      user password
   ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
-  /// @see YouTrackDB#createSystemUser(String, String, PredefinedLocalRole...)
+  /// @see YouTrackDB#createSystemUser(String, String, PredefinedSystemRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, @Nonnull String username,
       @Nonnull String password) {
     try {

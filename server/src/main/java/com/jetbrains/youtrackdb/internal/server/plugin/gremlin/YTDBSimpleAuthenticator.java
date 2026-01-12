@@ -159,7 +159,11 @@ public class YTDBSimpleAuthenticator implements Authenticator {
       }
 
       if (end != 0) {
-        db = Arrays.copyOfRange(bytes, 0, end);
+        if (user == null) {
+          user = Arrays.copyOfRange(bytes, 0, end);
+        } else {
+          db = Arrays.copyOfRange(bytes, 0, end);
+        }
       }
 
       if (null == user) {

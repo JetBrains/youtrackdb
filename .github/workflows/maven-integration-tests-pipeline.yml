@@ -103,18 +103,20 @@ jobs:
         if: always() && runner.os == 'Linux'
         with:
           files: |
-            target/surefire-reports/*.xml
-            target/failsafe-reports/*.xml
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
           action_fail: true
+          large_files: true
           check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
       - name: Publish Test Results (Windows)
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
         if: always() && runner.os == 'Windows'
         with:
           files: |
-            target/surefire-reports/*.xml
-            target/failsafe-reports/*.xml
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
           action_fail: true
+          large_files: true
           check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
 
   notify-failure:
