@@ -107,6 +107,7 @@ jobs:
             **/target/failsafe-reports/TEST-*.xml
           action_fail: true
           large_files: true
+          comment_mode: off
           check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
       - name: Publish Test Results (Windows)
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
@@ -117,6 +118,7 @@ jobs:
             **/target/failsafe-reports/TEST-*.xml
           action_fail: true
           large_files: true
+          comment_mode: off
           check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
 
   notify-failure:
