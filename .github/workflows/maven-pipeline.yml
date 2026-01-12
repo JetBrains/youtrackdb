@@ -24,11 +24,10 @@ jobs:
             mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images'
           - os: windows-latest
             arch: x64
-            mvn_opts: '`-Dmaven.test.failure.ignore=true'
+            mvn_opts: ''
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
-
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
         with:
@@ -37,12 +36,33 @@ jobs:
           architecture: ${{ matrix.platform.arch }}
           cache: 'maven'
           overwrite-settings: false
-
       - name: Run Maven Tests
+        id: tests
+        continue-on-error: true
         run: mvn -s .github/workflows/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always() && runner.os == 'Linux'
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
+      - name: Publish Test Results (Windows)
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        if: always() && runner.os == 'Windows'
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY
@@ -104,8 +124,8 @@ jobs:
       - name: Docker deploy
         #Deploy REPL console and server docker images to Docker Hub
         run: |
-          mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DdockerImages=true -DskipTests=true \
-          -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -B
+          mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DskipTests=true \
+          -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -P docker-images -B
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
@@ -126,5 +146,42 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
-            Build failed for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            Build failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+  notify-fixed:
+    name: Notify build fixed on Zulip
+    needs: [ test, deploy, deploy-docker ]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Get Previous Run Status
+        id: previous_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previous_conclusion=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --workflow "${{ github.workflow }}" \
+            --limit 2 \
+            --json conclusion \
+            --jq '.[1].conclusion')
+          echo "previous_conclusion=$previous_conclusion" >> $GITHUB_OUTPUT
+
+      - name: Send Zulip notification
+        if: steps.previous_run.outputs.previous_conclusion == 'failure'
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BUILD FIXED** :white_check_mark:
+            Build fixed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
