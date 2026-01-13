@@ -18,7 +18,9 @@ composite_linear_query_statement: ' TODO '; //contains set, to be added later
 call_statment: OPTIONAL? CALL '(' call_parameters ')' '{' graph_query '}';
 call_parameters: (ID (',' ID)*)?;
 
-filter_statment: FILTER ;
+filter_statment: FILTER WHERE? boolean_expression;
+boolean_expression: ;
+
 for_statment: FOR ;
 let_statmnet: LET ;
 limit_statment: LIMIT ;
@@ -47,6 +49,9 @@ ORDER_BY: ORDER BY;
 ORDER : 'ORDER';
 BY    : 'BY';
 OPTIONAL: 'OPTIONAL';
+AS: 'AS';
+WHERE: 'WHERE';
+
 PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]* ;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 
