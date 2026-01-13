@@ -7,8 +7,8 @@ linear_query_statement: simple_linear_query_statement | composite_linear_query_s
 
 simple_linear_query_statement: (primitive_query_statement)* RETURN;
 primitive_query_statement: call_statment | filter_statment | for_statment | let_statmnet |
-                           limit_statment | match_statment | offset_statmnet | order_by_statment |
-                           return_statment | skip_statment | with_statmnet | gql_statment;
+                           limit_statment | match_statment | offset_statment | order_by_statment |
+                           return_statment | skip_statment | with_statmnet;
 
 composite_linear_query_statement: ' TODO '; //contains set, to be added later
 
@@ -32,6 +32,14 @@ match_hint: '@{' hint_key EQ hint_value '}';
 hint_key: ID;
 hint_value: ID | STRING | NUMBER | BOOL;
 
+offset_statment: OFFSET INT;
+skip_statment: SKIP_TOKEN INT;
+
+//TODO order, return, with statments
+order_by_statment: ORDER_BY ;
+return_statment: RETURN ;
+with_statmnet: WITH ;
+
 graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
 top_level_path_pattern: (path_variable EQ)? ('{' path_search_prefix | path_mode '}')? path_pattern;
@@ -45,7 +53,7 @@ edge_pattern: full_edge_any | full_edge_left | full_edge_right | abbreviated_edg
 full_edge_any: DASH '[' pattern_filler ']' DASH;
 full_edge_left: ARROW_LEFT '[' pattern_filler ']' DASH;
 full_edge_right: DASH '[' pattern_filler ']' ARROW_RIGHT;
-abbreviated_edge_any: '-';
+abbreviated_edge_any: DASH;
 abbreviated_edge_left: ARROW_LEFT;
 abbreviated_edge_right: ARROW_RIGHT;
 pattern_filler: graph_pattern_variable? is_label_condition?
@@ -61,13 +69,6 @@ property_filters: '{' property_list '}';
 property_list: property_assignment (',' property_assignment)*;
 property_assignment: ID ':' value_expression;
 path_variable: ID | STRING;
-
-offset_statmnet: OFFSET ;
-order_by_statment: ORDER_BY ;
-return_statment: RETURN ;
-skip_statment: SKIP_TOKEN ;
-with_statmnet: WITH ;
-gql_statment: GQL ;
 
 boolean_expression: boolean_expression_and (OR boolean_expression_and)*;
 boolean_expression_and: boolean_expression_inner (AND boolean_expression_inner)*;
