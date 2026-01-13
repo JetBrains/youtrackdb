@@ -7,6 +7,7 @@ permissions:
   contents: read
   packages: write
   actions: write
+  checks: write
 jobs:
   check-changes:
     name: Check for Code Changes
