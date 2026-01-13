@@ -61,7 +61,7 @@ var traversalSource = ytdb.openTraversal("dbName", "username", "password");
 The difference between these two approaches is that the second one allows issuing queries using
 users that are registered in the scope of the single database.
 
-Users registered in the scope of the single database are once that were provided during database creation in 
+Users registered in the scope of the single database are ones that were provided during database creation in 
 one of `YouTrackDB.create` methods.
 
 Server level users are those that were provided either in the `users` property of the configuration file or
