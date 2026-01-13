@@ -52,7 +52,8 @@ with_statmnet: WITH (ALL | DISTINCT)? (return_items | '*') group_by_clause?;
 graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
 top_level_path_pattern: (path_variable EQ)? ('{' path_search_prefix | path_mode '}')? path_pattern;
-path_pattern: node_pattern (edge_pattern node_pattern)*;
+path_pattern: node_pattern (edge_pattern quantifier? node_pattern)*;
+quantifier: '*' | '+' | '{' INT (',' INT?)? '}' | '{' ',' INT '}';
 path_search_prefix: ALL | ANY | ANY_SHORTEST | ANY_CHEAPEST;
 path_mode: WALK (PATH | PATHS)? | ACYCLIC (PATH | PATHS)? | TRAIL (PATH | PATHS)?;
 
@@ -85,12 +86,21 @@ boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression 
                           comparison_expression;
 
 comparison_expression: value_expression comparison_operator value_expression;
-value_expression: ID | property_reference | STRING | NUMBER | math_expression;
+
+value_expression: ID | property_reference | STRING | NUMBER | math_expression |
+                  case_expression | aggregate_function | exists_predicate;
+
+case_expression: CASE (value_expression)? (WHEN boolean_expression THEN value_expression)+
+                 (ELSE value_expression)? END;
+
+aggregate_function: (COUNT | SUM | AVG | MIN | MAX | COLLECT) '(' (DISTINCT)? value_expression ')';
+exists_predicate: EXISTS '{' graph_pattern '}';
+
 math_expression: math_expression_mul ((ADD | sub) math_expression_mul)*;
 math_expression_mul: math_expression_inner ((MUL | DIV | MOD) math_expression_inner)*;
 math_expression_inner: '(' math_expression ')' | sub '(' math_expression ')' |
                       sub math_expression_inner | NUMBER | property_reference;
-comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
+comparison_operator: EQ | NEQ | GT | GTE | LT | LTE | IN | IS_NULL | IS_NOT_NULL;
 sub: DASH;
 property_reference : ID (DOT ID)* ;
 
@@ -135,6 +145,20 @@ ASCENDING : 'ASCENDING';
 DESC : 'DESC';
 DESCENDING : 'DESCENDING';
 DISTINCT : 'DISTINCT';
+CASE : 'CASE';
+ELSE : 'ELSE';
+WHEN : 'WHEN';
+THEN : 'THEN';
+END : 'END';
+COUNT : 'COUNT';
+SUM : 'SUM';
+AVG : 'AVG';
+MIN : 'MIN';
+MAX : 'MAX';
+COLLECT : 'COLLECT';
+EXISTS : 'EXISTS';
+IS_NULL : 'IS_NULL';
+IS_NOT_NULL : 'IS_NOT_NULL';
 ARROW_RIGHT : '->';
 ARROW_LEFT  : '<-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
