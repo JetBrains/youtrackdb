@@ -82,7 +82,7 @@ math_expression_inner: '(' math_expression ')' | sub '(' math_expression ')' |
                       sub math_expression_inner | NUMBER | property_reference;
 comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
 sub: DASH;
-property_reference : ID ('.' ID)* ;
+property_reference : ID (DOT ID)* ;
 
 MATCH: 'MATCH';
 CALL: 'CALL';
@@ -122,7 +122,7 @@ ARROW_RIGHT : '->';
 ARROW_LEFT  : '<-';
 DASH: '-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
-NUMBER: '-'? [0-9]+ ('.' [0-9]+)?;
+NUMBER: '-'? [0-9]+ (DOT [0-9]+)?;
 INT: [0-9]+;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
 EQ: '=';
@@ -136,5 +136,6 @@ MUL: '*';
 DIV: '/';
 MOD: '%';
 BOOL: 'TRUE' | 'FALSE';
+DOT : '.' ;
 
 WS : [ \t\r\n]+ -> skip ;
