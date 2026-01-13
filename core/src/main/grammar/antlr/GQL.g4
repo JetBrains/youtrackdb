@@ -7,9 +7,10 @@ multi_linear_query_statement: linear_query_statement (NEXT linear_query_statemen
 linear_query_statement: simple_linear_query_statement | composite_linear_query_statement;
 
 simple_linear_query_statement: (primitive_query_statement)* RETURN;
-primitive_query_statement: call_statment | filter_statment | for_statment | let_statmnet
-                           | limit_statment | match_statment | offset_statmnet | order_by_statment
-                           | return_statment | skip_statment | with_statmnet | gql_statment;
+primitive_query_statement: call_statment | filter_statment | for_statment | let_statmnet |
+                           limit_statment | match_statment | offset_statmnet | order_by_statment |
+                           return_statment | skip_statment | with_statmnet | gql_statment |
+                           graph_decl;
 
 composite_linear_query_statement: ' TODO '; //contains set, to be added later
 
@@ -40,5 +41,9 @@ SKIP_TOKEN : 'SKIP';
 WITH: 'WITH';
 GQL: 'GQL';
 OFFSET: 'OFFSET';
-ORDER_BY: 'ORDER BY';
+ORDER_BY: ORDER BY;
+ORDER : 'ORDER';
+BY    : 'BY';
 PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]* ;
+
+WS : [ \t\r\n]+ -> skip ;
