@@ -18,7 +18,7 @@
 FROM eclipse-temurin:21
 
 RUN apt-get update
-RUN apt-get install -y dos2unix
+RUN apt-get install -y dos2unix gosu
 RUN rm -rf /var/lib/apt/lists/*
 
 ARG DISTRIBUTION_DIR
@@ -33,7 +33,6 @@ RUN dos2unix /opt/ytdb-console/bin/ytdb.sh
 RUN groupadd -r ytdb
 RUN useradd -m -r -g ytdb -s /bin/false ytdb
 RUN chown -R ytdb:ytdb /opt/ytdb-console
-USER ytdb
 
 WORKDIR /opt/ytdb-console
 
