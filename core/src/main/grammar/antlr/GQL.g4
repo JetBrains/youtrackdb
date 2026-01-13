@@ -14,7 +14,6 @@ primitive_query_statement: call_statment | filter_statment | for_statment | let_
 
 composite_linear_query_statement: ' TODO '; //contains set, to be added later
 
-
 call_statment: OPTIONAL? CALL '(' call_parameters ')' '{' graph_query '}';
 call_parameters: (ID (',' ID)*)?;
 
@@ -25,11 +24,14 @@ boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression 
                           comparison_expression;
 
 comparison_expression: value_expression comparison_operator value_expression;
-value_expression: ID('.' ID)* | STRING | NUMBER;
-
+value_expression: ID | PROPERTY_REFERENCE | STRING | NUMBER;
 comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
 
-for_statment: FOR ;
+for_statment: FOR STRING IN list (WITH OFFSET (as_statment)?)?;
+list: '['STRING(',' STRING)']' | '[]';
+
+as_statment: AS STRING;
+
 let_statmnet: LET ;
 limit_statment: LIMIT ;
 match_statment: MATCH ;
@@ -62,9 +64,11 @@ WHERE: 'WHERE';
 OR: 'OR';
 AND: 'AND';
 NOT: 'NOT';
+IN: 'IN' | 'in';
 
 PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]*;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
+PROPERTY_REFERENCE: ID(.ID)+;
 NUMBER: '-'? [0-9]+ ('.' [0-9]+)?;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
 EQ: '=';
