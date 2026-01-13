@@ -96,7 +96,7 @@ repositories {
 }
 ```
 
-if you want to work with YouTrackDB server, you can start it using the Docker image:
+If you want to work with YouTrackDB server, you can start it using the Docker image:
 
 ```bash
 docker run -p 8182:8182 \
