@@ -27,7 +27,7 @@ as_statment: AS STRING;
 let_statmnet: LET linear_graph_variable(',' linear_graph_variable)*;
 linear_graph_variable: STRING EQ value_expression;
 
-limit_statment: LIMIT ;
+limit_statment: LIMIT INT;
 match_statment: MATCH ;
 offset_statmnet: OFFSET ;
 order_by_statment: ORDER_BY ;
@@ -78,6 +78,7 @@ PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]*;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 PROPERTY_REFERENCE: ID(.ID)+;
 NUMBER: '-'? [0-9]+ ('.' [0-9]+)?;
+INT: [0-9]+;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
 EQ: '=';
 NEQ: '!=';
