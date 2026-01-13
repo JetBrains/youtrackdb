@@ -51,7 +51,7 @@ abbreviated_edge_any: '-';
 abbreviated_edge_left: '<-';
 abbreviated_edge_right: '->';
 pattern_filler: graph_pattern_variable? is_label_condition?
-                ('{' where_clause | property_filters '}')? cost_expression?;
+                (where_clause | property_filters)? cost_expression?;
 
 is_label_condition: '{' IS | ':' '}' label_expression;
 label_expression: PROPERTY_REFERENCE;
@@ -111,6 +111,13 @@ ALL: 'ALL';
 ANY: 'ANY';
 ANY_SHORTEST: 'ANY SHORTEST';
 ANY_CHEAPEST: 'ANY CHEAPEST';
+WALK: 'WALK';
+ACYCLIC: 'ACYCLIC';
+TRAIL: 'TRAIL';
+PATH: 'PATH';
+PATHS: 'PATHS';
+COST: 'COST';
+IS: 'IS';
 
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 PROPERTY_REFERENCE: ID(.ID)+;
