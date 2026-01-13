@@ -35,26 +35,24 @@ hint_value: ID | STRING | NUMBER | BOOL;
 graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
 top_level_path_pattern: (path_variable EQ)? ('{' path_search_prefix | path_mode '}')? path_pattern;
-path_pattern: element_pattern | '(' path_pattern ')';
+path_pattern: node_pattern (edge_pattern node_pattern)*;
 path_search_prefix: ALL | ANY | ANY_SHORTEST | ANY_CHEAPEST;
 path_mode: WALK (PATH | PATHS)? | ACYCLIC (PATH | PATHS)? | TRAIL (PATH | PATHS)?;
 
-
-element_pattern: '{' node_pattern | edge_pattern'}';
-node_pattern: '(' pattern_filler ')';
-edge_pattern: '{' full_edge_any | full_edge_left | full_edge_right | abbreviated_edge_any |
-               abbreviated_edge_left | abbreviated_edge_right '}';
-full_edge_any: '-[' pattern_filler ']-';
-full_edge_left: '<-[' pattern_filler ']-';
-full_edge_right: '-[' pattern_filler ']->';
+node_pattern: '(' pattern_filler ')' | '()';
+edge_pattern: full_edge_any | full_edge_left | full_edge_right | abbreviated_edge_any |
+               abbreviated_edge_left | abbreviated_edge_right;
+full_edge_any: DASH '[' pattern_filler ']' DASH;
+full_edge_left: ARROW_LEFT '[' pattern_filler ']' DASH;
+full_edge_right: DASH '[' pattern_filler ']' ARROW_RIGHT;
 abbreviated_edge_any: '-';
-abbreviated_edge_left: '<-';
-abbreviated_edge_right: '->';
+abbreviated_edge_left: ARROW_LEFT;
+abbreviated_edge_right: ARROW_RIGHT;
 pattern_filler: graph_pattern_variable? is_label_condition?
                 (where_clause | property_filters)? cost_expression?;
 
-is_label_condition: '{' IS | ':' '}' label_expression;
-label_expression: PROPERTY_REFERENCE;
+is_label_condition: (IS | ':') label_expression;
+label_expression: property_reference;
 graph_pattern_variable: ID;
 
 cost_expression: COST math_expression;
@@ -77,12 +75,14 @@ boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression 
                           comparison_expression;
 
 comparison_expression: value_expression comparison_operator value_expression;
-value_expression: ID | PROPERTY_REFERENCE | STRING | NUMBER | math_expression;
-math_expression: math_expression_mul ((ADD | SUB) math_expression_mul)*;
+value_expression: ID | property_reference | STRING | NUMBER | math_expression;
+math_expression: math_expression_mul ((ADD | sub) math_expression_mul)*;
 math_expression_mul: math_expression_inner ((MUL | DIV | MOD) math_expression_inner)*;
-math_expression_inner: '(' math_expression ')' | SUB '(' math_expression ')' |
-                      SUB math_expression_inner | NUMBER | PROPERTY_REFERENCE;
+math_expression_inner: '(' math_expression ')' | sub '(' math_expression ')' |
+                      sub math_expression_inner | NUMBER | property_reference;
 comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
+sub: DASH;
+property_reference : ID ('.' ID)* ;
 
 MATCH: 'MATCH';
 CALL: 'CALL';
@@ -118,20 +118,20 @@ PATH: 'PATH';
 PATHS: 'PATHS';
 COST: 'COST';
 IS: 'IS';
-
+ARROW_RIGHT : '->';
+ARROW_LEFT  : '<-';
+DASH: '-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
-PROPERTY_REFERENCE: ID(.ID)+;
 NUMBER: '-'? [0-9]+ ('.' [0-9]+)?;
 INT: [0-9]+;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
 EQ: '=';
 NEQ: '!=';
-GT: '>';
 GTE: '>=';
-LT: '<';
+GT: '>';
 LTE: '<=';
+LT: '<';
 ADD: '+';
-SUB: '-';
 MUL: '*';
 DIV: '/';
 MOD: '%';
