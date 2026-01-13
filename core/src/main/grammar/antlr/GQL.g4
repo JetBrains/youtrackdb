@@ -19,7 +19,15 @@ call_statment: OPTIONAL? CALL '(' call_parameters ')' '{' graph_query '}';
 call_parameters: (ID (',' ID)*)?;
 
 filter_statment: FILTER WHERE? boolean_expression;
-boolean_expression: ;
+boolean_expression: boolean_expression_and (OR boolean_expression_and)*;
+boolean_expression_and: boolean_expression_inner (AND boolean_expression_inner)*;
+boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression ')' |
+                          comparison_expression;
+
+comparison_expression: value_expression comparison_operator value_expression;
+value_expression: ID('.' ID)* | STRING | NUMBER;
+
+comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
 
 for_statment: FOR ;
 let_statmnet: LET ;
@@ -51,8 +59,19 @@ BY    : 'BY';
 OPTIONAL: 'OPTIONAL';
 AS: 'AS';
 WHERE: 'WHERE';
+OR: 'OR';
+AND: 'AND';
+NOT: 'NOT';
 
-PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]* ;
+PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]*;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
+NUMBER: '-'? [0-9]+ ('.' [0-9]+)?;
+STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
+EQ: '=';
+NEQ: '!=';
+GT: '>';
+GTE: '>=';
+LT: '<';
+LTE: '<=';
 
 WS : [ \t\r\n]+ -> skip ;
