@@ -18,21 +18,15 @@ call_statment: OPTIONAL? CALL '(' call_parameters ')' '{' graph_query '}';
 call_parameters: (ID (',' ID)*)?;
 
 filter_statment: FILTER WHERE? boolean_expression;
-boolean_expression: boolean_expression_and (OR boolean_expression_and)*;
-boolean_expression_and: boolean_expression_inner (AND boolean_expression_inner)*;
-boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression ')' |
-                          comparison_expression;
-
-comparison_expression: value_expression comparison_operator value_expression;
-value_expression: ID | PROPERTY_REFERENCE | STRING | NUMBER;
-comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
 
 for_statment: FOR STRING IN list (WITH OFFSET (as_statment)?)?;
-list: '['STRING(',' STRING)']' | '[]';
+list: '['STRING(',' STRING)']' | '[]' | NULL;
 
 as_statment: AS STRING;
 
-let_statmnet: LET ;
+let_statmnet: LET linear_graph_variable(',' linear_graph_variable)*;
+linear_graph_variable: STRING EQ value_expression;
+
 limit_statment: LIMIT ;
 match_statment: MATCH ;
 offset_statmnet: OFFSET ;
@@ -41,6 +35,19 @@ return_statment: RETURN ;
 skip_statment: SKIP_TOKEN ;
 with_statmnet: WITH ;
 gql_statment: GQL ;
+
+boolean_expression: boolean_expression_and (OR boolean_expression_and)*;
+boolean_expression_and: boolean_expression_inner (AND boolean_expression_inner)*;
+boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression ')' |
+                          comparison_expression;
+
+comparison_expression: value_expression comparison_operator value_expression;
+value_expression: ID | PROPERTY_REFERENCE | STRING | NUMBER | math_expression;
+math_expression: math_expression_mul ((ADD | SUB) math_expression_mul)*;
+math_expression_mul: math_expression_inner ((MUL | DIV | MOD) math_expression_inner)*;
+math_expression_inner: '(' math_expression ')' | SUB '(' math_expression ')' |
+                      SUB math_expression_inner | NUMBER | PROPERTY_REFERENCE;
+comparison_operator: EQ | NEQ | GT | GTE | LT | LTE;
 
 GRAPH: 'GRAPH';
 MATCH: 'MATCH';
@@ -65,6 +72,7 @@ OR: 'OR';
 AND: 'AND';
 NOT: 'NOT';
 IN: 'IN' | 'in';
+NULL: 'NULL';
 
 PROPERTY_GRAPH_NAME: [a-zA-Z_][a-zA-Z_0-9]*;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
@@ -77,5 +85,10 @@ GT: '>';
 GTE: '>=';
 LT: '<';
 LTE: '<=';
+ADD: '+';
+SUB: '-';
+MUL: '*';
+DIV: '/';
+MOD: '%';
 
 WS : [ \t\r\n]+ -> skip ;
