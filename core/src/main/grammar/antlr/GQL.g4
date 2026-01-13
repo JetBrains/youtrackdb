@@ -35,10 +35,19 @@ hint_value: ID | STRING | NUMBER | BOOL;
 offset_statment: OFFSET INT;
 skip_statment: SKIP_TOKEN INT;
 
-//TODO order, return, with statments
-order_by_statment: ORDER_BY ;
-return_statment: RETURN ;
-with_statmnet: WITH ;
+order_by_statment: ORDER_BY order_by_specification;
+order_by_specification: (COLLATE collation_specification)? (ASC | ASCENDING | DESC | DESCENDING)?;
+collation_specification: STRING;
+
+return_statment: RETURN ('*' | (ALL | DISTINCT)? return_items? group_by_clause?
+                 order_by_statment? limit_statment? offset_statment?);
+
+return_items: return_item (',' return_item)*;
+return_item: value_expression (AS ID)?;
+group_by_clause: GROUP_BY groupable_item (',' groupable_item)*;
+groupable_item: property_reference | ID | INT | value_expression;
+
+with_statmnet: WITH (ALL | DISTINCT)? (return_items | '*') group_by_clause?;
 
 graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
@@ -97,7 +106,8 @@ SKIP_TOKEN : 'SKIP';
 WITH: 'WITH';
 GQL: 'GQL';
 OFFSET: 'OFFSET';
-ORDER_BY: ORDER BY;
+ORDER_BY: 'ORDER BY';
+GROUP_BY: 'GROUP BY';
 ORDER : 'ORDER';
 BY    : 'BY';
 OPTIONAL: 'OPTIONAL';
@@ -119,6 +129,12 @@ PATH: 'PATH';
 PATHS: 'PATHS';
 COST: 'COST';
 IS: 'IS';
+COLLATE : 'COLLATE';
+ASC : 'ASC';
+ASCENDING : 'ASCENDING';
+DESC : 'DESC';
+DESCENDING : 'DESCENDING';
+DISTINCT : 'DISTINCT';
 ARROW_RIGHT : '->';
 ARROW_LEFT  : '<-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
