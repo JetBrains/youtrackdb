@@ -31,7 +31,7 @@ Except for the properties supported by the Gremlin Server implementation,
 YTDB server supports the following properties:
 1. `users` : list of the server users with their roles. Each user is represented as a map with the following keys:
    - `name` : User name
-   - `password` : User password 
+   - `password` : User password
    - `resources` : List of resources that the user has access to, in the form of string 
     that contains the resource names separated by commas. Alternatively you can use the `*` wildcard 
    to allow access to all resources.
