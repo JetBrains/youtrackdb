@@ -39,7 +39,7 @@ path_pattern: node_pattern (edge_pattern node_pattern)*;
 path_search_prefix: ALL | ANY | ANY_SHORTEST | ANY_CHEAPEST;
 path_mode: WALK (PATH | PATHS)? | ACYCLIC (PATH | PATHS)? | TRAIL (PATH | PATHS)?;
 
-node_pattern: '(' pattern_filler ')' | '()';
+node_pattern: '(' pattern_filler ')';
 edge_pattern: full_edge_any | full_edge_left | full_edge_right | abbreviated_edge_any |
                abbreviated_edge_left | abbreviated_edge_right;
 full_edge_any: DASH '[' pattern_filler ']' DASH;
@@ -120,22 +120,22 @@ COST: 'COST';
 IS: 'IS';
 ARROW_RIGHT : '->';
 ARROW_LEFT  : '<-';
-DASH: '-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 NUMBER: '-'? [0-9]+ (DOT [0-9]+)?;
 INT: [0-9]+;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
-EQ: '=';
 NEQ: '!=';
 GTE: '>=';
-GT: '>';
 LTE: '<=';
+GT: '>';
 LT: '<';
+EQ: '=';
 ADD: '+';
 MUL: '*';
 DIV: '/';
 MOD: '%';
 BOOL: 'TRUE' | 'FALSE';
 DOT : '.' ;
+DASH: '-';
 
 WS : [ \t\r\n]+ -> skip ;
