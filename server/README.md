@@ -1,4 +1,4 @@
-**YouTrackDB server** is an implementation of the Gremlin Server API and settings.
+**YouTrackDB server** is an implementation of the Gremlin Server API.
 YTDB server is distributed exclusively as a Docker image.
 To install YTDB server, please use the following command.
 
@@ -27,7 +27,7 @@ JVM in case of OOM : `/opt/ytdb-server/memory-dumps`
 
 #### YouTrackDB server configuration
 
-Except for the properties supported by the Gremlin Server implementation,
+Except for the standard properties supported by the Gremlin Server,
 YTDB server supports the following properties:
 1. `users` : list of the server users with their roles. Each user is represented as a map with the following keys:
    - `name` : User name

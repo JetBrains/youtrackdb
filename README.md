@@ -209,7 +209,7 @@ public class Example {
 ```
 
 To check the full examples of usage of YouTrackDB both for server and embedded deployments of YTDB,
-please check out our [examples](examples/src/main/java/io/youtrackdb/examples).
+please check out our [examples](examples/src/main/java/io/youtrackdb/examples) project.
 
 ## Stargazers over time
 

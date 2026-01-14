@@ -21,5 +21,5 @@ var ytdb = YourTracks.instance("localhost");
 var traversalSource = ytdb.openTraversal("dbName", "username", "password");
 ```
 
-The difference between these two approaches is that the second one allows issuing queries using
+The difference between these two approaches is that the second one allows issuing queries on behalf of 
 users that are registered in the scope of the single database.
