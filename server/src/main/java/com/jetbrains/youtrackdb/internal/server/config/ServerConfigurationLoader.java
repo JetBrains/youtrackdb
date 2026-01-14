@@ -39,14 +39,15 @@ public class ServerConfigurationLoader {
       var configFile = filePath.substring("classpath:".length());
       var configStream = this.getClass().getClassLoader().getResourceAsStream(configFile);
       if (configStream != null) {
-        ytdbSettings = YTDBSettings.read(configStream);
+        configStream.close();
+        ytdbSettings = YTDBSettings.read(filePath);
       } else {
         throw new IllegalStateException("Gremlin server configuration file not found");
       }
     } else {
       var configFilePath = Path.of(filePath);
       if (Files.exists(configFilePath)) {
-        ytdbSettings = YTDBSettings.read(Files.newInputStream(configFilePath));
+        ytdbSettings = YTDBSettings.read(configFilePath.toAbsolutePath().toString());
         fileLastModified = Files.getLastModifiedTime(configFilePath).toMillis();
       } else {
         throw new IllegalStateException("Gremlin server configuration file not found");
