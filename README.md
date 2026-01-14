@@ -27,7 +27,7 @@ YouTrackDB's key features are:
    Fundamental concepts of inheritance and polymorphism are implemented on the database level.
 3. **Implementation of TinkerPop API and [Gremlin query language](https://tinkerpop.apache.org/)**:
    You can use both Gremlin query language for your queries and TinkerPop API out of the box. 
-   Support of `GQL` with seamless integration with Gremlin is in progress.
+   Support of `GQL` with seamless integration with `Gremlin` is [in progress](https://youtrackdb.zulipchat.com/#narrow/channel/511446-dev/topic/GQL.20.20implementation/with/567918479).
 4. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
    modes.
 5. **Strong security**: A strong security profiling system based on user, role, and predicate
