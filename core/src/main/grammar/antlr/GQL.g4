@@ -6,7 +6,7 @@ multi_linear_query_statement: composite_linear_query_statement (NEXT composite_l
 
 composite_linear_query_statement: simple_linear_query_statement
                                   ( (UNION | INTERSECT | EXCEPT) (ALL | DISTINCT)?
-                                  simple_linear_query_statement )* ; //contains set, to be added later
+                                  simple_linear_query_statement )* ;
 
 simple_linear_query_statement: (primitive_query_statement)* return_statment;
 primitive_query_statement: call_statment | filter_statment | for_statment | let_statmnet |
