@@ -31,7 +31,7 @@ Except for the properties supported by the Gremlin Server implementation,
 YTDB server supports the following properties:
 1. `users` : list of the server users with their roles. Each user is represented as a map with the following keys:
    - `name` : User name
-   - `password` : User password 
+   - `password` : User password
    - `resources` : List of resources that the user has access to, in the form of string 
     that contains the resource names separated by commas. Alternatively you can use the `*` wildcard 
    to allow access to all resources.
@@ -61,7 +61,7 @@ var traversalSource = ytdb.openTraversal("dbName", "username", "password");
 The difference between these two approaches is that the second one allows issuing queries using
 users that are registered in the scope of the single database.
 
-Users registered in the scope of the single database are once that were provided during database creation in 
+Users registered in the scope of the single database are ones that were provided during database creation in 
 one of `YouTrackDB.create` methods.
 
 Server level users are those that were provided either in the `users` property of the configuration file or

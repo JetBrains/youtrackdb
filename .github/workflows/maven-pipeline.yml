@@ -7,6 +7,13 @@ on:
     branches: [ "develop" ]
   merge_group:
     types: [ checks_requested ]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
+
 jobs:
   test:
     name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }}
