@@ -19,19 +19,19 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.filter;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
@@ -93,7 +93,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
 
   public SQLFilterItemField(DatabaseSessionInternal db, final String iName,
       final SchemaClass iClass) {
-    this.name = YTDBIOUtils.getStringContent(iName);
+    this.name = IOUtils.getStringContent(iName);
     collate = getCollateForField(db, iClass, name);
     if (iClass != null) {
       collatePreset = true;
@@ -191,10 +191,10 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   public void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
     if (isStringLiteral(iRoot)) {
-      this.stringValue = YTDBIOUtils.getStringContent(iRoot);
+      this.stringValue = IOUtils.getStringContent(iRoot);
     }
     // TODO support all the basic types
-    this.name = YTDBIOUtils.getStringContent(iRoot);
+    this.name = IOUtils.getStringContent(iRoot);
   }
 
   private static boolean isStringLiteral(String iRoot) {

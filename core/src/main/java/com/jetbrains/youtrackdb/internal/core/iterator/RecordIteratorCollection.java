@@ -20,143 +20,204 @@
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
-import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import javax.annotation.Nonnull;
 
-/**
- * Iterator class to browse forward and backward the records of a collection. Once browsed in a
- * direction, the iterator cannot change it.
- */
-public class RecordIteratorCollection<REC extends RecordAbstract> implements Iterator<REC> {
+/// Iterator class to browse forward and backward the records of a collection. Once browsed in a
+/// direction, the iterator cannot change it. It handles both new (not yet committed, with negative
+/// RID positions) and existing records.
+public class RecordIteratorCollection<REC extends RecordAbstract>
+    implements Iterator<REC>, AutoCloseable {
 
-  private RecordAbstract nextRecord;
-  private RecordAbstract currentRecord;
-  private RecordIdInternal nextNextRID;
-  private final int collectionId;
-
-  @Nonnull
   private final DatabaseSessionInternal session;
-
+  private final int collectionId;
   private final boolean forwardDirection;
-  private boolean initialized = false;
 
-  public RecordIteratorCollection(@Nonnull final DatabaseSessionInternal session,
-      final int collectionId, boolean forwardDirection) {
-    checkForSystemCollections(session, new int[]{collectionId});
+  private Iterator<CollectionBrowsePage> storageIterator;
+  private FrontendTransaction currentTx;
+  private long minTxPosition;
+  private RecordIdInternal nextTxId;
+  private Iterator<CollectionBrowseEntry> collectionIterator;
+  private REC next;
 
+  public RecordIteratorCollection(
+      DatabaseSessionInternal session,
+      int collectionId,
+      boolean forwardDirection
+  ) {
+    this(session, collectionId, forwardDirection, true);
+  }
+
+  public RecordIteratorCollection(
+      DatabaseSessionInternal session,
+      int collectionId,
+      boolean forwardDirection,
+      boolean checkAccess
+  ) {
+    if (checkAccess) {
+      RecordIteratorUtil.checkCollectionAccess(session, collectionId);
+    }
     this.session = session;
-    this.forwardDirection = forwardDirection;
     this.collectionId = collectionId;
+    this.forwardDirection = forwardDirection;
+
+    // if this iterator was created inside the transaction, we will initialize it right away.
+    // this way this iterator won't see any records that were created in the same transaction after
+    // the iterator was created.
+    initialize(false);
   }
 
-  @Override
-  public boolean hasNext() {
-    initialize();
-    return nextRecord != null;
-  }
-
-  @Override
-  public REC next() {
-    initialize();
-
-    if (nextRecord == null) {
-      currentRecord = null;
-      throw new NoSuchElementException();
+  void initialize(boolean requireActiveTx) {
+    if (currentTx != null) {
+      // already initialized
+      return;
     }
+    currentTx = requireActiveTx ?
+        session.getActiveTransaction() :
+        session.getActiveTransactionOrNull();
 
-    currentRecord = nextRecord;
-
-    if (nextNextRID != null) {
-      if (forwardDirection) {
-        var nextResult = session.loadRecordAndNextRidInCollection(nextNextRID);
-
-        if (nextResult == null) {
-          nextRecord = null;
-          nextNextRID = null;
-        } else {
-          nextRecord = nextResult.getFirst();
-          nextNextRID = nextResult.getSecond();
-        }
-      } else {
-        var nextResult = session.loadRecordAndPreviousRidInCollection(nextNextRID);
-
-        if (nextResult == null) {
-          nextRecord = null;
-          nextNextRID = null;
-        } else {
-          nextRecord = nextResult.getFirst();
-          nextNextRID = nextResult.getSecond();
-        }
-      }
-    } else {
-      nextRecord = null;
-    }
-
-    if (currentRecord.isUnloaded()) {
-      var activeTransaction = session.getActiveTransaction();
-      return activeTransaction.load(currentRecord);
-    }
-    //noinspection unchecked
-    return (REC) currentRecord;
-  }
-
-  @Override
-  public void remove() {
-    if (currentRecord == null) {
-      throw new NoSuchElementException();
-    }
-
-    session.delete(currentRecord);
-    currentRecord = null;
-  }
-
-  private void initialize() {
-    if (initialized) {
+    if (currentTx == null) {
+      // no active transaction at the moment, we will initialize it on the first call to hasNext()
       return;
     }
 
     if (forwardDirection) {
-      var result = session.loadFirstRecordAndNextRidInCollection(collectionId);
+      // starting from records created in the current transaction
+      moveTxIdForward();
 
-      if (result != null) {
-        nextRecord = result.getFirst();
-        nextNextRID = result.getSecond();
-      } else {
-        nextRecord = null;
-        nextNextRID = null;
+      if (nextTxId == null) {
+        // if no new records, initialize the storage iterator
+        initStorageIterator();
       }
     } else {
-      var result = session.loadLastRecordAndPreviousRidInCollection(collectionId);
-
-      if (result != null) {
-        nextRecord = result.getFirst();
-        nextNextRID = result.getSecond();
-      } else {
-        nextRecord = null;
-        nextNextRID = null;
+      // remember the lowest RID position in the current transaction. later we will
+      // ignore all records with lower RID positions (created after this call).
+      final var lowestTxRid = currentTx.getNextRidInCollection(
+          new RecordId(collectionId, Long.MIN_VALUE),
+          0
+      );
+      if (lowestTxRid != null) {
+        minTxPosition = lowestTxRid.getCollectionPosition();
       }
-    }
 
-    initialized = true;
+      // starting from storage iteration
+      initStorageIterator();
+    }
   }
 
-  private static void checkForSystemCollections(
-      final DatabaseSessionInternal session, final int[] collectionIds) {
-    for (var clId : collectionIds) {
-      if (session.getStorage().isSystemCollection(clId)) {
-        final var dbUser = session.getCurrentUser();
-        if (dbUser == null
-            || dbUser.allow(session, Rule.ResourceGeneric.SYSTEM_COLLECTIONS, null,
-            Role.PERMISSION_READ)
-            != null) {
-          break;
+  @Override
+  public boolean hasNext() {
+    initialize(true);
+
+    // this loop tries to initialize the next record to be returned by this iterator.
+    // there are two main phases of the iteration: iterating over new records from the current transaction
+    // and iterating over existing records from the storage.
+    // the order of these phases is different for forward and backward iteration.
+    // FORWARD: transaction records first, then storage records.
+    // BACKWARD: storage records first, then transaction records.
+
+    while (next == null) {
+      final RecordIdInternal ridToLoad;
+      final RawBuffer recordBuffer;
+
+      // 3 cases:
+      // 1) iterating of new records from the current transaction (nextTxId != null)
+      // 2) iterating over existing records from the storage (storageIterator != null)
+      // 3) no more records to iterate over (return false)
+
+      if (nextTxId != null) {
+        ridToLoad = nextTxId;
+        recordBuffer = null;
+
+        // moving to the next record
+        if (forwardDirection) {
+          moveTxIdForward();
+        } else {
+          moveTxIdBackward();
         }
+        // if no more records, initialize the storage iterator (only for forward iteration)
+        if (nextTxId == null && forwardDirection) {
+          initStorageIterator();
+        }
+      } else if (storageIterator != null) {
+
+        // iterating over the storage iterator until we find a record
+        while (storageIterator != null &&
+            (collectionIterator == null || !collectionIterator.hasNext())) {
+          if (storageIterator.hasNext()) {
+            collectionIterator = storageIterator.next().iterator();
+          } else {
+            storageIterator = null;
+            collectionIterator = null;
+          }
+        }
+
+        // if at this point if collectionIterator is null, we're done
+        if (collectionIterator == null) {
+          ridToLoad = null;
+          recordBuffer = null;
+
+          // initializing nextTxId to start iterating over new tx records (only for backward iteration)
+          if (!forwardDirection) {
+            moveTxIdBackward();
+          }
+        } else {
+          final var nextEntry = collectionIterator.next();
+          ridToLoad = new RecordId(collectionId, nextEntry.collectionPosition());
+          recordBuffer = nextEntry.buffer();
+        }
+      } else {
+        return false;
+      }
+
+      if (ridToLoad != null) {
+        //noinspection unchecked
+        next = (REC) session.executeReadRecord(ridToLoad, recordBuffer, false);
       }
     }
+
+    return true;
+  }
+
+  @Override
+  public REC next() {
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
+    final var toReturn = next;
+    next = null;
+    return toReturn;
+  }
+
+  private void moveTxIdForward() {
+    if (nextTxId == null) {
+      nextTxId = new RecordId(collectionId, Long.MIN_VALUE);
+    }
+    nextTxId = currentTx.getNextRidInCollection(nextTxId, 0);
+  }
+
+  private void moveTxIdBackward() {
+    if (nextTxId == null) {
+      nextTxId = new RecordId(collectionId, 0);
+    }
+    nextTxId = currentTx.getPreviousRidInCollection(nextTxId, minTxPosition);
+  }
+
+  private void initStorageIterator() {
+    storageIterator =
+        ((AbstractStorage) session.getStorage()).browseCollection(collectionId, forwardDirection);
+  }
+
+  @Override
+  public void close() {
+    // do nothing at the moment
   }
 }

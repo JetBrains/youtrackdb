@@ -1,12 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFiltered;
 
@@ -44,7 +44,7 @@ public abstract class SQLFunctionMoveFiltered extends SQLFunctionMove
 
                 @Override
                 public Object call(final Object iArgument) {
-                  return YTDBIOUtils.getStringContent(iArgument);
+                  return IOUtils.getStringContent(iArgument);
                 }
               });
     } else {

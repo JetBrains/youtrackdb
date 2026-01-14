@@ -16,12 +16,12 @@
 
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandPredicate;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.Traverse;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLPredicate;
 import java.util.HashMap;

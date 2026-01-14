@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Iterator;
 import javax.annotation.Nullable;
 

@@ -11,7 +11,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.Test;
@@ -33,11 +33,11 @@ public class StringSerializerHelperTest extends DbTestBase {
         StringSerializerHelper.LIST_END,
         StringSerializerHelper.COLLECTION_SEPARATOR);
 
-    assertEquals(YTDBIOUtils.getStringContent(stringItems.get(0)), "f'oo");
-    assertEquals(YTDBIOUtils.getStringContent(stringItems.get(1)), "don't can't");
-    assertEquals(YTDBIOUtils.getStringContent(stringItems.get(2)), "\"bar\"");
-    assertEquals(YTDBIOUtils.getStringContent(stringItems.get(3)), "b\"a'z");
-    assertEquals(YTDBIOUtils.getStringContent(stringItems.get(4)), "q\"u'x");
+    assertEquals(IOUtils.getStringContent(stringItems.get(0)), "f'oo");
+    assertEquals(IOUtils.getStringContent(stringItems.get(1)), "don't can't");
+    assertEquals(IOUtils.getStringContent(stringItems.get(2)), "\"bar\"");
+    assertEquals(IOUtils.getStringContent(stringItems.get(3)), "b\"a'z");
+    assertEquals(IOUtils.getStringContent(stringItems.get(4)), "q\"u'x");
   }
 
   @Test

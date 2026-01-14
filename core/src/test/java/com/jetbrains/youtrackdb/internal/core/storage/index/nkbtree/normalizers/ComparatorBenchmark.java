@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.nkbtree.normalizers;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.comparator.ByteArrayComparator;
 import com.jetbrains.youtrackdb.internal.common.comparator.UnsafeByteArrayComparator;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.text.Collator;
 import java.util.concurrent.TimeUnit;
 import org.junit.Assert;

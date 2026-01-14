@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
@@ -157,7 +157,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
       this.currentFile = createLogFile(path);
 
       if (blockSize <= 0) {
-        var supposedBlockSize = YTDBIOUtils.calculateBlockSize(path);
+        var supposedBlockSize = IOUtils.calculateBlockSize(path);
         if (supposedBlockSize > 0) {
           blockSize = supposedBlockSize;
         } else {
@@ -297,7 +297,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
 
         containerBuffer.rewind();
         assert currentFile.size() == segmentPosition;
-        var written = YTDBIOUtils.writeByteBuffer(containerBuffer, currentFile, segmentPosition);
+        var written = IOUtils.writeByteBuffer(containerBuffer, currentFile, segmentPosition);
         currentFile.force(true);
         diskWriteMeter.record(written);
         segmentPosition += written;
@@ -384,7 +384,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
             final var metadataBuffer =
                 ByteBuffer.allocate(RECORD_METADATA_SIZE).order(ByteOrder.nativeOrder());
 
-            YTDBIOUtils.readByteBuffer(metadataBuffer, channel, segmentPosition.second, true);
+            IOUtils.readByteBuffer(metadataBuffer, channel, segmentPosition.second, true);
             metadataBuffer.rewind();
 
             final var recordType = metadataBuffer.get();
@@ -408,7 +408,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                 final var buffer =
                     ByteBuffer.allocate(compressedLen + RECORD_METADATA_SIZE)
                         .order(ByteOrder.nativeOrder());
-                YTDBIOUtils.readByteBuffer(buffer, channel, segmentPosition.second, true);
+                IOUtils.readByteBuffer(buffer, channel, segmentPosition.second, true);
 
                 buffer.rewind();
 
@@ -487,7 +487,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
           while (fileSize - position > RECORD_METADATA_SIZE) {
             final var metadataBuffer =
                 ByteBuffer.allocate(RECORD_METADATA_SIZE).order(ByteOrder.nativeOrder());
-            YTDBIOUtils.readByteBuffer(metadataBuffer, channel, position, true);
+            IOUtils.readByteBuffer(metadataBuffer, channel, position, true);
             metadataBuffer.rewind();
 
             final var recordType = metadataBuffer.get();
@@ -526,7 +526,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
               final var buffer =
                   ByteBuffer.allocate(RECORD_METADATA_SIZE + compressedLen)
                       .order(ByteOrder.nativeOrder());
-              YTDBIOUtils.readByteBuffer(buffer, channel, position, true);
+              IOUtils.readByteBuffer(buffer, channel, position, true);
               buffer.rewind();
 
               if (XX_HASH.hash(

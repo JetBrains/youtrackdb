@@ -19,13 +19,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.AdaptiveLock;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ReentrantResourcePool;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolListener;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBListener;
@@ -166,7 +165,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
       final String iUserPassword,
       final Map<String, Object> iOptionalParams)
       throws LockException {
-    final var dbPooledName = YTDBIOUtils.getUnixFileName(iUserName + "@" + iURL);
+    final var dbPooledName = IOUtils.getUnixFileName(iUserName + "@" + iURL);
     ReentrantResourcePool<String, DatabaseSession> pool;
     lock();
     try {
@@ -187,7 +186,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   public int getMaxConnections(final String url, final String userName) {
-    final var dbPooledName = YTDBIOUtils.getUnixFileName(userName + "@" + url);
+    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
     final ReentrantResourcePool<String, DatabaseSession> pool;
     lock();
     try {
@@ -203,7 +202,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   public int getCreatedInstances(String url, String userName) {
-    final var dbPooledName = YTDBIOUtils.getUnixFileName(userName + "@" + url);
+    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
     lock();
     try {
       final var pool = pools.get(dbPooledName);
@@ -218,7 +217,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   public int getAvailableConnections(final String url, final String userName) {
-    final var dbPooledName = YTDBIOUtils.getUnixFileName(userName + "@" + url);
+    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
     final ReentrantResourcePool<String, DatabaseSession> pool;
     lock();
     try {
@@ -234,7 +233,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   public int getConnectionsInCurrentThread(final String url, final String userName) {
-    final var dbPooledName = YTDBIOUtils.getUnixFileName(userName + "@" + url);
+    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
     final ReentrantResourcePool<String, DatabaseSession> pool;
     lock();
     try {

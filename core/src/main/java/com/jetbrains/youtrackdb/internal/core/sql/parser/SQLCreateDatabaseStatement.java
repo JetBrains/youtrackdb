@@ -4,11 +4,11 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.command.ServerCommandContext;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigBuilderImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -60,7 +60,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Invalid db type: " + type.getStringValue());
     }
-    if (ifNotExists && server.exists(dbName, null, null)) {
+    if (ifNotExists && server.exists(dbName)) {
       result.setProperty("created", false);
       result.setProperty("existing", true);
     } else {
@@ -82,7 +82,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
             null,
             null,
             dbType,
-            configBuilder.build(),
+            configBuilder.build(), true,
             (session) -> {
               if (!users.isEmpty()) {
                 session.executeInTx(

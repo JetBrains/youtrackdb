@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -47,7 +47,7 @@ public class JSScriptTest extends DbTestBase {
   public void jsScriptTest() throws IOException {
     var stream = ClassLoader.getSystemResourceAsStream("fixtures/scriptTest.js");
     session.begin();
-    var resultSet = session.computeScript("javascript", YTDBIOUtils.readStreamAsString(stream));
+    var resultSet = session.computeScript("javascript", IOUtils.readStreamAsString(stream));
     Assert.assertTrue(resultSet.hasNext());
 
     var results = resultSet.stream().toList();
@@ -69,7 +69,7 @@ public class JSScriptTest extends DbTestBase {
   @Test
   public void jsScriptCountTest() throws IOException {
     var stream = ClassLoader.getSystemResourceAsStream("fixtures/scriptCountTest.js");
-    var resultSet = session.computeScript("javascript", YTDBIOUtils.readStreamAsString(stream));
+    var resultSet = session.computeScript("javascript", IOUtils.readStreamAsString(stream));
     Assert.assertTrue(resultSet.hasNext());
 
     var results = resultSet.stream().toList();

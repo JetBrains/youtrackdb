@@ -20,9 +20,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.exception.InvalidDatabaseNameException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.InvalidDatabaseNameException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import org.junit.Assert;
 import org.junit.Test;
@@ -31,9 +33,10 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersOne() {
-    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
+    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       try {
-        youTrackDB.create("name%", DatabaseType.MEMORY);
+        youTrackDB.create("name%", DatabaseType.MEMORY,
+            new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
         Assert.fail();
       } catch (InvalidDatabaseNameException e) {
         // skip
@@ -43,9 +46,10 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersTwo() {
-    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
+    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       try {
-        youTrackDB.create("na.me", DatabaseType.MEMORY);
+        youTrackDB.create("na.me", DatabaseType.MEMORY,
+            new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
         Assert.fail();
       } catch (InvalidDatabaseNameException e) {
         // skip
@@ -55,8 +59,9 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersThree() {
-    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
-      youTrackDB.create("na_me$", DatabaseType.MEMORY);
+    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()))) {
+      youTrackDB.create("na_me$", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       youTrackDB.drop("na_me$");
     }
   }

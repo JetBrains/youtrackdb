@@ -19,19 +19,19 @@
  */
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
 import com.jetbrains.youtrackdb.internal.common.types.Binary;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -91,7 +91,7 @@ public abstract class StringSerializerHelper {
     switch (iType) {
       case STRING:
         if (iValue instanceof String s) {
-          return decode(YTDBIOUtils.getStringContent(s));
+          return decode(IOUtils.getStringContent(s));
         }
         return iValue.toString();
 
@@ -99,7 +99,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Integer) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -110,7 +110,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Boolean) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -121,7 +121,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof BigDecimal) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -132,7 +132,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Float) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -143,7 +143,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Long) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -154,7 +154,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Double) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -165,7 +165,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Short) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -176,7 +176,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Byte) {
           return iValue;
         }
-        final var valueString = YTDBIOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -191,7 +191,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Date) {
           return iValue;
         }
-        return new Date(Long.parseLong(YTDBIOUtils.getStringContent(iValue)));
+        return new Date(Long.parseLong(IOUtils.getStringContent(iValue)));
 
       case LINK:
         if (iValue instanceof RID) {
@@ -1343,7 +1343,7 @@ public abstract class StringSerializerHelper {
   @Deprecated
   public static String getStringContent(final Object iValue) {
     // MOVED
-    return YTDBIOUtils.getStringContent(iValue);
+    return IOUtils.getStringContent(iValue);
   }
 
   /**

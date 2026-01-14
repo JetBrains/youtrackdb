@@ -20,9 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableEntry;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.LockManager;
@@ -33,7 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
@@ -43,7 +40,10 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidStorageEncryptionKeyException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
@@ -2229,13 +2229,13 @@ public final class WOWCache extends AbstractWriteCache
   private static NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var nameSize = buffer.getInt();
       buffer = ByteBuffer.allocate(nameSize + LongSerializer.LONG_SIZE);
 
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
@@ -2251,7 +2251,7 @@ public final class WOWCache extends AbstractWriteCache
   private static NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(2 * IntegerSerializer.INT_SIZE);
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var fileId = buffer.getInt();
@@ -2259,19 +2259,19 @@ public final class WOWCache extends AbstractWriteCache
 
       buffer = ByteBuffer.allocate(nameSize);
 
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
 
       buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var fileNameSize = buffer.getInt();
 
       buffer = ByteBuffer.allocate(fileNameSize);
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var fileName = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
@@ -2290,7 +2290,7 @@ public final class WOWCache extends AbstractWriteCache
       final var recordSizeLen = 4;
 
       var buffer = ByteBuffer.allocate(xxHashLen + recordSizeLen);
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var storedXxHash = buffer.getLong();
@@ -2310,7 +2310,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       buffer = ByteBuffer.allocate(recordLen);
-      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var xxHash = DiskStorage.XX_HASH_64.hash(buffer, 0, recordLen,
@@ -2386,7 +2386,7 @@ public final class WOWCache extends AbstractWriteCache
 
     serializedRecord.position(0);
 
-    YTDBIOUtils.writeByteBuffer(serializedRecord, nameIdMapHolder, nameIdMapHolder.size());
+    IOUtils.writeByteBuffer(serializedRecord, nameIdMapHolder, nameIdMapHolder.size());
     //noinspection ResultOfMethodCallIgnored
     nameIdMapHolder.write(serializedRecord);
 

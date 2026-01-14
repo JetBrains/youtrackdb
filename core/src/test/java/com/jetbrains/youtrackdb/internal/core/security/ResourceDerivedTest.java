@@ -21,11 +21,14 @@ package com.jetbrains.youtrackdb.internal.core.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,9 +42,10 @@ public class ResourceDerivedTest {
 
   @Before
   public void before() {
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.execute(
-        "create database test memory users (admin identified by 'admin' role admin)");
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()));
+    youTrackDB.create("test", DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
     var db = youTrackDB.open("test", "admin", "admin");
 
     var tx = db.begin();

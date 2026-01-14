@@ -19,35 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkList;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkMap;
-import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkSet;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
-import com.jetbrains.youtrackdb.api.exception.SecurityException;
-import com.jetbrains.youtrackdb.api.exception.ValidationException;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Blob;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.Relation;
-import com.jetbrains.youtrackdb.api.record.StatefulEdge;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.GlobalProperty;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
@@ -64,17 +36,45 @@ import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
+import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -376,6 +376,22 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getPropertyInternal(propertyName);
   }
 
+  /// Retrieve a property value along with its type from the current entity. If the property does
+  /// not exist or is not accessible, this method will return `null`.
+  @Nullable
+  public <RET> ValueAndType<RET> getPropertyAndType(final @Nonnull String propertyName) {
+    validatePropertyName(propertyName, true);
+
+    if (!isPropertyAccessible(propertyName)) {
+      return null;
+    }
+
+    return getPropertyAndChooseReturnValue(
+        propertyName, isLazyLoad(),
+        PropertyOperationReturnValue.propertyValueAndType()
+    );
+  }
+
   @Nullable
   @Override
   public EmbeddedEntity getEmbeddedEntity(@Nonnull String name) {
@@ -442,39 +458,51 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nullable
   public <RET> RET getPropertyInternal(String name, boolean lazyLoad) {
+    return getPropertyAndChooseReturnValue(name, lazyLoad,
+        PropertyOperationReturnValue.propertyValue());
+  }
+
+  /// This method will return `null` if the property doesn't exist. If it exists, it'll return
+  /// whatever is chosen by `returnValue`.
+  @Nullable
+  private <T> T getPropertyAndChooseReturnValue(
+      String name, boolean lazyLoad,
+      PropertyOperationReturnValue<T> returnValue
+  ) {
     if (name == null) {
       return null;
     }
 
     checkForBinding();
     if (!name.isEmpty() && name.charAt(0) == '@') {
-      var value = (RET) EntityHelper.getRecordAttribute(this, name);
+      final var value = EntityHelper.getRecordAttribute(this, name);
       if (value != null) {
-        return value;
+        return returnValue.choose(null, value);
       }
     }
 
-    RET value = null;
     checkForProperties(name);
 
-    var entry = properties.get(name);
-    if (entry != null && entry.exists()) {
-      value = (RET) entry.value;
+    final var entry = properties.get(name);
+    if (entry == null || !entry.exists()) {
+      // property doesn't exist, returning null
+      return null;
     }
 
+    var value = entry.value;
     if (value == null) {
-      return null;
+      return returnValue.choose(entry.type, null);
     }
 
     if (value instanceof RID rid && lazyLoad) {
       try {
         value = session.load(rid);
       } catch (RecordNotFoundException e) {
-        return null;
+        return returnValue.choose(entry.type, null);
       }
     }
 
-    return convertToGraphElement(value);
+    return returnValue.choose(entry.type, convertToGraphElement(value));
   }
 
   @Override
@@ -678,8 +706,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
         "Property " + name + " is not a link set type, but " + value.getClass().getName());
   }
 
-  private void validatePropertyUpdate(String propertyName, Object propertyValue) {
-    validatePropertyName(propertyName, false);
+  private void validatePropertyUpdate(String propertyName, Object propertyValue,
+      boolean allowMetadata) {
+    validatePropertyName(propertyName, allowMetadata);
     validatePropertyValue(propertyName, propertyValue);
 
     if (!isPropertyAccessible(propertyName)) {
@@ -1057,7 +1086,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
     final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
-    if (allowMetadata && propertyName.charAt(0) == '@') {
+    if (allowMetadata && (propertyName.charAt(0) == '@' || propertyName.charAt(0) == '~')) {
       return;
     }
 
@@ -1180,7 +1209,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   @Override
   public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    setPropertyInternal(propertyName, propertyValue, null, null, true);
+    setPropertyInternal(propertyName, propertyValue, null, null, PropertyValidationMode.FULL);
   }
 
   /**
@@ -1196,7 +1225,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return setPropertyInternal(
         propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(type), null,
-        true);
+        PropertyValidationMode.FULL);
   }
 
 
@@ -1208,7 +1237,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
         propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(propertyType),
         PropertyTypeInternal.convertFromPublicType(linkedType),
-        true);
+        PropertyValidationMode.FULL);
+  }
+
+  /// Set the value of the property and return its computed property type.
+  @Nullable
+  public PropertyType setPropertyAndReturnType(@Nonnull String propertyName,
+      @Nullable Object propertyValue) {
+    return setPropertyAndChooseReturnValue(
+        propertyName, propertyValue, null, null,
+        PropertyValidationMode.FULL, PropertyOperationReturnValue.propertyType()
+    );
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
@@ -1229,14 +1268,27 @@ public class EntityImpl extends RecordAbstract implements Entity {
       String name, Object value,
       @Nullable PropertyTypeInternal type
   ) {
-    setPropertyInternal(name, value, type, null, false);
+    setPropertyInternal(name, value, type, null, PropertyValidationMode.SKIP);
   }
 
   public Object setPropertyInternal(
       String name, Object value,
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,
-      boolean validate
+      PropertyValidationMode validationMode
+  ) {
+    return setPropertyAndChooseReturnValue(
+        name, value, type, linkedType, validationMode,
+        PropertyOperationReturnValue.propertyValue()
+    );
+  }
+
+  private <T> T setPropertyAndChooseReturnValue(
+      String name, Object value,
+      @Nullable PropertyTypeInternal type,
+      @Nullable PropertyTypeInternal linkedType,
+      PropertyValidationMode validationMode,
+      PropertyOperationReturnValue<T> returnValue
   ) {
 
     if (name == null) {
@@ -1247,8 +1299,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Field name is empty");
     }
 
-    if (validate) {
-      validatePropertyUpdate(name, value);
+    if (validationMode != PropertyValidationMode.SKIP) {
+      validatePropertyUpdate(name, value, validationMode == PropertyValidationMode.ALLOW_METADATA);
     }
 
     checkForBinding();
@@ -1321,18 +1373,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (knownProperty) {
       try {
         if (propertyType == oldType) {
-          if (value instanceof byte[]
-              && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
-            return value;
+          if (value instanceof byte[] && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
+            return returnValue.choose(propertyType, value);
           }
           if (PropertyTypeInternal.isSingleValueType(value) && Objects.equals(oldValue, value)) {
-            return value;
+            return returnValue.choose(propertyType, value);
           }
           // skipping the update if the value is the same instance of a multi-value type,
           // otherwise the code below will remove any tracking data from it, and we can lose
           // an update.
           if (oldValue == value) {
-            return value;
+            return returnValue.choose(propertyType, value);
           }
         }
       } catch (Exception e) {
@@ -1369,7 +1420,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     setDirty();
-    return value;
+    return returnValue.choose(propertyType, value);
   }
 
   private void preprocessRemovedValue(Object oldValue) {
@@ -1441,14 +1492,20 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  public <RET> RET removeProperty(@Nonnull final String iFieldName) {
-    validatePropertyName(iFieldName, false);
-    return removePropertyInternal(iFieldName);
+  public <RET> RET removeProperty(@Nonnull final String name) {
+    return removePropertyInternal(name, PropertyValidationMode.FULL);
   }
 
+  public void removePropertyInternal(String name) {
+    removePropertyInternal(name, PropertyValidationMode.SKIP);
+  }
 
   @Nullable
-  public <RET> RET removePropertyInternal(String name) {
+  public <RET> RET removePropertyInternal(String name, PropertyValidationMode validationMode) {
+
+    if (validationMode != PropertyValidationMode.SKIP) {
+      validatePropertyName(name, validationMode == PropertyValidationMode.ALLOW_METADATA);
+    }
     checkForBinding();
     checkForProperties();
 
@@ -4120,5 +4177,49 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (dirty) {
       setDirty();
     }
+  }
+
+  public enum PropertyValidationMode {
+    SKIP, ALLOW_METADATA, FULL,
+  }
+
+  /// Component that chooses the return value for `getProperty*` and `setProperty*` operations.
+  private interface PropertyOperationReturnValue<T> {
+
+    /// Return type of the property
+    static PropertyOperationReturnValue<PropertyType> propertyType() {
+      return PROPERTY_TYPE;
+    }
+
+    /// Return value of the property
+    static <T> PropertyOperationReturnValue<T> propertyValue() {
+      return (PropertyOperationReturnValue<T>) PROPERTY_VALUE;
+    }
+
+    /// Return both value and type of the property
+    static <T> PropertyOperationReturnValue<T> propertyValueAndType() {
+      return (PropertyOperationReturnValue<T>) PROPERTY_VALUE_AND_TYPE;
+    }
+
+    PropertyOperationReturnValue<Object> PROPERTY_VALUE =
+        (propertyType, value) -> value;
+
+    PropertyOperationReturnValue<PropertyType> PROPERTY_TYPE =
+        (propertyType, value) ->
+            propertyType == null ? null : propertyType.getPublicPropertyType();
+
+    PropertyOperationReturnValue<ValueAndType<Object>> PROPERTY_VALUE_AND_TYPE =
+        (propertyType, value) -> new ValueAndType<>(
+            value,
+            propertyType == null ? null : propertyType.getPublicPropertyType()
+        );
+
+    /// Choose the value to return
+    @Nullable
+    T choose(PropertyTypeInternal propertyType, Object value);
+  }
+
+  public record ValueAndType<T>(T value, PropertyType type) {
+
   }
 }

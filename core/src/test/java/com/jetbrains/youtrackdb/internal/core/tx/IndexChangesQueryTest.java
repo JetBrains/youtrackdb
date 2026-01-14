@@ -1,14 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.stream.Collectors;
@@ -30,13 +33,11 @@ public class IndexChangesQueryTest {
 
   @Before
   public void before() {
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase("test",
-            DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    youTrackDB.create("test", DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
     db =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+        youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var cls = schema.createClass(CLASS_NAME);

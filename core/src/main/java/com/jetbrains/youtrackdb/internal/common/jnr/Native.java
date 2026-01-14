@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.common.jnr;
 
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Memory;
 import java.io.BufferedReader;
@@ -65,7 +65,7 @@ public class Native {
         return instance;
       }
 
-      if (YTDBIOUtils.isOsLinux()) {
+      if (IOUtils.isOsLinux()) {
         posix = POSIXFactory.getPOSIX();
       }
 
@@ -98,7 +98,7 @@ public class Native {
    * @return limit of open files, available for the system.
    */
   public int getOpenFilesLimit(boolean verbose, int recommended, int defLimit) {
-    if (YTDBIOUtils.isOsLinux()) {
+    if (IOUtils.isOsLinux()) {
       try {
         final var rLimit = posix.getrlimit(Native.RLIMIT_NOFILE);
         if (rLimit.rlimCur() > 0) {
@@ -132,7 +132,7 @@ public class Native {
               .info(this, "Can not detect value of limit of open files.", new Object[]{e});
         }
       }
-    } else if (YTDBIOUtils.isOsWindows()) {
+    } else if (IOUtils.isOsWindows()) {
       if (verbose) {
         LogManager.instance()
             .info(
@@ -178,7 +178,7 @@ public class Native {
               convertToGB(memoryLimit));
     }
 
-    if (YTDBIOUtils.isOsLinux()) {
+    if (IOUtils.isOsLinux()) {
       try {
         final var rLimit = posix.getrlimit(Native.RLIMIT_AS);
         if (printSteps) {
@@ -591,6 +591,6 @@ public class Native {
   }
 
   public boolean isOsRoot() {
-    return YTDBIOUtils.isOsLinux() && posix.getegid() == 0;
+    return IOUtils.isOsLinux() && posix.getegid() == 0;
   }
 }

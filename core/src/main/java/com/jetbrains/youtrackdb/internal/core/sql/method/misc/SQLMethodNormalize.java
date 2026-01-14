@@ -16,10 +16,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.text.Normalizer;
 
 /**
@@ -44,14 +44,14 @@ public class SQLMethodNormalize extends AbstractSQLMethod {
     if (ioResult != null) {
       final Normalizer.Form form;
       if (iParams != null && iParams.length > 0) {
-        form = Normalizer.Form.valueOf(YTDBIOUtils.getStringContent(iParams[0].toString()));
+        form = Normalizer.Form.valueOf(IOUtils.getStringContent(iParams[0].toString()));
       } else {
         form = Normalizer.Form.NFD;
       }
 
       var normalized = Normalizer.normalize(ioResult.toString(), form);
       if (iParams != null && iParams.length > 1) {
-        normalized = normalized.replaceAll(YTDBIOUtils.getStringContent(iParams[0].toString()), "");
+        normalized = normalized.replaceAll(IOUtils.getStringContent(iParams[0].toString()), "");
       } else {
         normalized = PatternConst.PATTERN_DIACRITICAL_MARKS.matcher(normalized).replaceAll("");
       }

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.ArrayList;
 import org.junit.Assert;
 import org.junit.Test;

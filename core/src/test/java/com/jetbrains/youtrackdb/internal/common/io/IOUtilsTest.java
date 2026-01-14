@@ -21,7 +21,7 @@ public class IOUtilsTest {
   }
 
   private void assertGetTimeAsMilis(String data, long expected) {
-    assertEquals(YTDBIOUtils.getTimeAsMillisecs(data), expected);
+    assertEquals(IOUtils.getTimeAsMillisecs(data), expected);
   }
 
   @Test
@@ -31,7 +31,7 @@ public class IOUtilsTest {
     calendar.set(Calendar.MINUTE, 10);
     calendar.set(Calendar.SECOND, 0);
     calendar.set(Calendar.MILLISECOND, 0);
-    var d = YTDBIOUtils.getTodayWithTime("05:10:00");
+    var d = IOUtils.getTodayWithTime("05:10:00");
     assertEquals(calendar.getTime(), d);
   }
 
@@ -40,14 +40,14 @@ public class IOUtilsTest {
     // UTF-8
     var path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_utf8.txt");
 
-    var asString = YTDBIOUtils.readFileAsString(path.toFile());
+    var asString = IOUtils.readFileAsString(path.toFile());
 
     assertThat(asString).isEqualToIgnoringCase("utf-8 :: èàòì€");
 
     // ISO-8859-1
     path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_iso-8859-1.txt");
 
-    asString = YTDBIOUtils.readFileAsString(path.toFile());
+    asString = IOUtils.readFileAsString(path.toFile());
 
     assertThat(asString).isNotEqualToIgnoringCase("iso-8859-1 :: èàòì?");
   }
@@ -57,14 +57,14 @@ public class IOUtilsTest {
     // UTF-8
     var path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_utf8.txt");
 
-    var asString = YTDBIOUtils.readFileAsString(path.toFile(), StandardCharsets.UTF_8);
+    var asString = IOUtils.readFileAsString(path.toFile(), StandardCharsets.UTF_8);
 
     assertThat(asString).isEqualToIgnoringCase("utf-8 :: èàòì€");
 
     // ISO-8859-1
     path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_iso-8859-1.txt");
 
-    asString = YTDBIOUtils.readFileAsString(path.toFile(), StandardCharsets.ISO_8859_1);
+    asString = IOUtils.readFileAsString(path.toFile(), StandardCharsets.ISO_8859_1);
 
     assertThat(asString).isEqualToIgnoringCase("iso-8859-1 :: èàòì?");
   }

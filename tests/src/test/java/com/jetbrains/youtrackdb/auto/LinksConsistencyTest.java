@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.EntityHookAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.EntityHookAbstract;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 

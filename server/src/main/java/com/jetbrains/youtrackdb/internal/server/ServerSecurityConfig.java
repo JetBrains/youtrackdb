@@ -20,14 +20,6 @@ public class ServerSecurityConfig implements SecurityConfig {
 
   @Override
   public Syslog getSyslog() {
-    if (sysLog == null && server != null) {
-      if (server.getPluginManager() != null) {
-        var syslogPlugin = server.getPluginManager().getPluginByName("syslog");
-        if (syslogPlugin != null) {
-          sysLog = (Syslog) syslogPlugin.getInstance();
-        }
-      }
-    }
     return sysLog;
   }
 

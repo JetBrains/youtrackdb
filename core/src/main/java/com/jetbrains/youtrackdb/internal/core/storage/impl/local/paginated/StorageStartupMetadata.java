@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import java.io.IOException;
@@ -134,11 +134,11 @@ public class StorageStartupMetadata {
             StandardOpenOption.CREATE_NEW,
             StandardOpenOption.WRITE,
             StandardOpenOption.SYNC)) {
-      YTDBIOUtils.writeByteBuffer(buffer, backupChannel, 0);
+      IOUtils.writeByteBuffer(buffer, backupChannel, 0);
     }
 
     channel.truncate(0);
-    YTDBIOUtils.writeByteBuffer(buffer, channel, 0);
+    IOUtils.writeByteBuffer(buffer, channel, 0);
 
     Files.deleteIfExists(backupPath);
   }
@@ -196,20 +196,20 @@ public class StorageStartupMetadata {
 
         if (size < 9) {
           var buffer = ByteBuffer.allocate(1);
-          YTDBIOUtils.readByteBuffer(buffer, channel, 0, true);
+          IOUtils.readByteBuffer(buffer, channel, 0, true);
 
           buffer.position(0);
           dirtyFlag = buffer.get() > 0;
         } else if (size == 9) {
           var buffer = ByteBuffer.allocate(8 + 1);
-          YTDBIOUtils.readByteBuffer(buffer, channel, 0, true);
+          IOUtils.readByteBuffer(buffer, channel, 0, true);
 
           buffer.position(0);
           dirtyFlag = buffer.get() > 0;
           lastTxId = buffer.getLong();
         } else {
           final var buffer = ByteBuffer.allocate((int) size);
-          YTDBIOUtils.readByteBuffer(buffer, channel);
+          IOUtils.readByteBuffer(buffer, channel);
 
           buffer.rewind();
 

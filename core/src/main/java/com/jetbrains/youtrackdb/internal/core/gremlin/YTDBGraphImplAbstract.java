@@ -1,26 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import static com.jetbrains.youtrackdb.internal.core.gremlin.StreamUtils.asStream;
-
-import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -29,7 +26,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -40,6 +37,7 @@ import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,7 +86,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
     var label = ElementHelper.getLabelValue(keyValues).orElse(Vertex.DEFAULT_LABEL);
     var vertex = createVertexWithClass(tx.getDatabaseSession(), label);
-    ((YTDBElementImpl) vertex).property(keyValues);
+    ElementHelper.attachProperties(vertex, keyValues);
 
     return vertex;
   }
@@ -162,10 +160,12 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     if (elementIds.length == 0) {
       // return all vertices as stream
       var itty = session.browseClass(elementClass, polymorphic);
-      return asStream(itty).map(toA).iterator();
+      return IteratorUtils.map(itty, toA::apply);
     } else {
       var tx = session.getActiveTransaction();
-      var ids = Stream.of(elementIds).map(YTDBGraphImplAbstract::createRecordId);
+      var ids = Stream.of(elementIds)
+          .filter(Objects::nonNull) // looks like Gremlin allows nulls in here.
+          .map(YTDBGraphImplAbstract::createRecordId);
       var entities =
           ids.filter(id -> ((RecordIdInternal) id).isValidPosition()).map(rid -> {
             try {
@@ -217,6 +217,13 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   }
 
   @Override
+  public void executeCommand(String command, Map<?, ?> params) {
+    try (var session = acquireSession()) {
+      session.command(command, params);
+    }
+  }
+
+  @Override
   public Variables variables() {
     throw new NotImplementedException();
   }
@@ -253,7 +260,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   @Override
   public String toString() {
     return YTDBGraph.class.getSimpleName() + "[" + configuration.getString(
-        ConfigurationParameters.CONFIG_DB_NAME) + "]";
+        YTDBGraphFactory.CONFIG_DB_NAME) + "]";
   }
 
   public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {

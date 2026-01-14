@@ -19,21 +19,21 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -128,7 +128,7 @@ public class SQLHelper {
         && iValue.charAt(iValue.length() - 1) == '\"')
     // STRING
     {
-      fieldValue = YTDBIOUtils.getStringContent(iValue);
+      fieldValue = IOUtils.getStringContent(iValue);
     } else if (iValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.LIST_END) {
       // COLLECTION/ARRAY
@@ -449,7 +449,7 @@ public class SQLHelper {
       case String string -> {
         final var s = string.trim();
         if (iRecord != null & !s.isEmpty()
-            && !YTDBIOUtils.isStringContent(iObject)
+            && !IOUtils.isStringContent(iObject)
             && !Character.isDigit(s.charAt(0)))
         // INTERPRETS IT
         {

@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.api.schema.Collate;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemFieldMultiAbstract;
 import java.util.List;
 

@@ -15,27 +15,15 @@
  */
 package com.jetbrains.youtrackdb.internal.server;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.common.console.ConsoleReader;
-import com.jetbrains.youtrackdb.internal.common.console.DefaultConsoleReader;
-import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.log.AnsiCode;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseTask;
@@ -45,42 +33,22 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.TokenAuthInfo;
-import com.jetbrains.youtrackdb.internal.core.security.InvalidPasswordException;
-import com.jetbrains.youtrackdb.internal.core.security.ParsedToken;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
-import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
-import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.config.ServerConfigurationManager;
-import com.jetbrains.youtrackdb.internal.server.handler.ConfigurableHooksManager;
-import com.jetbrains.youtrackdb.internal.server.network.ServerNetworkListener;
-import com.jetbrains.youtrackdb.internal.server.network.ServerSocketFactory;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocolData;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpSessionManager;
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPlugin;
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginInfo;
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginManager;
-import com.jetbrains.youtrackdb.internal.server.token.TokenHandlerImpl;
-import java.io.ByteArrayInputStream;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSettings;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.Callable;
@@ -90,11 +58,18 @@ import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.server.GremlinServer;
 
 public class YouTrackDBServer {
 
-  private static final String ROOT_PASSWORD_VAR = "YOUTRACKDB_ROOT_PASSWORD";
+  public static final String DEFAULT_ROOT_USER = "root";
+  public static final String GUEST_USER = "guest";
+  public static final String DEFAULT_GUEST_PASSWORD = "!!!TheGuestPw123";
+
+  public static final String DEFAULT_CONFIG_CLASSPATH = "classpath:com/jetbrains/youtrackdb/internal/server/conf/youtrackdb-server.yaml";
+  public static final String PROPERTY_CONFIG_FILE = "youtrackdb.config.file";
+  public static final String DEFAULT_CONFIG_LOCATION = "conf/youtrackdb-server.yaml";
+  private static final String ROOT_PASSWORD_FILE = "secrets/root_password";
 
   private CountDownLatch startupLatch;
   private CountDownLatch shutdownLatch;
@@ -102,28 +77,19 @@ public class YouTrackDBServer {
 
   protected ReentrantLock lock = new ReentrantLock();
   protected volatile boolean running = false;
-  protected volatile boolean rejectRequests = true;
   protected ServerConfigurationManager serverCfg;
   protected ContextConfiguration contextConfiguration;
   protected ServerShutdownHook shutdownHook;
-  protected Map<String, Class<? extends NetworkProtocol>> networkProtocols = new HashMap<>();
-  protected Map<String, ServerSocketFactory> networkSocketFactories = new HashMap<>();
-  protected List<ServerNetworkListener> networkListeners = new ArrayList<>();
   protected List<ServerLifecycleListener> lifecycleListeners = new ArrayList<>();
-  protected ServerPluginManager pluginManager;
-  protected ConfigurableHooksManager hookManager;
   private String serverRootDirectory;
   private String databaseDirectory;
-  private ClientConnectionManager clientConnectionManager;
-  private HttpSessionManager httpSessionManager;
-  private PushManager pushManager;
-  private TokenHandler tokenHandler;
 
   private YouTrackDBImpl context;
   private YTDBInternalProxy databases;
 
   private final Set<String> dbNamesCache = ConcurrentHashMap.newKeySet();
   private final ReentrantLock dbNamesCacheLock = new ReentrantLock();
+  private GremlinServer gremlinServer;
 
   public YouTrackDBServer() {
     this(!YouTrackDBEnginesManager.instance().isInsideWebContainer());
@@ -164,25 +130,12 @@ public class YouTrackDBServer {
       throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
     var server = new YouTrackDBServer(false);
     server.startup(config);
-    server.activate();
+    if (!server.activate()) {
+      System.exit(1);
+    }
     return server;
   }
 
-  public static YouTrackDBServer startFromClasspathConfig(String config)
-      throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
-    var server = new YouTrackDBServer(false);
-    server.startup(Thread.currentThread().getContextClassLoader().getResourceAsStream(config));
-    server.activate();
-    return server;
-  }
-
-  public static YouTrackDBServer startFromStreamConfig(InputStream config)
-      throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
-    var server = new YouTrackDBServer(false);
-    server.startup(config);
-    server.activate();
-    return server;
-  }
 
   public SecuritySystem getSecurity() {
     return databases.getSecuritySystem();
@@ -192,99 +145,47 @@ public class YouTrackDBServer {
     return running;
   }
 
-  public ClientConnectionManager getClientConnectionManager() {
-    return clientConnectionManager;
-  }
-
-  public HttpSessionManager getHttpSessionManager() {
-    return httpSessionManager;
-  }
-
-  public PushManager getPushManager() {
-    return pushManager;
-  }
-
-  /**
-   * Load an extension class by name.
-   */
-  private Class<?> loadClass(final String name) throws ClassNotFoundException {
-    var loaded = tryLoadClass(Thread.currentThread().getContextClassLoader(), name);
-
-    if (loaded == null) {
-      loaded = tryLoadClass(getClass().getClassLoader(), name);
-      if (loaded == null) {
-        loaded = Class.forName(name);
-      }
+  public YouTrackDBServer startup() throws ConfigurationException, IOException {
+    String config = null;
+    if (System.getProperty(PROPERTY_CONFIG_FILE) != null) {
+      config = System.getProperty(PROPERTY_CONFIG_FILE);
     }
-
-    return loaded;
-  }
-
-  /**
-   * Attempt to load a class from givenstar class-loader.
-   */
-  @Nullable
-  private static Class<?> tryLoadClass(/* @Nullable */ final ClassLoader classLoader,
-      final String name) {
-    if (classLoader != null) {
-      try {
-        return classLoader.loadClass(name);
-      } catch (ClassNotFoundException e) {
-        // ignore
+    if (config == null) {
+      if (Files.exists(Path.of(DEFAULT_CONFIG_LOCATION))) {
+        config = DEFAULT_CONFIG_LOCATION;
+      } else {
+        config = DEFAULT_CONFIG_CLASSPATH;
       }
-    }
-    return null;
-  }
-
-  public YouTrackDBServer startup() throws ConfigurationException {
-    var config = ServerConfiguration.DEFAULT_CONFIG_FILE;
-    if (System.getProperty(ServerConfiguration.PROPERTY_CONFIG_FILE) != null) {
-      config = System.getProperty(ServerConfiguration.PROPERTY_CONFIG_FILE);
     }
 
     YouTrackDBEnginesManager.instance().startup();
 
-    startup(new File(SystemVariableResolver.resolveSystemVariables(config)));
+    startup(SystemVariableResolver.resolveSystemVariables(config));
 
     return this;
   }
 
-  public YouTrackDBServer startup(final File iConfigurationFile) throws ConfigurationException {
-    // Startup function split to allow pre-activation changes
+  public void startup(final String configuration) {
     try {
-      serverCfg = new ServerConfigurationManager(iConfigurationFile);
-      return startupFromConfiguration();
+      serverCfg = new ServerConfigurationManager(configuration, this);
+      startupFromConfiguration();
 
     } catch (IOException e) {
       final var message =
-          "Error on reading server configuration from file: " + iConfigurationFile;
+          "Error on reading server configuration from file: " + configuration;
       LogManager.instance().error(this, message, e);
       throw BaseException.wrapException(new ConfigurationException(message), e, (String) null);
     }
   }
 
-  public YouTrackDBServer startup(final String iConfiguration) throws IOException {
-    return startup(new ByteArrayInputStream(iConfiguration.getBytes()));
-  }
-
-  public YouTrackDBServer startup(final InputStream iInputStream) throws IOException {
-    if (iInputStream == null) {
-      throw new ConfigurationException("Configuration file is null");
-    }
-
-    serverCfg = new ServerConfigurationManager(iInputStream);
-
-    // Startup function split to allow pre-activation changes
-    return startupFromConfiguration();
-  }
-
-  public YouTrackDBServer startup(final ServerConfiguration iConfiguration)
+  public void startup(final YTDBSettings iConfiguration)
       throws IllegalArgumentException, SecurityException, IOException {
+    iConfiguration.server = this;
     serverCfg = new ServerConfigurationManager(iConfiguration);
-    return startupFromConfiguration();
+    startupFromConfiguration();
   }
 
-  public YouTrackDBServer startupFromConfiguration() throws IOException {
+  public void startupFromConfiguration() throws IOException {
     LogManager.instance()
         .info(this,
             "YouTrackDB Server v" + YouTrackDBConstants.getVersion() + " is starting up...");
@@ -299,11 +200,6 @@ public class YouTrackDBServer {
     }
 
     initFromConfiguration();
-
-    clientConnectionManager = new ClientConnectionManager(this);
-    httpSessionManager = new HttpSessionManager(this);
-    pushManager = new PushManager();
-    rejectRequests = false;
 
     if (contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP)) {
@@ -328,7 +224,7 @@ public class YouTrackDBServer {
 
     var builder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
     for (var user : serverCfg.getUsers()) {
-      builder.addGlobalUser(user.getName(), user.getPassword(), user.getResources());
+      builder.addGlobalUser(user.name, user.password, user.resources);
     }
 
     YouTrackDBConfig config =
@@ -338,18 +234,16 @@ public class YouTrackDBServer {
             .build();
 
     databases = new YTDBInternalProxy(
-        (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
+        YouTrackDBInternal.embedded(this.databaseDirectory,
             config, true));
     context = databases.newYouTrackDb();
 
     LogManager.instance()
         .info(this, "Databases directory: " + new File(databaseDirectory).getAbsolutePath());
 
-    return this;
   }
 
-  @SuppressWarnings("unchecked")
-  public YouTrackDBServer activate()
+  public boolean activate()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException {
     lock.lock();
     try {
@@ -363,55 +257,11 @@ public class YouTrackDBServer {
         l.onBeforeActivate();
       }
 
-      final var configuration = serverCfg.getConfiguration();
-
-      tokenHandler =
-          new TokenHandlerImpl(
-              this.databases.getSecuritySystem().getTokenSign(), this.contextConfiguration);
-
-      if (configuration.network != null) {
-        // REGISTER/CREATE SOCKET FACTORIES
-        if (configuration.network.sockets != null) {
-          for (var f : configuration.network.sockets) {
-            var fClass =
-                (Class<? extends ServerSocketFactory>) loadClass(f.implementation);
-            var factory = fClass.newInstance();
-            try {
-              factory.config(f.name, f.parameters);
-              networkSocketFactories.put(f.name, factory);
-            } catch (ConfigurationException e) {
-              LogManager.instance().error(this, "Error creating socket factory", e);
-            }
-          }
-        }
-
-        // REGISTER PROTOCOLS
-        for (var p : configuration.network.protocols) {
-          networkProtocols.put(
-              p.name, (Class<? extends NetworkProtocol>) loadClass(p.implementation));
-        }
-
-        // STARTUP LISTENERS
-        for (var l : configuration.network.listeners) {
-          networkListeners.add(
-              new ServerNetworkListener(
-                  this,
-                  networkSocketFactories.get(l.socket),
-                  l.ipAddress,
-                  l.portRange,
-                  l.protocol,
-                  networkProtocols.get(l.protocol),
-                  l.parameters,
-                  l.commands));
-        }
-
-      } else {
-        LogManager.instance().warn(this, "Network configuration was not found");
-      }
-
       try {
         loadStorages();
-        loadUsers();
+        if (!loadUsers()) {
+          return false;
+        }
         loadDatabases();
       } catch (IOException e) {
         final var message = "Error on reading server configuration";
@@ -420,30 +270,32 @@ public class YouTrackDBServer {
         throw BaseException.wrapException(new ConfigurationException(message), e, (String) null);
       }
 
-      registerPlugins();
-
       for (var l : lifecycleListeners) {
         l.onAfterActivate();
       }
 
+      gremlinServer = new GremlinServer(serverCfg.getConfiguration());
+      gremlinServer.start().join();
+
       running = true;
+
       LogManager.instance()
           .info(
               this,
               "$ANSI{green:italic YouTrackDB Server is active} v" + YouTrackDBConstants.getVersion()
                   + ".");
-    } catch (ClassNotFoundException
-             | InstantiationException
-             | IllegalAccessException
-             | RuntimeException e) {
+    } catch (RuntimeException e) {
       deinit();
       throw e;
+    } catch (Exception e) {
+      deinit();
+      throw new RuntimeException(e);
     } finally {
       lock.unlock();
       startupLatch.countDown();
     }
 
-    return this;
+    return true;
   }
 
   @SuppressWarnings("unused")
@@ -470,6 +322,10 @@ public class YouTrackDBServer {
     try {
       running = false;
 
+      if (gremlinServer != null) {
+        gremlinServer.stop().join();
+      }
+
       LogManager.instance().info(this, "YouTrackDB Server is shutting down...");
 
       if (shutdownHook != null) {
@@ -482,26 +338,6 @@ public class YouTrackDBServer {
 
       lock.lock();
       try {
-        if (!networkListeners.isEmpty()) {
-          // SHUTDOWN LISTENERS
-          LogManager.instance().info(this, "Shutting down listeners:");
-          // SHUTDOWN LISTENERS
-          for (var l : networkListeners) {
-            LogManager.instance().info(this, "- %s", l);
-            try {
-              l.shutdown();
-            } catch (Exception e) {
-              LogManager.instance().error(this, "Error during shutdown of listener %s.", e, l);
-            }
-          }
-        }
-
-        if (!networkProtocols.isEmpty()) {
-          // PROTOCOL SHUTDOWN
-          LogManager.instance().info(this, "Shutting down protocols");
-          networkProtocols.clear();
-        }
-
         for (var l : lifecycleListeners) {
           try {
             l.onAfterDeactivate();
@@ -510,17 +346,6 @@ public class YouTrackDBServer {
                 .error(this, "Error during deactivation of server lifecycle listener %s", e, l);
           }
         }
-
-        rejectRequests = true;
-        pushManager.shutdown();
-        clientConnectionManager.shutdown();
-        httpSessionManager.shutdown();
-
-        if (pluginManager != null) {
-          pluginManager.shutdown();
-        }
-
-        networkListeners.clear();
       } finally {
         lock.unlock();
       }
@@ -551,10 +376,6 @@ public class YouTrackDBServer {
     return true;
   }
 
-  public boolean rejectRequests() {
-    return rejectRequests;
-  }
-
   public void waitForShutdown() {
     try {
       if (shutdownLatch != null) {
@@ -563,16 +384,6 @@ public class YouTrackDBServer {
     } catch (InterruptedException e) {
       LogManager.instance().error(this, "Error during waiting for YouTrackDB shutdown", e);
     }
-  }
-
-  public Map<String, String> getAvailableStorageNames() {
-    var dbs = listDatabases();
-    Map<String, String> toSend = new HashMap<>();
-    for (var dbName : dbs) {
-      toSend.put(dbName, dbName);
-    }
-
-    return toSend;
   }
 
   /**
@@ -599,75 +410,16 @@ public class YouTrackDBServer {
   }
 
 
-  /**
-   * Authenticate a server user.
-   *
-   * @param iUserName Username to authenticate
-   * @param iPassword Password in clear
-   * @return true if authentication is ok, otherwise false
-   */
-  public boolean authenticate(
-      final String iUserName, final String iPassword, final String iResourceToCheck) {
-    // FALSE INDICATES WRONG PASSWORD OR NO AUTHORIZATION
-    return authenticateUser(iUserName, iPassword, iResourceToCheck) != null;
-  }
-
-  // Returns null if the user cannot be authenticated. Otherwise returns the
-  // ServerUserConfiguration user.
-  public SecurityUser authenticateUser(
-      final String iUserName, final String iPassword, final String iResourceToCheck) {
-    return databases
-        .getSecuritySystem()
-        .authenticateAndAuthorize(null, iUserName, iPassword, iResourceToCheck);
-  }
-
-  public ServerConfiguration getConfiguration() {
+  public YTDBSettings getConfiguration() {
     return serverCfg.getConfiguration();
-  }
-
-  @SuppressWarnings("unchecked")
-  @Nullable
-  public <RET extends ServerNetworkListener> RET getListenerByProtocol(
-      final Class<? extends NetworkProtocol> iProtocolClass) {
-    for (var l : networkListeners) {
-      if (iProtocolClass.isAssignableFrom(l.getProtocolType())) {
-        return (RET) l;
-      }
-    }
-
-    return null;
-  }
-
-  @Nullable
-  public Collection<ServerPluginInfo> getPlugins() {
-    return pluginManager != null ? pluginManager.getPlugins() : null;
   }
 
   public ContextConfiguration getContextConfiguration() {
     return contextConfiguration;
   }
 
-  @SuppressWarnings("unchecked")
-  @Nullable
-  public <RET extends ServerPlugin> RET getPlugin(final String iName) {
-    if (startupLatch == null) {
-      throw new DatabaseException("Error on plugin lookup: the server did not start correctly");
-    }
-
-    try {
-      startupLatch.await();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-    if (!running) {
-      throw new DatabaseException("Error on plugin lookup: the server did not start correctly");
-    }
-
-    final var p = pluginManager.getPluginByName(iName);
-    if (p != null) {
-      return (RET) p.getInstance();
-    }
-    return null;
+  public GremlinServer getGremlinServer() {
+    return gremlinServer;
   }
 
   @SuppressWarnings("unused")
@@ -682,38 +434,6 @@ public class YouTrackDBServer {
     return this;
   }
 
-  public DatabaseSessionEmbedded openSession(final ParsedToken iToken) {
-    return databases.open(new TokenAuthInfo(iToken), YouTrackDBConfig.defaultConfig());
-  }
-
-  public DatabaseSessionEmbedded openSession(
-      final String iDbUrl, final String user, final String password) {
-    return openSession(iDbUrl, user, password, null);
-  }
-
-  public DatabaseSessionEmbedded openSession(
-      final String iDbUrl, final String user, final String password, NetworkProtocolData data) {
-    final DatabaseSessionEmbedded database;
-    var serverAuth = false;
-    database = (DatabaseSessionEmbedded) databases.open(iDbUrl, user, password);
-    if (SecurityUser.SERVER_USER_TYPE.equals(database.getCurrentUser().getUserType())) {
-      serverAuth = true;
-    }
-    if (serverAuth && data != null) {
-      data.serverUser = true;
-      data.serverUsername = user;
-    } else if (data != null) {
-      data.serverUser = false;
-      data.serverUsername = null;
-    }
-    return database;
-  }
-
-  public DatabaseSessionEmbedded openSession(String database) {
-    return databases.openNoAuthorization(database);
-  }
-
-
   public void setServerRootDirectory(final String rootDirectory) {
     this.serverRootDirectory = rootDirectory;
   }
@@ -725,24 +445,22 @@ public class YouTrackDBServer {
     contextConfiguration = new ContextConfiguration();
 
     if (cfg.properties != null) {
-      for (var prop : cfg.properties) {
-        contextConfiguration.setValue(prop.name, prop.value);
+      for (var prop : cfg.properties.entrySet()) {
+        contextConfiguration.setValue(prop.getKey(), prop.getValue());
       }
     }
-
-    hookManager = new ConfigurableHooksManager(cfg);
   }
 
-  protected void loadUsers() throws IOException {
+  protected boolean loadUsers() throws IOException {
     final var configuration = serverCfg.getConfiguration();
 
     if (configuration.isAfterFirstTime) {
-      return;
+      return true;
     }
 
     configuration.isAfterFirstTime = true;
 
-    createDefaultServerUsers();
+    return createDefaultServerUsers();
   }
 
   /**
@@ -784,242 +502,89 @@ public class YouTrackDBServer {
     }
   }
 
-  protected void createDefaultServerUsers() throws IOException {
-
+  protected boolean createDefaultServerUsers() throws IOException {
     if (databases.getSecuritySystem() != null
         && !databases.getSecuritySystem().arePasswordsStored()) {
-      return;
-    }
-
-    var rootPassword = SystemVariableResolver.resolveVariable(ROOT_PASSWORD_VAR);
-
-    if (rootPassword != null) {
-      rootPassword = rootPassword.trim();
-      if (rootPassword.isEmpty()) {
-        rootPassword = null;
-      }
+      return true;
     }
     final var systemDbEnabled =
         contextConfiguration.getValueAsBoolean(GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED);
+
+    var rootSecretFile = Path.of(ROOT_PASSWORD_FILE);
+    String rootSecretFilePassword = null;
+
+    if (Files.exists(rootSecretFile)) {
+      rootSecretFilePassword = Files.readString(rootSecretFile).trim();
+    }
+
     var existsRoot =
-        serverCfg.existsUser(ServerConfiguration.DEFAULT_ROOT_USER) ||
-            systemDbEnabled && existsSystemUser(ServerConfiguration.DEFAULT_ROOT_USER);
+        serverCfg.existsUser(DEFAULT_ROOT_USER) ||
+            systemDbEnabled && existsSystemUser(DEFAULT_ROOT_USER);
 
-    if (rootPassword == null && !existsRoot) {
-      try {
-        // WAIT ANY LOG IS PRINTED
-        Thread.sleep(1000);
-      } catch (InterruptedException ignored) {
+    if (!existsRoot) {
+      if (rootSecretFilePassword == null || rootSecretFilePassword.isEmpty()) {
+        LogManager.instance()
+            .error(this,
+                "Root password is not set and root user does not exist. "
+                    + "Root user credentials has to provided either by server settings or "
+                    + "in secrets/root_password file. Exiting...", null);
+        return false;
+      } else {
+        LogManager.instance()
+            .info(
+                this,
+                "Found %s file, using it's content as root's password",
+                ROOT_PASSWORD_FILE);
       }
-
-      System.out.println();
-      System.out.println();
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow +---------------------------------------------------------------+}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow |                WARNING: FIRST RUN CONFIGURATION               |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow +---------------------------------------------------------------+}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | This is the first time the server is running. Please type a   |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | password of your choice for the 'root' user or leave it blank |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | to auto-generate it.                                          |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow |                                                               |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | To avoid this message set the environment variable or JVM     |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow | setting YOUTRACKDB_ROOT_PASSWORD to the root password to use.   |}"));
-      System.out.println(
-          AnsiCode.format(
-              "$ANSI{yellow +---------------------------------------------------------------+}"));
-
-      final ConsoleReader console = new DefaultConsoleReader();
-
-      // ASK FOR PASSWORD + CONFIRM
-      do {
-        System.out.print(
-            AnsiCode.format("\n$ANSI{yellow Root password [BLANK=auto generate it]: }"));
-        rootPassword = console.readPassword();
-
-        if (rootPassword != null) {
-          rootPassword = rootPassword.trim();
-          if (rootPassword.isEmpty()) {
-            rootPassword = null;
-          }
-        }
-
-        if (rootPassword != null) {
-          System.out.print(AnsiCode.format("$ANSI{yellow Please confirm the root password: }"));
-
-          var rootConfirmPassword = console.readPassword();
-          if (rootConfirmPassword != null) {
-            rootConfirmPassword = rootConfirmPassword.trim();
-            if (rootConfirmPassword.isEmpty()) {
-              rootConfirmPassword = null;
-            }
-          }
-
-          if (!rootPassword.equals(rootConfirmPassword)) {
-            System.out.println(
-                AnsiCode.format(
-                    "$ANSI{red ERROR: Passwords don't match, please reinsert both of them, or press"
-                        + " ENTER to auto generate it}"));
-          } else
-          // PASSWORDS MATCH
-
-          {
-            try {
-              if (getSecurity() != null) {
-                getSecurity().validatePassword("root", rootPassword);
-              }
-              // PASSWORD IS STRONG ENOUGH
-              break;
-            } catch (InvalidPasswordException ex) {
-              System.out.println(
-                  AnsiCode.format(
-                      "$ANSI{red ERROR: Root password does not match the password policies}"));
-              if (ex.getMessage() != null) {
-                System.out.println(ex.getMessage());
-              }
-            }
-          }
-        }
-
-      } while (rootPassword != null);
-
-    } else {
-      LogManager.instance()
-          .info(
-              this,
-              "Found YOUTRACKDB_ROOT_PASSWORD variable, using this value as root's password",
-              rootPassword);
     }
 
     if (systemDbEnabled) {
       if (!existsRoot) {
-        context.execute(
-            "CREATE SYSTEM USER "
-                + ServerConfiguration.DEFAULT_ROOT_USER
-                + " IDENTIFIED BY ? ROLE root",
-            rootPassword);
-      }
+        var rootPassword = rootSecretFilePassword;
+        databases.getSystemDatabase().executeWithDB(session -> {
+          session.executeInTx(transaction -> {
+            var metadata = session.getMetadata();
+            var security = metadata.getSecurity();
 
-      if (!existsSystemUser(ServerConfiguration.GUEST_USER)) {
-        context.execute(
-            "CREATE SYSTEM USER " + ServerConfiguration.GUEST_USER + " IDENTIFIED BY ? ROLE guest",
-            ServerConfiguration.DEFAULT_GUEST_PASSWORD);
-      }
-    }
-  }
-
-  private boolean existsSystemUser(String user) {
-    return Boolean.TRUE.equals(
-        context.execute("EXISTS SYSTEM USER ?", user).next().getProperty("exists"));
-  }
-
-  public ServerPluginManager getPluginManager() {
-    return pluginManager;
-  }
-
-  protected void registerPlugins()
-      throws InstantiationException, IllegalAccessException, ClassNotFoundException {
-    pluginManager = new ServerPluginManager();
-    pluginManager.config(this);
-    pluginManager.startup();
-
-    // PLUGINS CONFIGURED IN XML
-    final var configuration = serverCfg.getConfiguration();
-
-    if (configuration.handlers != null) {
-      // ACTIVATE PLUGINS
-      final List<ServerPlugin> plugins = new ArrayList<>();
-
-      for (var h : configuration.handlers) {
-        if (h.parameters != null) {
-          // CHECK IF IT'S ENABLED
-          var enabled = true;
-
-          for (var p : h.parameters) {
-            if (p.name.equals("enabled")) {
-              enabled = false;
-
-              var value = SystemVariableResolver.resolveSystemVariables(p.value);
-              if (value != null) {
-                value = value.trim();
-
-                if ("true".equalsIgnoreCase(value)) {
-                  enabled = true;
-                  break;
-                }
-              }
+            if (security.getUser(DEFAULT_ROOT_USER) == null) {
+              security.createUser(DEFAULT_ROOT_USER,
+                  rootPassword, "root");
             }
-          }
-
-          if (!enabled)
-          // SKIP IT
-          {
-            continue;
-          }
-        }
-
-        final var plugin = (ServerPlugin) loadClass(h.clazz).newInstance();
-        pluginManager.registerPlugin(
-            new ServerPluginInfo(plugin.getName(), null, null, null, plugin, null, 0, null));
-
-        try {
-          pluginManager.callListenerBeforeConfig(plugin, h.parameters);
-          plugin.config(this, h.parameters);
-          if (plugin instanceof DatabaseLifecycleListener databaseLifecycleListener) {
-            YouTrackDBEnginesManager.instance().addDbLifecycleListener(databaseLifecycleListener);
-          }
-          pluginManager.callListenerAfterConfig(plugin, h.parameters);
-
-          plugins.add(plugin);
-        } catch (Exception e) {
-          pluginManager.callListenerAfterConfigError(plugin, e);
-
-          LogManager.instance()
-              .error(this, "Error on plugin registration: %s", e, plugin.getName());
-        }
+          });
+          return null;
+        });
       }
 
-      // START ALL THE CONFIGURED PLUGINS
-      for (var plugin : plugins) {
-        try {
-          pluginManager.callListenerBeforeStartup(plugin);
-          plugin.startup();
-          pluginManager.callListenerAfterStartup(plugin);
-        } catch (Exception e) {
-          pluginManager.callListenerAfterStartupError(plugin, e);
-          var msg = "Error on plugin startup: " + e.getMessage();
-          LogManager.instance().error(this, msg, e);
-          throw BaseException.wrapException(new SystemException(msg), e, (String) null);
-        }
-      }
+      databases.getSystemDatabase().executeWithDB(session -> {
+        session.executeInTx(transaction -> {
+          var metadata = session.getMetadata();
+          var security = metadata.getSecurity();
+
+          if (security.getUser(GUEST_USER) == null) {
+            security.createUser(GUEST_USER,
+                DEFAULT_GUEST_PASSWORD, "guest");
+          }
+        });
+        return null;
+      });
     }
+
+    return true;
   }
+
+  @SuppressWarnings("SameParameterValue")
+  private boolean existsSystemUser(String user) {
+    return databases.getSystemDatabase()
+        .executeWithDB(session -> session.computeInTx(transaction -> {
+          var metadata = session.getMetadata();
+          var security = metadata.getSecurity();
+
+          return security.getUser(user) != null;
+        }));
+  }
+
 
   protected void defaultSettings() {
-  }
-
-  public TokenHandler getTokenHandler() {
-    return tokenHandler;
-  }
-
-  public static ThreadGroup getThreadGroup() {
-    return YouTrackDBEnginesManager.instance().getThreadGroup();
   }
 
   private void initSystemDatabase() {
@@ -1030,12 +595,12 @@ public class YouTrackDBServer {
     return databases;
   }
 
-  public YouTrackDBImpl getContext() {
+  public YouTrackDBImpl getYouTrackDB() {
     return context;
   }
 
   public void dropDatabase(String databaseName) {
-    if (databases.exists(databaseName, null, null)) {
+    if (databases.exists(databaseName)) {
       databases.drop(databaseName, null, null);
     } else {
       throw new StorageException(databaseName,
@@ -1044,31 +609,10 @@ public class YouTrackDBServer {
   }
 
   public boolean existsDatabase(String databaseName) {
-    return databases.exists(databaseName, null, null);
+    return databases.exists(databaseName);
   }
 
-  public void createDatabase(String databaseName, DatabaseType type, YouTrackDBConfigImpl config) {
-    databases.create(databaseName, null, null, type, config);
-  }
-
-  public Set<String> listDatabases() {
-    var dbs = databases.listDatabases(null, null);
-    if (dbs.contains(SystemDatabase.SYSTEM_DB_NAME)) {
-      var result = new HashSet<>(dbs);
-      result.remove(SystemDatabase.SYSTEM_DB_NAME);
-      return result;
-    }
-
-    return dbs;
-  }
-
-  public void restore(String name, String path, String expectedUUID) {
-    databases.restore(name, path, null, null, expectedUUID,
-        YouTrackDBConfig.defaultConfig());
-  }
-
-  public final class YTDBInternalProxy implements YouTrackDBInternal<DatabaseSession>,
-      ServerAware {
+  public final class YTDBInternalProxy implements YouTrackDBInternal, ServerAware {
 
     private final YouTrackDBInternalEmbedded internal;
 
@@ -1082,7 +626,7 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public DatabaseSession open(String name, String user, String password) {
+    public DatabaseSessionEmbedded open(String name, String user, String password) {
       return internal.open(name, user, password);
     }
 
@@ -1123,11 +667,12 @@ public class YouTrackDBServer {
 
     }
 
+
     @Override
-    public boolean exists(String name, String user, String password) {
+    public boolean exists(String name) {
       //system database is managed inside of embedded instance autonomously
       if (SystemDatabase.SYSTEM_DB_NAME.equals(name)) {
-        return internal.exists(name, user, password);
+        return internal.exists(name);
       }
 
       return dbNamesCache.contains(name);
@@ -1151,47 +696,47 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user,
+    public DatabasePoolInternal openPool(String name, String user,
         String password) {
       return internal.openPool(name, user, password);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user, String password,
+    public DatabasePoolInternal openPool(String name, String user, String password,
         YouTrackDBConfig config) {
       return internal.openPool(name, user, password, config);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+    public DatabasePoolInternal cachedPool(String database, String user,
         String password) {
       return internal.cachedPool(database, user, password);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+    public DatabasePoolInternal cachedPool(String database, String user,
         String password, YouTrackDBConfig config) {
       return internal.cachedPool(database, user, password, config);
     }
 
     @Override
-    public DatabasePoolInternal<DatabaseSession> cachedPoolNoAuthentication(String database,
+    public DatabasePoolInternal cachedPoolNoAuthentication(String database,
         String user, YouTrackDBConfig config) {
       return internal.cachedPoolNoAuthentication(database, user, config);
     }
 
     @Override
-    public DatabaseSession poolOpen(String name, String user, String password,
-        DatabasePoolInternal<DatabaseSession> pool) {
+    public DatabaseSessionEmbedded poolOpen(String name, String user, String password,
+        DatabasePoolInternal pool) {
       return internal.poolOpen(name, user, password, pool);
     }
 
     @Override
-    public void restore(String name, String user, String password, String path,
+    public void restore(String name, DatabaseType type, String path,
         YouTrackDBConfig config) {
       dbNamesCacheLock.lock();
       try {
-        internal.restore(name, user, password, path, config);
+        internal.restore(name, type, path, config);
         dbNamesCache.add(name);
       } finally {
         dbNamesCacheLock.unlock();
@@ -1199,11 +744,11 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void restore(String name, String user, String password, String path,
+    public void restore(String name, String path,
         @Nullable String expectedUUID, YouTrackDBConfig config) {
       dbNamesCacheLock.lock();
       try {
-        internal.restore(name, user, password, path, expectedUUID, config);
+        internal.restore(name, path, expectedUUID, config);
         dbNamesCache.add(name);
       } finally {
         dbNamesCacheLock.unlock();
@@ -1234,7 +779,7 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void removePool(DatabasePoolInternal<DatabaseSession> toRemove) {
+    public void removePool(DatabasePoolInternal toRemove) {
       internal.removePool(toRemove);
     }
 
@@ -1259,49 +804,17 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public BasicResultSet<BasicResult> executeServerStatementNamedParams(String script, String user,
-        String pw, Map<String, Object> params) {
-      var statement = SQLEngine.parseServerStatement(script, this);
-
-      var original = statement.execute(this, params, true);
-      LocalResultSetLifecycleDecorator result;
-      var prefetched = new InternalResultSet(null);
-      original.forEachRemaining(prefetched::add);
-      original.close();
-      result = new LocalResultSetLifecycleDecorator(prefetched);
-
-      //noinspection unchecked,rawtypes
-      return (BasicResultSet) result;
-    }
-
-    @Override
-    public BasicResultSet<BasicResult> executeServerStatementPositionalParams(String script,
-        String user, String pw, Object... params) {
-      var statement = SQLEngine.parseServerStatement(script, this);
-
-      var original = statement.execute(this, params, true);
-      LocalResultSetLifecycleDecorator result;
-      var prefetched = new InternalResultSet(null);
-      original.forEachRemaining(prefetched::add);
-      original.close();
-
-      result = new LocalResultSetLifecycleDecorator(prefetched);
-
-      //noinspection unchecked,rawtypes
-      return (BasicResultSet) result;
-    }
-
-    @Override
     public void create(String name, String user, String password, DatabaseType type,
-        YouTrackDBConfig config, DatabaseTask<Void> createOps) {
+        YouTrackDBConfig config, boolean failIfExists, DatabaseTask<Void> createOps) {
       dbNamesCacheLock.lock();
       try {
-        internal.create(name, user, password, type, config, createOps);
+        internal.create(name, user, password, type, config, true, createOps);
         dbNamesCache.add(name);
       } finally {
         dbNamesCacheLock.unlock();
       }
     }
+
 
     @Override
     public YouTrackDBConfigImpl getConfiguration() {
@@ -1345,20 +858,12 @@ public class YouTrackDBServer {
       internal.initCustomStorage(name, path);
     }
 
-    public DatabaseSessionEmbedded openNoAuthenticate(String name, String user) {
-      return internal.openNoAuthenticate(name, user);
-    }
-
     public <X> Future<X> execute(Callable<X> task) {
       return internal.execute(task);
     }
 
     public Future<?> execute(Runnable task) {
       return internal.execute(task);
-    }
-
-    public Collection<Storage> getStorages() {
-      return internal.getStorages();
     }
 
     @Override
@@ -1376,8 +881,5 @@ public class YouTrackDBServer {
       return internal.getBasePath();
     }
 
-    public ScriptManager getScriptManager() {
-      return internal.getScriptManager();
-    }
   }
 }

@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -16,6 +16,8 @@ import org.junit.Test;
 
 public class SchemaClassSecurityTest {
 
+  private static final String PASSWORD = "password";
+
   private static final String DB_NAME = SchemaClassSecurityTest.class.getSimpleName();
   private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionInternal session;
@@ -26,7 +28,7 @@ public class SchemaClassSecurityTest {
     config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     youTrackDB =
         (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(SecurityEngineTest.class),
+            DbTestBase.getBaseDirectoryPathStr(SecurityEngineTest.class),
             config);
   }
 
@@ -37,20 +39,13 @@ public class SchemaClassSecurityTest {
 
   @Before
   public void before() {
-    youTrackDB.execute(
-        "create database "
-            + DB_NAME
-            + " "
-            + "memory"
-            + " users ( admin identified by '"
-            + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-            + "' role admin, reader identified by '"
-            + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-            + "' role reader, writer identified by '"
-            + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-            + "' role writer)");
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
+        "admin", PASSWORD, "admin",
+        "writer", PASSWORD, "writer",
+        "reader", PASSWORD, "reader"
+    );
+
+    this.session = youTrackDB.open(DB_NAME, "admin", PASSWORD);
   }
 
   @After
@@ -78,8 +73,7 @@ public class SchemaClassSecurityTest {
 
     session.close();
 
-    session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
+    session = youTrackDB.open(DB_NAME, "reader", PASSWORD); // "reader"
     session.begin();
     try (final var resultSet = session.query("SELECT from Person")) {
       Assert.assertFalse(resultSet.hasNext());

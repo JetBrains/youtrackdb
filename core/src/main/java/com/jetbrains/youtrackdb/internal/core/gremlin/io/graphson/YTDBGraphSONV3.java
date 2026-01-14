@@ -4,7 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry.i
 import static com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry.newYTdbId;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.IOException;
@@ -12,12 +12,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.apache.tinkerpop.gremlin.structure.Edge;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.AbstractObjectDeserializer;
-import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONTokens;
-import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedEdge;
-import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertex;
 import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
 import org.apache.tinkerpop.shaded.jackson.core.JsonToken;
 import org.apache.tinkerpop.shaded.jackson.databind.DeserializationContext;
@@ -50,9 +45,6 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
 
     addSerializer(YTDBVertexPropertyId.class, new YTDBVertexPropertyIdJacksonSerializer());
     addDeserializer(YTDBVertexPropertyId.class, new YTDBVertexPropertyIdJacksonDeserializer());
-
-    addDeserializer(Edge.class, new EdgeJacksonDeserializer());
-    addDeserializer(Vertex.class, new VertexJacksonDeserializer());
     //noinspection rawtypes,unchecked
     addDeserializer(Map.class, (JsonDeserializer) new YTDBIdDeserializer());
   }
@@ -61,48 +53,6 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
   @Override
   public Map<Class, String> getTypeDefinitions() {
     return TYPES;
-  }
-
-  /**
-   * Created by Enrico Risa on 06/09/2017.
-   */
-  public static class EdgeJacksonDeserializer extends AbstractObjectDeserializer<Edge> {
-
-    public EdgeJacksonDeserializer() {
-      super(Edge.class);
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    @Override
-    public Edge createObject(final Map<String, Object> edgeData) {
-      return new DetachedEdge(
-          newYTdbId(edgeData.get(GraphSONTokens.ID)),
-          edgeData.get(GraphSONTokens.LABEL).toString(),
-          (Map) edgeData.get(GraphSONTokens.PROPERTIES),
-          newYTdbId(edgeData.get(GraphSONTokens.OUT)),
-          edgeData.get(GraphSONTokens.OUT_LABEL).toString(),
-          newYTdbId(edgeData.get(GraphSONTokens.IN)),
-          edgeData.get(GraphSONTokens.IN_LABEL).toString());
-    }
-  }
-
-  /**
-   * Created by Enrico Risa on 06/09/2017.
-   */
-  public static class VertexJacksonDeserializer extends AbstractObjectDeserializer<Vertex> {
-
-    public VertexJacksonDeserializer() {
-      super(Vertex.class);
-    }
-
-    @SuppressWarnings("unchecked")
-    @Override
-    public Vertex createObject(final Map<String, Object> vertexData) {
-      return new DetachedVertex(
-          newYTdbId(vertexData.get(GraphSONTokens.ID)),
-          vertexData.get(GraphSONTokens.LABEL).toString(),
-          (Map<String, Object>) vertexData.get(GraphSONTokens.PROPERTIES));
-    }
   }
 
   static final class YTDBIdDeserializer extends AbstractObjectDeserializer<Object> {

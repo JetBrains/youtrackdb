@@ -16,10 +16,10 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.api.record.Blob;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.RollbackException;

@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;

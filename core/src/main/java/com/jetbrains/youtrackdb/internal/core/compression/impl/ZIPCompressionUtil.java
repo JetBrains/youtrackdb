@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.compression.impl;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import java.io.BufferedOutputStream;
@@ -133,7 +133,7 @@ public class ZIPCompressionUtil {
 
     try (var out =
         new BufferedOutputStream(new FileOutputStream(file.toFile()))) {
-      YTDBIOUtils.copyStream(in, out);
+      IOUtils.copyStream(in, out);
     }
   }
 
@@ -261,7 +261,7 @@ public class ZIPCompressionUtil {
     try {
       final var in = new FileInputStream(folderName);
       try {
-        YTDBIOUtils.copyStream(in, zos);
+        IOUtils.copyStream(in, zos);
       } finally {
         in.close();
       }
@@ -288,7 +288,7 @@ public class ZIPCompressionUtil {
               + " ratio="
               + ratio
               + "%% elapsed="
-              + YTDBIOUtils.getTimeAsString(System.currentTimeMillis() - begin));
+              + IOUtils.getTimeAsString(System.currentTimeMillis() - begin));
     }
   }
 }

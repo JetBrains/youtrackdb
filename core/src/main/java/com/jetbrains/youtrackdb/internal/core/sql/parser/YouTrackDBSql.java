@@ -13164,13 +13164,13 @@ if (jjtc000) {
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
       case NAME:{
         jj_consume_token(NAME);
-        jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.NAME;
+        jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES.NAME;
         jjtn000.identifierValue = Identifier();
         break;
         }
       case SUPERCLASSES:{
         jj_consume_token(SUPERCLASSES);
-        jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.SUPERCLASSES;
+        jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES.SUPERCLASSES;
                                 jjtn000.identifierListValue = new ArrayList<SQLIdentifier>();
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
         case TO:
@@ -13305,7 +13305,7 @@ jjtn000.identifierListValue = null;
         }
       case STRICT_MODE:{
         jj_consume_token(STRICT_MODE);
-        jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.STRICT_MODE;
+        jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES.STRICT_MODE;
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
         case TRUE:{
           jj_consume_token(TRUE);
@@ -13326,7 +13326,7 @@ jjtn000.booleanValue = false;
         }
       case CUSTOM:{
         jj_consume_token(CUSTOM);
-        jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.CUSTOM;
+        jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES.CUSTOM;
         jjtn000.customKey = Identifier();
         jj_consume_token(EQ);
         jjtn000.customValue = Expression();
@@ -13334,7 +13334,7 @@ jjtn000.booleanValue = false;
         }
       case ABSTRACT:{
         jj_consume_token(ABSTRACT);
-        jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.ABSTRACT;
+        jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES.ABSTRACT;
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
         case TRUE:{
           jj_consume_token(TRUE);
@@ -13355,7 +13355,7 @@ jjtn000.booleanValue = false;
         }
       case DESCRIPTION:{
         jj_consume_token(DESCRIPTION);
-        jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.DESCRIPTION;
+        jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES.DESCRIPTION;
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
         case TO:
         case VALUE:

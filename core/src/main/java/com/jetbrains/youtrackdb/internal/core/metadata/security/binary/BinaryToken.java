@@ -1,13 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security.binary;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Token;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.BinaryTokenPayload;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenHeader;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 
 public class BinaryToken implements Token {
 
@@ -42,7 +43,7 @@ public class BinaryToken implements Token {
   }
 
   @Override
-  public SecurityUserImpl getUser(DatabaseSessionInternal session) {
+  public SecurityUser getUser(DatabaseSessionInternal session) {
     return session.computeInTx(transaction -> {
       if (this.payload.getUserRid() != null) {
         try {

@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
  * insert and remove item in any collection the iterator is browsing. If the collection are hot removed by
  * from the database the iterator could be invalid and throw exception of collection not found.
  */
-public class RecordIteratorClass implements Iterator<EntityImpl> {
+public class RecordIteratorClass implements Iterator<EntityImpl>, AutoCloseable {
 
   @Nonnull
   private final RecordIteratorCollections<EntityImpl> iterator;
@@ -41,13 +41,18 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
   public RecordIteratorClass(
       @Nonnull final DatabaseSessionInternal session,
       @Nonnull final String className,
-      final boolean polymorphic, boolean forwardDirection) {
+      final boolean polymorphic,
+      final boolean forwardDirection
+  ) {
     this(session, getSchemaClassInternal(session, className), polymorphic, forwardDirection);
   }
 
-  public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
+  public RecordIteratorClass(
+      @Nonnull final DatabaseSessionInternal session,
       @Nonnull final SchemaClassInternal targetClass,
-      final boolean polymorphic, boolean forwardDirection) {
+      final boolean polymorphic,
+      final boolean forwardDirection
+  ) {
     var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
         : targetClass.getCollectionIds();
     collectionIds = SchemaClassImpl.readableCollections(session, collectionIds,
@@ -76,5 +81,10 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
     }
 
     return targetClass;
+  }
+
+  @Override
+  public void close() {
+    iterator.close();
   }
 }

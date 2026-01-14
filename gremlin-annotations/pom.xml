@@ -18,7 +18,7 @@
 
   <dependencies>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-core</artifactId>
     </dependency>
     <dependency>

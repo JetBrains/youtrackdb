@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.auto.hooks;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -10,9 +13,11 @@ public class HookOnIndexedMapTest {
   @Test
   public void test() {
     var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(HookOnIndexedMapTest.class));
-    youTrackDb.execute(
-        "create database " + "test" + " memory users ( admin identified by 'admin' role admin)");
+        DbTestBase.getBaseDirectoryPathStr(HookOnIndexedMapTest.class));
+
+    youTrackDb.create("test", DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
     var db = youTrackDb.open("test", "admin", "admin");
     db.registerHook(new BrokenMapHook());
 

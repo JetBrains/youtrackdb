@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas;
 
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -27,7 +27,7 @@ public class WALChannelFile implements WALFile {
 
   @Override
   public void readBuffer(ByteBuffer buffer) throws IOException {
-    YTDBIOUtils.readByteBuffer(buffer, channel);
+    IOUtils.readByteBuffer(buffer, channel);
   }
 
   @Override

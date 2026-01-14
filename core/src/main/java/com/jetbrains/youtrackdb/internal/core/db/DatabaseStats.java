@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import javax.annotation.Nonnull;
 

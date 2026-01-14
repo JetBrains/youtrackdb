@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import javax.annotation.Nullable;
 
 public class ClassIndexFinder implements IndexFinder {

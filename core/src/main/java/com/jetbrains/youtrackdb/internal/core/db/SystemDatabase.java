@@ -19,15 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.security.DefaultSecuritySystem;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -55,7 +54,7 @@ public class SystemDatabase {
    * responsible for retrieving any ThreadLocal-stored database before openSystemDatabase() is
    * called and restoring it after the database is closed.
    */
-  public DatabaseSessionInternal openSystemDatabaseSession() {
+  public DatabaseSessionEmbedded openSystemDatabaseSession() {
     checkIfEnabled();
     if (!exists()) {
       init();
@@ -126,7 +125,9 @@ public class SystemDatabase {
                 findFirst(r -> r.<Long>getProperty("count") == 0)) {
               info = session.newEntity(SERVER_INFO_CLASS);
             } else {
-              info = session.browseClass(clz.getName()).next();
+              try (var it = session.browseClass(clz.getName())) {
+                info = it.next();
+              }
             }
             this.serverId = info.getProperty(SERVER_ID_PROPERTY);
             if (this.serverId == null) {
@@ -137,18 +138,18 @@ public class SystemDatabase {
     }
   }
 
-  public void executeInDBScope(CallableFunction<Void, DatabaseSessionInternal> callback) {
+  public void executeInDBScope(CallableFunction<Void, DatabaseSessionEmbedded> callback) {
     executeWithDB(callback);
   }
 
-  public <T> T executeWithDB(CallableFunction<T, DatabaseSessionInternal> callback) {
+  public <T> T executeWithDB(CallableFunction<T, DatabaseSessionEmbedded> callback) {
     try (final var session = openSystemDatabaseSession()) {
       return callback.call(session);
     }
   }
 
   public boolean exists() {
-    return context.exists(SYSTEM_DB_NAME, null, null);
+    return context.exists(SYSTEM_DB_NAME);
   }
 
   public String getServerId() {

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AbstractWALRecord;
@@ -4665,7 +4665,7 @@ public class CASDiskWriteAheadLogIT {
           channel.read(buffer);
 
           buffer.put(42, (byte) (buffer.get(42) + 1));
-          YTDBIOUtils.writeByteBuffer(buffer, channel, 0);
+          IOUtils.writeByteBuffer(buffer, channel, 0);
         }
 
         var loadedWAL =

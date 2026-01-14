@@ -50,6 +50,6 @@ set JAVA_OPTIONS=-Xms32m -Xmx512m --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -
 
 :: Launch the application
 
-java %JAVA_OPTIONS% %JAVA_ARGS% -cp "%LIBDIR%\*;%EXTDIR%;" "-Dlog4j2.configurationFile=conf/log4j2.xml" "-Dytdb.log4j.level=%YTDB_LOG_LEVEL%" org.apache.tinkerpop.gremlin.console.Console %*
+java %JAVA_OPTIONS% %JAVA_ARGS% -cp "%LIBDIR%\*;%EXTDIR%;" "-Dpolyglot.engine.WarnInterpreterOnly=false" "-Dlog4j2.configurationFile=conf/log4j2.xml" "-Dytdb.log4j.level=%YTDB_LOG_LEVEL%" org.apache.tinkerpop.gremlin.console.Console %*
 
 set CLASSPATH=%OLD_CLASSPATH%

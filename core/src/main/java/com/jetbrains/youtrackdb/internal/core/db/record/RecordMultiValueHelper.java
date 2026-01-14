@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 
 /**
  * Lazy implementation of ArrayList. It's bound to a source Record object to keep track of changes.

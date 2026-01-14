@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string;
 
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -459,7 +459,7 @@ public abstract class RecordSerializerStringAbstract {
     switch (iType) {
       case STRING:
         if (iValue instanceof String) {
-          final var s = YTDBIOUtils.getStringContent(iValue);
+          final var s = IOUtils.getStringContent(iValue);
           return StringSerializerHelper.decode(s);
         }
         return iValue.toString();

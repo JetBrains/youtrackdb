@@ -20,13 +20,13 @@
 package com.jetbrains.youtrackdb.internal.core.security;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
@@ -917,7 +917,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         var f = new File(configFile);
-        YTDBIOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configEntity));
+        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configEntity));
       }
     } catch (Exception ex) {
       configEntity.put(section, oldSection);

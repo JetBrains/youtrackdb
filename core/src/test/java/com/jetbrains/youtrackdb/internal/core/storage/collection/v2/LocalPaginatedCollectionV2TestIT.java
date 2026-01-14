@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.LocalPaginatedCollectionAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -11,7 +13,6 @@ import java.io.IOException;
 import org.junit.BeforeClass;
 
 public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAbstract {
-
   @BeforeClass
   public static void beforeClass() throws IOException {
     buildDirectory = System.getProperty("buildDirectory");
@@ -25,10 +26,9 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     dbName = "collectionTest";
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
-    youTrackDB.execute(
-        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
-
-    databaseDocumentTx = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+    youTrackDB.create(dbName, DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    databaseDocumentTx = youTrackDB.open(dbName, "admin", "admin");
 
     storage = (AbstractStorage) databaseDocumentTx.getStorage();
 

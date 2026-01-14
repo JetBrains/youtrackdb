@@ -1,13 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageRecoverEventListener;
 import java.util.Objects;
@@ -80,11 +83,10 @@ public class GraphRecoveringTest {
   @Test
   public void testRecoverPerfectGraphNonLW() {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()))) {
-      youTrackDB.execute(
-          "create database testRecoverPerfectGraphNonLW"
-              + " memory users ( admin identified by 'admin' role admin)");
-      try (var session = (DatabaseSessionEmbedded) youTrackDB.open("testRecoverPerfectGraphNonLW",
+        DbTestBase.getBaseDirectoryPathStr(getClass()))) {
+      youTrackDB.create("testRecoverPerfectGraphNonLW", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+      try (var session = youTrackDB.open("testRecoverPerfectGraphNonLW",
           "admin", "admin")) {
         init(session);
 
@@ -105,11 +107,10 @@ public class GraphRecoveringTest {
   @Test
   public void testRecoverBrokenGraphAllEdges() {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()))) {
-      youTrackDB.execute(
-          "create database testRecoverBrokenGraphAllEdges"
-              + " memory users ( admin identified by 'admin' role admin)");
-      try (var session = (DatabaseSessionEmbedded) youTrackDB.open("testRecoverBrokenGraphAllEdges",
+        DbTestBase.getBaseDirectoryPathStr(getClass()))) {
+      youTrackDB.create("testRecoverBrokenGraphAllEdges", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+      try (var session = youTrackDB.open("testRecoverBrokenGraphAllEdges",
           "admin", "admin")) {
         init(session);
 
@@ -142,12 +143,11 @@ public class GraphRecoveringTest {
   @Test
   public void testRecoverBrokenGraphLinksInVerticesNonLW() {
     try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()))) {
-      youTrackDB.execute(
-          "create database testRecoverBrokenGraphLinksInVerticesNonLW"
-              + " memory users ( admin identified by 'admin' role admin)");
+        DbTestBase.getBaseDirectoryPathStr(getClass()))) {
+      youTrackDB.create("testRecoverBrokenGraphLinksInVerticesNonLW", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
       try (var session =
-          (DatabaseSessionEmbedded) youTrackDB.open("testRecoverBrokenGraphLinksInVerticesNonLW",
+          youTrackDB.open("testRecoverBrokenGraphLinksInVerticesNonLW",
               "admin", "admin")) {
         init(session);
 
