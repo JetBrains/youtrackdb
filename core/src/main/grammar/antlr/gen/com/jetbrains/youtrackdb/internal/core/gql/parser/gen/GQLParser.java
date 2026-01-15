@@ -85,18 +85,14 @@ public class GQLParser extends Parser {
 	private static String[] makeLiteralNames() {
 		return new String[] {
 			null, "'('", "')'", "'{'", "'}'", "','", "'@{'", "'['", "']'", "':'", 
-			"'|'", "'&'", "'!'", "'MATCH'", "'CALL'", "'FILTER'", "'FOR'", "'LET'", 
-			"'LIMIT'", "'NEXT'", "'RETURN'", "'SKIP'", "'WITH'", "'OFFSET'", "'ORDER'", 
-			"'BY'", "'GROUP'", "'OPTIONAL'", "'AS'", "'WHERE'", "'OR'", "'AND'", 
-			"'NOT'", null, "'NULL'", "'ALL'", "'ANY'", "'SHORTEST'", "'CHEAPEST'", 
-			"'WALK'", "'ACYCLIC'", "'TRAIL'", "'PATH'", "'PATHS'", "'COST'", "'IS'", 
-			"'COLLATE'", "'ASC'", "'ASCENDING'", "'DESC'", "'DESCENDING'", "'DISTINCT'", 
-			"'CASE'", "'ELSE'", "'WHEN'", "'THEN'", "'END'", "'COUNT'", "'SUM'", 
-			"'AVG'", "'MIN'", "'MAX'", "'COLLECT'", "'EXISTS'", "'UNION'", "'INTERSECT'", 
-			"'EXCEPT'", "'DATE'", "'TIME'", "'TIMESTAMP'", "'DURATION'", "'NODES'", 
-			"'EDGES'", "'LENGTH'", "'->'", "'<-'", "'!='", "'>='", "'<='", "'>'", 
-			"'<'", "'='", "'+'", "'*'", "'/'", "'%'", null, "'.'", null, null, null, 
-			null, "'-'"
+			"'|'", "'&'", "'!'", null, null, null, null, null, null, null, null, 
+			null, null, null, null, null, null, null, null, null, null, null, null, 
+			null, null, null, null, null, null, null, null, null, null, null, null, 
+			null, null, null, null, null, null, null, null, null, null, null, null, 
+			null, null, null, null, null, null, null, null, null, null, null, null, 
+			null, null, null, null, null, "'->'", "'<-'", "'!='", "'>='", "'<='", 
+			"'>'", "'<'", "'='", "'+'", "'*'", "'/'", "'%'", null, "'.'", null, null, 
+			null, null, "'-'"
 		};
 	}
 	private static final String[] _LITERAL_NAMES = makeLiteralNames();
