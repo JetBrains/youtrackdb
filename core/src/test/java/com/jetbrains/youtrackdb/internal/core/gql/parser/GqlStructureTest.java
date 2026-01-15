@@ -14,45 +14,76 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.stream.Stream;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class GqlStructureTest {
 
   @ParameterizedTest
-  @MethodSource("getGqlFiles")
-  @DisplayName("GQL Parser Structure Test")
-  public void testGqlStructure(Path gqlFile) throws IOException {
+  @MethodSource("getPositiveGqlFiles")
+  @DisplayName("Positive GQL Parser Test")
+  public void testPositiveGqlStructure(Path gqlFile) throws IOException {
     var query = Files.readString(gqlFile);
 
     assertDoesNotThrow(() -> {
-      var lexer = new GQLLexer(CharStreams.fromString(query));
-      var tokens = new CommonTokenStream(lexer);
+      var actualTree = parseQuery(query);
 
-      var parser = new GQLParser(tokens);
+      System.out.println("\n--- POSITIVE TEST: " + gqlFile.getFileName() + " ---");
+      System.out.println("Query: " + query.trim());
+      System.out.println("Tree: " + actualTree);
 
-      parser.removeErrorListeners();
-      parser.addErrorListener(new ThrowingErrorListener());
-
-      ParseTree tree = parser.graph_query();
-      var actualTree = tree.toStringTree(parser);
       var expectedTreePath = Paths.get(gqlFile.toString().replace(".gql", ".tree"));
-
       if (Files.exists(expectedTreePath)) {
         var expectedTree = Files.readString(expectedTreePath).trim();
-        Assertions.assertEquals(actualTree, "Generated tree for" +
-            gqlFile.getFileName() + " is incorrect!", expectedTree);
+        Assertions.assertEquals(expectedTree, actualTree,
+            "Generated tree for " + gqlFile.getFileName() + " does not match!");
+      } else {
+        Files.writeString(expectedTreePath, actualTree);
+        System.out.println("[GOLDEN MASTER] Created new pattern: " + expectedTreePath.getFileName());
       }
-    }, "Syntax error in: " + gqlFile);
+    }, "Syntax error in positive test: " + gqlFile);
   }
 
-  static Stream<Path> getGqlFiles() throws IOException {
+  @ParameterizedTest
+  @MethodSource("getNegativeGqlFiles")
+  @DisplayName("Negative GQL Parser Test")
+  public void testNegativeGqlStructure(Path gqlFile) throws IOException {
+    var query = Files.readString(gqlFile);
 
-    var testResources = Paths.get("src/test/resources/gql-tests/positive");
-    if (!Files.exists(testResources)) {
-      return Stream.empty();
-    }
-    return Files.walk(testResources).filter(p -> p.toString().endsWith(".gql"));
+    System.out.println("\n--- NEGATIVE TEST: " + gqlFile.getFileName() + " ---");
+    System.out.println("Query: " + query.trim());
+
+    assertThrows(ParseCancellationException.class, () -> {
+      parseQuery(query);
+    }, "Expected syntax error in " + gqlFile.getFileName() + " but none was thrown!");
+
+    System.out.println("Result: Successfully caught expected syntax error.");
+  }
+
+  private String parseQuery(String query) {
+    var lexer = new GQLLexer(CharStreams.fromString(query));
+    var tokens = new CommonTokenStream(lexer);
+    var parser = new GQLParser(tokens);
+
+    parser.removeErrorListeners();
+    parser.addErrorListener(new ThrowingErrorListener());
+
+    ParseTree tree = parser.graph_query();
+    return tree.toStringTree(parser).trim();
+  }
+
+  static Stream<Path> getPositiveGqlFiles() throws IOException {
+    return getFilesFromPath("src/test/resources/gql-tests/positive");
+  }
+
+  static Stream<Path> getNegativeGqlFiles() throws IOException {
+    return getFilesFromPath("src/test/resources/gql-tests/negative");
+  }
+
+  private static Stream<Path> getFilesFromPath(String pathStr) throws IOException {
+    Path path = Paths.get(pathStr);
+    if (!Files.exists(path)) return Stream.empty();
+    return Files.walk(path).filter(p -> p.toString().endsWith(".gql"));
   }
 
   public static class ThrowingErrorListener extends BaseErrorListener {
