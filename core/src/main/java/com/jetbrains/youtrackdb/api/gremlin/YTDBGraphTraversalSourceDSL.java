@@ -1,15 +1,23 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupService;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBGraphUuidService;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBIncrementalBackupService;
 import java.util.Map;
+import java.util.UUID;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
+import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
@@ -96,6 +104,72 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             YTDBCommandService.ARGUMENTS, arguments
         )
     ).iterate();
+  }
+
+  /// Performs backup of database content to the selected folder.
+  ///
+  /// During the first backup full content of the database will be copied into the directory,
+  /// otherwise only changes after the last backup in the same folder will be copied.
+  ///
+  /// @param path Path to the backup folder.
+  /// @return The name of the last backup file.
+  public String backup(final Path path) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    var params = Map.of(YTDBIncrementalBackupService.PATH, path.toString());
+    clone.getBytecode().addStep("call", YTDBIncrementalBackupService.NAME, params);
+
+    try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {
+      return (String)
+          traversal.addStep(
+                  new CallStep<>(traversal, true, YTDBIncrementalBackupService.NAME, params))
+              .next();
+    } catch (Exception e) {
+      throw BaseException.wrapException(new DatabaseException("Error during incremental backup"), e,
+          graph.toString());
+    }
+  }
+
+  /// Performs backup of database content to the selected folder.
+  ///
+  /// If the incremental backup is present in the folder, it will be overwritten.
+  ///
+  /// @param path Path to the backup folder.
+  /// @return The name of the backup file.
+  public String fullBackup(final Path path) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    var params = Map.of(YTDBFullBackupService.NAME, path.toString());
+    clone.getBytecode().addStep("call", YTDBFullBackupService.NAME, params);
+
+    try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {
+      return (String)
+          traversal.addStep(
+                  new CallStep<>(traversal, true, YTDBFullBackupService.NAME, params))
+              .next();
+    } catch (Exception e) {
+      throw BaseException.wrapException(new DatabaseException("Error during full backup"), e,
+          graph.toString());
+    }
+  }
+
+  /// Returns [UUID] generated during the creation of the database. Each DB instance his unique
+  /// [UUID] identifier.
+  ///
+  /// It is used during the generation of backups and later restores to identify the database
+  /// instance.
+  public UUID uuid() {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep("call", YTDBGraphUuidService.NAME, Map.of());
+
+    try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {
+      return UUID.fromString((String)
+          traversal.addStep(
+                  new CallStep<>(traversal, true, YTDBGraphUuidService.NAME, Map.of()))
+              .next());
+    } catch (Exception e) {
+      throw BaseException.wrapException(
+          new DatabaseException("Error during retrieving database uuid"), e,
+          graph.toString());
+    }
   }
 
   @Override

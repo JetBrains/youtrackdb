@@ -317,6 +317,13 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   }
 
   @Override
+  public String fullBackup(Path path) {
+    try (var session = acquireSession()) {
+      return session.fullBackup(path);
+    }
+  }
+
+  @Override
   public UUID uuid() {
     try (var session = acquireSession()) {
       return session.uuid();

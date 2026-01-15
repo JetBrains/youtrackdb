@@ -68,6 +68,13 @@ public interface YTDBGraph extends Graph {
   /// @return The name of the last backup file.
   String backup(Path path);
 
+  /// Performs backup of database content to the selected folder.
+  ///
+  /// If the incremental backup is present in the folder, it will be overwritten.
+  ///
+  /// @param path Path to the backup folder.
+  /// @return The name of the backup file.
+  String fullBackup(Path path);
 
   @Override
   default YTDBGraphTraversalSource traversal() {

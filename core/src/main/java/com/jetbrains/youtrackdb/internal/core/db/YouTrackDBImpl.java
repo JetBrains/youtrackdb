@@ -10,15 +10,11 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
@@ -314,15 +310,6 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
       @Nonnull String path,
       @Nullable String expectedUUID, @Nonnull Configuration config) {
     internal.restore(databaseName, path, expectedUUID,
-        YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
-  }
-
-  @Override
-  public void restore(@Nonnull String databaseName,
-      @Nonnull Supplier<Iterator<String>> ibuFilesSupplier,
-      @Nonnull Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
-      @Nonnull Configuration config) {
-    internal.restore(databaseName, ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID,
         YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
   }
 

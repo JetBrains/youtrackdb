@@ -802,14 +802,14 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public void fullBackup(Path backupDirectory) {
-    fullBackup(new IBULocalFileNamesSupplier(backupDirectory, name, uuid.toString()),
+  public String fullBackup(Path backupDirectory) {
+    return fullBackup(new IBULocalFileNamesSupplier(backupDirectory, name, uuid.toString()),
         new IBULocalFileOutputStreamSupplier(backupDirectory, name),
         new IBULocalFileRemover(backupDirectory, name));
   }
 
   @Override
-  public void fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+  public String fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier, Consumer<String> ibuFileRemover) {
     var dbUuidString = uuid.toString();
     var ibuFilesIterator = IteratorUtils.filter(ibuFilesSupplier.get(), fileName ->
@@ -820,7 +820,7 @@ public class DiskStorage extends AbstractStorage {
       ibuFileRemover.accept(ibuFile);
     }
 
-    backup(org.apache.commons.collections4.IteratorUtils::emptyIterator,
+    return backup(org.apache.commons.collections4.IteratorUtils::emptyIterator,
         ibuFileName -> {
           throw new UnsupportedOperationException("File " + ibuFileName + " does not exist.");
         }, ibuOutputStreamSupplier,

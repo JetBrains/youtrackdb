@@ -1,13 +1,8 @@
 package com.jetbrains.youtrackdb.api;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
-import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.Iterator;
 import java.util.List;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
@@ -309,7 +304,7 @@ public interface YouTrackDB extends AutoCloseable {
   YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName);
 
   /// Creates a database by restoring it from backup. The backup should be created with
-  /// [YTDBGraph#backup(Path)].
+  /// [YTDBGraphTraversalSource#backup(Path)].
   ///
   /// At the moment only disk-based databases are supported, you cannot restore memory databases.
   ///
@@ -318,7 +313,7 @@ public interface YouTrackDB extends AutoCloseable {
   void restore(@Nonnull String databaseName, @Nonnull String path);
 
   /// Creates a database by restoring it from backup. The backup should be created with
-  /// [YTDBGraph#backup(Path)].
+  /// [YTDBGraphTraversalSource#backup(Path)].
   ///
   /// At the moment only disk-based databases are supported, you cannot restore memory databases.
   ///
@@ -388,7 +383,7 @@ public interface YouTrackDB extends AutoCloseable {
   }
 
   /// Creates a database by restoring it from backup. The backup should be created with
-  /// [YTDBGraph#backup(Path)].
+  /// [YTDBGraphTraversalSource#backup(Path)].
   ///
   /// At the moment only disk-based databases are supported, you can not restore memory databases.
   ///
@@ -398,30 +393,5 @@ public interface YouTrackDB extends AutoCloseable {
   ///                     restored only if the directory contains backup only from one database.
   /// @param config       database configuration
   void restore(@Nonnull String databaseName, @Nonnull String path, @Nullable String expectedUUID,
-      @Nonnull Configuration config);
-
-  /// Creates the database by restoring it from backup. The backup should be created with
-  /// [YTDBGraph#backup(Supplier, Function, Function, Consumer)] or [YTDBGraph#backup(Path)]
-  /// methods.
-  ///
-  /// At the moment only disk-based databases are supported, you cannot restore memory databases.
-  ///
-  /// This method can be used to restore a database from the backup located on abstract backup
-  /// storage, on a remote server, for example.
-  ///
-  /// It does not operate by concepts of a local file system instead it accepts lambda instances to
-  /// operate by backup files.
-  ///
-  /// @param databaseName                   Name of a database to be created.
-  /// @param ibuFilesSupplier       Lambda that will provide a list of the backup files used to
-  ///                               restore the database.
-  /// @param ibuInputStreamSupplier lambda that will provide an input stream for each backup file.
-  /// @param expectedUUID           UUID of the database to be restored. If null, the database will
-  ///                               be restored only if the directory contains backup only from one
-  ///                               database.
-  /// @param config                 database configuration
-  void restore(@Nonnull String databaseName,
-      @Nonnull final Supplier<Iterator<String>> ibuFilesSupplier,
-      @Nonnull Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
       @Nonnull Configuration config);
 }

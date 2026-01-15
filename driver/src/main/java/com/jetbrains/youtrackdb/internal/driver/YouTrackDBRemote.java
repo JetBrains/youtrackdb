@@ -144,16 +144,6 @@ public class YouTrackDBRemote implements YouTrackDB {
     );
   }
 
-  @Override
-  public void restore(@Nonnull String databaseName,
-      @Nonnull String path, @Nullable Configuration config) {
-    executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_RESTORE, Map.of(
-            RemoteProtocolConstants.DATABASE_NAME_PARAMETER, databaseName,
-            RemoteProtocolConstants.BACKUP_PATH_PARAMETER, path,
-            RemoteProtocolConstants.CONFIGURATION_PARAMETER, convertConfigToMap(config)
-        )
-    );
-  }
 
   @Override
   public void createSystemUser(@Nonnull String username, @Nonnull String password,
@@ -175,6 +165,33 @@ public class YouTrackDBRemote implements YouTrackDB {
   public void dropSystemUser(@NonNull String username) {
     executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_DROP_SYSTEM_USER,
         Map.of(RemoteProtocolConstants.USER_NAME_PARAMETER, username));
+  }
+
+  @Override
+  public void restore(@NonNull String databaseName, @NonNull String path,
+      @Nullable String expectedUUID, @NonNull Configuration config) {
+    executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_RESTORE, Map.of(
+            RemoteProtocolConstants.DATABASE_NAME_PARAMETER, databaseName,
+            RemoteProtocolConstants.BACKUP_PATH_PARAMETER, path,
+            RemoteProtocolConstants.EXPECTED_UUID_PARAMETER, expectedUUID,
+            RemoteProtocolConstants.CONFIGURATION_PARAMETER, convertConfigToMap(config)
+        )
+    );
+  }
+
+  @Override
+  public void restore(@NonNull String databaseName, @NonNull String path) {
+    restore(databaseName, path, null, new BaseConfiguration());
+  }
+
+  @Override
+  public void restore(@Nonnull String databaseName,
+      @Nonnull String path, @Nullable Configuration config) {
+    if (config == null) {
+      restore(databaseName, path, null, new BaseConfiguration());
+    } else {
+      restore(databaseName, path, null, config);
+    }
   }
 
   @Override

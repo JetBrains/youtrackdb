@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -51,11 +52,11 @@ public class StorageBackupTest {
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        generateChunkOfData(graph, random);
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
 
         //full backup
-        backupFileName = graph.backup(backupDir.toPath());
+        backupFileName = traversal.backup(backupDir.toPath());
         //lock file and backup file
         Assert.assertEquals(2, backupDir.listFiles().length);
 
@@ -76,10 +77,10 @@ public class StorageBackupTest {
           IOUtils.writeByteBuffer(data, backupChannel, position);
         }
 
-        generateChunkOfData(graph, random);
+        generateChunkOfData(traversal, random);
 
         //one more full backup
-        graph.backup(backupDir.toPath());
+        traversal.backup(backupDir.toPath());
         //lock file and backup file
         Assert.assertEquals(2, backupDir.listFiles().length);
       }
@@ -91,8 +92,8 @@ public class StorageBackupTest {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+              youTrackDB.open(dbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       Assert.assertTrue(compare.compare());
@@ -114,17 +115,17 @@ public class StorageBackupTest {
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        generateChunkOfData(graph, random);
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
 
         //full backup
-        graph.backup(backupDir.toPath());
+        traversal.backup(backupDir.toPath());
         Assert.assertEquals(2, backupDir.listFiles().length);
 
-        generateChunkOfData(graph, random);
+        generateChunkOfData(traversal, random);
 
         //incremental backup
-        backupFileName = graph.backup(backupDir.toPath());
+        backupFileName = traversal.backup(backupDir.toPath());
         Assert.assertEquals(3, backupDir.listFiles().length);
 
         try (var backupChannel = FileChannel.open(backupDir.toPath().resolve(backupFileName),
@@ -144,7 +145,7 @@ public class StorageBackupTest {
           IOUtils.writeByteBuffer(data, backupChannel, position);
         }
 
-        generateChunkOfData(graph, random);
+        generateChunkOfData(traversal, random);
 
         //as incremental backup broken we create new one starting from changes from full backup.
         graph.backup(backupDir.toPath());
@@ -158,8 +159,8 @@ public class StorageBackupTest {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+              youTrackDB.open(dbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       Assert.assertTrue(compare.compare());
@@ -182,18 +183,18 @@ public class StorageBackupTest {
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        generateChunkOfData(graph, random);
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
 
-        backupFileName = graph.backup(backupDir.toPath());
+        backupFileName = traversal.backup(backupDir.toPath());
         Assert.assertEquals(2, backupDir.listFiles().length);
 
-        generateChunkOfData(graph, random);
-        graph.backup(backupDir.toPath());
+        generateChunkOfData(traversal, random);
+        traversal.backup(backupDir.toPath());
         Assert.assertEquals(3, backupDir.listFiles().length);
 
-        generateChunkOfData(graph, random);
-        graph.backup(backupDir.toPath());
+        generateChunkOfData(traversal, random);
+        traversal.backup(backupDir.toPath());
         Assert.assertEquals(4, backupDir.listFiles().length);
       }
     }
@@ -225,18 +226,18 @@ public class StorageBackupTest {
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        generateChunkOfData(graph, random);
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
 
-        graph.backup(backupDir.toPath());
+        traversal.backup(backupDir.toPath());
         Assert.assertEquals(2, backupDir.listFiles().length);
 
-        generateChunkOfData(graph, random);
-        backupFileName = graph.backup(backupDir.toPath());
+        generateChunkOfData(traversal, random);
+        backupFileName = traversal.backup(backupDir.toPath());
         Assert.assertEquals(3, backupDir.listFiles().length);
 
-        generateChunkOfData(graph, random);
-        graph.backup(backupDir.toPath());
+        generateChunkOfData(traversal, random);
+        traversal.backup(backupDir.toPath());
         Assert.assertEquals(4, backupDir.listFiles().length);
       }
     }
@@ -269,10 +270,10 @@ public class StorageBackupTest {
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        generateChunkOfData(graph, random);
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
 
-        backupFileName = graph.backup(backupDir.toPath());
+        backupFileName = traversal.backup(backupDir.toPath());
       }
     }
 
@@ -317,29 +318,29 @@ public class StorageBackupTest {
       youTrackDB.create(dbName1, DatabaseType.DISK, "admin", "admin", "admin");
       youTrackDB.create(dbName2, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph1 = youTrackDB.openGraph(dbName1, "admin", "admin")) {
-        try (var graph2 = youTrackDB.openGraph(dbName2, "admin", "admin")) {
+      try (var traversal1 = youTrackDB.openTraversal(dbName1, "admin", "admin")) {
+        try (var traversal2 = youTrackDB.openTraversal(dbName2, "admin", "admin")) {
 
-          firstDbUUId = graph1.uuid();
-          secondDbUUId = graph2.uuid();
+          firstDbUUId = traversal1.uuid();
+          secondDbUUId = traversal2.uuid();
 
-          generateChunkOfData(graph1, random);
-          generateChunkOfData(graph2, random);
+          generateChunkOfData(traversal1, random);
+          generateChunkOfData(traversal2, random);
 
-          graph1.backup(backupDir.toPath());
-          graph2.backup(backupDir.toPath());
+          traversal1.backup(backupDir.toPath());
+          traversal2.backup(backupDir.toPath());
 
-          generateChunkOfData(graph1, random);
-          generateChunkOfData(graph2, random);
+          generateChunkOfData(traversal1, random);
+          generateChunkOfData(traversal2, random);
 
-          graph1.backup(backupDir.toPath());
-          graph2.backup(backupDir.toPath());
+          traversal1.backup(backupDir.toPath());
+          traversal2.backup(backupDir.toPath());
 
-          generateChunkOfData(graph1, random);
-          generateChunkOfData(graph2, random);
+          generateChunkOfData(traversal1, random);
+          generateChunkOfData(traversal2, random);
 
-          graph1.backup(backupDir.toPath());
-          graph2.backup(backupDir.toPath());
+          traversal1.backup(backupDir.toPath());
+          traversal2.backup(backupDir.toPath());
         }
       }
 
@@ -355,16 +356,16 @@ public class StorageBackupTest {
 
       final var compare1 =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(dbName1, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName1, "admin", "admin"),
+              youTrackDB.open(dbName1, "admin", "admin"),
+              youTrackDB.open(backupDbName1, "admin", "admin"),
               System.out::println);
 
       Assert.assertTrue(compare1.compare());
 
       final var compare2 =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(dbName2, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName2, "admin", "admin"),
+              youTrackDB.open(dbName2, "admin", "admin"),
+              youTrackDB.open(backupDbName2, "admin", "admin"),
               System.out::println);
 
       Assert.assertTrue(compare2.compare());
@@ -385,9 +386,9 @@ public class StorageBackupTest {
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        generateChunkOfData(graph, random);
-        graph.backup(backupDir.toPath());
+      try (var traversalSource = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversalSource, random);
+        traversalSource.backup(backupDir.toPath());
       }
     }
 
@@ -396,7 +397,7 @@ public class StorageBackupTest {
     FileUtils.moveDirectory(new File(new File(testDirectory), dbName), newDBDirectory);
 
     try (var youTrackDB = YourTracks.instance(testDirectory)) {
-      try (var graph = youTrackDB.openGraph(newDbName, "admin", "admin")) {
+      try (var graph = youTrackDB.openTraversal(newDbName, "admin", "admin")) {
         generateChunkOfData(graph, random);
         graph.backup(backupDir.toPath());
 
@@ -411,8 +412,8 @@ public class StorageBackupTest {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(newDbName, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+              youTrackDB.open(newDbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       Assert.assertTrue(compare.compare());
@@ -686,9 +687,9 @@ public class StorageBackupTest {
     FileUtils.deleteDirectory(backupDir);
   }
 
-  private static void generateChunkOfData(YTDBGraph graph, Random random) {
+  private static void generateChunkOfData(YTDBGraphTraversalSource traversalSource, Random random) {
     for (var i = 0; i < 1000; i++) {
-      graph.executeInTx(g -> {
+      traversalSource.executeInTx(g -> {
         final var data = new byte[16];
         random.nextBytes(data);
         final var num = random.nextInt();

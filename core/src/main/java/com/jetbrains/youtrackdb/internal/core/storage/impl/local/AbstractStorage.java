@@ -4694,9 +4694,9 @@ public abstract class AbstractStorage
     }
   }
 
-  public abstract void fullBackup(final Path backupDirectory);
+  public abstract String fullBackup(final Path backupDirectory);
 
-  public abstract void fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+  public abstract String fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover);
 

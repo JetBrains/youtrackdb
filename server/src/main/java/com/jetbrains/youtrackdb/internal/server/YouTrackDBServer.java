@@ -48,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.TimerTask;
@@ -58,6 +59,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 
 public class YouTrackDBServer {
@@ -732,11 +734,11 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void restore(String name, DatabaseType type, String path,
+    public void restore(String name, String path,
         YouTrackDBConfig config) {
       dbNamesCacheLock.lock();
       try {
-        internal.restore(name, type, path, config);
+        internal.restore(name, path, config);
         dbNamesCache.add(name);
       } finally {
         dbNamesCacheLock.unlock();
