@@ -8,7 +8,7 @@ composite_linear_query_statement: simple_linear_query_statement
                                   ( (UNION | INTERSECT | EXCEPT) (ALL | DISTINCT)?
                                   simple_linear_query_statement )* ;
 
-simple_linear_query_statement: (primitive_query_statement)* return_statment;
+simple_linear_query_statement: (primitive_query_statement)* return_statment?;
 primitive_query_statement: call_statment | filter_statment | for_statment | let_statmnet |
                            limit_statment | match_statment | offset_statment | order_by_statment |
                            skip_statment | with_statmnet;

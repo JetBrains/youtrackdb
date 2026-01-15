@@ -80,9 +80,15 @@ public class GqlStructureTest {
   }
 
   private static Stream<Path> getFilesFromPath(String pathStr) throws IOException {
-    var path = Paths.get(pathStr);
-    if (!Files.exists(path)) return Stream.empty();
-    return Files.walk(path).filter(p -> p.toString().endsWith(".gql"));
+    Path path = Paths.get(pathStr).toAbsolutePath();
+    if (!Files.exists(path)) {
+      System.err.println("WARNING: Directory does not exist: " + path);
+      return Stream.empty();
+    }
+
+    return Files.walk(path)
+        .filter(Files::isRegularFile)
+        .filter(p -> p.getFileName().toString().endsWith(".gql"));
   }
 
   public static class ThrowingErrorListener extends BaseErrorListener {
