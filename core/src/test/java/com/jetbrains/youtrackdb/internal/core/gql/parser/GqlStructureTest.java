@@ -53,14 +53,13 @@ public class GqlStructureTest {
     System.out.println("\n--- NEGATIVE TEST: " + gqlFile.getFileName() + " ---");
     System.out.println("Query: " + query.trim());
 
-    assertThrows(ParseCancellationException.class, () -> {
-      parseQuery(query);
-    }, "Expected syntax error in " + gqlFile.getFileName() + " but none was thrown!");
+    assertThrows(ParseCancellationException.class, () -> parseQuery(query),
+        "Expected syntax error in " + gqlFile.getFileName() + " but none was thrown!");
 
     System.out.println("Result: Successfully caught expected syntax error.");
   }
 
-  private String parseQuery(String query) {
+  private static String parseQuery(String query) {
     var lexer = new GQLLexer(CharStreams.fromString(query));
     var tokens = new CommonTokenStream(lexer);
     var parser = new GQLParser(tokens);
@@ -81,7 +80,7 @@ public class GqlStructureTest {
   }
 
   private static Stream<Path> getFilesFromPath(String pathStr) throws IOException {
-    Path path = Paths.get(pathStr);
+    var path = Paths.get(pathStr);
     if (!Files.exists(path)) return Stream.empty();
     return Files.walk(path).filter(p -> p.toString().endsWith(".gql"));
   }
