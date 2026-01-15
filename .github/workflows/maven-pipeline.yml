@@ -164,6 +164,7 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
+            Workflow: `${{ github.workflow }}`
             Build failed on branch `${{ steps.branch_name.outputs.branch }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
   notify-fixed:
@@ -210,5 +211,6 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FIXED** :white_check_mark:
+            Workflow: `${{ github.workflow }}`
             Build fixed on branch `${{ steps.branch_name.outputs.branch }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
