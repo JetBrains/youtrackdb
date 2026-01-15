@@ -16,12 +16,13 @@ permissions:
 
 jobs:
   test:
-    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }}
+    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
+        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
         platform:
           - os: ubuntu-latest
             arch: x64
@@ -39,7 +40,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           java-version: ${{ matrix.java }}
-          distribution: 'temurin'
+          distribution: ${{ matrix.distribution }}
           architecture: ${{ matrix.platform.arch }}
           cache: 'maven'
           overwrite-settings: false
@@ -60,7 +61,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
+          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }}, ${{ matrix.distribution }})
       - name: Publish Test Results (Windows)
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
         if: always() && runner.os == 'Windows'
@@ -71,7 +72,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
+          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }}, ${{ matrix.distribution }})
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY

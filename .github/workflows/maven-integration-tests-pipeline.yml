@@ -60,7 +60,7 @@ jobs:
             echo "should_run=true" >> $GITHUB_OUTPUT
           fi
   test:
-    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }}
+    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
     runs-on: ${{ matrix.platform.os }}
@@ -68,6 +68,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
+        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
         platform:
           - os: ubuntu-latest
             arch: x64
@@ -88,7 +89,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           java-version: ${{ matrix.java }}
-          distribution: 'temurin'
+          distribution: ${{ matrix.distribution }}
           architecture: ${{ matrix.platform.arch }}
           cache: 'maven'
           overwrite-settings: false
@@ -109,7 +110,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
+          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }}, ${{ matrix.distribution }})
       - name: Publish Test Results (Windows)
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
         if: always() && runner.os == 'Windows'
@@ -120,7 +121,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }})
+          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }}, ${{ matrix.distribution }})
 
   notify-failure:
     name: Notify build failure on Zulip
