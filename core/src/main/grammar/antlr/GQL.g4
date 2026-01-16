@@ -53,7 +53,8 @@ with_statmnet: WITH (ALL | DISTINCT)? (return_items | '*') group_by_clause?;
 
 graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
-top_level_path_pattern: (path_variable EQ)? ('{' path_search_prefix | path_mode '}')? path_pattern;
+top_level_path_pattern: (path_variable EQ)? (path_search_prefix | path_mode |
+                        '{' (path_search_prefix | path_mode) '}')? path_pattern;
 path_pattern: node_pattern (edge_pattern quantifier? node_pattern)*;
 quantifier: '*' | '+' | '{' INT (',' INT?)? '}' | '{' ',' INT '}' | '{' INT ',' INT '}';
 path_search_prefix: ALL | ANY | ANY SHORTEST | ANY CHEAPEST;
