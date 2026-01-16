@@ -100,7 +100,7 @@ list_literal: '[' (value_expression (',' value_expression)*)? ']';
 map_literal: '{' (map_entry (',' map_entry)*)? '}';
 map_entry: (ID | STRING) ':' value_expression;
 temporal_literal: (DATE | TIME | TIMESTAMP | DURATION) (STRING | '(' STRING ')');
-path_function: (NODES | EDGES | LENGTH) '(' (ID | STRING) ')';
+path_function: (NODES | EDGES | LENGTH | LABELS) '(' (ID | STRING) ')';
 
 case_expression: CASE (value_expression)? (WHEN boolean_expression THEN value_expression)+
                  (ELSE value_expression)? END;
@@ -178,6 +178,7 @@ DURATION: D U R A T I O N;
 NODES:   N O D E S;
 EDGES:   E D G E S;
 LENGTH:  L E N G T H;
+LABELS:   L A B E L S;
 
 ARROW_RIGHT : '->';
 ARROW_LEFT  : '<-';
