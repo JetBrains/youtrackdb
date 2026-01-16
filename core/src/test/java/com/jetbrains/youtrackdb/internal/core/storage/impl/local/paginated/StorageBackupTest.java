@@ -148,7 +148,7 @@ public class StorageBackupTest {
         generateChunkOfData(traversal, random);
 
         //as incremental backup broken we create new one starting from changes from full backup.
-        graph.backup(backupDir.toPath());
+        traversal.backup(backupDir.toPath());
         Assert.assertEquals(3, backupDir.listFiles().length);
       }
     }

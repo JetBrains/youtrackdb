@@ -8,13 +8,13 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBGraphUuidService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBIncrementalBackupService;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
-import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
