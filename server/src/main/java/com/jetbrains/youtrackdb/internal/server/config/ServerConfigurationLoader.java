@@ -38,9 +38,8 @@ public class ServerConfigurationLoader {
     YTDBSettings ytdbSettings;
     if (filePath.startsWith("classpath:")) {
       var configFile = filePath.substring("classpath:".length());
-      var configStream = this.getClass().getClassLoader().getResourceAsStream(configFile);
-      if (configStream != null) {
-        configStream.close();
+      var resource = this.getClass().getClassLoader().getResource(configFile);
+      if (resource != null) {
         ytdbSettings = YTDBSettings.read(filePath);
       } else {
         throw new IllegalStateException("Gremlin server configuration file not found");
