@@ -1,0 +1,1 @@
+(graph_query (multi_linear_query_statement (composite_linear_query_statement (simple_linear_query_statement (primitive_query_statement (match_statment match (graph_pattern (path_pattern_list (top_level_path_pattern (path_pattern (node_pattern ( pattern_filler )) (edge_pattern (abbreviated_edge_left <-)) (node_pattern ( pattern_filler ))))))))))) <EOF>)
