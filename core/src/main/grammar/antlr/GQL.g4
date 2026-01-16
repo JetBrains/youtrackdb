@@ -29,7 +29,7 @@ linear_graph_variable: STRING EQ value_expression;
 
 limit_statment: LIMIT INT;
 
-match_statment: OPTIONAL? MATCH match_hint? graph_pattern;
+match_statment: OPTIONAL? MATCH match_hint? graph_pattern (exists_predicate)?;
 match_hint: '@{' hint_key EQ hint_value '}';
 hint_key: ID;
 hint_value: ID | STRING | math_expression | BOOL;
