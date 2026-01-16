@@ -111,11 +111,16 @@ jobs:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
       - name: Annotate Deployed Versions
-        if: success()
         run: |
           BASE_VERSION=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -q -DforceStdout)
           SHA_VERSION=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -q -DforceStdout -Dsha1=-${{ steps.vars.outputs.sha_short }})
           echo "::notice title=Maven Deployed::Deployed Artifacts Versions: $BASE_VERSION, $SHA_VERSION"
+        env:
+          # Credentials mapped to environment variables
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
+          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
   deploy-docker:
     needs: test
     runs-on: ${{ matrix.platform.os }}
