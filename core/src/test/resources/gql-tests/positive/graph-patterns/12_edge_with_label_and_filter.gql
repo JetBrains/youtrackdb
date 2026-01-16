@@ -1,0 +1,1 @@
+match () -[r:KNOWS {since: 2024}]-> ()

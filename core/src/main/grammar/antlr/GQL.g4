@@ -194,11 +194,11 @@ DIV: '/';
 MOD: '%';
 BOOL: T R U E | F A L S E;
 DOT : '.' ;
+DASH: '-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 NUMBER: [0-9]+ (DOT [0-9]+)? ([eE] [+-]? [0-9]+)?;
 INT: [0-9]+;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
-DASH: '-';
 
 fragment A: [aA]; fragment B: [bB]; fragment C: [cC]; fragment D: [dD];
 fragment E: [eE]; fragment F: [fF]; fragment G: [gG]; fragment H: [hH];
