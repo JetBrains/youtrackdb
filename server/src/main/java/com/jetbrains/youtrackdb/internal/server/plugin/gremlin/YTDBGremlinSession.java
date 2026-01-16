@@ -206,7 +206,7 @@ public final class YTDBGremlinSession {
     executor.shutdownNow();
     sessions.remove(session);
     // once a session is dead release the gauges in the registry for it
-    MetricManager.INSTANCE.getRegistry().removeMatching((s, metric) -> s.contains(session));
+    MetricManager.INSTANCE.getRegistry().removeMatching((s, metric) -> s.getKey().contains(session));
     logger.debug("Session {} closed", session);
   }
 

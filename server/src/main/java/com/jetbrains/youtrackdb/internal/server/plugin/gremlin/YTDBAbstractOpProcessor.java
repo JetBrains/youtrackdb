@@ -1,17 +1,17 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
-import static com.codahale.metrics.MetricRegistry.name;
+import static io.dropwizard.metrics5.MetricRegistry.name;
 import static org.apache.tinkerpop.gremlin.process.traversal.GraphOp.TX_COMMIT;
 import static org.apache.tinkerpop.gremlin.process.traversal.GraphOp.TX_ROLLBACK;
 
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import com.jetbrains.youtrackdb.internal.remote.RemoteProtocolConstants;
+import io.dropwizard.metrics5.Meter;
+import io.dropwizard.metrics5.Timer;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import java.lang.reflect.UndeclaredThrowableException;

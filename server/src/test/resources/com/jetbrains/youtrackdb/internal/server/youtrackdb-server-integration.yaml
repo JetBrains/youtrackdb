@@ -15,41 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+includes: ["classpath:com/jetbrains/youtrackdb/internal/server/conf/youtrackdb-server.yaml"]
 host: localhost
 port: 45940
 evaluationTimeout: 300000000
-channelizer: org.apache.tinkerpop.gremlin.server.channel.WebSocketChannelizer
-graphs: { }
-serializers:
-  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1, config: { ioRegistries: [
-    com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry, org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerIoRegistryV3
-  ] } }
-processors:
-  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor, config: { sessionTimeout: 28800000 } }
-  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBStandardOpProcessor, config: { } }
-metrics: {
-  consoleReporter: { enabled: true, interval: 180000 },
-  csvReporter: { enabled: true, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv },
-  jmxReporter: { enabled: true },
-  slf4jReporter: { enabled: true, interval: 180000 } }
-authentication: {
-  authenticator: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSimpleAuthenticator
-}
 users:
   - { name: "root", password: "root", resources: "*" }
-
-ssl: {
-  enabled: false
-}
-gremlinPool: 8
-strictTransactionManagement: false
-idleConnectionTimeout: 0
-keepAliveInterval: 0
-maxInitialLineLength: 4096
-maxHeaderSize: 8192
-maxChunkSize: 8192
-maxContentLength: 10485760
-maxAccumulationBufferComponents: 1024
-resultIterationBatchSize: 64
-writeBufferLowWaterMark: 32768
-writeBufferHighWaterMark: 65536
