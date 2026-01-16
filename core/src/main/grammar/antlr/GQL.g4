@@ -55,7 +55,7 @@ graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
 top_level_path_pattern: (path_variable EQ)? ('{' path_search_prefix | path_mode '}')? path_pattern;
 path_pattern: node_pattern (edge_pattern quantifier? node_pattern)*;
-quantifier: '*' | '+' | '{' INT (',' INT?)? '}' | '{' ',' INT '}';
+quantifier: '*' | '+' | '{' INT (',' INT?)? '}' | '{' ',' INT '}' | '{' INT ',' INT '}';
 path_search_prefix: ALL | ANY | ANY SHORTEST | ANY CHEAPEST;
 path_mode: WALK (PATH | PATHS)? | ACYCLIC (PATH | PATHS)? | TRAIL (PATH | PATHS)?;
 
@@ -69,7 +69,7 @@ abbreviated_edge_any: DASH;
 abbreviated_edge_left: ARROW_LEFT;
 abbreviated_edge_right: ARROW_RIGHT;
 pattern_filler: graph_pattern_variable? is_label_condition?
-                (where_clause | property_filters)? cost_expression?;
+                (where_clause | property_filters)? quantifier? cost_expression?;
 
 is_label_condition: (IS | ':') label_expression;
 label_expression: label_term (('|' | OR) label_term)*;
@@ -114,7 +114,7 @@ math_expression_inner: '(' math_expression ')' | sub '(' math_expression ')' |
                       sub math_expression_inner | numeric_literal | property_reference;
 comparison_operator: EQ | NEQ | GT | GTE | LT | LTE | IN;
 sub: DASH;
-numeric_literal: (sub)? NUMBER;
+numeric_literal: (sub)? (NUMBER | INT);
 property_reference : ID (DOT ID)* ;
 
 MATCH:   M A T C H;
@@ -196,8 +196,8 @@ BOOL: T R U E | F A L S E;
 DOT : '.' ;
 DASH: '-';
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
-NUMBER: [0-9]+ (DOT [0-9]+)? ([eE] [+-]? [0-9]+)?;
 INT: [0-9]+;
+NUMBER: [0-9]+ (DOT [0-9]+)? ([eE] [+-]? [0-9]+)?;
 STRING: '\'' ( ~['\r\n\\] | '\\' . )* '\'';
 
 fragment A: [aA]; fragment B: [bB]; fragment C: [cC]; fragment D: [dD];
