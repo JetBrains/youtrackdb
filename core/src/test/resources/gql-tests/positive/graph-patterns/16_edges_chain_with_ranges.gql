@@ -1,0 +1,1 @@
+MATCH (a)-[:FRIEND {1,2}]->(b)-[:WORKS_AT {1}]->(c)
