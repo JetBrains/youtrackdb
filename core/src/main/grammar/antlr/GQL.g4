@@ -69,7 +69,7 @@ full_edge_right: DASH '[' pattern_filler ']' ARROW_RIGHT;
 abbreviated_edge_any: DASH;
 abbreviated_edge_left: ARROW_LEFT;
 abbreviated_edge_right: ARROW_RIGHT;
-pattern_filler: graph_pattern_variable? is_label_condition?
+pattern_filler: match_hint? graph_pattern_variable? is_label_condition?
                 (where_clause | property_filters)? quantifier? cost_expression?;
 
 is_label_condition: (IS | ':') label_expression;
