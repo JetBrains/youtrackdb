@@ -48,7 +48,6 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// method.
   public <X extends Exception> void executeInTx(
       @Nonnull FailableConsumer<YTDBGraphTraversalSource, X> code) throws X {
-    var tx = tx();
     YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
   }
 
@@ -63,7 +62,6 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   public <X extends Exception> void autoExecuteInTx(
       @Nonnull FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code)
       throws X {
-    var tx = tx();
     YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
   }
 

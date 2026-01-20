@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -43,9 +43,9 @@ public class PredicateSecurityTest {
   @Before
   public void before() {
     youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
-        new UserCredential("admin", PASSWORD, PredefinedRole.ADMIN),
-        new UserCredential("reader", PASSWORD, PredefinedRole.READER),
-        new UserCredential("writer", PASSWORD, PredefinedRole.WRITER));
+        new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN),
+        new LocalUserCredential("reader", PASSWORD, PredefinedLocalRole.READER),
+        new LocalUserCredential("writer", PASSWORD, PredefinedLocalRole.WRITER));
     this.session = youTrackDB.open(DB_NAME, "admin", PASSWORD);
   }
 

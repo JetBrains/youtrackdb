@@ -60,7 +60,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Invalid db type: " + type.getStringValue());
     }
-    if (ifNotExists && server.exists(dbName, null, null)) {
+    if (ifNotExists && server.exists(dbName)) {
       result.setProperty("created", false);
       result.setProperty("existing", true);
     } else {

@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.schedule;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -131,7 +131,7 @@ public class SchedulerTest {
     }
 
     youTrackDb.create("test", DatabaseType.DISK,
-        new UserCredential("admin", NEW_ADMIN_PASSWORD, PredefinedRole.ADMIN));
+        new LocalUserCredential("admin", NEW_ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var pool =
         youTrackDb.cachedPool("test", "admin", NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();

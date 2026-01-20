@@ -118,13 +118,10 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
   /**
    * Check if a database exists
    *
-   * @param name     database name to check
-   * @param user     the username of a user allowed to check the database existence, in case of
-   *                 remote is a server user for embedded it can be left empty.
-   * @param password the password relative to the user
+   * @param name database name to check
    * @return boolean true if exist false otherwise.
    */
-  boolean exists(String name, String user, String password);
+  boolean exists(String name);
 
   /**
    * Drop a database

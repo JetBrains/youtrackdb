@@ -1,25 +1,27 @@
 package com.jetbrains.youtrackdb.internal.server;
 
+import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import org.junit.Ignore;
 import org.junit.Test;
 
 public class DBSequenceRemoteTest extends AbstractRemoteTest {
-
   YTDBGraphTraversalSource traversal;
+  YouTrackDB youTrackDB;
 
   @Override
   public void setup() throws Exception {
     super.setup();
 
-    var factory = YourTracks.instance("localhost", "root", "root");
-    traversal = factory.openTraversal(name.getMethodName(), "admin", "admin");
+    youTrackDB = YourTracks.instance("localhost", "root", "root");
+    traversal = youTrackDB.openTraversal(name.getMethodName(), "admin", "admin");
   }
 
   @Override
   public void teardown() throws Exception {
     traversal.close();
+    youTrackDB.close();
     super.teardown();
   }
 

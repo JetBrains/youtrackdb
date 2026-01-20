@@ -149,7 +149,7 @@ public class SystemDatabase {
   }
 
   public boolean exists() {
-    return context.exists(SYSTEM_DB_NAME, null, null);
+    return context.exists(SYSTEM_DB_NAME);
   }
 
   public String getServerId() {

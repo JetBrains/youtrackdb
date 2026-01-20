@@ -248,13 +248,13 @@ public class SecurityShared implements SecurityInternal {
   @Nullable
   @Override
   public SecurityUserImpl authenticate(
-      DatabaseSessionInternal session, final String iUsername, final String iUserPassword) {
+      DatabaseSessionEmbedded session, final String iUsername, final String iUserPassword) {
     return null;
   }
 
   // Token MUST be validated before being passed to this method.
   @Override
-  public SecurityUserImpl authenticate(final DatabaseSessionInternal session,
+  public SecurityUser authenticate(final DatabaseSessionEmbedded session,
       final Token authToken) {
     final var dbName = session.getDatabaseName();
     if (!authToken.getIsValid()) {
@@ -1120,7 +1120,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  public static SecurityUserImpl getUserInternal(final DatabaseSession session,
+  public static SecurityUser getUserInternal(final DatabaseSession session,
       final String iUserName) {
     return session.computeInTx(transaction -> {
       try (var result =
@@ -1137,8 +1137,13 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public SecurityUserImpl getUser(DatabaseSession session, String username) {
-    return getUserInternal(session, username);
+  public SecurityUser getUser(DatabaseSessionEmbedded session, String username) {
+    var user = getUserInternal(session, username);
+    if (user != null) {
+      return user;
+    }
+
+    return security.getUser(username, session);
   }
 
   public static SecurityRole createRole(GlobalUser serverUser) {
@@ -1738,7 +1743,8 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session,
+      String resource) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return false;

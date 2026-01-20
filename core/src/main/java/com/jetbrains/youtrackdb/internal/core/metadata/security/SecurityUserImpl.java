@@ -304,7 +304,12 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
   public SecurityUserImpl addRole(DatabaseSessionInternal session, final String iRole) {
     if (iRole != null) {
-      addRole(session, session.getMetadata().getSecurity().getRole(iRole));
+      var role = session.getMetadata().getSecurity().getRole(iRole);
+      if (role != null) {
+        addRole(session, role);
+      } else {
+        throw new SecurityException(session.getDatabaseName(), "Role '" + iRole + "' not found");
+      }
     }
     return this;
   }

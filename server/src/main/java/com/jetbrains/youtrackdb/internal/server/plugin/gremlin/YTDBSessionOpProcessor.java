@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
-import static com.codahale.metrics.MetricRegistry.name;
+
+import static io.dropwizard.metrics5.MetricRegistry.name;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.util.HashMap;

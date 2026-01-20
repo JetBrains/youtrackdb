@@ -7,8 +7,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedRole;
-import com.jetbrains.youtrackdb.api.YouTrackDB.UserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -118,7 +118,7 @@ public class EntityImplTest extends DbTestBase {
       ytdb = (YouTrackDBImpl) YourTracks.instance(
           DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp");
       ytdb.create(dbName, DatabaseType.MEMORY,
-          new UserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedRole.ADMIN));
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
 
       session = ytdb.open(dbName, defaultDbAdminCredentials,
           DbTestBase.ADMIN_PASSWORD);
@@ -182,8 +182,8 @@ public class EntityImplTest extends DbTestBase {
   public void testRemovingReadonlyField() {
 
     youTrackDB.create(dbName, DatabaseType.MEMORY,
-        new UserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
-            PredefinedRole.ADMIN));
+        new LocalUserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
+            PredefinedLocalRole.ADMIN));
     try (var db = youTrackDB.open(dbName, defaultDbAdminCredentials,
         DbTestBase.ADMIN_PASSWORD)) {
       Schema schema = db.getMetadata().getSchema();
@@ -213,8 +213,8 @@ public class EntityImplTest extends DbTestBase {
   @Test
   public void testUndo() {
     youTrackDB.create(dbName, DatabaseType.MEMORY,
-        new UserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
-            PredefinedRole.ADMIN));
+        new LocalUserCredential(defaultDbAdminCredentials, DbTestBase.ADMIN_PASSWORD,
+            PredefinedLocalRole.ADMIN));
     try (var session = youTrackDB.open(dbName, defaultDbAdminCredentials,
         DbTestBase.ADMIN_PASSWORD)) {
 
