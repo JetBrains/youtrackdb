@@ -66,7 +66,7 @@ public class YouTrackDBServer {
   public static final String GUEST_USER = "guest";
   public static final String DEFAULT_GUEST_PASSWORD = "!!!TheGuestPw123";
 
-  public static final String DEFAULT_CONFIG_CLASSPATH = "classpath:com/jetbrains/youtrackdb/internal/server/conf/youtrackdb-server.yaml";
+  public static final String DEFAULT_CONFIG_CLASSPATH = "classpath:com/jetbrains/youtrackdb/server/conf/youtrackdb-server.yaml";
   public static final String PROPERTY_CONFIG_FILE = "youtrackdb.config.file";
   public static final String DEFAULT_CONFIG_LOCATION = "conf/youtrackdb-server.yaml";
   private static final String ROOT_PASSWORD_FILE = "secrets/root_password";
