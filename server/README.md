@@ -39,17 +39,17 @@ YTDB server supports the following properties:
 Their names and values are represented as a map and have the same meaning as described in
 `com.jetbrains.youtrackdb.api.config.GlobalConfiguration`.
 
-YTDB server configuration supports inclusion of other configuration files using 
-`includes` property that provides list of the configuration files to include before overriding 
-of settings of included files by main configuration.
-`includes` option supports locations of the files on class path and file system.
-For files system location both absolute and relative paths are supported.
+YTDB server configuration supports including other configuration files using the `includes`
+property. This property specifies a list of configuration files to load before the main
+configuration.
+`includes` option supports locations of the files on the classpath and the file system. For file
+system locations, both absolute and relative paths are supported.
+Properties from included files are overridden in the following order:
 
-Properties of included files are overridden by:
-1. Files located bellow in `includes` property.
-2. By including file.
+1. By files that appear later in the `includes` list.
+2. By the main configuration file itself (the one containing the `includes` property).
 
-Typically approach to provide file configuration that we also use in our tests is:
+A typical approach to file configuration, which we also use in our tests, is:
 ```yaml
 includes: ["classpath:com/jetbrains/youtrackdb/server/conf/youtrackdb-server.yaml"]
 host: localhost
