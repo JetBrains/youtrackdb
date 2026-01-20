@@ -18,23 +18,25 @@ import org.slf4j.event.Level;
  * It uses SLF4J as the logging facade. Logging methods are accepting messages formatted as in
  * {@link String#format(String, Object...)} It is strongly recommended to use specialized logging
  * methods from this class instead of generic
- * {@link #log(Object, Level, String, Throwable, Object...)} method.
+ * {@link #log(Object, String, Level, String, Throwable, Object...)} method.
  */
 public abstract class SLF4JLogManager {
   private final ConcurrentHashMap<String, Logger> loggersCache = new ConcurrentHashMap<>();
 
   /**
-   * Loges a message if provided level of logging is enabled.
+   * Loges a message if the provided level of logging is enabled.
    *
    * @param requester      the object that requested the log
+   * @param dbName         Name of the current database
    * @param level          the level of the log
-   * @param message        the message to log, accepts format provided in
+   * @param message        the message to log, accepts a format provided in
    *                       {@link String#format(String, Object...)}
    * @param exception      the exception to log
    * @param additionalArgs additional arguments to format the message
    */
   public void log(
       @Nonnull Object requester,
+      @Nullable String dbName,
       @Nonnull Level level,
       @Nonnull String message,
       @Nullable Throwable exception,
@@ -61,7 +63,12 @@ public abstract class SLF4JLogManager {
             });
 
     if (log.isEnabledForLevel(level)) {
-      var dbURL = fetchDbName(requester, exception);
+      String dbURL;
+      if (dbName == null) {
+        dbURL = fetchDbName(requester, exception);
+      } else {
+        dbURL = dbName;
+      }
 
       Marker dbMarker = null;
       if (dbURL != null) {
@@ -116,7 +123,7 @@ public abstract class SLF4JLogManager {
    * @param requester      the object that requested the log
    * @param message        the message to log, accepts format provided in
    *                       {@link String#format(String, Object...)}
-   * @param logger
+   * @param logger         Logger used to write message
    * @param additionalArgs additional arguments to format the message
    */
   public void debug(
@@ -132,7 +139,7 @@ public abstract class SLF4JLogManager {
    * @param requester      the object that requested the log
    * @param message        the message to log, accepts format provided in
    *                       {@link String#format(String, Object...)}
-   * @param logger
+   * @param logger         Logger used to write a message
    * @param exception      the exception to log
    * @param additionalArgs additional arguments to format the message
    */
@@ -142,7 +149,7 @@ public abstract class SLF4JLogManager {
       Logger logger, @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
     if (logger.isDebugEnabled()) {
-      log(requester, Level.DEBUG, message, exception, additionalArgs);
+      log(requester, null, Level.DEBUG, message, exception, additionalArgs);
     }
   }
 
@@ -175,7 +182,7 @@ public abstract class SLF4JLogManager {
       final @Nonnull String message,
       final @Nullable Throwable exception,
       final @Nullable Object... additionalArgs) {
-    log(requester, Level.INFO, message, exception, additionalArgs);
+    log(requester, null, Level.INFO, message, exception, additionalArgs);
   }
 
   /**
@@ -190,8 +197,9 @@ public abstract class SLF4JLogManager {
       @Nonnull final Object requester,
       @Nonnull final String message,
       @Nullable final Object... additionalArgs) {
-    warn(requester, message, null, additionalArgs);
+    log(requester, null, Level.WARN, message, null, additionalArgs);
   }
+
 
   /**
    * Loges a message with warn level if this level of logging is enabled.
@@ -207,7 +215,24 @@ public abstract class SLF4JLogManager {
       @Nonnull final String message,
       @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    log(requester, Level.WARN, message, exception, additionalArgs);
+    log(requester, null, Level.WARN, message, exception, additionalArgs);
+  }
+
+  /**
+   * Loges a message with warn level if this level of logging is enabled.
+   *
+   * @param requester      the object that requested the log
+   * @param dbName         Name of the current database.
+   * @param message        the message to log, accepts format provided in
+   *                       {@link String#format(String, Object...)}
+   * @param additionalArgs additional arguments to format the message
+   */
+  public void warn(
+      @Nonnull final Object requester,
+      @Nonnull String dbName,
+      @Nonnull final String message,
+      @Nullable final Object... additionalArgs) {
+    log(requester, dbName, Level.WARN, message, null, additionalArgs);
   }
 
   /**
@@ -223,6 +248,8 @@ public abstract class SLF4JLogManager {
       @Nonnull final String message,
       @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    log(requester, Level.ERROR, message, exception, additionalArgs);
+    log(requester, null, Level.ERROR, message, exception, additionalArgs);
   }
+
+
 }

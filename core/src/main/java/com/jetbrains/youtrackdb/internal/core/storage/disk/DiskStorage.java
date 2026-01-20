@@ -108,6 +108,7 @@ import java.util.function.Supplier;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -927,8 +928,10 @@ public class DiskStorage extends AbstractStorage {
 
           while (!existingFiles.isEmpty()) {
             var ibuLastFile = existingFiles.removeLast();
-            backupMetadata = validateFileAndFetchBackupMetadata(ibuLastFile, uuid,
-                ibuInputStreamSupplier, null);
+            try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
+              backupMetadata = validateFileAndFetchBackupMetadata(ibuLastFile, getName(), uuid,
+                  ibuStream, null);
+            }
 
             if (backupMetadata == null) {
               LogManager.instance()
@@ -1014,81 +1017,82 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Nullable
-  private BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName,
+  protected static BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName,
+      String storageName,
       @Nullable UUID dbUUID,
-      Function<String, InputStream> ibuInputStreamSupplier, @Nullable OutputStream copyStream)
+      @Nonnull InputStream inputStream, @Nullable OutputStream copyStream)
       throws IOException {
     byte[] metaDataCandidate = null;
 
     try (var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
-      try (var inputStream = ibuInputStreamSupplier.apply(ibuFileName)) {
-        var buffer = new byte[(64 << 10)];
-        var read = 0;
 
-        while (true) {
-          read = inputStream.read(buffer);
+      var buffer = new byte[(64 << 10)];
+      var read = 0;
 
-          if (read == -1) {
-            break;
-          } else if (read == 0) {
-            continue;
+      while (true) {
+        read = inputStream.read(buffer);
+
+        if (read == -1) {
+          break;
+        } else if (read == 0) {
+          continue;
+        }
+
+        if (metaDataCandidate == null) {
+          if (read < IBU_METADATA_SIZE) {
+            //read till we will not have to read metadata information
+            var bytesLeftToRead = IBU_METADATA_SIZE - read;
+            while (bytesLeftToRead > 0) {
+              var r = inputStream.read(buffer, read, buffer.length - read);
+              if (r == -1) {
+                LogManager.instance().warn(DiskStorage.class, storageName,
+                    "Size of the file %s is less than needed to store information about metadata. "
+                        + "Size should be at least %d but real size is %d.", ibuFileName,
+                    IBU_METADATA_SIZE, read);
+                return null;
+              }
+
+              read += r;
+              bytesLeftToRead -= r;
+            }
           }
 
-          if (metaDataCandidate == null) {
-            if (read < IBU_METADATA_SIZE) {
-              //read till we will not have to read metadata information
-              var bytesLeftToRead = IBU_METADATA_SIZE - read;
-              while (bytesLeftToRead > 0) {
-                var r = inputStream.read(buffer, read, buffer.length);
-                if (r == -1) {
-                  LogManager.instance().warn(this,
-                      "Size of the file %s is less than needed to store information about metadata. "
-                          + "Size should be at least %d but real size is %d.", ibuFileName,
-                      IBU_METADATA_SIZE, read);
-                  return null;
-                }
+          metaDataCandidate = new byte[IBU_METADATA_SIZE];
+          System.arraycopy(buffer, read - IBU_METADATA_SIZE, metaDataCandidate, 0,
+              IBU_METADATA_SIZE);
 
-                read += r;
-                bytesLeftToRead -= r;
-              }
-            }
-
-            metaDataCandidate = new byte[IBU_METADATA_SIZE];
-            System.arraycopy(buffer, read - IBU_METADATA_SIZE, metaDataCandidate, 0,
-                IBU_METADATA_SIZE);
-
-            //calculate hash code everything except metadata
+          //calculate hash code everything except metadata
+          //hash code from metadata will be calculated at the end
+          xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
+        } else {
+          if (read >= IBU_METADATA_SIZE) {
+            //tail of data, not metadata for sure
+            xxHash64.update(metaDataCandidate, 0, IBU_METADATA_SIZE);
             //hash code from metadata will be calculated at the end
             xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
+            //potential metadata content
+            System.arraycopy(buffer, read - IBU_METADATA_SIZE,
+                metaDataCandidate, 0, IBU_METADATA_SIZE);
           } else {
-            if (read >= IBU_METADATA_SIZE) {
-              //tail of data, not metadata for sure
-              xxHash64.update(metaDataCandidate, 0, IBU_METADATA_SIZE);
-              //hash code from metadata will be calculated at the end
-              xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
-              //potential metadata content
-              System.arraycopy(buffer, read - IBU_METADATA_SIZE,
-                  metaDataCandidate, 0, IBU_METADATA_SIZE);
-            } else {
-              //part of metadata that will be replaced
-              xxHash64.update(metaDataCandidate, 0, read);
-              //shift metadata to the left
-              System.arraycopy(metaDataCandidate, read, metaDataCandidate, 0,
-                  IBU_METADATA_SIZE - read);
-              //add new bytes that can be treated as metadata if they are the last ones
-              System.arraycopy(buffer, 0, metaDataCandidate, IBU_METADATA_SIZE - read, read);
-            }
+            //part of metadata that will be replaced
+            xxHash64.update(metaDataCandidate, 0, read);
+            //shift metadata to the left
+            System.arraycopy(metaDataCandidate, read, metaDataCandidate, 0,
+                IBU_METADATA_SIZE - read);
+            //add new bytes that can be treated as metadata if they are the last ones
+            System.arraycopy(buffer, 0, metaDataCandidate, IBU_METADATA_SIZE - read, read);
           }
+        }
 
-          if (copyStream != null && read > 0) {
-            copyStream.write(buffer, 0, read);
-          }
+        if (copyStream != null && read > 0) {
+          copyStream.write(buffer, 0, read);
         }
       }
 
       if (metaDataCandidate == null) {
         LogManager.instance()
-            .warn(this, "File %s does not contain backup metadata.", ibuFileName);
+            .warn(DiskStorage.class, storageName, "File %s does not contain backup metadata.",
+                ibuFileName);
         return null;
       }
 
@@ -1118,7 +1122,7 @@ public class DiskStorage extends AbstractStorage {
 
       if (calculatedHashCode != metadataHashCode) {
         LogManager.instance()
-            .warn(this,
+            .warn(DiskStorage.class, storageName,
                 "Hash code of the file %s is broken. Calculated hash code is %d but stored hash code is %d.",
                 ibuFileName, calculatedHashCode, metadataHashCode);
         return null;
@@ -1129,20 +1133,22 @@ public class DiskStorage extends AbstractStorage {
             || dbUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
           var storedUUID = new UUID(metadataUUIDLowerBits, metadataUUIDHigherBits);
           LogManager.instance()
-              .warn(this, "UUID of the file %s stored in metadata %s does not match DB UUID %s.",
+              .warn(DiskStorage.class, storageName,
+                  "UUID of the file %s stored in metadata %s does not match DB UUID %s.",
                   ibuFileName, storedUUID, dbUUID);
           return null;
         }
       }
 
       if (ibuFileName.length() < UUID_LENGTH) {
-        LogManager.instance().warn(this, "File name %s does not contain DB UUID.", ibuFileName);
+        LogManager.instance().warn(DiskStorage.class, storageName,
+            "File name %s does not contain DB UUID.", ibuFileName);
         return null;
       }
 
       if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
         LogManager.instance()
-            .warn(this,
+            .warn(DiskStorage.class, storageName,
                 "Version of the file %s stored in metadata %d does not match supported version %d.",
                 ibuFileName, metadataVersion, CURRENT_BACKUP_FORMAT_VERSION);
         return null;
@@ -1152,14 +1158,16 @@ public class DiskStorage extends AbstractStorage {
       try {
         fileNameUUID = UUID.fromString(ibuFileName.substring(0, UUID_LENGTH));
       } catch (IllegalArgumentException e) {
-        LogManager.instance().warn(this, "UUID of the file %s is incorrect.", ibuFileName);
+        LogManager.instance().warn(DiskStorage.class, storageName,
+            "UUID of the file %s is incorrect.", ibuFileName);
         return null;
       }
 
       if (fileNameUUID.getLeastSignificantBits() != metadataUUIDLowerBits
           || fileNameUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
         LogManager.instance()
-            .warn(this, "UUID of the file %s does not match DB UUID %s.", ibuFileName, dbUUID);
+            .warn(DiskStorage.class, storageName,
+                "UUID of the file %s does not match DB UUID %s.", ibuFileName, dbUUID);
       }
 
       //uuid-date-sequence number
@@ -1167,7 +1175,8 @@ public class DiskStorage extends AbstractStorage {
       var afterSequenceDashIndex = ibuFileName.indexOf('-', sequenceNumberStart);
       if (afterSequenceDashIndex == -1) {
         LogManager.instance()
-            .warn(this, "File %s does not contain backup sequence number.", ibuFileName);
+            .warn(DiskStorage.class, storageName,
+                "File %s does not contain backup sequence number.", ibuFileName);
       }
 
       int sequenceNumber;
@@ -1176,14 +1185,16 @@ public class DiskStorage extends AbstractStorage {
             ibuFileName.substring(sequenceNumberStart, afterSequenceDashIndex));
       } catch (NumberFormatException e) {
         LogManager.instance()
-            .warn(this, "Sequence number of the file %s is incorrect.", ibuFileName);
+            .warn(DiskStorage.class, storageName,
+                "Sequence number of the file %s is incorrect.", ibuFileName);
         return null;
       }
 
       if (metadataSequenceNumber != sequenceNumber) {
         LogManager.instance()
-            .warn(this, "Sequence number of the file %s stored in metadata %s does not match DB "
-                + "sequence number %s.", ibuFileName, sequenceNumber, metadataSequenceNumber);
+            .warn(DiskStorage.class, storageName,
+                "Sequence number of the file %s stored in metadata %s does not match DB "
+                    + "sequence number %s.", ibuFileName, sequenceNumber, metadataSequenceNumber);
         return null;
       }
 
@@ -1193,7 +1204,8 @@ public class DiskStorage extends AbstractStorage {
       }
       if (metadataLastLsnSegment == -1 || metadataEndLsnPosition == -1) {
         LogManager.instance()
-            .warn(this, "Last LSN of the file %s stored in metadata is incorrect.",
+            .warn(DiskStorage.class, storageName,
+                "Last LSN of the file %s stored in metadata is incorrect.",
                 ibuFileName);
         return null;
       }
@@ -1510,8 +1522,13 @@ public class DiskStorage extends AbstractStorage {
           var isFullBackup = false;
           try (var copyStream = Files.newOutputStream(tmpIBUFile)) {
             try (var bufferedCopyStream = new BufferedOutputStream(copyStream)) {
-              var backupMetadata = validateFileAndFetchBackupMetadata(ibuFile,
-                  uuidExpectedInBackup, ibuInputStreamSupplier, bufferedCopyStream);
+
+              BackupMetadata backupMetadata = null;
+              try (var ibuStream = ibuInputStreamSupplier.apply(ibuFile)) {
+                backupMetadata = validateFileAndFetchBackupMetadata(ibuFile, getName(),
+                    uuidExpectedInBackup, ibuStream, bufferedCopyStream);
+              }
+
               if (backupMetadata == null) {
                 throw new DatabaseException(name, "Backup unit file " + ibuFile
                     + " contains invalid content, restore from this backup is impossible.");
@@ -1909,7 +1926,7 @@ public class DiskStorage extends AbstractStorage {
 
   }
 
-  private record BackupMetadata(int backupFormatVersion,
+  protected record BackupMetadata(int backupFormatVersion,
                                 UUID databaseId,
                                 int sequenceNumber,
                                 LogSequenceNumber startLsn,

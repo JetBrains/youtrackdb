@@ -1386,7 +1386,7 @@ public class JSONSerializerJackson {
               case "internal" -> internalRecords = true;
               case "markEmbeddedEntities" -> markEmbeddedEntities = true;
               case "version" -> includeVersion = true;
-              default -> LogManager.instance().warn(this, "Unknown format option: %s. "
+              default -> LogManager.instance().warn(this, null, "Unknown format option: %s. "
                       + "Expected: type, rid, class, keepTypes, internal, markEmbeddedEntities,version",
                   null, f);
             }
