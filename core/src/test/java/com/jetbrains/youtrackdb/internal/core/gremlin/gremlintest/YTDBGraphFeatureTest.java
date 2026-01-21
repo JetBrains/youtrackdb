@@ -13,7 +13,9 @@ import io.cucumber.junit.Cucumber;
 import io.cucumber.junit.CucumberOptions;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -23,6 +25,8 @@ import org.apache.tinkerpop.gremlin.features.World;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.io.graphml.GraphMLResourceAccess;
+import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONResourceAccess;
 import org.apache.tinkerpop.gremlin.structure.io.gryo.GryoResourceAccess;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactory;
 import org.junit.AssumptionViolatedException;
@@ -62,6 +66,8 @@ public class YTDBGraphFeatureTest {
 
   public static class YTDBGraphWorld implements World {
 
+    public static final ConcurrentHashMap<String, String> PATHS = new ConcurrentHashMap<>();
+
     private static final YTDBGraph GRAPH_MODERN = initGraph(GraphData.MODERN);
     private static final YTDBGraph GRAPH_CLASSIC = initGraph(GraphData.CLASSIC);
     private static final YTDBGraph GRAPH_CREW = initGraph(GraphData.CREW);
@@ -79,6 +85,39 @@ public class YTDBGraphFeatureTest {
         case GRATEFUL -> GRAPH_GRATEFUL;
         case SINK -> GRAPH_SINK;
       }).traversal();
+    }
+
+    @Override
+    public String changePathToDataFile(final String pathToFileFromGremlin) {
+      var fileName = Paths.get(pathToFileFromGremlin).getFileName().toString();
+      @SuppressWarnings("UnnecessaryLocalVariable")
+      var realPath = PATHS.compute(fileName, (file, path) -> {
+            try {
+              if (file.endsWith(".kryo")) {
+                var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.kryo";
+                return TestHelper.generateTempFileFromResource(GryoResourceAccess.class, resourceName,
+                        "")
+                    .getAbsolutePath();
+              }
+              if (file.endsWith(".json")) {
+                var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.json";
+                return TestHelper.generateTempFileFromResource(GraphSONResourceAccess.class,
+                        resourceName,
+                        "")
+                    .getAbsolutePath();
+              }
+              if (file.endsWith(".xml")) {
+                return TestHelper.generateTempFileFromResource(GraphMLResourceAccess.class, fileName,
+                    "").getAbsolutePath();
+              }
+            } catch (IOException e) {
+              throw new RuntimeException(e);
+            }
+
+            throw new IllegalArgumentException(file + " is not supported");
+          }
+      );
+      return realPath;
     }
 
     private static YTDBGraph initGraph(GraphData graphData) {
