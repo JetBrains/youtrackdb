@@ -96,30 +96,33 @@ public class CommandStepFeatureSteps extends GraphBaseTest {
         lastException = null;
 
         try {
-            if (graph.tx().isOpen()) {
-                graph.tx().commit();
-            }
-
-            if (!graph.tx().isOpen()) {
+            var graphImpl = (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract) graph;
+            
+            // DDL commands (CREATE CLASS, DROP CLASS) can be executed outside transaction
+            if (commandText.trim().toUpperCase().startsWith("CREATE CLASS") ||
+                commandText.trim().toUpperCase().startsWith("DROP CLASS")) {
+                // Use traversal command for DDL
+                graph.traversal().command(commandText, java.util.Map.of());
+            } else {
+                // DML commands (CREATE VERTEX, UPDATE, DELETE) must be in transaction
+                // Use session directly with manual transaction management
+                if (graph.tx().isOpen()) {
+                    graph.tx().commit();
+                }
                 graph.tx().open();
+                try {
+                    var session = graphImpl.getUnderlyingDatabaseSession();
+                    session.command(commandText, java.util.Map.of());
+                    graph.tx().commit();
+                } catch (Exception e) {
+                    graph.tx().rollback();
+                    throw e;
+                }
             }
-
-            System.out.println("[DEBUG] executeCommand: Wykonuję komendę: " + commandText);
-
-            graph.traversal().command(commandText, java.util.Map.of());
-
-            graph.tx().commit();
-
 
         } catch (Exception e) {
             e.printStackTrace();
             lastException = e;
-            if (graph != null && graph.tx().isOpen()) {
-                try {
-                    graph.tx().rollback();
-                } catch (Exception rollbackEx) {
-                }
-            }
         }
     }
 
@@ -202,9 +205,20 @@ public class CommandStepFeatureSteps extends GraphBaseTest {
             convertedParams.put("age", Integer.parseInt(params.get("age")));
         }
 
+        var graphImpl = (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract) graph;
+        
+        if (graph.tx().isOpen()) {
+            graph.tx().commit();
+        }
         graph.tx().open();
-        graph.traversal().command(commandText, convertedParams);
-        graph.tx().commit();
+        try {
+            var session = graphImpl.getUnderlyingDatabaseSession();
+            session.command(commandText, convertedParams);
+            graph.tx().commit();
+        } catch (Exception e) {
+            graph.tx().rollback();
+            throw e;
+        }
     }
 
     @Then("the command execution should fail")
