@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '0 2 * * *'
 permissions:
-  contents: read
+  contents: write
   packages: write
   actions: write
   checks: write
@@ -123,10 +123,49 @@ jobs:
           comment_mode: off
           check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
+  merge-to-main:
+    name: Merge develop into main
+    needs: test
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: 'main'
+          fetch-depth: 0
+          token: ${{ secrets.MAIN_UPDATE_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Verify branches are aligned for fast-forward
+        run: |
+          git fetch origin develop
+
+          # Check if main is an ancestor of develop (required for fast-forward)
+          if ! git merge-base --is-ancestor origin/main origin/develop; then
+            echo "ERROR: main branch contains commits not present in develop."
+            echo "Fast-forward merge is not possible. Branches have diverged."
+            echo ""
+            echo "Commits in main not in develop:"
+            git log origin/develop..origin/main --oneline
+            exit 1
+          fi
+
+          echo "Verification passed: main is an ancestor of develop, fast-forward is possible."
+
+      - name: Merge develop into main (fast-forward only)
+        run: |
+          git merge origin/develop --ff-only
+          git push origin main
+
   notify-failure:
     name: Notify build failure on Zulip
-    needs: test
-    if: failure()
+    needs: [ test, merge-to-main ]
+    if: always() && (needs.test.result == 'failure' || needs.merge-to-main.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Send Zulip Notification
@@ -140,11 +179,12 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
-            Integration tests failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            Integration tests or merge failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: test
+    needs: [ test, merge-to-main ]
     if: success()
     runs-on: ubuntu-latest
     steps:
