@@ -45,9 +45,10 @@ import org.junit.runner.RunWith;
         + "and not @InsertionOrderingRequired "
         + "and not @DataUUID "
         + "and not @DataDateTime",
-    glue = "org.apache.tinkerpop.gremlin.features",
+    glue = {"org.apache.tinkerpop.gremlin.features"},
     objectFactory = GuiceFactory.class,
-    features = "classpath:/org/apache/tinkerpop/gremlin/test/features",
+    features = {"classpath:/org/apache/tinkerpop/gremlin/test/features",
+        "classpath:/com/jetbrains/youtrackdb/internal/core/gremlin/gremlintest/features"},
     plugin = {"progress", "junit:target/cucumber.xml"})
 public class YTDBGraphFeatureTest {
 
