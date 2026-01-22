@@ -377,7 +377,7 @@ public enum GlobalConfiguration {
       Integer.class,
       0),
 
-  STORAGE_BACKUP_MINIMUM_GAP_INTERVAL("youtrackdb.storage.minimumGapInterval",
+  STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL("youtrackdb.storage.minimumTimeOutInterval",
       "Minimum interval between backups (in seconds). If users performs backup too often, "
           + "storage will wait for this interval,"
           + " as file system metadata update can be performed with delay in some filesystems. "

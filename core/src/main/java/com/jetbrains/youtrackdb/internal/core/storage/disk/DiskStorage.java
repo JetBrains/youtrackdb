@@ -858,7 +858,7 @@ public class DiskStorage extends AbstractStorage {
           var lastBackupMillis = timeStampBuffer.getLong();
           var minimalBackupTime = TimeUnit.MILLISECONDS.convert(
               configuration.getContextConfiguration()
-                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_GAP_INTERVAL),
+                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL),
               TimeUnit.SECONDS);
           if (currentTimeMillis - lastBackupMillis < minimalBackupTime) {
             Thread.sleep(minimalBackupTime);
@@ -868,7 +868,7 @@ public class DiskStorage extends AbstractStorage {
           lockChannel.force(true);
 
           var minimalBackupTime = TimeUnit.SECONDS.convert(configuration.getContextConfiguration()
-                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_GAP_INTERVAL),
+                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL),
               TimeUnit.MILLISECONDS);
           Thread.sleep(minimalBackupTime);
         }
