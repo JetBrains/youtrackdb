@@ -50,6 +50,7 @@ public class LuceneTxChangesMultiRid extends LuceneTxChangesAbstract {
     super(engine, writer, deletedIdx);
   }
 
+  @Override
   public void put(final Object key, final Identifiable value, final Document doc) {
     try {
       writer.addDocument(doc);
@@ -59,6 +60,7 @@ public class LuceneTxChangesMultiRid extends LuceneTxChangesAbstract {
     }
   }
 
+  @Override
   public void remove(DatabaseSessionInternal session, final Object key,
       final Identifiable value) {
     try {
@@ -80,14 +82,17 @@ public class LuceneTxChangesMultiRid extends LuceneTxChangesAbstract {
     }
   }
 
+  @Override
   public long numDocs() {
     return searcher().getIndexReader().numDocs() - deletedDocs.size();
   }
 
+  @Override
   public Set<Document> getDeletedDocs() {
     return deletedDocs;
   }
 
+  @Override
   public boolean isDeleted(Storage storage, final Document document, final Object key,
       final Identifiable value) {
     var match = false;
@@ -108,6 +113,7 @@ public class LuceneTxChangesMultiRid extends LuceneTxChangesAbstract {
   }
 
   // TODO is this valid?
+  @Override
   public boolean isUpdated(final Document document, final Object key, final Identifiable value) {
     return false;
   }

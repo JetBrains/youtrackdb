@@ -20,6 +20,7 @@ public class SQLInteger extends SQLNumber {
     super(p, id);
   }
 
+  @Override
   public Number getValue() {
     return value;
   }
@@ -68,10 +69,12 @@ public class SQLInteger extends SQLNumber {
     this.value = value;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("" + value);
   }
 
+  @Override
   public SQLInteger copy() {
     var result = new SQLInteger(-1);
     result.value = value;
@@ -97,12 +100,14 @@ public class SQLInteger extends SQLNumber {
     return value != null ? value.hashCode() : 0;
   }
 
+  @Override
   public Result serialize(DatabaseSessionInternal db) {
     var result = new ResultInternal(db);
     result.setProperty("value", value);
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     value = fromResult.getProperty("value");
   }

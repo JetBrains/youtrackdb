@@ -84,6 +84,7 @@ public class SQLDeleteVertexStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("DELETE VERTEX ");
     if (from) {
@@ -105,6 +106,7 @@ public class SQLDeleteVertexStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("DELETE VERTEX ");
     if (from) {

@@ -32,16 +32,16 @@ import org.slf4j.event.Level;
  * Centralized Log Manager. All the logging must be done using this class to have a centralized
  * configuration and avoid hard-coding. It uses SLF4J as the logging facade. Logging methods are
  * accepting messages formatted as in {@link String#format(String, Object...)} It is strongly
- * recommended to use specialized logging methods from {@link SL4JLogManager} class instead of
- * generic {@link SL4JLogManager#log(Object, Level, String, Throwable, Object...)} methods from this
- * of {@link SL4JLogManager} class.
+ * recommended to use specialized logging methods from {@link SLF4JLogManager} class instead of
+ * generic {@link SLF4JLogManager#log(Object, Level, String, Throwable, Object...)} methods from this
+ * of {@link SLF4JLogManager} class.
  *
  * <p>There are additional methods to manage JUL runtime configuration. That is used for logging
  * messages in server and console.
  *
- * @see SL4JLogManager
+ * @see SLF4JLogManager
  */
-public class LogManager extends SL4JLogManager {
+public class LogManager extends SLF4JLogManager {
   private static final String ENV_INSTALL_CUSTOM_FORMATTER = "youtrackdb.installCustomFormatter";
   private static final LogManager instance = new LogManager();
 

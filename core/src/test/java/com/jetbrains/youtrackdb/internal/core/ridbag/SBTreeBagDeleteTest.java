@@ -17,6 +17,7 @@ import org.junit.Test;
  */
 public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
   }

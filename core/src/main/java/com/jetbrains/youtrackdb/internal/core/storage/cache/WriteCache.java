@@ -77,7 +77,7 @@ public interface WriteCache {
 
   boolean checkLowDiskSpace() throws IOException;
 
-  void syncDataFiles(long segmentId, byte[] lastMetadata) throws IOException;
+  void syncDataFiles(long segmentId) throws IOException;
 
   void flushTillSegment(long segmentId);
 

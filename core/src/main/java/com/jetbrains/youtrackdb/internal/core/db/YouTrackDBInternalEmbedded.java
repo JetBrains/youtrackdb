@@ -20,8 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.FILE_DELETE_DELAY;
-import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.FILE_DELETE_RETRY;
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.WARNING_DEFAULT_USERS;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -30,7 +28,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.thread.SourceTraceExecutorService;
 import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
@@ -38,7 +35,6 @@ import com.jetbrains.youtrackdb.internal.core.engine.MemoryAndLocalPaginatedEngi
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -58,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -72,8 +69,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
+
 public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
   /**
@@ -441,48 +442,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     }
   }
 
-  public void networkRestore(String name, InputStream in, Callable<Object> callable) {
-    checkDatabaseName(name);
-    AbstractStorage storage = null;
-    try {
-      SharedContext context;
-      synchronized (this) {
-        context = sharedContexts.get(name);
-        if (context != null) {
-          context.close();
-        }
-        storage = getOrInitStorage(name);
-        storages.put(name, storage);
-      }
-      storage.restore(in, null, callable, null);
-    } catch (ModificationOperationProhibitedException e) {
-      throw e;
-    } catch (Exception e) {
-      try {
-        if (storage != null) {
-          storage.delete();
-        }
-      } catch (Exception e1) {
-        LogManager.instance()
-            .warn(this, "Error doing cleanups, should be safe do progress anyway", e1);
-      }
-      synchronized (this) {
-        sharedContexts.remove(name);
-        storages.remove(name);
-      }
-
-      var configs = configuration.getConfiguration();
-      DiskStorage.deleteFilesFromDisc(
-          name,
-          configs.getValueAsInteger(FILE_DELETE_RETRY),
-          configs.getValueAsInteger(FILE_DELETE_DELAY),
-          buildName(name));
-      throw BaseException.wrapException(
-          new DatabaseException(basePath.toString(), "Cannot create database '" + name + "'"), e,
-          basePath.toString());
-    }
-  }
-
   @Override
   public DatabaseSessionEmbedded open(
       String name, String user, String password, YouTrackDBConfig config) {
@@ -591,6 +550,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     embedded.callOnOpenListeners();
     return embedded;
   }
+
 
   public DatabaseSessionEmbedded poolOpenNoAuthenticate(String name, String user,
       DatabasePoolInternal pool) {
@@ -767,6 +727,49 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       YouTrackDBConfig config,
       boolean failIfExists,
       DatabaseTask<Void> createOps) {
+    if (createOps != null) {
+      createStorage(name, type, (YouTrackDBConfigImpl) config, failIfExists,
+          (storage, embedded) -> createOps.call(embedded));
+    } else {
+      createStorage(name, type, (YouTrackDBConfigImpl) config, failIfExists, null);
+    }
+  }
+
+  @Override
+  public void restore(
+      String name,
+      String path,
+      YouTrackDBConfig config) {
+    restore(name, path, config);
+  }
+
+  @Override
+  public void restore(String name, String path,
+      @Nullable String expectedUUID, YouTrackDBConfig config) {
+    createStorage(name, DatabaseType.DISK, (YouTrackDBConfigImpl) config, true,
+        (storage, embedded) -> {
+          storage.restoreFromBackup(Path.of(path), expectedUUID);
+          embedded.getSharedContext().getSchema().reload(embedded);
+          embedded.getSharedContext().getIndexManager().reload(embedded);
+        });
+  }
+
+  @Override
+  public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      YouTrackDBConfig config) {
+    createStorage(name, DatabaseType.DISK, (YouTrackDBConfigImpl) config, true,
+        (storage, embedded) -> {
+          storage.restoreFromBackup(ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID);
+          embedded.getSharedContext().getSchema().reload(embedded);
+          embedded.getSharedContext().getIndexManager().reload(embedded);
+        });
+  }
+
+  private void createStorage(String name,
+      DatabaseType type,
+      YouTrackDBConfigImpl config, boolean failIfExists,
+      BiConsumer<AbstractStorage, DatabaseSessionEmbedded> createOps) {
     checkDatabaseName(name);
     final DatabaseSessionEmbedded embedded;
     synchronized (this) {
@@ -783,7 +786,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
                 "Database name can not start with 'server' prefix, provided name is : " + name);
           }
 
-          config = solveConfig((YouTrackDBConfigImpl) config);
+          config = solveConfig(config);
           AbstractStorage storage;
           if (type == DatabaseType.MEMORY) {
             storage =
@@ -805,9 +808,10 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
                         this);
           }
           storages.put(name, storage);
-          embedded = internalCreate((YouTrackDBConfigImpl) config, storage);
+          embedded = internalCreate(config, storage);
+
           if (createOps != null) {
-            createOps.call(embedded);
+            createOps.accept(storage, embedded);
           }
         } catch (Exception e) {
           throw BaseException.wrapException(
@@ -815,6 +819,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               e,
               basePath.toString());
         }
+
+        embedded.callOnCreateListeners();
       } else {
         if (failIfExists) {
           throw new DatabaseException(basePath.toString(),
@@ -828,81 +834,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       }
     }
     embedded.callOnCreateListeners();
-  }
-
-
-  @Override
-  public void restore(
-      String name,
-      DatabaseType type,
-      String path,
-      YouTrackDBConfig config) {
-    checkDatabaseName(name);
-    config = solveConfig((YouTrackDBConfigImpl) config);
-    final DatabaseSessionEmbedded embedded;
-    AbstractStorage storage;
-    synchronized (this) {
-      if (!exists(name)) {
-        try {
-          storage =
-              (AbstractStorage)
-                  disk.createStorage(
-                      buildName(name),
-                      getMaxWalSegSize(),
-                      getDoubleWriteLogMaxSegSize(),
-                      generateStorageId(),
-                      this);
-          embedded = internalCreate((YouTrackDBConfigImpl) config, storage);
-          storages.put(name, storage);
-        } catch (Exception e) {
-          throw BaseException.wrapException(
-              new DatabaseException(basePath.toString(), "Cannot restore database '" + name + "'"),
-              e,
-              basePath.toString());
-        }
-      } else {
-        throw new DatabaseException(basePath.toString(),
-            "Cannot create new storage '" + name + "' because it already exists");
-      }
-    }
-    storage.restoreFromIncrementalBackup(null, path);
-    embedded.callOnCreateListeners();
-    embedded.getSharedContext().reInit(storage, embedded);
-  }
-
-  @Override
-  public void restore(
-      String name,
-      InputStream in,
-      Map<String, Object> options,
-      Callable<Object> callable,
-      CommandOutputListener iListener) {
-    checkDatabaseName(name);
-    try {
-      AbstractStorage storage;
-      synchronized (this) {
-        var context = sharedContexts.remove(name);
-        if (context != null) {
-          context.close();
-        }
-        storage = getOrInitStorage(name);
-        storages.put(name, storage);
-      }
-      storage.restore(in, options, callable, iListener);
-    } catch (Exception e) {
-      synchronized (this) {
-        storages.remove(name);
-      }
-      var configs = configuration.getConfiguration();
-      DiskStorage.deleteFilesFromDisc(
-          name,
-          configs.getValueAsInteger(FILE_DELETE_RETRY),
-          configs.getValueAsInteger(FILE_DELETE_DELAY),
-          buildName(name));
-      throw BaseException.wrapException(
-          new DatabaseException(basePath.toString(), "Cannot create database '" + name + "'"), e,
-          basePath.toString());
-    }
   }
 
   private DatabaseSessionEmbedded internalCreate(
@@ -1298,6 +1229,16 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     if (name.contains("/") || name.contains(":")) {
       throw new DatabaseException(basePath.toString(),
           String.format("Invalid database name:'%s'", name));
+    }
+    if (name.startsWith("ytdb")) {
+      throw new DatabaseException(basePath.toString(),
+          String.format("Invalid database name:'%s'. Database name cannot start with 'ytdb'",
+              name));
+    }
+    if (name.startsWith("server")) {
+      throw new DatabaseException(basePath.toString(),
+          String.format("Invalid database name:'%s'. Database name cannot start with 'server'",
+              name));
     }
   }
 

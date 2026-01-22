@@ -34,6 +34,7 @@ import org.apache.tinkerpop.gremlin.util.MessageSerializer;
     method = "g_E_properties_order_value",
     reason = "Query and modification are performed in different pending transactions.")
 public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGraphProvider {
+
   private static final AtomicLong idGenerator = new AtomicLong(
       ThreadLocalRandom.current().nextLong(Long.MAX_VALUE >> 1));
 

@@ -52,6 +52,7 @@ public class SQLUpdateItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     if (leftModifier != null) {
@@ -77,6 +78,7 @@ public class SQLUpdateItem extends SimpleNode {
     right.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     if (leftModifier != null) {
@@ -102,6 +104,7 @@ public class SQLUpdateItem extends SimpleNode {
     right.toGenericStatement(builder);
   }
 
+  @Override
   public SQLUpdateItem copy() {
     var result = new SQLUpdateItem(-1);
     result.left = left == null ? null : left.copy();
@@ -269,7 +272,7 @@ public class SQLUpdateItem extends SimpleNode {
           } else {
             var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
                 edge.getSchemaClass());
-            res.setRelation((EdgeInternal) lightweightEdge);
+            res.setRelation(lightweightEdge);
           }
 
           edge.delete();

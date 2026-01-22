@@ -21,12 +21,10 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointRequestListener;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 /**
  * @since 6/25/14
@@ -44,17 +42,7 @@ public interface WriteAheadLog extends AutoCloseable {
 
   void flush();
 
-  LogSequenceNumber logAtomicOperationStartRecord(
-      final boolean isRollbackSupported, final long unitId, byte[] metadata);
-
   LogSequenceNumber logAtomicOperationStartRecord(boolean isRollbackSupported, long unitId)
-      throws IOException;
-
-  LogSequenceNumber logAtomicOperationEndRecord(
-      long operationUnitId,
-      boolean rollback,
-      LogSequenceNumber startLsn,
-      Map<String, AtomicOperationMetadata<?>> atomicOperationMetadata)
       throws IOException;
 
   LogSequenceNumber log(WriteableWALRecord record) throws IOException;

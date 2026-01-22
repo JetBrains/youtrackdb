@@ -25,6 +25,7 @@ public class SQLServerStatement extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     throw new UnsupportedOperationException(
         "missing implementation in " + getClass().getSimpleName());
@@ -93,6 +94,7 @@ public class SQLServerStatement extends SimpleNode {
     return createExecutionPlan(ctx, profile);
   }
 
+  @Override
   public SQLServerStatement copy() {
     throw new UnsupportedOperationException("IMPLEMENT copy() ON " + getClass().getSimpleName());
   }

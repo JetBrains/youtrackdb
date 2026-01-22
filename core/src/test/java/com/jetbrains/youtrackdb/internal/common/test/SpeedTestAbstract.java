@@ -20,18 +20,23 @@ public abstract class SpeedTestAbstract implements SpeedTest {
     data = new SpeedTestData(iGroup);
   }
 
+  @Override
   @Test
   public abstract void cycle() throws Exception;
 
+  @Override
   public void init() throws Exception {
   }
 
+  @Override
   public void deinit() throws Exception {
   }
 
+  @Override
   public void beforeCycle() throws Exception {
   }
 
+  @Override
   public void afterCycle() throws Exception {
   }
 

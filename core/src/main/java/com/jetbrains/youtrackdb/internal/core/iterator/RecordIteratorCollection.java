@@ -55,6 +55,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   ) {
     this(session, collectionId, forwardDirection, true);
   }
+
   public RecordIteratorCollection(
       DatabaseSessionInternal session,
       int collectionId,

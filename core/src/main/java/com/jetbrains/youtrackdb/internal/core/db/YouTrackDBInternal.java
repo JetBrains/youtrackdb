@@ -22,14 +22,15 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import java.io.InputStream;
-import java.util.Map;
+import java.util.Iterator;
 import java.util.Set;
-import java.util.concurrent.Callable;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 
 public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
@@ -180,19 +181,20 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
   DatabaseSessionEmbedded poolOpen(
       String name, String user, String password, DatabasePoolInternal pool);
 
-
   void restore(
       String name,
-      DatabaseType type,
       String path,
       YouTrackDBConfig config);
 
   void restore(
       String name,
-      InputStream in,
-      Map<String, Object> options,
-      Callable<Object> callable,
-      CommandOutputListener iListener);
+      String path,
+      @Nullable String expectedUUID,
+      YouTrackDBConfig config);
+
+  void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      YouTrackDBConfig config);
 
   /**
    * Close the factory with all related databases and pools.

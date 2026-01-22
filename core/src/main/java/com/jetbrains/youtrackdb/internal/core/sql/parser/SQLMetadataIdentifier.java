@@ -20,11 +20,13 @@ public class SQLMetadataIdentifier extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("metadata:");
     builder.append(name);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("metadata:");
     builder.append(name);
@@ -34,6 +36,7 @@ public class SQLMetadataIdentifier extends SimpleNode {
     return name;
   }
 
+  @Override
   public SQLMetadataIdentifier copy() {
     var result = new SQLMetadataIdentifier(-1);
     result.name = name;

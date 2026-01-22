@@ -49,6 +49,7 @@ public class ConcurrentLegacyResultSet<T> implements LegacyResultSet<T> {
     this.wrapped = wrapped;
   }
 
+  @Override
   public ConcurrentLegacyResultSet<T> setCompleted() {
     completed = true;
     synchronized (waitForNextItem) {
@@ -86,6 +87,7 @@ public class ConcurrentLegacyResultSet<T> implements LegacyResultSet<T> {
     }
   }
 
+  @Override
   public T set(final int index, final T element) {
     synchronized (wrapped) {
       return wrapped.set(index, element);
@@ -257,6 +259,7 @@ public class ConcurrentLegacyResultSet<T> implements LegacyResultSet<T> {
     }
   }
 
+  @Override
   public boolean add(final T t) {
     final boolean result;
 

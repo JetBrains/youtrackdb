@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
@@ -49,8 +48,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.Callable;
@@ -58,6 +57,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 
 public class YouTrackDBServer {
@@ -88,7 +90,7 @@ public class YouTrackDBServer {
   private YTDBInternalProxy databases;
 
   private final Set<String> dbNamesCache = ConcurrentHashMap.newKeySet();
-  private final ReentrantLock dbCreationLock = new ReentrantLock();
+  private final ReentrantLock dbNamesCacheLock = new ReentrantLock();
   private GremlinServer gremlinServer;
 
   public YouTrackDBServer() {
@@ -644,12 +646,12 @@ public class YouTrackDBServer {
 
     @Override
     public void create(String name, String user, String password, DatabaseType type) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.create(name, user, password, type);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
 
     }
@@ -657,12 +659,12 @@ public class YouTrackDBServer {
     @Override
     public void create(String name, String user, String password, DatabaseType type,
         YouTrackDBConfig config) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.create(name, user, password, type, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
 
     }
@@ -680,12 +682,12 @@ public class YouTrackDBServer {
 
     @Override
     public void drop(String name, String user, String password) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.drop(name, user, password);
         dbNamesCache.remove(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
 
     }
@@ -732,27 +734,39 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void restore(String name, DatabaseType type, String path,
+    public void restore(String name, String path,
         YouTrackDBConfig config) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
-        internal.restore(name, type, path, config);
+        internal.restore(name, path, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
-
     }
 
     @Override
-    public void restore(String name, InputStream in, Map<String, Object> options,
-        Callable<Object> callable, CommandOutputListener iListener) {
-      dbCreationLock.lock();
+    public void restore(String name, String path,
+        @Nullable String expectedUUID, YouTrackDBConfig config) {
+      dbNamesCacheLock.lock();
       try {
-        internal.restore(name, in, options, callable, iListener);
+        internal.restore(name, path, expectedUUID, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
+      }
+    }
+
+    @Override
+    public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+        Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+        YouTrackDBConfig config) {
+      dbNamesCacheLock.lock();
+      try {
+        internal.restore(name, ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID, config);
+        dbNamesCache.add(name);
+      } finally {
+        dbNamesCacheLock.unlock();
       }
     }
 
@@ -794,12 +808,12 @@ public class YouTrackDBServer {
     @Override
     public void create(String name, String user, String password, DatabaseType type,
         YouTrackDBConfig config, boolean failIfExists, DatabaseTask<Void> createOps) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.create(name, user, password, type, config, true, createOps);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
     }
 

@@ -106,6 +106,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     return StringSerializerHelper.decode(rightString.substring(1, rightString.length() - 1));
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" instanceof ");
@@ -116,6 +117,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" instanceof ");

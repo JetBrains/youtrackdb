@@ -176,6 +176,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       if (clazz2 == null) {
         listener.onMessage(
             "\n- ERR: Class definition " + clazz.getName() + " for DB2 is null.");
+        ok = false;
         continue;
       }
 

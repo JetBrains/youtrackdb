@@ -30,6 +30,7 @@ import org.junit.Test;
  */
 public class CommandExecutorSQLDeleteVertexTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     final Schema schema = session.getMetadata().getSchema();

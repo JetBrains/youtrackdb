@@ -18,10 +18,11 @@ public interface YTDBVertex extends Vertex, YTDBElement {
     final Iterator<VertexProperty<V>> iterator = this.properties(key);
     if (iterator.hasNext()) {
       final var property = (YTDBVertexProperty<V>) iterator.next();
-      if (iterator.hasNext())
+      if (iterator.hasNext()) {
         throw Vertex.Exceptions.multiplePropertiesExistForProvidedKey(key);
-      else
+      } else {
         return property;
+      }
     } else {
       return YTDBVertexProperty.empty();
     }

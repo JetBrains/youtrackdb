@@ -149,6 +149,7 @@ public class SQLInputParameter extends SimpleNode {
     return this;
   }
 
+  @Override
   public SQLInputParameter copy() {
     throw new UnsupportedOperationException();
   }

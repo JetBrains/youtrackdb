@@ -72,6 +72,7 @@ public class SQLFloatingPoint extends SQLNumber {
     this.stringValue = stringValue;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (sign == -1) {
       builder.append("-");
@@ -111,6 +112,7 @@ public class SQLFloatingPoint extends SQLNumber {
     return result;
   }
 
+  @Override
   public Result serialize(DatabaseSessionInternal db) {
     var result = new ResultInternal(db);
     result.setProperty("sign", sign);
@@ -119,6 +121,7 @@ public class SQLFloatingPoint extends SQLNumber {
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     sign = fromResult.getProperty("sign");
     stringValue = fromResult.getProperty("stringValue");

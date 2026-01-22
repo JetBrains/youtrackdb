@@ -25,10 +25,12 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
     super(p, id);
   }
 
+  @Override
   public boolean isBidirectional() {
     return false;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(".(");
     for (var item : items) {
@@ -40,6 +42,7 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(".(");
     for (var item : items) {
@@ -51,6 +54,7 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
     }
   }
 
+  @Override
   protected Iterable<Identifiable> traversePatternEdge(
       SQLMatchStatement.MatchContext matchContext,
       Identifiable startingPoint,

@@ -13,11 +13,16 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
@@ -291,6 +296,38 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
     currentSession.close();
     threadLocalState.sessionEmbedded = null;
+  }
+
+  @Override
+  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      Consumer<String> ibuFileRemover) {
+    try (var session = acquireSession()) {
+      session.backup(ibuFilesSupplier, ibuInputStreamSupplier, ibuOutputStreamSupplier,
+          ibuFileRemover);
+    }
+  }
+
+  @Override
+  public String backup(Path path) {
+    try (var session = acquireSession()) {
+      return session.backup(path);
+    }
+  }
+
+  @Override
+  public String fullBackup(Path path) {
+    try (var session = acquireSession()) {
+      return session.fullBackup(path);
+    }
+  }
+
+  @Override
+  public UUID uuid() {
+    try (var session = acquireSession()) {
+      return session.uuid();
+    }
   }
 
   @Override

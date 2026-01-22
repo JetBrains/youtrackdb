@@ -47,6 +47,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
     super(engine, writer, deletedIdx);
   }
 
+  @Override
   public void put(final Object key, final Identifiable value, final Document doc) {
     if (deleted.remove(value.getIdentity().toString())) {
       doc.add(LuceneIndexType.createField(TMP, value.getIdentity().toString(), Field.Store.YES));
@@ -60,6 +61,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
     }
   }
 
+  @Override
   public void remove(DatabaseSessionInternal session, final Object key,
       final Identifiable value) {
     try {
@@ -81,18 +83,22 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
     }
   }
 
+  @Override
   public long numDocs() {
     return searcher().getIndexReader().numDocs() - deleted.size() - updated.size();
   }
 
+  @Override
   public Set<Document> getDeletedDocs() {
     return deletedDocs;
   }
 
+  @Override
   public boolean isDeleted(Storage storage, Document document, Object key, Identifiable value) {
     return deleted.contains(value.getIdentity().toString());
   }
 
+  @Override
   public boolean isUpdated(Document document, Object key, Identifiable value) {
     return updated.contains(value.getIdentity().toString());
   }

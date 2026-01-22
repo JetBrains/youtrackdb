@@ -34,6 +34,7 @@ import org.junit.Test;
  */
 public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
 
+  @Override
   @Before
   public void beforeTest() throws Exception {
     super.beforeTest();

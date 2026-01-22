@@ -85,8 +85,8 @@ public final class YTDBGraphStepStrategy
     return replaced;
   }
 
-  /// Function that rebuilds traversal, replacing TinkerPop steps with YouTrackDB ones.
-  /// Here is what gets replaced:
+  /// Function that rebuilds traversal, replacing TinkerPop steps with YouTrackDB ones. Here is what
+  /// gets replaced:
   /// 1. All "has" steps that strictly follow a GraphStep. They are gonna be handled natively by
   /// YouTrackDB (via SQL FROM and WHERE clauses at the moment).
   /// 2. All "hasLabel" steps at any place in the traversal. This is needed to correctly handle

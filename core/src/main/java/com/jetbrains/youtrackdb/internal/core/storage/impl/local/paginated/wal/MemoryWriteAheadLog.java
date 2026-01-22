@@ -21,12 +21,10 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointRequestListener;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -55,23 +53,6 @@ public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
   public LogSequenceNumber logAtomicOperationStartRecord(
       boolean isRollbackSupported, long unitId) {
     return log(new AtomicUnitStartRecord(isRollbackSupported, unitId));
-  }
-
-  @Override
-  public LogSequenceNumber logAtomicOperationStartRecord(
-      final boolean isRollbackSupported, final long unitId, byte[] metadata) {
-    final var record =
-        new AtomicUnitStartMetadataRecord(isRollbackSupported, unitId, metadata);
-    return log(record);
-  }
-
-  @Override
-  public LogSequenceNumber logAtomicOperationEndRecord(
-      long operationUnitId,
-      boolean rollback,
-      LogSequenceNumber startLsn,
-      Map<String, AtomicOperationMetadata<?>> atomicOperationMetadata) {
-    return log(new AtomicUnitEndRecord(operationUnitId, rollback, atomicOperationMetadata));
   }
 
   @Override

@@ -52,6 +52,7 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
     }
   }
 
+  @Override
   public Object getValue(
       final Result iRecord, Object iCurrentResult, CommandContext iContext) {
 

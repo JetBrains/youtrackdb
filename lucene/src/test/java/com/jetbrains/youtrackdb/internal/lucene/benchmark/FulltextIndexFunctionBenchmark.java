@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.lucene.benchmark;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.IOException;
@@ -89,7 +89,7 @@ public class FulltextIndexFunctionBenchmark {
 
   private String getScriptFromStream(final InputStream scriptStream) {
     try {
-      return IOUtils.readStreamAsString(scriptStream);
+      return YTDBIOUtils.readStreamAsString(scriptStream);
     } catch (final IOException e) {
       throw new RuntimeException("Could not read script stream.", e);
     }

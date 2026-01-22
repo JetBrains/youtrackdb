@@ -20,6 +20,7 @@ public class SQLIndexName extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public String getValue() {
     return value;
   }
@@ -34,6 +35,7 @@ public class SQLIndexName extends SimpleNode {
     builder.append(value);
   }
 
+  @Override
   public SQLIndexName copy() {
     var result = new SQLIndexName(-1);
     result.value = value;

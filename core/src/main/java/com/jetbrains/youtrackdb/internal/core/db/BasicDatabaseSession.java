@@ -207,17 +207,15 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
     executeScript("gremlin", script, args);
   }
 
-  /**
-   * Performs incremental backup of database content to the selected folder. This is thread safe
-   * operation and can be done in normal operational mode.
-   *
-   * <p>If it will be first backup of data full content of database will be copied into folder
-   * otherwise only changes after last backup in the same folder will be copied.
-   *
-   * @param path Path to backup folder.
-   * @return File name of the backup
-   */
-  String incrementalBackup(Path path);
+  /// Performs backup of database content to the selected folder. This is a thread-safe operation
+  /// and can be done in normal operational mode.
+  ///
+  /// During the first backup full content of the database will be copied into the directory,
+  /// otherwise only changes after the last backup in the same folder will be copied.
+  ///
+  /// @param path Path to the backup folder.
+  /// @return
+  String backup(Path path);
 
   @Nullable
   TimeZone getDatabaseTimeZone();

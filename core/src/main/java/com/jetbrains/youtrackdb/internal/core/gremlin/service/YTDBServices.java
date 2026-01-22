@@ -11,10 +11,13 @@ public final class YTDBServices {
   /// to register new TinkerPop services at runtime.
   public static final ServiceRegistry REGISTRY = new ServiceRegistry() {
     private final boolean frozen;
-
     {
       registerService(new YTDBRemovePropertyService.Factory<>());
       registerService(new YTDBCommandService.Factory<>());
+      registerService(new YTDBFullBackupService.Factory());
+      registerService(new YTDBIncrementalBackupService.Factory());
+      registerService(new YTDBGraphUuidService.Factory());
+
       frozen = true;
     }
 

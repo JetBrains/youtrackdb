@@ -28625,39 +28625,33 @@ if (jjtc000) {
 
   private boolean jj_3R_Json_3316_21_801()
  {
-    if (jj_3R_String_680_5_491()) return true;
-    return false;
-  }
+   return jj_3R_String_680_5_491();
+ }
 
   private boolean jj_3R_Json_3314_21_800()
  {
-    if (jj_scan_token(RECORD_ATTRIBUTE)) return true;
-    return false;
-  }
+   return jj_scan_token(RECORD_ATTRIBUTE);
+ }
 
   private boolean jj_3R_CreateEdgeStatement_1789_11_224()
  {
-    if (jj_scan_token(UPSERT)) return true;
-    return false;
-  }
+   return jj_scan_token(UPSERT);
+ }
 
   private boolean jj_3R_CreateEdgeStatement_1788_11_223()
  {
-    if (jj_3R_Identifier_695_1_140()) return true;
-    return false;
-  }
+   return jj_3R_Identifier_695_1_140();
+ }
 
   private boolean jj_3R_Json_3312_21_799()
  {
-    if (jj_3R_Identifier_695_1_140()) return true;
-    return false;
-  }
+   return jj_3R_Identifier_695_1_140();
+ }
 
   private boolean jj_3R_FetchPlanItem_3263_69_797()
  {
-    if (jj_scan_token(STAR)) return true;
-    return false;
-  }
+   return jj_scan_token(STAR);
+ }
 
   private boolean jj_3R_Json_3309_17_672()
  {
@@ -28675,15 +28669,13 @@ if (jjtc000) {
     }
     }
     if (jj_scan_token(COLON)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_Json_3304_17_671()
  {
-    if (jj_scan_token(CHARACTER_LITERAL)) return true;
-    return false;
-  }
+   return jj_scan_token(CHARACTER_LITERAL);
+ }
 
   private boolean jj_3R_CreateEdgeStatement_1785_1_91()
  {
@@ -28711,33 +28703,28 @@ if (jjtc000) {
 
   private boolean jj_3_57()
  {
-    if (jj_3R_InsertBody_1668_5_137()) return true;
-    return false;
-  }
+   return jj_3R_InsertBody_1668_5_137();
+ }
 
   private boolean jj_3R_Json_3302_17_670()
  {
-    if (jj_3R_String_680_5_491()) return true;
-    return false;
-  }
+   return jj_3R_String_680_5_491();
+ }
 
   private boolean jj_3R_Json_3300_17_669()
  {
-    if (jj_scan_token(RECORD_ATTRIBUTE)) return true;
-    return false;
-  }
+   return jj_scan_token(RECORD_ATTRIBUTE);
+ }
 
   private boolean jj_3R_Json_3298_17_668()
  {
-    if (jj_3R_Identifier_695_1_140()) return true;
-    return false;
-  }
+   return jj_3R_Identifier_695_1_140();
+ }
 
   private boolean jj_3R_CreateVertexStatement_1764_11_222()
  {
-    if (jj_3R_InsertBody_1668_5_137()) return true;
-    return false;
-  }
+   return jj_3R_InsertBody_1668_5_137();
+ }
 
   private boolean jj_3R_Json_3296_13_535()
  {
@@ -28765,17 +28752,15 @@ if (jjtc000) {
   private boolean jj_3R_CreateVertexStatement_1763_11_221()
  {
     if (jj_scan_token(RETURN)) return true;
-    if (jj_3R_Projection_1859_5_401()) return true;
-    return false;
-  }
+   return jj_3R_Projection_1859_5_401();
+ }
 
   private boolean jj_3R_CreateVertexStatementNoTarget_1772_1_88()
  {
     if (jj_scan_token(CREATE)) return true;
     if (jj_scan_token(VERTEX)) return true;
-    if (jj_3R_InsertBody_1668_5_137()) return true;
-    return false;
-  }
+   return jj_3R_InsertBody_1668_5_137();
+ }
 
   private boolean jj_3R_CreateVertexStatement_1760_9_89()
  {
@@ -28792,34 +28777,29 @@ if (jjtc000) {
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4822_15_896()
  {
-    if (jj_scan_token(EXECUTE)) return true;
-    return false;
-  }
+   return jj_scan_token(EXECUTE);
+ }
 
   private boolean jj_3R_InsertBody_1738_29_538()
  {
-    if (jj_3R_Json_3293_5_207()) return true;
-    return false;
-  }
+   return jj_3R_Json_3293_5_207();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4820_15_895()
  {
-    if (jj_scan_token(DELETE)) return true;
-    return false;
-  }
+   return jj_scan_token(DELETE);
+ }
 
   private boolean jj_3R_InsertBody_1740_25_539()
  {
-    if (jj_3R_InputParameter_1809_5_144()) return true;
-    return false;
-  }
+   return jj_3R_InputParameter_1809_5_144();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4818_15_894()
  {
     if (jj_scan_token(AFTER)) return true;
-    if (jj_scan_token(UPDATE)) return true;
-    return false;
-  }
+   return jj_scan_token(UPDATE);
+ }
 
   private boolean jj_3R_Json_3293_5_207()
  {
@@ -28827,16 +28807,14 @@ if (jjtc000) {
     Token xsp;
     xsp = jj_scanpos;
     if (jj_3R_Json_3296_13_535()) jj_scanpos = xsp;
-    if (jj_scan_token(RBRACE)) return true;
-    return false;
-  }
+   return jj_scan_token(RBRACE);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4816_15_893()
  {
     if (jj_scan_token(BEFORE)) return true;
-    if (jj_scan_token(UPDATE)) return true;
-    return false;
-  }
+   return jj_scan_token(UPDATE);
+ }
 
   private boolean jj_3R_InsertBody_1736_25_443()
  {
@@ -28845,7 +28823,7 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_InsertBody_1738_29_538()) {
     jj_scanpos = xsp;
-    if (jj_3R_InsertBody_1740_25_539()) return true;
+      return jj_3R_InsertBody_1740_25_539();
     }
     return false;
   }
@@ -28853,21 +28831,18 @@ if (jjtc000) {
   private boolean jj_3R_CreateVertexStatementEmptyNoTarget_1752_9_90()
  {
     if (jj_scan_token(CREATE)) return true;
-    if (jj_scan_token(VERTEX)) return true;
-    return false;
-  }
+   return jj_scan_token(VERTEX);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4814_15_892()
  {
-    if (jj_scan_token(READ)) return true;
-    return false;
-  }
+   return jj_scan_token(READ);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4812_15_891()
  {
-    if (jj_scan_token(CREATE)) return true;
-    return false;
-  }
+   return jj_scan_token(CREATE);
+ }
 
   private boolean jj_3R_FetchPlanItem_3272_17_798()
  {
@@ -28881,15 +28856,13 @@ if (jjtc000) {
 
   private boolean jj_3R_InsertBody_1733_21_442()
  {
-    if (jj_3R_InputParameter_1809_5_144()) return true;
-    return false;
-  }
+   return jj_3R_InputParameter_1809_5_144();
+ }
 
   private boolean jj_3R_InsertBody_1731_21_441()
  {
-    if (jj_3R_Json_3293_5_207()) return true;
-    return false;
-  }
+   return jj_3R_Json_3293_5_207();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4810_11_851()
  {
@@ -28906,7 +28879,7 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_AlterSecurityPolicyStatement_4820_15_895()) {
     jj_scanpos = xsp;
-    if (jj_3R_AlterSecurityPolicyStatement_4822_15_896()) return true;
+      return jj_3R_AlterSecurityPolicyStatement_4822_15_896();
     }
     }
     }
@@ -28917,41 +28890,35 @@ if (jjtc000) {
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4807_11_850()
  {
-    if (jj_scan_token(EXECUTE)) return true;
-    return false;
-  }
+   return jj_scan_token(EXECUTE);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4805_11_849()
  {
-    if (jj_scan_token(DELETE)) return true;
-    return false;
-  }
+   return jj_scan_token(DELETE);
+ }
 
   private boolean jj_3R_FetchPlanItem_3259_21_867()
  {
-    if (jj_scan_token(STAR)) return true;
-    return false;
-  }
+   return jj_scan_token(STAR);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4803_11_848()
  {
     if (jj_scan_token(AFTER)) return true;
-    if (jj_scan_token(UPDATE)) return true;
-    return false;
-  }
+   return jj_scan_token(UPDATE);
+ }
 
   private boolean jj_3R_FetchPlanItem_3257_21_866()
  {
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4801_11_847()
  {
     if (jj_scan_token(BEFORE)) return true;
-    if (jj_scan_token(UPDATE)) return true;
-    return false;
-  }
+   return jj_scan_token(UPDATE);
+ }
 
   private boolean jj_3R_InsertBody_1729_13_308()
  {
@@ -28974,21 +28941,18 @@ if (jjtc000) {
     if (jj_scan_token(COMMA)) return true;
     if (jj_3R_Identifier_695_1_140()) return true;
     if (jj_scan_token(EQ)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4799_11_846()
  {
-    if (jj_scan_token(READ)) return true;
-    return false;
-  }
+   return jj_scan_token(READ);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4797_11_845()
  {
-    if (jj_scan_token(CREATE)) return true;
-    return false;
-  }
+   return jj_scan_token(CREATE);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4789_18_890()
  {
@@ -28996,9 +28960,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_FetchPlanItem_3255_17_796()
  {
@@ -29009,9 +28972,8 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_FetchPlanItem_3259_21_867()) return true;
     }
-    if (jj_scan_token(RBRACKET)) return true;
-    return false;
-  }
+   return jj_scan_token(RBRACKET);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4787_18_889()
  {
@@ -29019,9 +28981,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4785_18_888()
  {
@@ -29030,9 +28991,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_FetchPlanItem_3254_13_667()
  {
@@ -29056,9 +29016,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4794_7_728()
  {
@@ -29090,9 +29049,8 @@ if (jjtc000) {
 
   private boolean jj_3R_FetchPlanItem_3252_13_666()
  {
-    if (jj_scan_token(STAR)) return true;
-    return false;
-  }
+   return jj_scan_token(STAR);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4781_18_886()
  {
@@ -29100,16 +29058,14 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_InsertBody_1703_25_537()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4779_18_885()
  {
@@ -29117,9 +29073,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3_56()
  {
@@ -29144,9 +29099,8 @@ if (jjtc000) {
     if (jj_3R_FetchPlanItem_3254_13_667()) return true;
     }
     if (jj_scan_token(COLON)) return true;
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4777_11_844()
  {
@@ -29163,7 +29117,7 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_AlterSecurityPolicyStatement_4787_18_889()) {
     jj_scanpos = xsp;
-    if (jj_3R_AlterSecurityPolicyStatement_4789_18_890()) return true;
+      return jj_3R_AlterSecurityPolicyStatement_4789_18_890();
     }
     }
     }
@@ -29178,9 +29132,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4773_13_842()
  {
@@ -29188,15 +29141,13 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_FetchPlan_3240_11_534()
  {
-    if (jj_3R_FetchPlanItem_3250_5_533()) return true;
-    return false;
-  }
+   return jj_3R_FetchPlanItem_3250_5_533();
+ }
 
   private boolean jj_3R_InsertBody_1695_21_439()
  {
@@ -29208,9 +29159,8 @@ if (jjtc000) {
       xsp = jj_scanpos;
       if (jj_3R_InsertBody_1703_25_537()) { jj_scanpos = xsp; break; }
     }
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4771_13_841()
  {
@@ -29219,9 +29169,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4769_13_840()
  {
@@ -29230,16 +29179,14 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_InsertBody_1690_21_438()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4767_13_839()
  {
@@ -29247,9 +29194,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4765_13_838()
  {
@@ -29257,9 +29203,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_FetchPlan_3238_5_436()
  {
@@ -29276,9 +29221,8 @@ if (jjtc000) {
   private boolean jj_3R_Collection_3224_17_449()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_Collection_3222_13_319()
  {
@@ -29325,7 +29269,7 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_AlterSecurityPolicyStatement_4762_7_727()) {
     jj_scanpos = xsp;
-    if (jj_3R_AlterSecurityPolicyStatement_4794_7_728()) return true;
+      return jj_3R_AlterSecurityPolicyStatement_4794_7_728();
     }
     return false;
   }
@@ -29333,9 +29277,8 @@ if (jjtc000) {
   private boolean jj_3R_InsertBody_1678_21_141()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Identifier_695_1_140()) return true;
-    return false;
-  }
+   return jj_3R_Identifier_695_1_140();
+ }
 
   private boolean jj_3R_AlterSecurityPolicyStatement_4758_3_86()
  {
@@ -29358,9 +29301,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_Collection_3218_5_146()
  {
@@ -29368,9 +29310,8 @@ if (jjtc000) {
     Token xsp;
     xsp = jj_scanpos;
     if (jj_3R_Collection_3222_13_319()) jj_scanpos = xsp;
-    if (jj_scan_token(RBRACKET)) return true;
-    return false;
-  }
+   return jj_scan_token(RBRACKET);
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4743_14_836()
  {
@@ -29378,9 +29319,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4741_14_835()
  {
@@ -29389,9 +29329,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4739_14_834()
  {
@@ -29400,9 +29339,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3_55()
  {
@@ -29435,9 +29373,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4735_14_832()
  {
@@ -29445,15 +29382,13 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3_53()
  {
-    if (jj_3R_SelectStatement_1194_5_130()) return true;
-    return false;
-  }
+   return jj_3R_SelectStatement_1194_5_130();
+ }
 
   private boolean jj_3R_InsertBody_1668_5_137()
  {
@@ -29463,7 +29398,7 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3_56()) {
     jj_scanpos = xsp;
-    if (jj_3R_InsertBody_1729_13_308()) return true;
+      return jj_3R_InsertBody_1729_13_308();
     }
     }
     return false;
@@ -29472,9 +29407,8 @@ if (jjtc000) {
   private boolean jj_3R_Retry_3201_5_402()
  {
     if (jj_scan_token(RETRY)) return true;
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4733_7_726()
  {
@@ -29491,7 +29425,7 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_CreateSecurityPolicyStatement_4743_14_836()) {
     jj_scanpos = xsp;
-    if (jj_3R_CreateSecurityPolicyStatement_4745_14_837()) return true;
+      return jj_3R_CreateSecurityPolicyStatement_4745_14_837();
     }
     }
     }
@@ -29506,9 +29440,8 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4729_9_724()
  {
@@ -29516,15 +29449,13 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_InsertStatement_1647_21_139()
  {
-    if (jj_3R_SelectWithoutTargetStatement_1168_5_309()) return true;
-    return false;
-  }
+   return jj_3R_SelectWithoutTargetStatement_1168_5_309();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4727_9_723()
  {
@@ -29533,15 +29464,13 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_InsertStatement_1644_21_138()
  {
-    if (jj_3R_SelectStatement_1194_5_130()) return true;
-    return false;
-  }
+   return jj_3R_SelectStatement_1194_5_130();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4725_9_722()
  {
@@ -29550,21 +29479,18 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_Timeout_3181_17_642()
  {
-    if (jj_scan_token(EXCEPTION)) return true;
-    return false;
-  }
+   return jj_scan_token(EXCEPTION);
+ }
 
   private boolean jj_3_52()
  {
-    if (jj_3R_SelectStatement_1194_5_130()) return true;
-    return false;
-  }
+   return jj_3R_SelectStatement_1194_5_130();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4723_9_721()
  {
@@ -29572,21 +29498,18 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_Timeout_3179_17_641()
  {
-    if (jj_scan_token(RETURN)) return true;
-    return false;
-  }
+   return jj_scan_token(RETURN);
+ }
 
   private boolean jj_3R_InsertStatement_1654_7_553()
  {
-    if (jj_scan_token(UNSAFE)) return true;
-    return false;
-  }
+   return jj_scan_token(UNSAFE);
+ }
 
   private boolean jj_3R_Timeout_3179_17_520()
  {
@@ -29594,7 +29517,7 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_Timeout_3179_17_641()) {
     jj_scanpos = xsp;
-    if (jj_3R_Timeout_3181_17_642()) return true;
+      return jj_3R_Timeout_3181_17_642();
     }
     return false;
   }
@@ -29602,9 +29525,8 @@ if (jjtc000) {
   private boolean jj_3R_Wait_3191_5_403()
  {
     if (jj_scan_token(WAIT)) return true;
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4721_9_720()
  {
@@ -29612,15 +29534,13 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_scan_token(LPAREN)) return true;
     if (jj_3R_OrBlock_2498_5_152()) return true;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_InsertStatement_1637_18_815()
  {
-    if (jj_3R_SelectWithoutTargetStatement_1168_5_309()) return true;
-    return false;
-  }
+   return jj_3R_SelectWithoutTargetStatement_1168_5_309();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4719_5_605()
  {
@@ -29659,22 +29579,19 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_InsertStatement_1647_21_139()) return true;
     }
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_InsertStatement_1634_18_814()
  {
-    if (jj_3R_SelectStatement_1194_5_130()) return true;
-    return false;
-  }
+   return jj_3R_SelectStatement_1194_5_130();
+ }
 
   private boolean jj_3R_UpdateRemoveItem_1605_43_775()
  {
     if (jj_scan_token(EQ)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_CreateSecurityPolicyStatement_4715_3_85()
  {
@@ -29694,7 +29611,7 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_InsertStatement_1634_18_814()) {
     jj_scanpos = xsp;
-    if (jj_3R_InsertStatement_1637_18_815()) return true;
+      return jj_3R_InsertStatement_1637_18_815();
     }
     return false;
   }
@@ -29702,21 +29619,18 @@ if (jjtc000) {
   private boolean jj_3R_SecurityResourceSegment_4704_11_760()
  {
     if (jj_scan_token(DOT)) return true;
-    if (jj_3R_SecurityResourceSegment_4671_5_617()) return true;
-    return false;
-  }
+   return jj_3R_SecurityResourceSegment_4671_5_617();
+ }
 
   private boolean jj_3_51()
  {
-    if (jj_3R_InsertBody_1668_5_137()) return true;
-    return false;
-  }
+   return jj_3R_InsertBody_1668_5_137();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4701_13_759()
  {
-    if (jj_scan_token(FROM)) return true;
-    return false;
-  }
+   return jj_scan_token(FROM);
+ }
 
   private boolean jj_3R_Timeout_3174_5_412()
  {
@@ -29730,33 +29644,28 @@ if (jjtc000) {
 
   private boolean jj_3R_Batch_3165_13_506()
  {
-    if (jj_3R_InputParameter_1809_5_144()) return true;
-    return false;
-  }
+   return jj_3R_InputParameter_1809_5_144();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4699_13_758()
  {
-    if (jj_scan_token(CONTAINSVALUE)) return true;
-    return false;
-  }
+   return jj_scan_token(CONTAINSVALUE);
+ }
 
   private boolean jj_3R_InsertStatement_1631_11_681()
  {
-    if (jj_scan_token(FROM)) return true;
-    return false;
-  }
+   return jj_scan_token(FROM);
+ }
 
   private boolean jj_3R_Batch_3163_13_505()
  {
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4697_13_757()
  {
-    if (jj_scan_token(CONTAINSKEY)) return true;
-    return false;
-  }
+   return jj_scan_token(CONTAINSKEY);
+ }
 
   private boolean jj_3R_InsertStatement_1631_9_552()
  {
@@ -29766,65 +29675,56 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_InsertStatement_1633_14_682()) {
     jj_scanpos = xsp;
-    if (jj_3_54()) return true;
+      return jj_3_54();
     }
     return false;
   }
 
   private boolean jj_3R_SecurityResourceSegment_4695_13_756()
  {
-    if (jj_scan_token(CONTAINSANY)) return true;
-    return false;
-  }
+   return jj_scan_token(CONTAINSANY);
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4693_13_755()
  {
-    if (jj_scan_token(CONTAINSALL)) return true;
-    return false;
-  }
+   return jj_scan_token(CONTAINSALL);
+ }
 
   private boolean jj_3R_InsertStatement_1629_7_551()
  {
     if (jj_scan_token(RETURN)) return true;
-    if (jj_3R_Projection_1859_5_401()) return true;
-    return false;
-  }
+   return jj_3R_Projection_1859_5_401();
+ }
 
   private boolean jj_3R_InsertStatement_1628_7_550()
  {
-    if (jj_3R_InsertBody_1668_5_137()) return true;
-    return false;
-  }
+   return jj_3R_InsertBody_1668_5_137();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4691_13_754()
  {
-    if (jj_scan_token(CONTAINS)) return true;
-    return false;
-  }
+   return jj_scan_token(CONTAINS);
+ }
 
   private boolean jj_3R_Skip_3151_17_795()
  {
-    if (jj_3R_InputParameter_1809_5_144()) return true;
-    return false;
-  }
+   return jj_3R_InputParameter_1809_5_144();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4689_13_753()
  {
-    if (jj_scan_token(EDGE)) return true;
-    return false;
-  }
+   return jj_scan_token(EDGE);
+ }
 
   private boolean jj_3R_Skip_3149_17_794()
  {
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4687_13_752()
  {
-    if (jj_scan_token(VERTEX)) return true;
-    return false;
-  }
+   return jj_scan_token(VERTEX);
+ }
 
   private boolean jj_3R_Batch_3160_5_404()
  {
@@ -29833,34 +29733,30 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_Batch_3163_13_505()) {
     jj_scanpos = xsp;
-    if (jj_3R_Batch_3165_13_506()) return true;
+      return jj_3R_Batch_3165_13_506();
     }
     return false;
   }
 
   private boolean jj_3R_SecurityResourceSegment_4685_13_751()
  {
-    if (jj_scan_token(LIKE)) return true;
-    return false;
-  }
+   return jj_scan_token(LIKE);
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4683_13_750()
  {
-    if (jj_scan_token(SELECT)) return true;
-    return false;
-  }
+   return jj_scan_token(SELECT);
+ }
 
   private boolean jj_3R_Skip_3142_17_793()
  {
-    if (jj_3R_InputParameter_1809_5_144()) return true;
-    return false;
-  }
+   return jj_3R_InputParameter_1809_5_144();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4681_13_749()
  {
-    if (jj_scan_token(INSERT)) return true;
-    return false;
-  }
+   return jj_scan_token(INSERT);
+ }
 
   private boolean jj_3R_InsertStatement_1622_1_260()
  {
@@ -29881,21 +29777,18 @@ if (jjtc000) {
 
   private boolean jj_3R_Skip_3140_17_792()
  {
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4679_13_748()
  {
-    if (jj_scan_token(DELETE)) return true;
-    return false;
-  }
+   return jj_scan_token(DELETE);
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4677_13_747()
  {
-    if (jj_scan_token(CREATE)) return true;
-    return false;
-  }
+   return jj_scan_token(CREATE);
+ }
 
   private boolean jj_3R_Skip_3146_9_665()
  {
@@ -29904,22 +29797,20 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_Skip_3149_17_794()) {
     jj_scanpos = xsp;
-    if (jj_3R_Skip_3151_17_795()) return true;
+      return jj_3R_Skip_3151_17_795();
     }
     return false;
   }
 
   private boolean jj_3R_OrderBy_3085_68_865()
  {
-    if (jj_scan_token(ASC)) return true;
-    return false;
-  }
+   return jj_scan_token(ASC);
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4675_13_746()
  {
-    if (jj_3R_Identifier_695_1_140()) return true;
-    return false;
-  }
+   return jj_3R_Identifier_695_1_140();
+ }
 
   private boolean jj_3R_UpdatePutItem_1613_5_631()
  {
@@ -29927,15 +29818,13 @@ if (jjtc000) {
     if (jj_scan_token(EQ)) return true;
     if (jj_3R_Expression_2169_5_131()) return true;
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_SecurityResourceSegment_4673_13_745()
  {
-    if (jj_scan_token(STAR)) return true;
-    return false;
-  }
+   return jj_scan_token(STAR);
+ }
 
   private boolean jj_3R_Skip_3137_9_664()
  {
@@ -29944,16 +29833,15 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_Skip_3140_17_792()) {
     jj_scanpos = xsp;
-    if (jj_3R_Skip_3142_17_793()) return true;
+      return jj_3R_Skip_3142_17_793();
     }
     return false;
   }
 
   private boolean jj_3R_UpdateIncrementItem_1594_15_774()
  {
-    if (jj_3R_Modifier_2131_5_155()) return true;
-    return false;
-  }
+   return jj_3R_Modifier_2131_5_155();
+ }
 
   private boolean jj_3R_UpdateRemoveItem_1604_5_639()
  {
@@ -30022,40 +29910,35 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_Skip_3137_9_664()) {
     jj_scanpos = xsp;
-    if (jj_3R_Skip_3146_9_665()) return true;
+      return jj_3R_Skip_3146_9_665();
     }
     return false;
   }
 
   private boolean jj_3R_Limit_3127_13_519()
  {
-    if (jj_3R_InputParameter_1809_5_144()) return true;
-    return false;
-  }
+   return jj_3R_InputParameter_1809_5_144();
+ }
 
   private boolean jj_3R_Limit_3125_13_518()
  {
-    if (jj_3R_Integer_920_1_66()) return true;
-    return false;
-  }
+   return jj_3R_Integer_920_1_66();
+ }
 
   private boolean jj_3_148()
  {
-    if (jj_3R_StatementSemicolon_991_5_67()) return true;
-    return false;
-  }
+   return jj_3R_StatementSemicolon_991_5_67();
+ }
 
   private boolean jj_3R_WhileBlock_4659_9_912()
  {
-    if (jj_3R_WhileBlock_4647_5_858()) return true;
-    return false;
-  }
+   return jj_3R_WhileBlock_4647_5_858();
+ }
 
   private boolean jj_3R_UpdateStatement_1497_101_415()
  {
-    if (jj_scan_token(COUNT)) return true;
-    return false;
-  }
+   return jj_scan_token(COUNT);
+ }
 
   private boolean jj_3R_UpdateIncrementItem_1592_5_637()
  {
@@ -30064,33 +29947,28 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_UpdateIncrementItem_1594_15_774()) jj_scanpos = xsp;
     if (jj_scan_token(EQ)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_WhileBlock_4657_9_911()
  {
-    if (jj_3R_ForEachBlock_4619_5_859()) return true;
-    return false;
-  }
+   return jj_3R_ForEachBlock_4619_5_859();
+ }
 
   private boolean jj_3R_OrderBy_3063_68_862()
  {
-    if (jj_scan_token(ASC)) return true;
-    return false;
-  }
+   return jj_scan_token(ASC);
+ }
 
   private boolean jj_3R_WhileBlock_4655_9_910()
  {
-    if (jj_3R_IfStatement_4468_5_271()) return true;
-    return false;
-  }
+   return jj_3R_IfStatement_4468_5_271();
+ }
 
   private boolean jj_3R_UpdateItem_1583_9_773()
  {
-    if (jj_scan_token(SLASHASSIGN)) return true;
-    return false;
-  }
+   return jj_scan_token(SLASHASSIGN);
+ }
 
   private boolean jj_3R_Limit_3122_5_411()
  {
@@ -30099,16 +29977,15 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_Limit_3125_13_518()) {
     jj_scanpos = xsp;
-    if (jj_3R_Limit_3127_13_519()) return true;
+      return jj_3R_Limit_3127_13_519();
     }
     return false;
   }
 
   private boolean jj_3R_WhileBlock_4652_9_909()
  {
-    if (jj_3R_StatementSemicolon_991_5_67()) return true;
-    return false;
-  }
+   return jj_3R_StatementSemicolon_991_5_67();
+ }
 
   private boolean jj_3R_WhileBlock_4652_9_901()
  {
@@ -30122,7 +29999,7 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_WhileBlock_4659_9_912()) {
     jj_scanpos = xsp;
-    if (jj_scan_token(183)) return true;
+      return jj_scan_token(183);
     }
     }
     }
@@ -30132,40 +30009,34 @@ if (jjtc000) {
 
   private boolean jj_3R_UpdateItem_1581_9_772()
  {
-    if (jj_scan_token(STARASSIGN)) return true;
-    return false;
-  }
+   return jj_scan_token(STARASSIGN);
+ }
 
   private boolean jj_3R_UpdateItem_1577_13_770()
  {
-    if (jj_scan_token(PLUSASSIGN)) return true;
-    return false;
-  }
+   return jj_scan_token(PLUSASSIGN);
+ }
 
   private boolean jj_3R_Unwind_3112_13_529()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Identifier_695_1_140()) return true;
-    return false;
-  }
+   return jj_3R_Identifier_695_1_140();
+ }
 
   private boolean jj_3R_UpdateItem_1579_9_771()
  {
-    if (jj_scan_token(MINUSASSIGN)) return true;
-    return false;
-  }
+   return jj_scan_token(MINUSASSIGN);
+ }
 
   private boolean jj_3R_UpdateItem_1575_13_769()
  {
-    if (jj_scan_token(EQ)) return true;
-    return false;
-  }
+   return jj_scan_token(EQ);
+ }
 
   private boolean jj_3R_UpdateItem_1573_11_768()
  {
-    if (jj_3R_Modifier_2131_5_155()) return true;
-    return false;
-  }
+   return jj_3R_Modifier_2131_5_155();
+ }
 
   private boolean jj_3R_WhileBlock_4647_5_858()
  {
@@ -30179,23 +30050,20 @@ if (jjtc000) {
       xsp = jj_scanpos;
       if (jj_3R_WhileBlock_4652_9_901()) { jj_scanpos = xsp; break; }
     }
-    if (jj_scan_token(RBRACE)) return true;
-    return false;
-  }
+   return jj_scan_token(RBRACE);
+ }
 
   private boolean jj_3R_GroupBy_3100_13_525()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_UpdateOperations_1559_17_640()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_UpdateRemoveItem_1604_5_639()) return true;
-    return false;
-  }
+   return jj_3R_UpdateRemoveItem_1604_5_639();
+ }
 
   private boolean jj_3R_Unwind_3109_1_433()
  {
@@ -30211,27 +30079,23 @@ if (jjtc000) {
 
   private boolean jj_3_147()
  {
-    if (jj_3R_StatementSemicolon_991_5_67()) return true;
-    return false;
-  }
+   return jj_3R_StatementSemicolon_991_5_67();
+ }
 
   private boolean jj_3R_OrderBy_3077_31_863()
  {
-    if (jj_3R_Modifier_2131_5_155()) return true;
-    return false;
-  }
+   return jj_3R_Modifier_2131_5_155();
+ }
 
   private boolean jj_3R_ForEachBlock_4633_9_916()
  {
-    if (jj_3R_WhileBlock_4647_5_858()) return true;
-    return false;
-  }
+   return jj_3R_WhileBlock_4647_5_858();
+ }
 
   private boolean jj_3R_OrderBy_3082_25_789()
  {
-    if (jj_scan_token(RECORD_ATTRIBUTE)) return true;
-    return false;
-  }
+   return jj_scan_token(RECORD_ATTRIBUTE);
+ }
 
   private boolean jj_3R_UpdateItem_1571_1_629()
  {
@@ -30253,34 +30117,29 @@ if (jjtc000) {
     }
     }
     }
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_ForEachBlock_4631_9_915()
  {
-    if (jj_3R_ForEachBlock_4619_5_859()) return true;
-    return false;
-  }
+   return jj_3R_ForEachBlock_4619_5_859();
+ }
 
   private boolean jj_3R_OrderBy_3086_19_791()
  {
     if (jj_scan_token(COLLATE)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_OrderBy_3080_25_788()
  {
-    if (jj_3R_Rid_605_5_143()) return true;
-    return false;
-  }
+   return jj_3R_Rid_605_5_143();
+ }
 
   private boolean jj_3R_OrderBy_3085_19_864()
  {
-    if (jj_scan_token(DESC)) return true;
-    return false;
-  }
+   return jj_scan_token(DESC);
+ }
 
   private boolean jj_3R_OrderBy_3085_19_790()
  {
@@ -30288,35 +30147,31 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_OrderBy_3085_19_864()) {
     jj_scanpos = xsp;
-    if (jj_3R_OrderBy_3085_68_865()) return true;
+      return jj_3R_OrderBy_3085_68_865();
     }
     return false;
   }
 
   private boolean jj_3R_ForEachBlock_4629_9_914()
  {
-    if (jj_3R_IfStatement_4468_5_271()) return true;
-    return false;
-  }
+   return jj_3R_IfStatement_4468_5_271();
+ }
 
   private boolean jj_3R_UpdateOperations_1551_17_638()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_UpdateIncrementItem_1592_5_637()) return true;
-    return false;
-  }
+   return jj_3R_UpdateIncrementItem_1592_5_637();
+ }
 
   private boolean jj_3R_OrderBy_3038_64_781()
  {
-    if (jj_scan_token(ASC)) return true;
-    return false;
-  }
+   return jj_scan_token(ASC);
+ }
 
   private boolean jj_3R_ForEachBlock_4626_9_913()
  {
-    if (jj_3R_StatementSemicolon_991_5_67()) return true;
-    return false;
-  }
+   return jj_3R_StatementSemicolon_991_5_67();
+ }
 
   private boolean jj_3R_ForEachBlock_4626_9_902()
  {
@@ -30330,7 +30185,7 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_ForEachBlock_4633_9_916()) {
     jj_scanpos = xsp;
-    if (jj_scan_token(183)) return true;
+      return jj_scan_token(183);
     }
     }
     }
@@ -30361,9 +30216,8 @@ if (jjtc000) {
 
   private boolean jj_3R_UpdateOperations_1547_17_636()
  {
-    if (jj_scan_token(ADD)) return true;
-    return false;
-  }
+   return jj_scan_token(ADD);
+ }
 
   private boolean jj_3R_GroupBy_3097_1_431()
  {
@@ -30380,21 +30234,18 @@ if (jjtc000) {
 
   private boolean jj_3R_UpdateOperations_1545_17_635()
  {
-    if (jj_scan_token(INCREMENT)) return true;
-    return false;
-  }
+   return jj_scan_token(INCREMENT);
+ }
 
   private boolean jj_3R_UpdateStatement_1497_59_414()
  {
-    if (jj_scan_token(AFTER)) return true;
-    return false;
-  }
+   return jj_scan_token(AFTER);
+ }
 
   private boolean jj_3R_UpdateOperations_1538_17_634()
  {
-    if (jj_scan_token(CONTENT)) return true;
-    return false;
-  }
+   return jj_scan_token(CONTENT);
+ }
 
   private boolean jj_3R_ForEachBlock_4619_5_859()
  {
@@ -30410,15 +30261,13 @@ if (jjtc000) {
       xsp = jj_scanpos;
       if (jj_3R_ForEachBlock_4626_9_902()) { jj_scanpos = xsp; break; }
     }
-    if (jj_scan_token(RBRACE)) return true;
-    return false;
-  }
+   return jj_scan_token(RBRACE);
+ }
 
   private boolean jj_3R_UpdateOperations_1536_17_633()
  {
-    if (jj_scan_token(MERGE)) return true;
-    return false;
-  }
+   return jj_scan_token(MERGE);
+ }
 
   private boolean jj_3R_UpdateOperations_1543_9_516()
  {
@@ -30438,41 +30287,35 @@ if (jjtc000) {
 
   private boolean jj_3R_OrderBy_3055_31_860()
  {
-    if (jj_3R_Modifier_2131_5_155()) return true;
-    return false;
-  }
+   return jj_3R_Modifier_2131_5_155();
+ }
 
   private boolean jj_3R_OrderBy_3060_25_784()
  {
-    if (jj_scan_token(RECORD_ATTRIBUTE)) return true;
-    return false;
-  }
+   return jj_scan_token(RECORD_ATTRIBUTE);
+ }
 
   private boolean jj_3R_DropSequenceStatement_4609_11_610()
  {
     if (jj_scan_token(IF)) return true;
-    if (jj_scan_token(EXISTS)) return true;
-    return false;
-  }
+   return jj_scan_token(EXISTS);
+ }
 
   private boolean jj_3R_OrderBy_3064_19_786()
  {
     if (jj_scan_token(COLLATE)) return true;
-    if (jj_3R_Expression_2169_5_131()) return true;
-    return false;
-  }
+   return jj_3R_Expression_2169_5_131();
+ }
 
   private boolean jj_3R_OrderBy_3058_25_783()
  {
-    if (jj_3R_Rid_605_5_143()) return true;
-    return false;
-  }
+   return jj_3R_Rid_605_5_143();
+ }
 
   private boolean jj_3R_OrderBy_3063_19_861()
  {
-    if (jj_scan_token(DESC)) return true;
-    return false;
-  }
+   return jj_scan_token(DESC);
+ }
 
   private boolean jj_3R_OrderBy_3063_19_785()
  {
@@ -30480,7 +30323,7 @@ if (jjtc000) {
     xsp = jj_scanpos;
     if (jj_3R_OrderBy_3063_19_861()) {
     jj_scanpos = xsp;
-    if (jj_3R_OrderBy_3063_68_862()) return true;
+      return jj_3R_OrderBy_3063_68_862();
     }
     return false;
   }
@@ -30488,15 +30331,13 @@ if (jjtc000) {
   private boolean jj_3R_UpdateOperations_1530_17_632()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_UpdatePutItem_1613_5_631()) return true;
-    return false;
-  }
+   return jj_3R_UpdatePutItem_1613_5_631();
+ }
 
   private boolean jj_3R_OrderBy_3016_64_778()
  {
-    if (jj_scan_token(ASC)) return true;
-    return false;
-  }
+   return jj_scan_token(ASC);
+ }
 
   private boolean jj_3R_OrderBy_3067_13_663()
  {
@@ -30514,9 +30355,8 @@ if (jjtc000) {
     if (jj_3R_OrderBy_3085_19_790()) jj_scanpos = xsp;
     xsp = jj_scanpos;
     if (jj_3R_OrderBy_3086_19_791()) jj_scanpos = xsp;
-    if (jj_scan_token(RPAREN)) return true;
-    return false;
-  }
+   return jj_scan_token(RPAREN);
+ }
 
   private boolean jj_3R_OrderBy_3053_25_782()
  {
@@ -30535,9 +30375,8 @@ if (jjtc000) {
     jj_scanpos = xsp;
     if (jj_3R_UpdateOperations_1538_17_634()) return true;
     }
-    if (jj_3R_Json_3293_5_207()) return true;
-    return false;
-  }
+   return jj_3R_Json_3293_5_207();
+ }
 
   private boolean jj_3R_DropSequenceStatement_4606_5_98()
  {
@@ -30553,27 +30392,23 @@ if (jjtc000) {
   private boolean jj_3R_UpdateOperations_1522_17_630()
  {
     if (jj_scan_token(COMMA)) return true;
-    if (jj_3R_UpdateItem_1571_1_629()) return true;
-    return false;
-  }
+   return jj_3R_UpdateItem_1571_1_629();
+ }
 
   private boolean jj_3R_AlterSequenceStatement_4594_13_743()
  {
-    if (jj_scan_token(NOLIMIT)) return true;
-    return false;
-  }
+   return jj_scan_token(NOLIMIT);
+ }
 
   private boolean jj_3R_UpdateEdgeStatement_1474_63_408()
  {
-    if (jj_scan_token(AFTER)) return true;
-    return false;
-  }
+   return jj_scan_token(AFTER);
+ }
 
   private boolean jj_3R_AlterSequenceStatement_4592_13_742()
  {
-    if (jj_scan_token(DESC)) return true;
-    return false;
-  }
+   return jj_scan_token(DESC);
+ }
 
   private boolean jj_3R_UpdateOperations_1526_9_514()
  {
@@ -30766,10 +30601,10 @@ if (jjtc000) {
 	   return (jj_ntk = jj_nt.kind);
   }
 
-  private java.util.List<int[]> jj_expentries = new java.util.ArrayList<int[]>();
+  private final java.util.List<int[]> jj_expentries = new java.util.ArrayList<int[]>();
   private int[] jj_expentry;
   private int jj_kind = -1;
-  private int[] jj_lasttokens = new int[100];
+  private final int[] jj_lasttokens = new int[100];
   private int jj_endpos;
 
   private void jj_add_error_token(int kind, int pos) {
@@ -30782,9 +30617,7 @@ if (jjtc000) {
 	 } else if (jj_endpos != 0) {
 	   jj_expentry = new int[jj_endpos];
 
-	   for (int i = 0; i < jj_endpos; i++) {
-		 jj_expentry[i] = jj_lasttokens[i];
-	   }
+     System.arraycopy(jj_lasttokens, 0, jj_expentry, 0, jj_endpos);
 
 	   for (int[] oldentry : jj_expentries) {
 		 if (oldentry.length == jj_expentry.length) {

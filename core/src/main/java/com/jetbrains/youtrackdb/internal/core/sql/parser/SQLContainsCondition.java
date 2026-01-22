@@ -392,6 +392,7 @@ public final class SQLContainsCondition extends SQLBooleanExpression {
     return right;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" CONTAINS ");

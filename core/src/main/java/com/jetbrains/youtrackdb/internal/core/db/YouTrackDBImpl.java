@@ -300,6 +300,20 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
 
   /// Close the current YouTrackDB database manager with all related databases and pools.
   @Override
+  public void restore(@Nonnull String databaseName,
+      @Nonnull String path) {
+    internal.restore(databaseName, path, null, null);
+  }
+
+  @Override
+  public void restore(@Nonnull String databaseName,
+      @Nonnull String path,
+      @Nullable String expectedUUID, @Nonnull Configuration config) {
+    internal.restore(databaseName, path, expectedUUID,
+        YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
+  }
+
+  @Override
   public void close() {
     lock.lock();
     try {

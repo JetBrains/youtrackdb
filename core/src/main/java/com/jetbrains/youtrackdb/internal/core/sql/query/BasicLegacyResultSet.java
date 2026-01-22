@@ -48,10 +48,12 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     underlying = Collections.synchronizedList(new ArrayList<T>(iCapacity));
   }
 
+  @Override
   public BasicLegacyResultSet<T> setCompleted() {
     return this;
   }
 
+  @Override
   public T set(int index, T element) {
     return underlying.set(index, element);
   }
@@ -121,6 +123,7 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     return underlying.toArray(a);
   }
 
+  @Override
   public boolean add(final T t) {
     if (limit > -1 && underlying.size() >= limit) {
       return false;
@@ -140,10 +143,12 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     throw new UnsupportedOperationException("remove");
   }
 
+  @Override
   public boolean addAll(final Collection<? extends T> c) {
     return underlying.addAll(c);
   }
 
+  @Override
   public boolean addAll(final int index, final Collection<? extends T> c) {
     return underlying.addAll(index, c);
   }
@@ -178,6 +183,7 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     return underlying.get(index);
   }
 
+  @Override
   public void add(final int index, T element) {
     underlying.add(index, element);
   }
@@ -212,10 +218,12 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     return underlying.subList(fromIndex, toIndex);
   }
 
+  @Override
   public int getLimit() {
     return limit;
   }
 
+  @Override
   public LegacyResultSet<T> setLimit(final int limit) {
     this.limit = limit;
     return this;
@@ -231,6 +239,7 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     underlying = (List<T>) in.readObject();
   }
 
+  @Override
   public BasicLegacyResultSet<T> copy() {
     final var newValue = new BasicLegacyResultSet<T>();
     newValue.underlying.addAll(underlying);

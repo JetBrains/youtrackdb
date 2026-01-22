@@ -7,6 +7,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class DBSequenceRemoteTest extends AbstractRemoteTest {
+
   YTDBGraphTraversalSource traversal;
   YouTrackDB youTrackDB;
 

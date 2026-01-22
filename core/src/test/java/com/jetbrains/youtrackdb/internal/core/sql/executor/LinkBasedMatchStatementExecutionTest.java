@@ -22,6 +22,7 @@ import org.junit.Test;
 
 public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     session.execute("CREATE class Person").close();

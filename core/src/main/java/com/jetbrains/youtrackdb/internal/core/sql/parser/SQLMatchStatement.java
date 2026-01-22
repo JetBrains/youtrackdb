@@ -619,6 +619,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     return true;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(KEYWORD_MATCH);
     builder.append(" ");
@@ -675,6 +676,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(KEYWORD_MATCH);
     builder.append(" ");

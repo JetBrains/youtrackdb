@@ -26,10 +26,10 @@ public class PointLegecyBuilder implements ShapeBuilderLegacy<Point> {
 
   @Override
   public Point makeShape(DatabaseSessionInternal session, CompositeKey key, SpatialContext ctx) {
-    var lat = ((Double) PropertyTypeInternal.convert(session, key.getKeys().get(0),
-        Double.class)).doubleValue();
-    var lng = ((Double) PropertyTypeInternal.convert(session, key.getKeys().get(1),
-        Double.class)).doubleValue();
+    var lat = PropertyTypeInternal.convert(session, key.getKeys().get(0),
+        Double.class).doubleValue();
+    var lng = PropertyTypeInternal.convert(session, key.getKeys().get(1),
+        Double.class).doubleValue();
     return ctx.makePoint(lng, lat);
   }
 

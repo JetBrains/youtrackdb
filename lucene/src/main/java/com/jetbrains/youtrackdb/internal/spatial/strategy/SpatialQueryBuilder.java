@@ -48,6 +48,7 @@ public class SpatialQueryBuilder extends SpatialQueryBuilderAbstract {
     operators.put(builder.getName(), builder);
   }
 
+  @Override
   public SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
       throws Exception {
 

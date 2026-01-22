@@ -38,6 +38,7 @@ public class SQLUpdateOperations extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     var first = true;
     switch (type) {
@@ -102,6 +103,7 @@ public class SQLUpdateOperations extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     var first = true;
     switch (type) {
@@ -166,6 +168,7 @@ public class SQLUpdateOperations extends SimpleNode {
     }
   }
 
+  @Override
   public SQLUpdateOperations copy() {
 
     var result = new SQLUpdateOperations(-1);

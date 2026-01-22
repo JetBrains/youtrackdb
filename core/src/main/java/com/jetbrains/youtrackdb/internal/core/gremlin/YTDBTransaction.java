@@ -3,9 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import java.lang.module.ResolutionException;
 import java.util.Optional;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import org.apache.commons.lang3.function.FailableConsumer;
@@ -17,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBTransaction extends AbstractTransaction {
+
   private static final Logger logger = LoggerFactory.getLogger(YTDBTransaction.class);
 
   private Consumer<Transaction> readWriteConsumerInternal = READ_WRITE_BEHAVIOR.AUTO;

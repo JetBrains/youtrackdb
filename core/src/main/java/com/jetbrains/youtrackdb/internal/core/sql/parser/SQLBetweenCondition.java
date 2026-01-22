@@ -154,6 +154,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     this.third = third;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     first.toString(params, builder);
     builder.append(" BETWEEN ");
@@ -162,6 +163,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     third.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     first.toGenericStatement(builder);
     builder.append(" BETWEEN ");

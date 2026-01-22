@@ -38,6 +38,7 @@ public class SQLFilterItemVariable extends SQLFilterItemAbstract {
     super(session, iQueryToParse, iName.substring(1));
   }
 
+  @Override
   @Nullable
   public Object getValue(
       final Result iRecord, Object iCurrentResult, final CommandContext iContext) {
@@ -48,10 +49,12 @@ public class SQLFilterItemVariable extends SQLFilterItemAbstract {
     return transformValue(iRecord, iContext, iContext.getVariable(name));
   }
 
+  @Override
   public String getRoot(DatabaseSession session) {
     return name;
   }
 
+  @Override
   public void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
     this.name = iRoot;

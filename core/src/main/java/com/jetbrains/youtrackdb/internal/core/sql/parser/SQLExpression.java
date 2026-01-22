@@ -744,12 +744,8 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.isCacheable(session);
     }
-    if (json != null) {
-      // TODO optimize
-      return false;
-    }
-
-    return true;
+    // TODO optimize
+    return json == null;
   }
 
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {

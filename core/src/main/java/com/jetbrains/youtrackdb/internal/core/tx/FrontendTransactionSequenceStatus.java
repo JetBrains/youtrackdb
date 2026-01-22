@@ -10,13 +10,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 
-public class FrontendTransactionSequenceStatus {
-
-  private final long[] status;
-
-  public FrontendTransactionSequenceStatus(long[] status) {
-    this.status = status;
-  }
+public record FrontendTransactionSequenceStatus(long[] status) {
 
   public byte[] store() throws IOException {
     var buffer = new ByteArrayOutputStream();
@@ -53,10 +47,6 @@ public class FrontendTransactionSequenceStatus {
       newSequential[i] = VarIntSerializer.readAsLong(dataInput);
     }
     return new FrontendTransactionSequenceStatus(newSequential);
-  }
-
-  public long[] getStatus() {
-    return status;
   }
 
   @Override

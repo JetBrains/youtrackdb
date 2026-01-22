@@ -16,6 +16,7 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
 
   private SchemaClass clazz;
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     clazz = session.getMetadata().getSchema().createClass("testClass");

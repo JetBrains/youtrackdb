@@ -92,7 +92,7 @@ public class LuceneIndexType {
   }
 
   public static String genValueId(final Identifiable id, final Object key) {
-    var value = id.getIdentity().toString() + "|";
+    var value = id.getIdentity() + "|";
     value += hashKey(key);
     return value;
   }

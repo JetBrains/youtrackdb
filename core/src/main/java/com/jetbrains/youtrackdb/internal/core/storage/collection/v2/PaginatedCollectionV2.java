@@ -170,8 +170,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     acquireExclusiveLock();
     try {
       init(
-          config.getId(),
-          config.getName(),
+          config.id(),
+          config.name(),
           ((StoragePaginatedCollectionConfiguration) config).conflictStrategy);
     } finally {
       releaseExclusiveLock();

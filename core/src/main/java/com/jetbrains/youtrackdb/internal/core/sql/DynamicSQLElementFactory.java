@@ -47,14 +47,17 @@ public class DynamicSQLElementFactory
     // DO NOTHING
   }
 
+  @Override
   public Set<String> getFunctionNames(DatabaseSessionInternal session) {
     return FUNCTIONS.keySet();
   }
 
+  @Override
   public boolean hasFunction(final String name, DatabaseSessionInternal session) {
     return FUNCTIONS.containsKey(name);
   }
 
+  @Override
   public SQLFunction createFunction(final String name, DatabaseSessionInternal session)
       throws CommandExecutionException {
     final var obj = FUNCTIONS.get(name);
@@ -82,10 +85,12 @@ public class DynamicSQLElementFactory
     }
   }
 
+  @Override
   public Set<String> getCommandNames() {
     return COMMANDS.keySet();
   }
 
+  @Override
   public CommandExecutorSQLAbstract createCommand(final String name)
       throws CommandExecutionException {
     final var clazz = COMMANDS.get(name);
@@ -107,6 +112,7 @@ public class DynamicSQLElementFactory
     }
   }
 
+  @Override
   public Set<QueryOperator> getOperators() {
     return OPERATORS;
   }

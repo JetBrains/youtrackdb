@@ -17,8 +17,6 @@
 
 package com.jetbrains.youtrackdb.internal.core;
 
-import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -38,14 +36,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.concurrent.Callable;
 import javax.annotation.Nonnull;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -207,24 +200,6 @@ public class PostponedEngineStartTest {
         YouTrackDBInternalEmbedded context) {
       return new Storage() {
 
-        @Override
-        public List<String> backup(
-            DatabaseSessionInternal db, OutputStream out,
-            Map<String, Object> options,
-            Callable<Object> callable,
-            CommandOutputListener iListener,
-            int compressionLevel,
-            int bufferSize) {
-          return null;
-        }
-
-        @Override
-        public void restore(
-            InputStream in,
-            Map<String, Object> options,
-            Callable<Object> callable,
-            CommandOutputListener iListener) {
-        }
 
         @Override
         public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
@@ -508,27 +483,6 @@ public class PostponedEngineStartTest {
         public void setConflictStrategy(RecordConflictStrategy iResolver) {
         }
 
-        @Override
-        public String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
-            CallableFunction<Void, Void> started) {
-          return null;
-        }
-
-        @Override
-        public void fullIncrementalBackup(final OutputStream stream)
-            throws UnsupportedOperationException {
-        }
-
-        @Override
-        public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
-            String filePath) {
-        }
-
-        @Override
-        public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
-            final InputStream stream)
-            throws UnsupportedOperationException {
-        }
 
         @Override
         public void shutdown() {

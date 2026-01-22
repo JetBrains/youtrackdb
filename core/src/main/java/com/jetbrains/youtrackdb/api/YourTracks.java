@@ -54,11 +54,11 @@ public final class YourTracks {
   /// Create a new YouTrackDB manager instance for an embedded deployment with custom
   /// configuration.
   ///
-  /// A created instance is cached and reused if the method is called for the second time unless
-  /// it is closed by the user.
+  /// A created instance is cached and reused if the method is called for the second time unless it
+  /// is closed by the user.
   ///
-  /// @param directoryPath the directory where the databases are stored. For in memory database
-  ///                      use "."
+  /// @param directoryPath the directory where the databases are stored. For in memory database use
+  ///                      "."
   /// @param configuration custom configuration for current environment
   public static YouTrackDB instance(@Nonnull Path directoryPath,
       @Nonnull Configuration configuration) {
@@ -71,7 +71,6 @@ public final class YourTracks {
   ///
   /// @param serverAddress server address
   /// @param serverPort    server port
-  ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
   /// @see YouTrackDB#createSystemUser(String, String, PredefinedSystemRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort) {
@@ -89,7 +88,7 @@ public final class YourTracks {
     } catch (IllegalAccessException e) {
       throw new RuntimeException(e);
     }
-   }
+  }
 
 
   /// Creates a new YouTrackDB manager instance for a case when YTDB database is managed by Gremlin
@@ -104,7 +103,6 @@ public final class YourTracks {
   /// @param serverPort    server port
   /// @param username      user name
   /// @param password      user password
-  ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
   /// @see YouTrackDB#createSystemUser(String, String, PredefinedSystemRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, int serverPort,
@@ -127,21 +125,20 @@ public final class YourTracks {
   }
 
   /// Creates a new YouTrackDB manager instance for a case when YTDB database is managed by Gremlin
-  /// Server. The name of passed in user should belong to the user either registered in the
-  /// server configuration or system database.
+  /// Server. The name of passed in user should belong to the user either registered in the server
+  /// configuration or system database.
   ///
   /// Server connection will use port `8182` by default.
   ///
   /// Integration with SSO and user directories is going to be added soon.
   ///
-  /// As username and password are already passed during establishing the connection,
-  /// the method [YouTrackDB#openTraversal(String)]
-  /// is recommended to be used to send Gremlin queries to the server.
+  /// As username and password are already passed during establishing the connection, the method
+  /// [YouTrackDB#openTraversal(String)] is recommended to be used to send Gremlin queries to the
+  /// server.
   ///
   /// @param serverAddress server address
   /// @param username      user name
   /// @param password      user password
-  ///
   /// @see YouTrackDB#createSystemUser(String, String, String...)
   /// @see YouTrackDB#createSystemUser(String, String, PredefinedSystemRole...)
   public static YouTrackDB instance(@Nonnull String serverAddress, @Nonnull String username,

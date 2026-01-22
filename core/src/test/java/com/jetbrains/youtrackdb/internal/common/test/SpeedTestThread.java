@@ -26,15 +26,19 @@ public abstract class SpeedTestThread extends Thread implements SpeedTest {
     data.go(this);
   }
 
+  @Override
   public void init() throws Exception {
   }
 
+  @Override
   public void deinit() throws Exception {
   }
 
+  @Override
   public void afterCycle() throws Exception {
   }
 
+  @Override
   public void beforeCycle() throws Exception {
   }
 

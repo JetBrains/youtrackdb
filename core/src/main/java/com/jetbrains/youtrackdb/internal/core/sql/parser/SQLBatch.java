@@ -35,6 +35,7 @@ public class SQLBatch extends SimpleNode {
     return -1;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (num == null && inputParam == null) {
       return;
@@ -48,6 +49,7 @@ public class SQLBatch extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (num == null && inputParam == null) {
       return;
@@ -61,6 +63,7 @@ public class SQLBatch extends SimpleNode {
     }
   }
 
+  @Override
   public SQLBatch copy() {
     var result = new SQLBatch(-1);
     result.inputParam = inputParam == null ? null : inputParam.copy();

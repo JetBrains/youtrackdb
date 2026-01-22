@@ -110,6 +110,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     }
   }
 
+  @Override
   public Object getValue(
       final Result iRecord, final Object iCurrentResult, final CommandContext iContext) {
     var session = iContext.getDatabaseSession();
@@ -181,10 +182,12 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         session.getMetadata().getImmutableSchemaSnapshot(), encryption);
   }
 
+  @Override
   public String getRoot(DatabaseSession session) {
     return name;
   }
 
+  @Override
   public void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
     if (isStringLiteral(iRoot)) {

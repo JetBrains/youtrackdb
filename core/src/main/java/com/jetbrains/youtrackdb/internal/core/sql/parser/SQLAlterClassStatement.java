@@ -153,6 +153,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
   }
 
+  @Override
   public SQLStatement copy() {
     var result = new SQLAlterClassStatement(-1);
     result.name = name == null ? null : name.copy();

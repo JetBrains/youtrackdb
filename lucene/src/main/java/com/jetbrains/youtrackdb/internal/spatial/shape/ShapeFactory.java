@@ -226,6 +226,7 @@ public class ShapeFactory extends ComplexShapeBuilder {
     // TODO handle exception shape not found
   }
 
+  @Override
   public Geometry toGeometry(Shape shape) {
     if (shape instanceof ShapeCollection) {
       var shapes = (ShapeCollection<Shape>) shape;

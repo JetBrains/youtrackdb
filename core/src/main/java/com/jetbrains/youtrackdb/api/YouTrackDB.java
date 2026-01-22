@@ -303,8 +303,17 @@ public interface YouTrackDB extends AutoCloseable {
   @Nonnull
   YTDBGraphTraversalSource openTraversal(@Nonnull String databaseName);
 
-  /// Creates a database by restoring it from incremental backup. The backup should be created with
-  /// [#incrementalBackup(Path)].
+  /// Creates a database by restoring it from backup. The backup should be created with
+  /// [YTDBGraphTraversalSource#backup(Path)].
+  ///
+  /// At the moment only disk-based databases are supported, you cannot restore memory databases.
+  ///
+  /// @param databaseName Name of a database to be created.
+  /// @param path         Path to the backup directory.
+  void restore(@Nonnull String databaseName, @Nonnull String path);
+
+  /// Creates a database by restoring it from backup. The backup should be created with
+  /// [YTDBGraphTraversalSource#backup(Path)].
   ///
   /// At the moment only disk-based databases are supported, you cannot restore memory databases.
   ///
@@ -372,4 +381,17 @@ public interface YouTrackDB extends AutoCloseable {
 
     return userCredentialsArray;
   }
+
+  /// Creates a database by restoring it from backup. The backup should be created with
+  /// [YTDBGraphTraversalSource#backup(Path)].
+  ///
+  /// At the moment only disk-based databases are supported, you can not restore memory databases.
+  ///
+  /// @param databaseName Name of a database to be created.
+  /// @param path         Path to the backup directory.
+  /// @param expectedUUID UUID of the database to be restored. If null, the database will be
+  ///                     restored only if the directory contains backup only from one database.
+  /// @param config       database configuration
+  void restore(@Nonnull String databaseName, @Nonnull String path, @Nullable String expectedUUID,
+      @Nonnull Configuration config);
 }

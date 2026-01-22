@@ -79,7 +79,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
       CommandContext ctx,
       SQLExpression... args) {
 
-    var index = this.searchForIndex(target, ctx);
+    var index = searchForIndex(target, ctx);
 
     if (index == null) {
       return Collections.emptySet();

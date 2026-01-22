@@ -41,6 +41,7 @@ public class SQLCreatePropertyAttributeStatement extends SimpleNode {
     }
   }
 
+  @Override
   public SQLCreatePropertyAttributeStatement copy() {
     var result = new SQLCreatePropertyAttributeStatement(-1);
     result.settingName = settingName == null ? null : settingName.copy();

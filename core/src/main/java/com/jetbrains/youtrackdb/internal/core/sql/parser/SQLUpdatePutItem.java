@@ -19,6 +19,7 @@ public class SQLUpdatePutItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" = ");
@@ -27,6 +28,7 @@ public class SQLUpdatePutItem extends SimpleNode {
     value.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" = ");
@@ -35,6 +37,7 @@ public class SQLUpdatePutItem extends SimpleNode {
     value.toGenericStatement(builder);
   }
 
+  @Override
   public SQLUpdatePutItem copy() {
     var result = new SQLUpdatePutItem(-1);
     result.left = left == null ? null : left.copy();

@@ -28,7 +28,8 @@ public final class YTDBDriverWebSocketChannelizer extends Channelizer.WebSocketC
 
     var oldSaslGremlinHandler = pipeline.get("gremlin-sasl-handler");
     if (!(oldSaslGremlinHandler instanceof YTDBGremlinSaslAuthenticationHandler)) {
-      var newSaslGremlinHandler = new YTDBGremlinSaslAuthenticationHandler(this.cluster.authProperties());
+      var newSaslGremlinHandler = new YTDBGremlinSaslAuthenticationHandler(
+          this.cluster.authProperties());
       pipeline.replace(oldSaslGremlinHandler, "gremlin-sasl-handler", newSaslGremlinHandler);
     }
   }

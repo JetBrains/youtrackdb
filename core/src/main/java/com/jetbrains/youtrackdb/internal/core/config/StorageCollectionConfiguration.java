@@ -20,9 +20,10 @@
 package com.jetbrains.youtrackdb.internal.core.config;
 
 public interface StorageCollectionConfiguration {
-  int getId();
 
-  String getName();
+  int id();
+
+  String name();
 
   String getLocation();
 

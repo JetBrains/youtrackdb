@@ -306,7 +306,7 @@ public class SQLInsertBody extends SimpleNode {
 
     if (content != null) {
       for (var item : content) {
-        if (!false) {
+        if (true) {
           return false;
         }
       }

@@ -6,13 +6,6 @@ import java.util.Map;
 /**
  *
  */
-public class LuceneKeyAndMetadata {
+public record LuceneKeyAndMetadata(LuceneCompositeKey key, Map<String, ?> metadata) {
 
-  public final LuceneCompositeKey key;
-  public final Map<String, ?> metadata;
-
-  public LuceneKeyAndMetadata(final LuceneCompositeKey key, final Map<String, ?> metadata) {
-    this.key = key;
-    this.metadata = metadata;
-  }
 }

@@ -672,7 +672,8 @@ public class CommandExecutorScript extends CommandExecutorAbstract
 
   private void executeConsoleLog(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.log ".length()).trim();
-    LogManager.instance().info(this, "%s", getValue(IOUtils.wrapStringContent(value, '\''), db));
+    LogManager.instance()
+        .info(this, "%s", getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
   private void executeConsoleOutput(final String lastCommand, final DatabaseSessionEmbedded db) {

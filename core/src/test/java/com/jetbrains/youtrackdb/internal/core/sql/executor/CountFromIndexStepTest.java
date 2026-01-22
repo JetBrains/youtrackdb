@@ -40,6 +40,7 @@ public class CountFromIndexStepTest extends TestUtilsFixture {
         });
   }
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     var clazz = createClassInstance();

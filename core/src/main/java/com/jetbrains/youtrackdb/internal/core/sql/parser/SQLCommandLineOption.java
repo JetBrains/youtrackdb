@@ -29,6 +29,7 @@ public class SQLCommandLineOption extends SimpleNode {
     name.toGenericStatement(builder);
   }
 
+  @Override
   public SQLCommandLineOption copy() {
     var result = new SQLCommandLineOption(-1);
     result.name = name == null ? null : name.copy();

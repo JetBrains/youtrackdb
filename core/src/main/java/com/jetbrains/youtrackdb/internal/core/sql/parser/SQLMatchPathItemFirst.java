@@ -20,10 +20,12 @@ public class SQLMatchPathItemFirst extends SQLMatchPathItem {
     super(p, id);
   }
 
+  @Override
   public boolean isBidirectional() {
     return false;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     function.toString(params, builder);
     if (filter != null) {
@@ -31,6 +33,7 @@ public class SQLMatchPathItemFirst extends SQLMatchPathItem {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     function.toGenericStatement(builder);
     if (filter != null) {
@@ -38,6 +41,7 @@ public class SQLMatchPathItemFirst extends SQLMatchPathItem {
     }
   }
 
+  @Override
   protected Iterable<Identifiable> traversePatternEdge(
       SQLMatchStatement.MatchContext matchContext,
       Identifiable startingPoint,

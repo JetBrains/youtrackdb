@@ -30,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -91,7 +90,6 @@ public interface FrontendTransaction extends Transaction {
    *
    * @param oldRid Record identity before commit.
    * @param newRid Record identity after commit.
-   * @return
    */
   boolean assertIdentityChangedAfterCommit(final RecordIdInternal oldRid,
       final RecordIdInternal newRid);
@@ -174,13 +172,6 @@ public interface FrontendTransaction extends Transaction {
    */
   void setCustomData(String name, Object value);
 
-  /**
-   * @return this transaction ID as seen by the client of this transaction.
-   */
-  default long getClientTransactionId() {
-    return getId();
-  }
-
 
   /**
    * Extract all the record operations for the current transaction
@@ -204,35 +195,20 @@ public interface FrontendTransaction extends Transaction {
 
   void setSession(DatabaseSessionEmbedded session);
 
-  @Nullable
-  default byte[] getMetadata() {
-    return null;
-  }
-
-  void setMetadataHolder(FrontendTransacationMetadataHolder metadata);
-
-  default void storageBegun() {
-  }
-
-  Iterator<byte[]> getSerializedOperations();
-
-  boolean isReadOnly();
-
   long getId();
 
-  RecordOperation addRecordOperation(RecordAbstract record, byte status);
+  void addRecordOperation(RecordAbstract record, byte status);
 
   @Nullable
   RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid, long upperBoundExclusive);
 
   @Nullable
-  RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid, long lowerBoundInclusive);
+  RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid,
+      long lowerBoundInclusive);
 
   boolean isDeletedInTx(@Nonnull RID rid);
 
-  @Nullable
-  default List<RecordIdInternal> preProcessRecordsAndExecuteCallCallbacks() {
-    return null;
+  default void preProcessRecordsAndExecuteCallCallbacks() {
   }
 
   boolean isCallBackProcessingInProgress();

@@ -26,6 +26,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
   private static RID userId1;
   private List<Identifiable> edges;
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     final Schema schema = session.getMetadata().getSchema();

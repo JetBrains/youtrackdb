@@ -947,11 +947,11 @@ public class DefaultSecuritySystem implements SecuritySystem {
         } else {
           if (file.exists()) {
             LogManager.instance()
-                .warn(this, "Could not read the security JSON file: %s", null, jsonFile);
+                .warn(this, null, "Could not read the security JSON file: %s", null, jsonFile);
           } else {
             if (file.exists()) {
               LogManager.instance()
-                  .warn(this, "Security JSON file: %s do not exists", null, jsonFile);
+                  .warn(this, null, "Security JSON file: %s do not exists", null, jsonFile);
             }
           }
         }

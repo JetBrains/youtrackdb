@@ -13,6 +13,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface YTDBSchemaProperty extends YTDBDomainObject {
+
   String LABEL = "$schemaProperty";
 
   @SuppressWarnings("rawtypes")

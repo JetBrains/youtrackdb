@@ -46,6 +46,7 @@ public abstract class LuceneTxChangesAbstract implements LuceneTxChanges {
     this.deletedIdx = deletedIdx;
   }
 
+  @Override
   public IndexSearcher searcher() {
     // TODO optimize
     try {

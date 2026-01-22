@@ -104,10 +104,8 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return propFactory.create(key, valueToReturn, type, this);
   }
 
-  /// Common logic for reading the value of an element property. Called from
-  /// [[YTDBVertex]] and
-  /// [[YTDBEdge]] implementations with corresponding
-  /// [[YTDBPropertyFactory]] instances.
+  /// Common logic for reading the value of an element property. Called from [[YTDBVertex]] and
+  /// [[YTDBEdge]] implementations with corresponding [[YTDBPropertyFactory]] instances.
   protected <V, P extends YTDBProperty<V>> P readProperty(
       YTDBPropertyFactory<V, P> propFactory, String key) {
     graph.tx().readWrite();

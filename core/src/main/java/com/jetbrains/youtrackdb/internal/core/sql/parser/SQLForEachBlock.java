@@ -141,6 +141,7 @@ public class SQLForEachBlock extends SQLStatement {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("FOREACH (");
     loopVariable.toString(params, builder);
@@ -154,6 +155,7 @@ public class SQLForEachBlock extends SQLStatement {
     builder.append("}");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("FOREACH (");
     loopVariable.toGenericStatement(builder);

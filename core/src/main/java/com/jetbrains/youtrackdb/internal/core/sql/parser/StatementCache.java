@@ -28,6 +28,7 @@ public class StatementCache {
     this.mapSize = size;
     map =
         new LinkedHashMap<String, SQLStatement>(size) {
+          @Override
           protected boolean removeEldestEntry(final Map.Entry<String, SQLStatement> eldest) {
             return super.size() > mapSize;
           }

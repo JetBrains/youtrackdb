@@ -34,6 +34,7 @@ public class SQLIndexIdentifier extends SimpleNode {
     this.type = type;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     switch (type) {
       case INDEX:
@@ -57,6 +58,7 @@ public class SQLIndexIdentifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     switch (type) {
       case INDEX:
@@ -91,6 +93,7 @@ public class SQLIndexIdentifier extends SimpleNode {
     return type;
   }
 
+  @Override
   public SQLIndexIdentifier copy() {
     var result = new SQLIndexIdentifier(-1);
     result.type = type;

@@ -36,11 +36,13 @@ public class SQLProfileStorageStatement extends SQLSimpleExecStatement {
     return null;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("PROFILE STORAGE ");
     builder.append(on ? "ON" : "OFF");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("PROFILE STORAGE ");
     builder.append(on ? "ON" : "OFF");

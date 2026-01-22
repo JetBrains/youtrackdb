@@ -19,18 +19,15 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 
-/**
- *
- */
 public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded implements
     PooledSession {
 
   private final DatabasePoolInternal pool;
 
   public DatabaseSessionEmbeddedPooled(DatabasePoolInternal pool,
-      Storage storage, boolean serverMode) {
+      AbstractStorage storage, boolean serverMode) {
     super(storage, serverMode);
     this.pool = pool;
   }

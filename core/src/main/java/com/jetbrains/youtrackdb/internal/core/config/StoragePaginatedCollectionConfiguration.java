@@ -64,12 +64,12 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
   }
 
   @Override
-  public int getId() {
+  public int id() {
     return id;
   }
 
   @Override
-  public String getName() {
+  public String name() {
     return name;
   }
 

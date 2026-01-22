@@ -8,4 +8,5 @@ import org.junit.runner.RunWith;
 @RunWith(YTDBProcessSuiteRemote.class)
 @GraphProviderClass(provider = YTDBGraphBinaryRemoteGraphProvider.class, graph = RemoteGraph.class)
 public class GraphBinaryRemoteGraphProcessExtendedTest {
+
 }

@@ -137,6 +137,8 @@ import com.jetbrains.youtrackdb.internal.core.tx.TxBiConsumer;
 import com.jetbrains.youtrackdb.internal.core.tx.TxBiFunction;
 import com.jetbrains.youtrackdb.internal.core.tx.TxConsumer;
 import com.jetbrains.youtrackdb.internal.core.tx.TxFunction;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -154,7 +156,11 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -171,7 +177,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final boolean serverMode;
 
   private YouTrackDBConfigImpl config;
-  private final Storage storage;
+  private final AbstractStorage storage;
 
   private final Stopwatch freezeDurationMetric;
   private final Stopwatch releaseDurationMetric;
@@ -216,11 +222,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
 
   //those two fields are used in the remote session wrapper to track state when embedded session
-  //is opened in remote mode.
+//is opened in remote mode.
   private boolean openedAsRemoteSession;
   private int remoteCallsCount;
 
-  public DatabaseSessionEmbedded(final Storage storage, boolean serverMode) {
+  public DatabaseSessionEmbedded(final AbstractStorage storage, boolean serverMode) {
     super(false);
     this.serverMode = serverMode;
     // in server mode we don't enable result set auto-closing
@@ -443,7 +449,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -531,7 +536,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if ("clear".equalsIgnoreCase(name) && iValue == null) {
       clearCustomInternal();
@@ -556,9 +560,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
-    var storage = (Storage) getSharedContext().getStorage();
+    var storage = getSharedContext().getStorage();
     storage.open(this, null, null, getConfiguration());
     String user;
     if (getCurrentUser() != null) {
@@ -585,7 +588,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var indexManager = sharedContext.getIndexManager();
     if (indexManager.autoRecreateIndexesAfterCrash(this)) {
@@ -612,7 +614,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public ResultSet query(String query, Object... args) {
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
@@ -655,7 +656,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -695,7 +695,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -736,7 +735,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -779,7 +777,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -801,12 +798,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 .getCommandManager()
                 .getScriptExecutor(language);
 
-        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
+        this.storage.pauseConfigurationUpdateNotifications();
         ResultSet original;
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
+          this.storage.fireConfigurationUpdateNotifications();
         }
         var result = new LocalResultSetLifecycleDecorator(original);
         queryStarted(result);
@@ -833,7 +830,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -857,11 +853,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 .getScriptExecutor(language);
         ResultSet original;
 
-        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
+        this.storage.pauseConfigurationUpdateNotifications();
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
+          this.storage.fireConfigurationUpdateNotifications();
         }
 
         var result = new LocalResultSetLifecycleDecorator(original);
@@ -881,7 +877,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -924,7 +919,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     int id;
     if (!existsCollection(iCollectionName)) {
@@ -940,7 +934,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var blob = new RecordBytes(new ChangeableRecordId(), this, bytes);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
@@ -956,7 +949,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var blob = new RecordBytes(this, new ChangeableRecordId());
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
@@ -979,7 +971,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
@@ -1011,7 +1002,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME);
     var rid = new ChangeableRecordId();
@@ -1131,7 +1121,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
@@ -1150,7 +1139,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
@@ -1172,7 +1160,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       boolean throwExceptionIfRecordNotFound
   ) {
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     getMetadata().makeThreadLocalSchemaSnapshot();
     try {
@@ -1304,7 +1291,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
@@ -1320,7 +1306,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
   }
@@ -1330,7 +1315,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
@@ -1356,7 +1340,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EmbeddedEntityImpl(schemaClass, this);
   }
@@ -1366,7 +1349,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EmbeddedEntityImpl(this);
   }
@@ -1396,7 +1378,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       currentTx.beginInternal();
@@ -1411,7 +1392,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       return;
@@ -1444,7 +1424,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     record.delete();
   }
@@ -1609,6 +1588,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.READ, identifiable);
   }
 
+
+  public UUID uuid() {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    return storage.getUuid();
+  }
+
   @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
@@ -1714,7 +1701,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -1752,7 +1738,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var collectionId = record.getIdentity().getCollectionId();
     if (collectionId == RID.COLLECTION_ID_INVALID) {
@@ -1789,7 +1774,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     try {
       checkSecurity(
@@ -1839,7 +1823,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (user != null) {
       try {
@@ -1873,7 +1856,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (iResourcesSpecific == null || iResourcesSpecific.length == 0) {
       checkSecurity(iResourceGeneric, null, iOperation);
@@ -1895,7 +1877,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     checkSecurity(
         iResourceGeneric,
@@ -1909,7 +1890,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
@@ -1929,7 +1909,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResourceGeneric);
@@ -1947,7 +1926,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResourceGeneric);
@@ -1959,7 +1937,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.addCollection(this, iCollectionName, iParameters);
   }
@@ -1969,7 +1946,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
@@ -1986,7 +1962,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     storage.setConflictStrategy(
         YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
@@ -1998,7 +1973,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     storage.setConflictStrategy(iResolver);
     return this;
@@ -2009,7 +1983,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     try {
       return storage.getCollectionRecordsSizeByName(collectionName);
@@ -2026,7 +1999,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     try {
       return storage.getCollectionRecordsSizeById(collectionId);
@@ -2046,7 +2018,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     final var name = getCollectionNameById(iCollectionId);
     if (name == null) {
@@ -2065,7 +2036,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     String name;
     for (var iCollectionId : iCollectionIds) {
@@ -2083,7 +2053,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
 
@@ -2099,7 +2068,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     final var collectionId = getCollectionIdByName(iCollectionName);
     var schema = metadata.getSchema();
@@ -2128,7 +2096,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     checkSecurity(
         ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
@@ -2167,7 +2134,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.dropCollection(this, collectionId);
   }
@@ -2177,7 +2143,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.getSize(this);
   }
@@ -2212,15 +2177,37 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public String incrementalBackup(final Path path) throws UnsupportedOperationException {
+  public String backup(final Path path) {
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
-
     checkSecurity(ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
-    return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
+    return storage.backup(path);
+  }
+
+  public String fullBackup(final Path path) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkSecurity(ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
+
+    return storage.fullBackup(path);
+  }
+
+  @Override
+  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      Consumer<String> ibuFileRemover) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+
+    checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
+
+    storage.backup(ibuFilesSupplier, ibuInputStreamSupplier, ibuOutputStreamSupplier,
+        ibuFileRemover);
   }
 
   @Nullable
@@ -2229,7 +2216,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.getConfiguration().getTimeZone();
   }
@@ -2239,7 +2225,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.getRecordMetadata(this, rid);
   }
@@ -2252,7 +2237,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (!(storage instanceof FreezableStorageComponent)) {
       LogManager.instance()
@@ -2290,7 +2274,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (!(storage instanceof FreezableStorageComponent)) {
       LogManager.instance()
@@ -2314,7 +2297,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private FreezableStorageComponent getFreezableStorage() {
     var s = storage;
     if (s instanceof FreezableStorageComponent) {
-      return (FreezableStorageComponent) s;
+      return s;
     } else {
       LogManager.instance()
           .error(
@@ -2337,7 +2320,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (this.isClosed()) {
       throw new DatabaseException(getDatabaseName(), "Cannot reload a closed db");
@@ -2398,7 +2380,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.getCollectionRecordConflictStrategy(collectionId);
   }
@@ -2408,21 +2389,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return storage.getCollectionsIds(filterCollections);
-  }
-
-  @Override
-  public void startExclusiveMetadataChange() {
-    assert assertIfNotActive();
-    ((AbstractStorage) storage).startDDL();
-  }
-
-  @Override
-  public void endExclusiveMetadataChange() {
-    assert assertIfNotActive();
-    ((AbstractStorage) storage).endDDL();
   }
 
   @Override
@@ -2430,7 +2398,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     this.checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
@@ -2465,7 +2432,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
 
@@ -2578,7 +2544,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public MetadataDefault getMetadata() {
     assert assertIfNotActive();
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return metadata;
   }
@@ -2626,7 +2591,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
     return user;
   }
 
@@ -2711,7 +2675,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (!hooks.contains(iHookImpl)) {
       hooks.add(iHookImpl);
@@ -2728,7 +2691,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (hooks.remove(iHookImpl)) {
       iHookImpl.onUnregister();
@@ -2769,7 +2731,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return Collections.unmodifiableList(hooks);
   }
@@ -2779,7 +2740,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (record instanceof EntityImpl entity) {
       ensureEdgeConsistencyOnDeletion(entity);
@@ -2873,14 +2833,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public STATUS getStatus() {
-    checkOpenedAsRemoteSession();
 
     return status;
   }
 
   @Override
   public String getDatabaseName() {
-    checkOpenedAsRemoteSession();
 
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
   }
@@ -2895,7 +2853,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public int getCollections() {
     assert assertIfNotActive();
 
-    checkOpenedAsRemoteSession();
     return getStorageInfo().getCollections();
   }
 
@@ -2904,7 +2861,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return getStorageInfo().getCollectionNames()
         .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
@@ -2915,7 +2871,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return getStorageInfo().getCollectionNames();
   }
@@ -2929,7 +2884,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
@@ -2943,7 +2897,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return getStorageInfo().getPhysicalCollectionNameById(iCollectionId);
   }
@@ -2953,7 +2906,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (iValue == null) {
       return properties.remove(iName.toLowerCase(Locale.ENGLISH));
@@ -2967,7 +2919,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return properties.get(iName.toLowerCase(Locale.ENGLISH));
   }
@@ -2977,7 +2928,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return properties.entrySet().iterator();
   }
@@ -2987,7 +2937,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -3012,7 +2961,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     final var storage = getStorageInfo();
     if (attribute == ATTRIBUTES_INTERNAL.VALIDATION) {
@@ -3048,7 +2996,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return (RET) currentTx.loadRecord(recordId);
   }
@@ -3058,7 +3005,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return currentTx.exists(rid);
   }
@@ -3074,7 +3020,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     this.prefetchRecords = prefetchRecords;
   }
@@ -3084,7 +3029,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return prefetchRecords;
   }
@@ -3217,7 +3161,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     //noinspection unchecked
     return (T) JSONSerializerJackson.INSTANCE.fromString(this, json);
@@ -3228,7 +3171,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var result = JSONSerializerJackson.INSTANCE.fromString(this, json);
 
@@ -3302,7 +3244,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (getMetadata().getImmutableSchemaSnapshot().getClass(className) == null) {
       throw new IllegalArgumentException(
@@ -3318,7 +3259,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
     return new RecordIteratorClass(this, (SchemaClassInternal) clz,
@@ -3334,7 +3274,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
     return new RecordIteratorCollection<>(this, getCollectionIdByName(iCollectionName), true);
@@ -3379,7 +3318,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var totalOnDb = cls.countImpl(iPolymorphic, this);
 
@@ -3434,7 +3372,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
       throw new RollbackException("Transaction is rolling back");
@@ -3540,7 +3477,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       // WAKE UP LISTENERS
@@ -3578,7 +3514,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     for (var h : hooks) {
       h.onUnregister();
@@ -3595,7 +3530,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (collection == null) {
       collection = getCollectionNameById(record.getIdentity().getCollectionId());
@@ -3705,7 +3639,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var clazz =
         (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
@@ -3986,7 +3919,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var transaction = getTransactionInternal();
     return transaction.amountOfNestedTxs();
@@ -3997,7 +3929,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityEmbeddedListImpl<>();
   }
@@ -4007,7 +3938,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityEmbeddedListImpl<>(size);
   }
@@ -4017,7 +3947,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     //noinspection unchecked
     return (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(list, this);
@@ -4028,7 +3957,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<String>(source.length);
     trackedList.addAll(Arrays.asList(source));
@@ -4040,7 +3968,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Date>(source.length);
     trackedList.addAll(Arrays.asList(source));
@@ -4052,7 +3979,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Byte>(source.length);
     for (var b : source) {
@@ -4066,7 +3992,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Short>(source.length);
     for (var s : source) {
@@ -4080,7 +4005,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Integer>(source.length);
     for (var i : source) {
@@ -4094,7 +4018,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Long>(source.length);
     for (var l : source) {
@@ -4108,7 +4031,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Float>(source.length);
     for (var f : source) {
@@ -4122,7 +4044,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Double>(source.length);
     for (var d : source) {
@@ -4136,7 +4057,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var trackedList = new EntityEmbeddedListImpl<Boolean>(source.length);
     for (var b : source) {
@@ -4150,7 +4070,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityLinkListImpl(this);
   }
@@ -4160,7 +4079,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityLinkListImpl(this, size);
   }
@@ -4170,7 +4088,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var list = new EntityLinkListImpl(this, source.size());
     list.addAll(source);
@@ -4182,7 +4099,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityEmbeddedSetImpl<>();
   }
@@ -4192,7 +4108,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityEmbeddedSetImpl<>(size);
   }
@@ -4202,7 +4117,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     //noinspection unchecked
     return (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(set, this);
@@ -4213,7 +4127,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityLinkSetImpl(this);
   }
@@ -4224,7 +4137,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var linkSet = new EntityLinkSetImpl(this);
     linkSet.addAll(source);
@@ -4236,7 +4148,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityEmbeddedMapImpl<>();
   }
@@ -4246,7 +4157,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityEmbeddedMapImpl<>(size);
   }
@@ -4256,7 +4166,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     //noinspection unchecked
     return (EmbeddedMap<V>) PropertyTypeInternal.EMBEDDEDMAP.copy(map, this);
@@ -4267,7 +4176,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityLinkMapIml(this);
   }
@@ -4277,7 +4185,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     return new EntityLinkMapIml(size, this);
   }
@@ -4287,7 +4194,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     var linkMap = new EntityLinkMapIml(source.size(), this);
     linkMap.putAll(source);
@@ -4300,7 +4206,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       return currentTx;
@@ -4315,7 +4220,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       return currentTx;
@@ -4703,24 +4607,5 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void enableLinkConsistencyCheck() {
     this.ensureLinkConsistency = true;
-  }
-
-  public void remoteWrapperClosed() {
-    openedAsRemoteSession = false;
-  }
-
-  public void startRemoteCall() {
-    remoteCallsCount++;
-  }
-
-  public void endRemoteCall() {
-    remoteCallsCount--;
-  }
-
-  private void checkOpenedAsRemoteSession() {
-    if (openedAsRemoteSession && remoteCallsCount == 0) {
-      throw new IllegalStateException(
-          "Session is opened as remote session and can not be used till related remote session is closed.");
-    }
   }
 }

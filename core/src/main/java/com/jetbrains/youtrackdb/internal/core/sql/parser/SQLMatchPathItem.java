@@ -68,6 +68,7 @@ public class SQLMatchPathItem extends SimpleNode {
     return method.isBidirectional();
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     method.toString(params, builder);
     if (filter != null) {
@@ -75,6 +76,7 @@ public class SQLMatchPathItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     method.toGenericStatement(builder);
     if (filter != null) {

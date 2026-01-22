@@ -24,6 +24,7 @@ public class SQLTimeout extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(" TIMEOUT " + val);
     if (failureStrategy != null) {
@@ -32,6 +33,7 @@ public class SQLTimeout extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(" TIMEOUT " + PARAMETER_PLACEHOLDER);
     if (failureStrategy != null) {
@@ -40,6 +42,7 @@ public class SQLTimeout extends SimpleNode {
     }
   }
 
+  @Override
   public SQLTimeout copy() {
     var result = new SQLTimeout(-1);
     result.val = val;

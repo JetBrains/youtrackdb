@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,7 +30,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected YouTrackDBInternalEmbedded youtrackDB;
-  protected Storage storage;
+  protected AbstractStorage storage;
   protected SchemaShared schema;
   protected SecurityInternal security;
 
@@ -50,7 +49,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   private final ReentrantLock lock = new ReentrantLock();
 
-  public SharedContext(Storage storage, YouTrackDBInternalEmbedded youtrackDB) {
+  public SharedContext(AbstractStorage storage, YouTrackDBInternalEmbedded youtrackDB) {
     super(true);
 
     this.youtrackDB = youtrackDB;
@@ -259,16 +258,12 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     return queryStats;
   }
 
-  public StorageInfo getStorage() {
+  public AbstractStorage getStorage() {
     return storage;
   }
 
   public YouTrackDBInternalEmbedded getYouTrackDB() {
     return youtrackDB;
-  }
-
-  public void setStorage(Storage storage) {
-    this.storage = storage;
   }
 
   public IndexManagerEmbedded getIndexManager() {

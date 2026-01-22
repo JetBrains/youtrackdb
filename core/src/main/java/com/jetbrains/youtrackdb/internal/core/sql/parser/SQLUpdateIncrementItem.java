@@ -19,6 +19,7 @@ public class SQLUpdateIncrementItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     if (leftModifier != null) {
@@ -28,6 +29,7 @@ public class SQLUpdateIncrementItem extends SimpleNode {
     right.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     if (leftModifier != null) {
@@ -37,6 +39,7 @@ public class SQLUpdateIncrementItem extends SimpleNode {
     right.toGenericStatement(builder);
   }
 
+  @Override
   public SQLUpdateIncrementItem copy() {
     var result = new SQLUpdateIncrementItem(-1);
     result.left = left == null ? null : left.copy();

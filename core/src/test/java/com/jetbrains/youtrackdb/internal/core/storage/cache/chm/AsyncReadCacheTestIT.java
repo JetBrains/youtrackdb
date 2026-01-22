@@ -183,27 +183,8 @@ public class AsyncReadCacheTestIT {
     readCache.assertSize();
   }
 
-  private static final class PageWriter implements Callable<Void> {
-
-    private final int fileLimit;
-    private final int pageLimit;
-    private final WriteCache writeCache;
-    private final int pageCount;
-
-    private final LockFreeReadCache readCache;
-
-    private PageWriter(
-        final int fileLimit,
-        final int pageLimit,
-        final WriteCache writeCache,
-        final int pageCount,
-        final LockFreeReadCache readCache) {
-      this.fileLimit = fileLimit;
-      this.pageLimit = pageLimit;
-      this.writeCache = writeCache;
-      this.pageCount = pageCount;
-      this.readCache = readCache;
-    }
+  private record PageWriter(int fileLimit, int pageLimit, WriteCache writeCache, int pageCount,
+                            LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -224,27 +205,8 @@ public class AsyncReadCacheTestIT {
     }
   }
 
-  private static final class PageReader implements Callable<Void> {
-
-    private final int fileLimit;
-    private final int pageLimit;
-    private final WriteCache writeCache;
-    private final int pageCount;
-
-    private final LockFreeReadCache readCache;
-
-    private PageReader(
-        final int fileLimit,
-        final int pageLimit,
-        final WriteCache writeCache,
-        final int pageCount,
-        final LockFreeReadCache readCache) {
-      this.fileLimit = fileLimit;
-      this.pageLimit = pageLimit;
-      this.writeCache = writeCache;
-      this.pageCount = pageCount;
-      this.readCache = readCache;
-    }
+  private record PageReader(int fileLimit, int pageLimit, WriteCache writeCache, int pageCount,
+                            LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -264,24 +226,8 @@ public class AsyncReadCacheTestIT {
     }
   }
 
-  private static final class ZiphianPageWriter implements Callable<Void> {
-
-    private final int pageLimit;
-    private final WriteCache writeCache;
-    private final int pageCount;
-
-    private final LockFreeReadCache readCache;
-
-    private ZiphianPageWriter(
-        final int pageLimit,
-        final WriteCache writeCache,
-        final int pageCount,
-        final LockFreeReadCache readCache) {
-      this.pageLimit = pageLimit;
-      this.writeCache = writeCache;
-      this.pageCount = pageCount;
-      this.readCache = readCache;
-    }
+  private record ZiphianPageWriter(int pageLimit, WriteCache writeCache, int pageCount,
+                                   LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -300,24 +246,8 @@ public class AsyncReadCacheTestIT {
     }
   }
 
-  private static final class ZiphianPageReader implements Callable<Void> {
-
-    private final int pageLimit;
-    private final WriteCache writeCache;
-    private final int pageCount;
-
-    private final LockFreeReadCache readCache;
-
-    private ZiphianPageReader(
-        final int pageLimit,
-        final WriteCache writeCache,
-        final int pageCount,
-        final LockFreeReadCache readCache) {
-      this.pageLimit = pageLimit;
-      this.writeCache = writeCache;
-      this.pageCount = pageCount;
-      this.readCache = readCache;
-    }
+  private record ZiphianPageReader(int pageLimit, WriteCache writeCache, int pageCount,
+                                   LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -336,13 +266,7 @@ public class AsyncReadCacheTestIT {
     }
   }
 
-  private static final class MockedWriteCache implements WriteCache {
-
-    private final ByteBufferPool byteBufferPool;
-
-    MockedWriteCache(final ByteBufferPool byteBufferPool) {
-      this.byteBufferPool = byteBufferPool;
-    }
+  private record MockedWriteCache(ByteBufferPool byteBufferPool) implements WriteCache {
 
     @Override
     public void addPageIsBrokenListener(final PageIsBrokenListener listener) {
@@ -383,7 +307,7 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public void syncDataFiles(long segmentId, byte[] lastMetadata) {
+    public void syncDataFiles(long segmentId) {
     }
 
     @Override

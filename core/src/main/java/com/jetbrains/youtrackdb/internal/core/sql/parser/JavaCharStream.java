@@ -169,6 +169,7 @@ public class JavaCharStream implements CharStream {
   /**
    * @return starting character for token.
    */
+  @Override
   public char BeginToken() throws java.io.IOException {
     if (inBuf > 0) {
       --inBuf;
@@ -241,6 +242,7 @@ public class JavaCharStream implements CharStream {
   /**
    * Read a character.
    */
+  @Override
   public char readChar() throws java.io.IOException {
     if (inBuf > 0) {
       --inBuf;
@@ -328,6 +330,7 @@ public class JavaCharStream implements CharStream {
     }
   }
 
+  @Override
   @Deprecated
   /**
    * @deprecated
@@ -337,6 +340,7 @@ public class JavaCharStream implements CharStream {
     return bufcolumn[bufpos];
   }
 
+  @Override
   @Deprecated
   /**
    * @deprecated
@@ -349,6 +353,7 @@ public class JavaCharStream implements CharStream {
   /**
    * Get end column.
    */
+  @Override
   public int getEndColumn() {
     return bufcolumn[bufpos];
   }
@@ -356,6 +361,7 @@ public class JavaCharStream implements CharStream {
   /**
    * Get end line.
    */
+  @Override
   public int getEndLine() {
     return bufline[bufpos];
   }
@@ -363,6 +369,7 @@ public class JavaCharStream implements CharStream {
   /**
    * @return column of token start
    */
+  @Override
   public int getBeginColumn() {
     return bufcolumn[tokenBegin];
   }
@@ -370,6 +377,7 @@ public class JavaCharStream implements CharStream {
   /**
    * @return line number of token start
    */
+  @Override
   public int getBeginLine() {
     return bufline[tokenBegin];
   }
@@ -377,6 +385,7 @@ public class JavaCharStream implements CharStream {
   /**
    * Retreat.
    */
+  @Override
   public void backup(int amount) {
 
     inBuf += amount;
@@ -557,6 +566,7 @@ public class JavaCharStream implements CharStream {
   /**
    * @return token image as String
    */
+  @Override
   public String GetImage() {
     if (bufpos >= tokenBegin) {
       return new String(buffer, tokenBegin, bufpos - tokenBegin + 1);
@@ -569,6 +579,7 @@ public class JavaCharStream implements CharStream {
   /**
    * @return suffix
    */
+  @Override
   public char[] GetSuffix(int len) {
     var ret = new char[len];
 
@@ -585,6 +596,7 @@ public class JavaCharStream implements CharStream {
   /**
    * Set buffers back to null when finished.
    */
+  @Override
   public void Done() {
     nextCharBuf = null;
     buffer = null;

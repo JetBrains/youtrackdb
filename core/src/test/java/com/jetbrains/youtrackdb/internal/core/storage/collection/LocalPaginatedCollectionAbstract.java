@@ -41,7 +41,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     while (positions.length > 0) {
       for (var position : positions) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.deleteRecord(atomicOperation, position.collectionPosition));
       }
@@ -49,7 +48,7 @@ public abstract class LocalPaginatedCollectionAbstract {
           Integer.MAX_VALUE);
     }
     atomicOperationsManager.executeInsideAtomicOperation(
-        null, atomicOperation -> paginatedCollection.delete(atomicOperation));
+        atomicOperation -> paginatedCollection.delete(atomicOperation));
 
     youTrackDB.drop(dbName);
     youTrackDB.close();
@@ -64,7 +63,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     while (positions.length > 0) {
       for (var position : positions) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.deleteRecord(atomicOperation, position.collectionPosition));
       }
@@ -84,7 +82,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     final var physicalPosition = new PhysicalPosition[1];
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             physicalPosition[0] =
                 paginatedCollection.createRecord(
@@ -104,7 +101,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation -> {
           physicalPosition[0] =
               paginatedCollection.createRecord(
@@ -113,7 +109,6 @@ public abstract class LocalPaginatedCollectionAbstract {
         });
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             physicalPosition[0] =
                 paginatedCollection.createRecord(
@@ -130,7 +125,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     final var physicalPosition = new PhysicalPosition[1];
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             physicalPosition[0] =
                 paginatedCollection.createRecord(
@@ -149,7 +143,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             physicalPosition[0] =
                 paginatedCollection.createRecord(
@@ -175,7 +168,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     var atomicOperationsManager = storage.getAtomicOperationsManager();
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             physicalPosition[0] =
                 paginatedCollection.createRecord(
@@ -194,7 +186,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             physicalPosition[0] =
                 paginatedCollection.createRecord(
@@ -226,7 +217,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(smallRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -239,7 +229,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     final Set<Long> rolledBackRecordSet = new HashSet<>();
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             for (var i = records / 2; i < records; i++) {
               var recordSize = mersenneTwisterFast.nextInt(CollectionPage.MAX_RECORD_SIZE - 1) + 1;
@@ -271,7 +260,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(smallRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -313,7 +301,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(bigRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -326,7 +313,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Set<Long> rolledBackRecordSet = new HashSet<>();
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             for (var i = records / 2; i < records; i++) {
               var recordSize =
@@ -364,7 +350,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(bigRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -401,7 +386,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(smallRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -414,7 +398,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Set<Long> rolledBackRecordSet = new HashSet<>();
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             for (var i = records / 2; i < records; i++) {
               var recordSize = mersenneTwisterFast.nextInt(2 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -447,7 +430,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(smallRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -471,7 +453,6 @@ public abstract class LocalPaginatedCollectionAbstract {
   public void testAllocatePositionMap() throws IOException {
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             paginatedCollection.allocatePosition((byte) 'd', atomicOperation);
             throw new RollbackException();
@@ -481,7 +462,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var position =
         atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation -> paginatedCollection.allocatePosition((byte) 'd', atomicOperation));
 
     Assert.assertTrue(position.collectionPosition >= 0);
@@ -493,7 +473,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             paginatedCollection.createRecord(new byte[20], 1, (byte) 'd', position, atomicOperation));
 
@@ -509,7 +488,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     for (var i = 0; i < records / 2; i++) {
       var position =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation -> paginatedCollection.allocatePosition((byte) 'd', atomicOperation));
       Assert.assertTrue(position.collectionPosition >= 0);
       try {
@@ -523,7 +501,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             for (var i = records / 2; i < records; i++) {
               var position =
@@ -544,7 +521,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     for (var i = records / 2; i < records; i++) {
       var position =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation -> paginatedCollection.allocatePosition((byte) 'd', atomicOperation));
       Assert.assertTrue(position.collectionPosition >= 0);
       try {
@@ -560,7 +536,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     for (var i = 0; i < records; i++) {
       var position = positions.get(i);
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               paginatedCollection.createRecord(
                   new byte[20], 1, (byte) 'd', position, atomicOperation));
@@ -588,7 +563,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       smallRecord, recordVersion, (byte) 2, null, atomicOperation));
@@ -599,7 +573,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               var deletedRecords = 0;
               Assert.assertEquals(records, paginatedCollection.getEntries());
@@ -636,7 +609,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       if (mersenneTwisterFast.nextBoolean()) {
         deletedPositions.add(collectionPosition);
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertTrue(paginatedCollection.deleteRecord(atomicOperation, collectionPosition)));
         deletedRecords++;
@@ -657,7 +629,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       }
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               Assert.assertFalse(paginatedCollection.deleteRecord(atomicOperation, deletedPosition)));
     }
@@ -695,7 +666,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       bigRecord, recordVersion, (byte) 2, null, atomicOperation));
@@ -708,7 +678,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               var deletedRecords = 0;
               for (long collectionPosition : positionRecordMap.keySet()) {
@@ -745,7 +714,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       if (mersenneTwisterFast.nextBoolean()) {
         deletedPositions.add(collectionPosition);
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertTrue(paginatedCollection.deleteRecord(atomicOperation, collectionPosition)));
         deletedRecords++;
@@ -766,7 +734,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       }
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               Assert.assertFalse(paginatedCollection.deleteRecord(atomicOperation, deletedPosition)));
     }
@@ -801,7 +768,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       bigRecord, recordVersion, (byte) 2, null, atomicOperation));
@@ -812,7 +778,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               var deletedRecords = 0;
               Assert.assertEquals(records, paginatedCollection.getEntries());
@@ -849,7 +814,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       if (mersenneTwisterFast.nextBoolean()) {
         deletedPositions.add(collectionPosition);
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertTrue(paginatedCollection.deleteRecord(atomicOperation, collectionPosition)));
         deletedRecords++;
@@ -869,7 +833,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       }
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               Assert.assertFalse(paginatedCollection.deleteRecord(atomicOperation, deletedPosition)));
     }
@@ -904,7 +867,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       bigRecord, recordVersion, (byte) 2, null, atomicOperation));
@@ -920,7 +882,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       long collectionPosition = positionIterator.next();
       if (mersenneTwisterFast.nextBoolean()) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertTrue(paginatedCollection.deleteRecord(atomicOperation, collectionPosition)));
         deletedRecords++;
@@ -941,7 +902,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       bigRecord, recordVersion, (byte) 2, null, atomicOperation));
@@ -968,7 +928,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.createRecord(
                     smallRecord, recordVersion, (byte) 1, null, atomicOperation));
@@ -978,7 +937,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -999,7 +957,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1022,7 +979,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.createRecord(
                     smallRecord, recordVersion, (byte) 1, null, atomicOperation));
@@ -1033,7 +989,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1053,7 +1008,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1076,7 +1030,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.createRecord(
                     smallRecord, recordVersion, (byte) 1, null, atomicOperation));
@@ -1088,7 +1041,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1109,7 +1061,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1138,7 +1089,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.createRecord(
                     bigRecord, recordVersion, (byte) 1, null, atomicOperation));
@@ -1156,7 +1106,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1177,7 +1126,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             paginatedCollection.updateRecord(
                 physicalPosition.collectionPosition,
@@ -1211,7 +1159,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(smallRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -1227,7 +1174,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       for (long collectionPosition : positionRecordMap.keySet()) {
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 if (mersenneTwisterFast.nextBoolean()) {
                   var recordSize =
@@ -1256,7 +1202,6 @@ public abstract class LocalPaginatedCollectionAbstract {
         mersenneTwisterFast.nextBytes(smallRecord);
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.updateRecord(
                     collectionPosition, smallRecord, newRecordVersion, (byte) 3, atomicOperation));
@@ -1304,7 +1249,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(bigRecord);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -1317,7 +1261,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               for (long collectionPosition : positionRecordMap.keySet()) {
                 if (mersenneTwisterFast.nextBoolean()) {
@@ -1348,7 +1291,6 @@ public abstract class LocalPaginatedCollectionAbstract {
         mersenneTwisterFast.nextBytes(bigRecord);
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.updateRecord(
                     collectionPosition, bigRecord, newRecordVersion, (byte) 3, atomicOperation));
@@ -1394,7 +1336,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       record, recordVersion, (byte) 2, null, atomicOperation));
@@ -1406,7 +1347,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               for (long collectionPosition : positionRecordMap.keySet()) {
                 if (mersenneTwisterFast.nextBoolean()) {
@@ -1433,7 +1373,6 @@ public abstract class LocalPaginatedCollectionAbstract {
         mersenneTwisterFast.nextBytes(record);
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.updateRecord(
                     collectionPosition, record, newRecordVersion, (byte) 3, atomicOperation));
@@ -1476,7 +1415,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       mersenneTwisterFast.nextBytes(record);
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             final var physicalPosition =
                 paginatedCollection.createRecord(
@@ -1488,7 +1426,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               for (var i = 0; i < records / 2; i++) {
                 var recordSize = mersenneTwisterFast.nextInt(2 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -1518,7 +1455,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       record, recordVersion, (byte) 2, null, atomicOperation));
@@ -1530,7 +1466,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       long collectionPosition = positionIterator.next();
       if (mersenneTwisterFast.nextBoolean()) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertTrue(paginatedCollection.deleteRecord(atomicOperation, collectionPosition)));
         positionIterator.remove();
@@ -1579,7 +1514,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       record, recordVersion, (byte) 2, null, atomicOperation));
@@ -1589,7 +1523,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               for (var i = 0; i < records / 2; i++) {
                 var recordSize = mersenneTwisterFast.nextInt(2 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -1619,7 +1552,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       record, recordVersion, (byte) 2, null, atomicOperation));
@@ -1631,7 +1563,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       long collectionPosition = positionIterator.next();
       if (mersenneTwisterFast.nextBoolean()) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertTrue(paginatedCollection.deleteRecord(atomicOperation, collectionPosition)));
         positionIterator.remove();
@@ -1686,7 +1617,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       final var recordType = (byte) i;
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       record, recordVersion.value, recordType, null, atomicOperation));
@@ -1696,7 +1626,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               for (var i = 0; i < records / 2; i++) {
                 var recordSize = mersenneTwisterFast.nextInt(2 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -1738,7 +1667,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       final var currentType = (byte) i;
       final var physicalPosition =
           atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
               atomicOperation ->
                   paginatedCollection.createRecord(
                       record, recordVersion.value, currentType, null, atomicOperation));
@@ -1758,7 +1686,6 @@ public abstract class LocalPaginatedCollectionAbstract {
       Assert.assertEquals(physicalPosition.recordSize, position.recordSize);
       if (mersenneTwisterFast.nextBoolean()) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 paginatedCollection.deleteRecord(atomicOperation, position.collectionPosition));
         removedPositions.add(position);

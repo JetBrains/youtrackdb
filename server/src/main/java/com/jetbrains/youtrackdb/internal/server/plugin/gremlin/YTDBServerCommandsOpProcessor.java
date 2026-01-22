@@ -138,12 +138,13 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     var databaseName = getDatabaseName(msg);
     var backupPath = getBackupPath(msg);
     var configuration = getConfiguration(args);
+    var expectedUUID = getExpectedUUID(msg);
 
     var settings = (YTDBSettings) ctx.getSettings();
     var server = settings.server;
 
     var youTrackDB = server.getYouTrackDB();
-    youTrackDB.restore(databaseName, backupPath, configuration);
+    youTrackDB.restore(databaseName, backupPath, expectedUUID, configuration);
 
     ctx.writeAndFlush(ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).create());
   }
@@ -223,6 +224,11 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     }
 
     ctx.writeAndFlush(ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).create());
+  }
+
+  private static String getExpectedUUID(RequestMessage msg) throws OpProcessorException {
+    var args = msg.getArgs();
+    return (String) args.get(RemoteProtocolConstants.EXPECTED_UUID_PARAMETER);
   }
 
   private static @Nonnull String getDatabaseName(RequestMessage msg)

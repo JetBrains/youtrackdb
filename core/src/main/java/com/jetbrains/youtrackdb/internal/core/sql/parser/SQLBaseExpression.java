@@ -76,6 +76,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
     return super.toString();
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (number != null) {
       number.toString(params, builder);
@@ -98,6 +99,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (number != null) {
       number.toGenericStatement(builder);
@@ -127,6 +129,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
         this.modifier.methodCall.params.isEmpty();
   }
 
+  @Override
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     final SQLModifier nextModifier;
     final Object result;
@@ -157,6 +160,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
         : nextModifier.execute(iCurrentRecord, result, ctx);
   }
 
+  @Override
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     final SQLModifier nextModifier;
     final Object result;
@@ -459,6 +463,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
     return result;
   }
 
+  @Override
   public boolean refersToParent() {
     if (identifier != null && identifier.refersToParent()) {
       return true;
@@ -536,6 +541,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
     }
   }
 
+  @Override
   public Result serialize(DatabaseSessionEmbedded session) {
     var result = (ResultInternal) super.serialize(session);
 
@@ -557,6 +563,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     super.deserialize(fromResult);
 

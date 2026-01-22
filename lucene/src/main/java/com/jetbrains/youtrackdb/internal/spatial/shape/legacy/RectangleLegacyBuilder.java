@@ -36,10 +36,10 @@ public class RectangleLegacyBuilder implements ShapeBuilderLegacy<Rectangle> {
 
     for (var o : key.getKeys()) {
       var numbers = (List<Number>) o;
-      var lat = ((Double) PropertyTypeInternal.convert(session, numbers.get(0),
-          Double.class)).doubleValue();
-      var lng = ((Double) PropertyTypeInternal.convert(session, numbers.get(1),
-          Double.class)).doubleValue();
+      var lat = PropertyTypeInternal.convert(session, numbers.get(0),
+          Double.class).doubleValue();
+      var lng = PropertyTypeInternal.convert(session, numbers.get(1),
+          Double.class).doubleValue();
       points[i] = ctx.makePoint(lng, lat);
       i++;
     }

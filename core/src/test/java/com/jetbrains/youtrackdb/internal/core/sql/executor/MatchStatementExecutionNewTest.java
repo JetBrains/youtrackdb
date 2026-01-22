@@ -14,6 +14,7 @@ import org.junit.Test;
 
 public class MatchStatementExecutionNewTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 

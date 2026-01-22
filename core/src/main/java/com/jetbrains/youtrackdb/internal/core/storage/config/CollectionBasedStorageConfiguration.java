@@ -381,8 +381,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           continue;
         }
 
-        write(buffer, c.getId());
-        write(buffer, c.getName());
+        write(buffer, c.id());
+        write(buffer, c.name());
         write(buffer, c.getDataSegmentId());
 
         if (c instanceof StoragePaginatedCollectionConfiguration paginatedCollectionConfiguration) {
@@ -1312,21 +1312,21 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     try {
       @SuppressWarnings("unchecked") final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
-      if (config.getId() < collections.size()) {
-        collections.set(config.getId(), config);
+      if (config.id() < collections.size()) {
+        collections.set(config.id(), config);
       } else {
-        final var diff = config.getId() - collections.size();
+        final var diff = config.id() - collections.size();
         for (var i = 0; i < diff; i++) {
           collections.add(null);
         }
 
         collections.add(config);
-        assert collections.size() - 1 == config.getId();
+        assert collections.size() - 1 == config.id();
       }
 
       storeProperty(
           atomicOperation,
-          COLLECTIONS_PREFIX_PROPERTY + config.getId(),
+          COLLECTIONS_PREFIX_PROPERTY + config.id(),
           updateCollectionConfig(config),
           COLLECTIONS_PROPERTY_VERSION);
     } finally {
@@ -1609,7 +1609,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     var totalSize = 0;
     final List<byte[]> entries = new ArrayList<>(8);
 
-    final var name = serializeStringValue(collection.getName());
+    final var name = serializeStringValue(collection.name());
     totalSize += name.length;
     entries.add(name);
 

@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -37,6 +37,6 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     storage
         .getAtomicOperationsManager()
         .executeInsideAtomicOperation(
-            null, atomicOperation -> paginatedCollection.create(atomicOperation));
+            atomicOperation -> paginatedCollection.create(atomicOperation));
   }
 }

@@ -9,6 +9,7 @@ import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
 public final class YTDBWebSocketGremlinRequestEncoder extends WebSocketGremlinRequestEncoder {
+
   public YTDBWebSocketGremlinRequestEncoder(final boolean binaryEncoding,
       final MessageSerializer<?> serializer) {
     super(binaryEncoding, serializer);

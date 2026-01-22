@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class YTDBGraphFactory {
+
   private static final Logger logger = LoggerFactory.getLogger(YTDBGraphFactory.class);
 
   /// Path to the root folder that contains all embedded databases managed by [YouTrackDB], this

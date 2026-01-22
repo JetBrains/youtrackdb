@@ -26,10 +26,12 @@ public class SQLFieldMatchPathItem extends SQLMatchPathItem {
   /**
    * Accept the visitor.
    */
+  @Override
   public boolean isBidirectional() {
     return false;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(".");
     field.toString(params, builder);
@@ -38,6 +40,7 @@ public class SQLFieldMatchPathItem extends SQLMatchPathItem {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(".");
     field.toGenericStatement(builder);
@@ -46,6 +49,7 @@ public class SQLFieldMatchPathItem extends SQLMatchPathItem {
     }
   }
 
+  @Override
   protected Iterable<Identifiable> traversePatternEdge(
       SQLMatchStatement.MatchContext matchContext,
       Identifiable startingPoint,

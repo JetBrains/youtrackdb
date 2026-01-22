@@ -28,6 +28,7 @@ public class SQLDeleteStatement extends SQLStatement {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("DELETE FROM ");
     fromClause.toString(params, builder);
@@ -46,6 +47,7 @@ public class SQLDeleteStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("DELETE FROM ");
     fromClause.toGenericStatement(builder);

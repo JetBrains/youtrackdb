@@ -23,6 +23,7 @@ public class SQLUnwind extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("UNWIND ");
     for (var i = 0; i < items.size(); i++) {
@@ -33,6 +34,7 @@ public class SQLUnwind extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("UNWIND ");
     for (var i = 0; i < items.size(); i++) {
@@ -43,6 +45,7 @@ public class SQLUnwind extends SimpleNode {
     }
   }
 
+  @Override
   public SQLUnwind copy() {
     var result = new SQLUnwind(-1);
     result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());

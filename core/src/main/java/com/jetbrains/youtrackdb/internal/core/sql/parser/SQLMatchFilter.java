@@ -172,6 +172,7 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("{");
     var first = true;
@@ -185,6 +186,7 @@ public class SQLMatchFilter extends SimpleNode {
     builder.append("}");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("{");
     var first = true;

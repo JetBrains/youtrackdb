@@ -22,6 +22,7 @@ import org.junit.Test;
 
 public class MatchStatementExecutionTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 

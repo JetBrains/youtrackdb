@@ -6,6 +6,7 @@ public interface YTDBDomainObjectInToken<T extends YTDBDomainObject> extends
     YTDBDomainObjectVertexToken<T> {
 
   interface Exceptions {
+
     static UnsupportedOperationException trackingOfIncomingEdgesNotSupported(
         YTDBDomainObjectInToken<?> inToken) {
       return new UnsupportedOperationException(

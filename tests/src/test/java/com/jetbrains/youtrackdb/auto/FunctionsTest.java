@@ -92,6 +92,7 @@ public class FunctionsTest extends BaseDBTest {
     for (var i = 0; i < threadNum; ++i) {
       threads[i] =
           new Thread() {
+            @Override
             public void run() {
               for (var cycle = 0; cycle < TOT; ++cycle) {
                 var res1 = session.execute("select testMTCall() as testMTCall");

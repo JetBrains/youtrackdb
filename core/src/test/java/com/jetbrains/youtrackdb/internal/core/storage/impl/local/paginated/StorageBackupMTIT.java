@@ -1,14 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -89,7 +88,7 @@ public class StorageBackupMTIT {
       }
 
       System.out.println("do inc backup last time");
-      db.incrementalBackup(backupDir.toPath());
+      db.backup(backupDir.toPath());
 
       youTrackDB.close();
 
@@ -97,8 +96,7 @@ public class StorageBackupMTIT {
 
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(
           DbTestBase.getBaseDirectoryPathStr(getClass()));
-      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath(),
-          YouTrackDBConfig.defaultConfig());
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath());
 
       final var compare =
           new DatabaseCompare(
@@ -184,7 +182,7 @@ public class StorageBackupMTIT {
 
       latch.countDown();
 
-      TimeUnit.MINUTES.sleep(5);
+      TimeUnit.MINUTES.sleep(15);
 
       stop = true;
 
@@ -193,7 +191,7 @@ public class StorageBackupMTIT {
       }
 
       System.out.println("do inc backup last time");
-      db.incrementalBackup(backupDir.toPath());
+      db.backup(backupDir.toPath());
 
       youTrackDB.close();
 
@@ -201,11 +199,12 @@ public class StorageBackupMTIT {
 
       System.out.println("create and restore");
 
-      config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(), "T1JJRU5UREJfSVNfQ09PTA==");
+      config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
+          "T1JJRU5UREJfSVNfQ09PTA==");
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(
           DbTestBase.getBaseDirectoryPathStr(getClass()),
           config);
-      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath(), config);
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath(), null, config);
 
       final var compare =
           new DatabaseCompare(
@@ -297,7 +296,7 @@ public class StorageBackupMTIT {
           TimeUnit.MINUTES.sleep(1);
 
           System.out.println(Thread.currentThread() + " do inc backup");
-          db.incrementalBackup(Path.of(backupPath));
+          db.backup(Path.of(backupPath));
           System.out.println(Thread.currentThread() + " done inc backup");
         }
       } catch (Exception | Error e) {

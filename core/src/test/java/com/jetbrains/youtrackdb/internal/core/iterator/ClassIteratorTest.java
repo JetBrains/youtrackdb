@@ -24,6 +24,7 @@ public class ClassIteratorTest extends DbTestBase {
     session.commit();
   }
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 

@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import org.apache.tinkerpop.gremlin.server.Settings.ScriptEngineSettings;
 
 public class ServerConfigurationLoader {
+
   private long fileLastModified = -1;
   private final String filePath;
 

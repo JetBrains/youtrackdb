@@ -19,11 +19,15 @@ import com.jetbrains.youtrackdb.internal.core.tx.TxBiConsumer;
 import com.jetbrains.youtrackdb.internal.core.tx.TxBiFunction;
 import com.jetbrains.youtrackdb.internal.core.tx.TxConsumer;
 import com.jetbrains.youtrackdb.internal.core.tx.TxFunction;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -421,6 +425,28 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    */
   @Override
   String getDatabaseName();
+
+  /// Performs backup of database content to the selected folder. This is a thread-safe operation
+  /// and can be done in normal operational mode.
+  ///
+  /// During the first backup full content of the database will be copied into the folder, otherwise
+  /// only changes after the last backup in the same folder will be copied.
+  ///
+  /// Unlike [#backup(Path)] method, this method can be used to perform backup to the abstract
+  /// backup storage to the remote server, for example.
+  ///
+  /// As this method does not operate by concepts of the file system but instead accepts lambdas
+  /// that provide access to the content of backup.
+  ///
+  /// @param ibuFilesSupplier        Lamba that provides the list of backup files already created.
+  /// @param ibuInputStreamSupplier  Lamba that provides the input stream for the backup file.
+  /// @param ibuOutputStreamSupplier Lamba that provides the output stream for the backup file.
+  /// @param ibuFileRemover          Lamba that removes the backup file from the backup storage.
+  ///
+  void backup(final Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      final Consumer<String> ibuFileRemover);
 
   <T> EmbeddedList<T> newEmbeddedList();
 

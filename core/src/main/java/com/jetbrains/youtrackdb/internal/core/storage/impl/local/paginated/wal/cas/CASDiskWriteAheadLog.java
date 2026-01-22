@@ -20,9 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointRequestListener;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationMetadata;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartMetadataRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
@@ -49,7 +46,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -947,25 +943,6 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   public LogSequenceNumber logAtomicOperationStartRecord(
       final boolean isRollbackSupported, final long unitId) {
     final var record = new AtomicUnitStartRecord(isRollbackSupported, unitId);
-    return log(record);
-  }
-
-  @Override
-  public LogSequenceNumber logAtomicOperationStartRecord(
-      final boolean isRollbackSupported, final long unitId, byte[] metadata) {
-    final var record =
-        new AtomicUnitStartMetadataRecord(isRollbackSupported, unitId, metadata);
-    return log(record);
-  }
-
-  @Override
-  public LogSequenceNumber logAtomicOperationEndRecord(
-      final long operationUnitId,
-      final boolean rollback,
-      final LogSequenceNumber startLsn,
-      final Map<String, AtomicOperationMetadata<?>> atomicOperationMetadata) {
-    final var record =
-        new AtomicUnitEndRecord(operationUnitId, rollback, atomicOperationMetadata);
     return log(record);
   }
 

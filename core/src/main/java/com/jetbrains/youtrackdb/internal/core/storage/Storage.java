@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage;
 
-import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
@@ -33,10 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
-import com.jetbrains.youtrackdb.internal.core.util.Backupable;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.Collection;
 import java.util.Set;
 import java.util.TimeZone;
@@ -49,7 +45,7 @@ import javax.annotation.Nullable;
  *
  * @see DirectMemoryStorage
  */
-public interface Storage extends Backupable, StorageInfo {
+public interface Storage extends StorageInfo {
 
   enum STATUS {
     CLOSED,
@@ -215,20 +211,6 @@ public interface Storage extends Backupable, StorageInfo {
   void setConflictStrategy(RecordConflictStrategy iResolver);
 
   /**
-   * @return Backup file name
-   */
-  String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
-      CallableFunction<Void, Void> started)
-      throws UnsupportedOperationException;
-
-  void fullIncrementalBackup(OutputStream stream) throws UnsupportedOperationException;
-
-  void restoreFromIncrementalBackup(DatabaseSessionInternal session, String filePath);
-
-  void restoreFullIncrementalBackup(DatabaseSessionInternal session, InputStream stream)
-      throws UnsupportedOperationException;
-
-  /**
    * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the
    * storages it means that storage will be merely closed, but sometimes additional operations are
    * need to be taken in account.
@@ -266,10 +248,6 @@ public interface Storage extends Backupable, StorageInfo {
   void clearProperties();
 
   int[] getCollectionsIds(Set<String> filterCollections);
-
-  default boolean isIncrementalBackupRunning() {
-    return false;
-  }
 
   YouTrackDBInternalEmbedded getContext();
 }

@@ -992,7 +992,7 @@ public class WOWCacheTestIT {
         value);
 
     Assert.assertEquals(WOWCache.MAGIC_NUMBER_WITH_CHECKSUM_ENCRYPTED, magicNumber & 0xFF);
-   fileClassic.close();
+    fileClassic.close();
   }
 
   public static final class TestRecord extends AbstractWALRecord {

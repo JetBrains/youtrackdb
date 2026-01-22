@@ -951,7 +951,8 @@ public class EntityHelper {
           result =
               currentValue
                   .toString()
-                  .indexOf(IOUtils.getStringContent(args.get(0)), Integer.parseInt(args.get(1)));
+                  .indexOf(IOUtils.getStringContent(args.get(0)),
+                      Integer.parseInt(args.get(1)));
         }
       } else if (function.startsWith("SUBSTRING(")) {
         if (args.size() == 1) {

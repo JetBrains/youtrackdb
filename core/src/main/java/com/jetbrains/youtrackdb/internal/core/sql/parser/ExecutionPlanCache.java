@@ -34,6 +34,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
     this.mapSize = size;
     map =
         new LinkedHashMap<>(size) {
+          @Override
           protected boolean removeEldestEntry(
               final Map.Entry<String, InternalExecutionPlan> eldest) {
             return super.size() > mapSize;

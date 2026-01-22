@@ -15,7 +15,7 @@ package com.jetbrains.youtrackdb.internal.spatial;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -227,7 +227,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
 
     var outputStream = new ByteArrayOutputStream();
 
-    IOUtils.copyStream(systemResourceAsStream, outputStream);
+    YTDBIOUtils.copyStream(systemResourceAsStream, outputStream);
 
     session.begin();
     session.execute(
@@ -255,7 +255,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
 
     var outputStream = new ByteArrayOutputStream();
 
-    IOUtils.copyStream(systemResourceAsStream, outputStream);
+    YTDBIOUtils.copyStream(systemResourceAsStream, outputStream);
 
     JtsSpatialContext.GEO.getWktShapeParser().parse(outputStream.toString());
   }

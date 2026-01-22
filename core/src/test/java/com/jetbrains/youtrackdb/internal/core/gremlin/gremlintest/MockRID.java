@@ -4,16 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import org.jspecify.annotations.NonNull;
 
-public final class MockRID implements RID {
-    private final String errorText;
-
-    public MockRID(String string) {
-        this.errorText = string;
-    }
-
-    public String getErrorText() {
-        return errorText;
-    }
+public record MockRID(String errorText) implements RID {
 
     @Override
     public @NonNull RID getIdentity() {

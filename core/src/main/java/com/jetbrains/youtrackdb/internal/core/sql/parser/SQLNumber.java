@@ -17,11 +17,13 @@ public class SQLNumber extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   @Nullable
   public Number getValue() {
     return null;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(value);
   }
@@ -31,6 +33,7 @@ public class SQLNumber extends SimpleNode {
     builder.append(PARAMETER_PLACEHOLDER);
   }
 
+  @Override
   public SQLNumber copy() {
     var result = new SQLNumber(-1);
     result.value = value;

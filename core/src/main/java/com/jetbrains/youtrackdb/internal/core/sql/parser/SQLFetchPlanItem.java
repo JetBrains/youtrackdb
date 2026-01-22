@@ -30,6 +30,7 @@ public class SQLFetchPlanItem extends SimpleNode {
     this.fieldChain.add(field);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (Boolean.TRUE.equals(star)) {
       builder.append("*");
@@ -55,6 +56,7 @@ public class SQLFetchPlanItem extends SimpleNode {
     rightDepth.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (Boolean.TRUE.equals(star)) {
       builder.append("*");
@@ -80,6 +82,7 @@ public class SQLFetchPlanItem extends SimpleNode {
     rightDepth.toGenericStatement(builder);
   }
 
+  @Override
   public SQLFetchPlanItem copy() {
     var result = new SQLFetchPlanItem(-1);
     result.star = star;

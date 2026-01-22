@@ -29,6 +29,7 @@ public class SQLRecordAttribute extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(name);
   }
@@ -38,6 +39,7 @@ public class SQLRecordAttribute extends SimpleNode {
     builder.append(name);
   }
 
+  @Override
   public SQLRecordAttribute copy() {
     var result = new SQLRecordAttribute(-1);
     result.name = name;

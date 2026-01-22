@@ -24,6 +24,7 @@ public class SQLSkip extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (num == null && inputParam == null) {
       return;
@@ -36,6 +37,7 @@ public class SQLSkip extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (num == null && inputParam == null) {
       return;
@@ -64,6 +66,7 @@ public class SQLSkip extends SimpleNode {
     throw new CommandExecutionException(ctx.getDatabaseSession(), "No value for SKIP");
   }
 
+  @Override
   public SQLSkip copy() {
     var result = new SQLSkip(-1);
     result.num = num == null ? null : num.copy();

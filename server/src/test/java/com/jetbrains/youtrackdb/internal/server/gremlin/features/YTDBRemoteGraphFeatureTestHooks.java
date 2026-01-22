@@ -5,6 +5,7 @@ import io.cucumber.java.AfterAll;
 import io.cucumber.java.BeforeAll;
 
 public class YTDBRemoteGraphFeatureTestHooks {
+
   @BeforeAll
   public static void setupSuite() throws Exception {
     YTDBGraphWorld.provider.startServer();

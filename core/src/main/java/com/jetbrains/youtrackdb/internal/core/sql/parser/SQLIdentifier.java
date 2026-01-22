@@ -59,6 +59,7 @@ public class SQLIdentifier extends SimpleNode {
    *
    * @return
    */
+  @Override
   public String getValue() {
     return value;
   }
@@ -117,6 +118,7 @@ public class SQLIdentifier extends SimpleNode {
     return toString("");
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (quoted) {
       builder.append('`' + value + '`');
@@ -125,6 +127,7 @@ public class SQLIdentifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(value);
   }
@@ -133,6 +136,7 @@ public class SQLIdentifier extends SimpleNode {
     this.quoted = quoted;
   }
 
+  @Override
   public SQLIdentifier copy() {
     return this;
     //    SQLIdentifier result = new SQLIdentifier(-1);

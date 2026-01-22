@@ -28,7 +28,6 @@ public interface ConsoleReader {
 
   String readLine() throws IOException;
 
-  void setConsole(ConsoleApplication console);
 
   String readPassword() throws IOException;
 

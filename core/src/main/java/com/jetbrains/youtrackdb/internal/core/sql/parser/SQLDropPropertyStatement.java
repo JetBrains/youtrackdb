@@ -5,7 +5,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -36,7 +35,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
 
-    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    final var session = ctx.getDatabaseSession();
     final var sourceClass =
         (SchemaClassInternal) session.getMetadata().getSchema()
             .getClass(className.getStringValue());

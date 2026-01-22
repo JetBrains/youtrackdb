@@ -101,12 +101,14 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     return true;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" CONTAINSTEXT ");
     right.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" CONTAINSTEXT ");

@@ -29,6 +29,7 @@ public class SQLMatchFilterItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (className != null) {
       builder.append("class: ");
@@ -100,6 +101,7 @@ public class SQLMatchFilterItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (className != null) {
       builder.append("class: ");

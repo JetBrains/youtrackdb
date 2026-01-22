@@ -15,6 +15,7 @@ import org.junit.Test;
 
 public class LinkBasedMatchStatementExecutionNewTest extends DbTestBase {
 
+  @Override
   @Before
   public void beforeTest() throws Exception {
     super.beforeTest();

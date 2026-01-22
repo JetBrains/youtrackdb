@@ -83,6 +83,7 @@ public abstract class DatabaseImpExpAbstract<S extends BasicDatabaseSession<?, ?
     this.useLineFeedForRecords = useLineFeedForRecords;
   }
 
+  @Override
   protected void parseSetting(final String option, final List<String> items) {
     if (option.equalsIgnoreCase("-useLineFeedForRecords")) {
       useLineFeedForRecords = Boolean.parseBoolean(items.get(0));

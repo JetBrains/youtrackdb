@@ -26,6 +26,7 @@ public class SQLNamedParameter extends SQLInputParameter {
     return ":" + paramName;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     var finalValue = bindFromInputParams(params);
     if (finalValue == this) {
@@ -41,10 +42,12 @@ public class SQLNamedParameter extends SQLInputParameter {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(":" + paramName);
   }
 
+  @Override
   public Object getValue(Map<Object, Object> params) {
     Object result = null;
     if (params != null) {
@@ -58,6 +61,7 @@ public class SQLNamedParameter extends SQLInputParameter {
     return result;
   }
 
+  @Override
   public Object bindFromInputParams(Map<Object, Object> params) {
     if (params != null) {
       var key = paramName;
@@ -101,6 +105,7 @@ public class SQLNamedParameter extends SQLInputParameter {
     return result;
   }
 
+  @Override
   public Result serialize(DatabaseSessionInternal db) {
     var result = (ResultInternal) super.serialize(db);
     result.setProperty("paramNumber", paramNumber);
@@ -108,6 +113,7 @@ public class SQLNamedParameter extends SQLInputParameter {
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     paramNumber = fromResult.getProperty("paramNumber");
     paramName = fromResult.getProperty("paramName");

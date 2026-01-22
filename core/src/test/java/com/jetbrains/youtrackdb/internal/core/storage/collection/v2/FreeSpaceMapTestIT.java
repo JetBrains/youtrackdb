@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -66,7 +66,6 @@ public class FreeSpaceMapTestIT {
     freeSpaceMap = new FreeSpaceMap(storage, "freeSpaceMap", ".fsm", "freeSpaceMap");
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation -> {
           freeSpaceMap.create(atomicOperation);
         });
@@ -75,7 +74,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePage() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 512);
           Assert.assertEquals(3, freeSpaceMap.findFreePage(259));
@@ -85,7 +83,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePageHighIndex() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 128956, 512);
           Assert.assertEquals(128956, freeSpaceMap.findFreePage(259));
@@ -95,7 +92,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePageLowerSpaceOne() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 1024);
           freeSpaceMap.updatePageFreeSpace(operation, 4, 2029);
@@ -108,7 +104,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePageLowerSpaceTwo() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 1024);
           freeSpaceMap.updatePageFreeSpace(operation, 4, 2029);
@@ -133,7 +128,6 @@ public class FreeSpaceMapTestIT {
       final var pageIndex = i;
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
             final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
@@ -175,7 +169,6 @@ public class FreeSpaceMapTestIT {
       final var pageIndex = i;
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
             pageFreeSpaceMap.put(pageIndex, freeSpace);
@@ -197,7 +190,6 @@ public class FreeSpaceMapTestIT {
       final var pageIndex = i;
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
             final int oldFreeSpace = pageFreeSpaceMap.get(pageIndex);

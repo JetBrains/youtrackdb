@@ -36,6 +36,7 @@ public class SQLFilterItemParameter implements SQLFilterItem {
     this.name = iName;
   }
 
+  @Override
   public Object getValue(
       final Result iRecord, Object iCurrentResult, CommandContext iContetx) {
     return value;

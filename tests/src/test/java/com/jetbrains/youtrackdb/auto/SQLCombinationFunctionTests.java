@@ -483,17 +483,8 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     session.commit();
 
     // creating random edges between cars and motocycles
-    class EdgeDef {
+    record EdgeDef(int carIdx, int monoIdx, boolean reverse) {
 
-      final int carIdx;
-      final int monoIdx;
-      final boolean reverse;
-
-      public EdgeDef(int carIdx, int monoIdx, boolean reverse) {
-        this.carIdx = carIdx;
-        this.monoIdx = monoIdx;
-        this.reverse = reverse;
-      }
     }
     final var edges = new ArrayList<EdgeDef>();
     for (var i = 0; i < carsNo; i++) {

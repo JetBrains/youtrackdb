@@ -52,6 +52,7 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     if (squareBrackets) {
@@ -79,6 +80,7 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     if (squareBrackets) {
@@ -216,6 +218,7 @@ public class SQLModifier extends SimpleNode {
     return next != null && next.needsAliases(aliases);
   }
 
+  @Override
   public SQLModifier copy() {
     var result = new SQLModifier(-1);
     result.squareBrackets = squareBrackets;

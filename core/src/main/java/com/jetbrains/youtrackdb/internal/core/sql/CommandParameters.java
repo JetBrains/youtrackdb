@@ -61,6 +61,7 @@ public class CommandParameters implements Iterable<Map.Entry<Object, Object>> {
     return parameters.get(counter++);
   }
 
+  @Override
   public Iterator<Entry<Object, Object>> iterator() {
     return parameters.entrySet().iterator();
   }

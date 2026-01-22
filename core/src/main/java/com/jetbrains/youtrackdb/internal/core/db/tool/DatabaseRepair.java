@@ -52,6 +52,7 @@ public class DatabaseRepair extends DatabaseTool<DatabaseSessionEmbedded> {
     }
   }
 
+  @Override
   public void run() {
     long errors = 0;
 

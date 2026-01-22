@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.query;
 
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import javax.annotation.Nonnull;
 
 /**

@@ -21,6 +21,7 @@ public class SQLMatchExpression extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     origin.toString(params, builder);
     for (var item : items) {
@@ -28,6 +29,7 @@ public class SQLMatchExpression extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     origin.toGenericStatement(builder);
     for (var item : items) {

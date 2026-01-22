@@ -24,6 +24,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     if (right != null) {
@@ -32,6 +33,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     if (right != null) {
@@ -40,6 +42,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
     }
   }
 
+  @Override
   public SQLUpdateRemoveItem copy() {
     var result = new SQLUpdateRemoveItem(-1);
     result.left = left == null ? null : left.copy();

@@ -6,7 +6,7 @@ import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.lucene.tests.LuceneBaseTest;
@@ -38,7 +38,7 @@ public class LuceneAnalyzerFactoryTest extends LuceneBaseTest {
     // default analyzer for query is standard
 
     var metajson =
-        IOUtils.readFileAsString(new File("./src/test/resources/index_metadata_new.json"));
+        YTDBIOUtils.readFileAsString(new File("./src/test/resources/index_metadata_new.json"));
     metadata = JSONSerializerJackson.INSTANCE.mapFromJson(metajson);
 
     indexDef = Mockito.mock(IndexDefinition.class);

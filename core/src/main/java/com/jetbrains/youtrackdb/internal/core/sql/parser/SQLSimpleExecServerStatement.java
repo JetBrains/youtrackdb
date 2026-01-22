@@ -27,6 +27,7 @@ public abstract class SQLSimpleExecServerStatement extends SQLServerStatement {
 
   public abstract ExecutionStream executeSimple(ServerCommandContext ctx);
 
+  @Override
   public ResultSet execute(
       YouTrackDBInternal db,
       Object[] args,
@@ -49,6 +50,7 @@ public abstract class SQLSimpleExecServerStatement extends SQLServerStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(), ctx, executionPlan);
   }
 
+  @Override
   public ResultSet execute(
       YouTrackDBInternal db, Map params, ServerCommandContext parentContext,
       boolean usePlanCache) {

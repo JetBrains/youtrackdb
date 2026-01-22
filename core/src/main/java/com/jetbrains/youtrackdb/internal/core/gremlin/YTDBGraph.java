@@ -4,6 +4,14 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBServices;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.util.Iterator;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
@@ -27,6 +35,46 @@ public interface YTDBGraph extends Graph {
 
   @Override
   YTDBVertex addVertex(String label);
+
+  /// Performs backup of database content to the selected folder. This is a thread-safe operation
+  /// and can be done in normal operational mode.
+  ///
+  /// During the first backup full content of the database will be copied into the folder, otherwise
+  /// only changes after the last backup in the same folder will be copied.
+  ///
+  /// Unlike [#backup(Path)] method, this method can be used to perform backup to the abstract
+  /// backup storage to the remote server, for example.
+  ///
+  /// As this method does not operate by concepts of the file system but instead accepts lambdas
+  /// that provide access to the content of backup.
+  ///
+  /// @param ibuFilesSupplier        Lamba that provides the list of backup files already created.
+  /// @param ibuInputStreamSupplier  Lamba that provides the input stream for the backup file.
+  /// @param ibuOutputStreamSupplier Lamba that provides the output stream for the backup file.
+  /// @param ibuFileRemover          Lamba that removes the backup file from the backup storage.
+  ///
+  void backup(final Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      final Consumer<String> ibuFileRemover);
+
+  /// Performs backup of database content to the selected folder. This is a thread-safe operation
+  /// and can be done in normal operational mode.
+  ///
+  /// During the first backup full content of the database will be copied into the directory,
+  /// otherwise only changes after the last backup in the same folder will be copied.
+  ///
+  /// @param path Path to the backup folder.
+  /// @return The name of the last backup file.
+  String backup(Path path);
+
+  /// Performs backup of database content to the selected folder.
+  ///
+  /// If the incremental backup is present in the folder, it will be overwritten.
+  ///
+  /// @param path Path to the backup folder.
+  /// @return The name of the backup file.
+  String fullBackup(Path path);
 
   @Override
   default YTDBGraphTraversalSource traversal() {
@@ -67,4 +115,15 @@ public interface YTDBGraph extends Graph {
       throws X {
     YTDBTransaction.executeInTX(code, traversal());
   }
+
+  /// Returns [UUID] generated during the creation of the database. Each DB instance his unique
+  /// [UUID] identifier.
+  ///
+  /// It is used during generation of backups and also to identify the same replicas of the database
+  /// on different hosts.
+  UUID uuid();
+
+  /// Closes current graph instance and release acquired resources.
+  @Override
+  void close();
 }

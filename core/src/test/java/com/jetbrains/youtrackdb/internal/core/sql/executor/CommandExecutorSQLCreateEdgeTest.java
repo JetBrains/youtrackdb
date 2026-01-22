@@ -19,6 +19,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   private EntityImpl owner1;
   private EntityImpl owner2;
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 

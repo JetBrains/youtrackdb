@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEmptyVertexProperty;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 
 public interface YTDBVertexProperty<V> extends VertexProperty<V>, YTDBProperty<V>, YTDBElement {
+
   static <V> YTDBVertexProperty<V> empty() {
     return YTDBEmptyVertexProperty.instance();
   }

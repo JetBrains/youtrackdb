@@ -19,7 +19,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -30,7 +30,7 @@ public abstract class BaseLuceneTest extends DbTestBase {
 
   protected static String getScriptFromStream(final InputStream scriptStream) {
     try {
-      return IOUtils.readStreamAsString(scriptStream);
+      return YTDBIOUtils.readStreamAsString(scriptStream);
     } catch (final IOException e) {
       throw new RuntimeException("Could not read script stream.", e);
     }

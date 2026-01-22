@@ -368,7 +368,8 @@ public class GremlinDslProcessor extends AbstractProcessor {
           .addAnnotation(Override.class)
           .addParameter(Object[].class, "vertexIds")
           .varargs(true)
-          .addStatement("final Object[] ids = null == vertexIds ? new Object[] { null } : vertexIds;")
+          .addStatement(
+              "final Object[] ids = null == vertexIds ? new Object[] { null } : vertexIds;")
           .addStatement("$N clone = this.clone()", ctx.traversalSourceClazz)
           .addStatement("clone.getBytecode().addStep($T.V, ids)",
               GraphTraversal.Symbols.class)

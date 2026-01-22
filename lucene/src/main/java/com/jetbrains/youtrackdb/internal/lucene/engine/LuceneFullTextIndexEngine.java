@@ -251,7 +251,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
             queryAnalyzer(), session);
       } else {
         var q = (LuceneKeyAndMetadata) maybeQuery;
-        return queryBuilder.query(indexDefinition, q.key, q.metadata, queryAnalyzer(), session);
+        return queryBuilder.query(indexDefinition, q.key(), q.metadata(), queryAnalyzer(), session);
       }
     } catch (final ParseException e) {
       throw BaseException.wrapException(new IndexEngineException(null, "Error parsing query"), e,
@@ -265,12 +265,12 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
     updateLastAccess();
     openIfClosed(session.getStorage());
     try {
-      if (key instanceof LuceneKeyAndMetadata q) {
-        var query = queryBuilder.query(indexDefinition, q.key, q.metadata, queryAnalyzer(),
+      if (key instanceof LuceneKeyAndMetadata(LuceneCompositeKey key1, Map<String, ?> metadata1)) {
+        var query = queryBuilder.query(indexDefinition, key1, metadata1, queryAnalyzer(),
             session);
 
-        var commandContext = q.key.getContext();
-        return getResults(query, commandContext, changes, q.metadata);
+        var commandContext = key1.getContext();
+        return getResults(query, commandContext, changes, metadata1);
 
       } else {
         var query = queryBuilder.query(indexDefinition, key, EMPTY_METADATA,

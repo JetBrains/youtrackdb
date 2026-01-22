@@ -12,6 +12,7 @@ public interface RemoteProtocolConstants {
   String USER_NAME_PARAMETER = "ytdb-user-name-parameter";
   String USER_ROLES_PARAMETER = "ytdb-user-roles-parameter";
   String USER_PASSWORD_PARAMETER = "ytdb-user-password-parameter";
+  String EXPECTED_UUID_PARAMETER = "ytdb-expected-uuid-parameter";
 
   String SERVER_COMMAND_CREATE_DATABASE = "ytdb-server-command-create-database";
   String SERVER_COMMAND_CREATE_DATABASE_IF_NOT_EXIST = "ytdb-server-command-create-database-if-not-exist";

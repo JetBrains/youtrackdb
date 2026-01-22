@@ -24,6 +24,7 @@ public class SQLLimit extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (num == null && inputParam == null) {
       return;
@@ -36,6 +37,7 @@ public class SQLLimit extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (num == null && inputParam == null) {
       return;
@@ -64,6 +66,7 @@ public class SQLLimit extends SimpleNode {
     throw new CommandExecutionException(ctx.getDatabaseSession(), "No value for LIMIT");
   }
 
+  @Override
   public SQLLimit copy() {
     var result = new SQLLimit(-1);
     result.num = num == null ? null : num.copy();

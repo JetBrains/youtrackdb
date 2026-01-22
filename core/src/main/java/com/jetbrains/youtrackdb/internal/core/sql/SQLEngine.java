@@ -127,20 +127,12 @@ public class SQLEngine {
   /**
    * internal use only, to sort operators.
    */
-  private static final class Pair {
-
-    private final QueryOperator before;
-    private final QueryOperator after;
-
-    public Pair(final QueryOperator before, final QueryOperator after) {
-      this.before = before;
-      this.after = after;
-    }
+  private record Pair(QueryOperator before, QueryOperator after) {
 
     @Override
     public boolean equals(final Object obj) {
-      if (obj instanceof Pair that) {
-        return before == that.before && after == that.after;
+      if (obj instanceof Pair(QueryOperator before1, QueryOperator after1)) {
+        return before == before1 && after == after1;
       }
       return false;
     }
