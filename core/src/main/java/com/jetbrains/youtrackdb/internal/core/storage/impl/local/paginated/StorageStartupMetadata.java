@@ -37,8 +37,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 import net.jpountz.xxhash.XXHash64;
 import net.jpountz.xxhash.XXHashFactory;
 
@@ -49,10 +47,6 @@ public class StorageStartupMetadata {
 
   private static final long XX_HASH_SEED = 0xADF678FE45L;
   private static final XXHash64 XX_HASH_64;
-
-  private static final int XX_HASH_OFFSET = 0;
-  private static final int VERSION_OFFSET = XX_HASH_OFFSET + 8;
-  private static final int DIRTY_FLAG_OFFSET = VERSION_OFFSET + 4;
 
   static {
     final var xxHashFactory = XXHashFactory.fastestInstance();
@@ -77,18 +71,6 @@ public class StorageStartupMetadata {
   public StorageStartupMetadata(final Path filePath, final Path backupPath) {
     this.filePath = filePath;
     this.backupPath = backupPath;
-  }
-
-  public void addFileToArchive(ZipOutputStream zos, String name) throws IOException {
-    final var ze = new ZipEntry(name);
-    zos.putNextEntry(ze);
-    try {
-      final var byteBuffer = serialize();
-      byteBuffer.put(DIRTY_FLAG_OFFSET, (byte) 0);
-      zos.write(byteBuffer.array());
-    } finally {
-      zos.closeEntry();
-    }
   }
 
   public void create(final String openedAtVersion) throws IOException {

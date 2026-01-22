@@ -325,6 +325,8 @@ public class AtomicOperationsManager {
    * {@code durableComponent}.
    */
   public void acquireExclusiveLockTillOperationComplete(DurableComponent durableComponent) {
+    storage.checkErrorState();
+
     final var operation = currentOperation.get();
     assert operation != null;
     acquireExclusiveLockTillOperationComplete(operation, durableComponent.getLockName());
@@ -333,7 +335,6 @@ public class AtomicOperationsManager {
   public void acquireReadLock(DurableComponent durableComponent) {
     assert durableComponent.getLockName() != null;
 
-    storage.checkErrorState();
     lockManager.acquireLock(durableComponent.getLockName(), OneEntryPerKeyLockManager.LOCK.SHARED);
   }
 

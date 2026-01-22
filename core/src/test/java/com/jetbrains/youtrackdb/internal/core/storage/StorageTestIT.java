@@ -29,7 +29,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class StorageTestIT {
-
   private YouTrackDBImpl youTrackDB;
 
   private static Path buildPath;
@@ -84,7 +83,7 @@ public class StorageTestIT {
     storage.shutdown();
     ctx.close();
 
-    var position = 3 * 1024;
+    var position = 3 << 10;
 
     var file =
         new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
@@ -95,10 +94,17 @@ public class StorageTestIT {
     file.write(bt + 1);
     file.close();
 
-    session = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    session = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
+    session.executeInTx(transaction -> {
+      try (var result = transaction.query("select from PageBreak")) {
+        result.toEntityList();
+      }
+    });
     try {
-      session.query("select from PageBreak").close();
+      session.executeInTx(transaction -> {
+        transaction.newEntity("PageBreak");
+      });
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
@@ -158,17 +164,24 @@ public class StorageTestIT {
     file.write(1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
+    db.executeInTx(transaction -> {
+      try (var selectFromPageBreak = transaction.query("select from PageBreak")) {
+        selectFromPageBreak.toEntityList();
+      }
+    });
+
     try {
-      db.query("select from PageBreak").toEntityList();
+      db.executeInTx(transaction -> {
+        transaction.newEntity("PageBreak");
+      });
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
       youTrackDB = (YouTrackDBImpl) YourTracks.instance(
           DbTestBase.getBaseDirectoryPathStr(getClass()),
           config);
-      youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
 
@@ -222,7 +235,7 @@ public class StorageTestIT {
     file.write(1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     db.executeInTx(transaction -> {
       transaction.query("select from PageBreak").close();
@@ -280,7 +293,7 @@ public class StorageTestIT {
     storage.shutdown();
     ctx.close();
 
-    var position = 3 * 1024;
+    var position = 3 << 10;
 
     var file =
         new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
@@ -291,7 +304,7 @@ public class StorageTestIT {
     file.write(bt + 1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     db.executeInTx(transaction -> {
       transaction.query("select from PageBreak").close();
