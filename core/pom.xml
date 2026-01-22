@@ -129,6 +129,31 @@
         </configuration>
       </plugin>
       <plugin>
+        <groupId>org.antlr</groupId>
+        <artifactId>antlr4-maven-plugin</artifactId>
+        <version>4.13.2</version>
+        <executions>
+          <execution>
+            <id>antlr</id>
+            <goals>
+              <goal>antlr4</goal>
+            </goals>
+            <configuration>
+              <sourceDirectory>${basedir}/src/main/grammar/antlr</sourceDirectory>
+              <outputDirectory>${basedir}/src/main/grammar/antlr/gen</outputDirectory>
+              <arguments>
+                <argument>-package</argument>
+                <argument>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</argument>
+                <argument>-encoding</argument>
+                <argument>utf-8</argument>
+              </arguments>
+              <visitor>true</visitor>
+              <listener>true</listener>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${surefire.version}</version>
