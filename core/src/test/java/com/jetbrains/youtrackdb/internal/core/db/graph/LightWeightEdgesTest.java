@@ -3,11 +3,14 @@ package com.jetbrains.youtrackdb.internal.core.db.graph;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -19,11 +22,10 @@ public class LightWeightEdgesTest {
 
   @Before
   public void before() {
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase("test",
-            DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    session = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    youTrackDB.create("test", DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+    session = youTrackDB.open("test", "admin", "adminpwd");
 
     session.getSchema().createVertexClass("Vertex");
     session.getSchema().createLightweightEdgeClass("Edge");

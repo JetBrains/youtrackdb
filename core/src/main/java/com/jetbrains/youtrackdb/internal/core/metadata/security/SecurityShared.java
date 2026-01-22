@@ -19,29 +19,28 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
@@ -52,6 +51,7 @@ import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser.STATUSES;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -248,13 +248,13 @@ public class SecurityShared implements SecurityInternal {
   @Nullable
   @Override
   public SecurityUserImpl authenticate(
-      DatabaseSessionInternal session, final String iUsername, final String iUserPassword) {
+      DatabaseSessionEmbedded session, final String iUsername, final String iUserPassword) {
     return null;
   }
 
   // Token MUST be validated before being passed to this method.
   @Override
-  public SecurityUserImpl authenticate(final DatabaseSessionInternal session,
+  public SecurityUser authenticate(final DatabaseSessionEmbedded session,
       final Token authToken) {
     final var dbName = session.getDatabaseName();
     if (!authToken.getIsValid()) {
@@ -1120,7 +1120,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  public static SecurityUserImpl getUserInternal(final DatabaseSession session,
+  public static SecurityUser getUserInternal(final DatabaseSession session,
       final String iUserName) {
     return session.computeInTx(transaction -> {
       try (var result =
@@ -1137,8 +1137,13 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public SecurityUserImpl getUser(DatabaseSession session, String username) {
-    return getUserInternal(session, username);
+  public SecurityUser getUser(DatabaseSessionEmbedded session, String username) {
+    var user = getUserInternal(session, username);
+    if (user != null) {
+      return user;
+    }
+
+    return security.getUser(username, session);
   }
 
   public static SecurityRole createRole(GlobalUser serverUser) {
@@ -1738,7 +1743,8 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session,
+      String resource) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return false;

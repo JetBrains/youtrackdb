@@ -29,10 +29,8 @@ import java.util.Map;
 import java.util.logging.Level;
 import javax.annotation.Nullable;
 
-/**
- * Keeps all configuration settings. At startup assigns the configuration values by reading system
- * properties.
- */
+/// Keeps all configuration settings. At startup assigns the configuration values by reading system
+/// properties.
 public enum GlobalConfiguration {
   ENVIRONMENT_DUMP_CFG_AT_STARTUP(
       "youtrackdb.environment.dumpCfgAtStartup",
@@ -824,9 +822,9 @@ public enum GlobalConfiguration {
   QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT(
       "youtrackdb.query.gremlin.polymorphicByDefault",
       "Controls the default behavior of hasLabel step in Gremlin queries. True means that"
-          + " queries are polymorphic, unless configured otherwise using GraphTraversalSource#with. False by default.",
+          + " queries are polymorphic, unless configured otherwise using GraphTraversalSource#with. True by default.",
       Boolean.class,
-      false
+      true
   ),
 
   STATEMENT_CACHE_SIZE(

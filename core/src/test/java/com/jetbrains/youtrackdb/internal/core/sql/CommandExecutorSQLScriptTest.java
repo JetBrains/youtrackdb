@@ -86,15 +86,6 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   }
 
   @Test
-  public void testSleep() {
-    var begin = System.currentTimeMillis();
-
-    session.computeScript("sql", "sleep 500").close();
-
-    Assert.assertTrue(System.currentTimeMillis() - begin >= 500);
-  }
-
-  @Test
   public void testConsoleLog() {
     var script = """
         LET $a = 'log';

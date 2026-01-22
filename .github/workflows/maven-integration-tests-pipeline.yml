@@ -1,0 +1,181 @@
+name: Java CI/CD Integration Tests Pipeline
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+permissions:
+  contents: read
+  packages: write
+  actions: write
+  checks: write
+jobs:
+  check-changes:
+    name: Check for Code Changes
+    runs-on: ubuntu-latest
+    # Define outputs so the next job can read them
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: 'develop'
+          # We only need the tip (depth 1) to get the current SHA. Very fast.
+          fetch-depth: 1
+      - name: Check against last successful run
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 1. If this is a manual trigger, always run.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual trigger detected. Force run."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # 2. Get the current commit SHA (on develop)
+          CURRENT_SHA=$(git rev-parse HEAD)
+          
+          # 3. Get the SHA of the LAST SUCCESSFUL run of THIS specific workflow on 'develop'
+          # We use the GitHub CLI (gh) to look up workflow history
+          LAST_SUCCESS_SHA=$(gh run list --branch develop \
+            --workflow "Java CI/CD Integration Tests Pipeline" \
+            --status success \
+            --limit 1 \
+            --json headSha \
+            -q '.[0].headSha')
+          
+          echo "Current SHA: $CURRENT_SHA"
+          echo "Last Success SHA: $LAST_SUCCESS_SHA"
+          
+          # 4. Compare
+          if [ "$CURRENT_SHA" == "$LAST_SUCCESS_SHA" ]; then
+            echo "The current commit has already been successfully tested."
+            echo "Skipping tests to save resources."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "New code detected (or no previous success found). Proceeding."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+  test:
+    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
+        platform:
+          - os: ubuntu-latest
+            arch: x64
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
+          - os: windows-latest
+            arch: x64
+            mvn_opts: '`-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci -P ci-integration-tests'
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: 'develop'
+          fetch-depth: 0
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: ${{ matrix.distribution }}
+          architecture: ${{ matrix.platform.arch }}
+          cache: 'maven'
+          overwrite-settings: false
+      - name: Run Maven Test
+        id: tests
+        continue-on-error: true
+        run: mvn -s .github/workflows/settings.xml clean verify -B ${{ matrix.platform.mvn_opts }}
+        env:
+          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
+          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always() && runner.os == 'Linux'
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          comment_mode: off
+          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Publish Test Results (Windows)
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        if: always() && runner.os == 'Windows'
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          comment_mode: off
+          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+
+  notify-failure:
+    name: Notify build failure on Zulip
+    needs: test
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BUILD FAILED** :rotating_light:
+            Integration tests failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+  notify-fixed:
+    name: Notify build fixed on Zulip
+    needs: test
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Get Previous Run Status
+        id: previous_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previous_conclusion=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --workflow "${{ github.workflow }}" \
+            --limit 2 \
+            --json conclusion \
+            --jq '.[1].conclusion')
+          echo "previous_conclusion=$previous_conclusion" >> $GITHUB_OUTPUT
+
+      - name: Send Zulip notification
+        if: steps.previous_run.outputs.previous_conclusion == 'failure'
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BUILD FIXED** :white_check_mark:
+            Build fixed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})

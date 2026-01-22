@@ -17,24 +17,19 @@
 
 package com.jetbrains.youtrackdb.internal.core;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
@@ -57,6 +52,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class PostponedEngineStartTest {
+
   private static YouTrackDBEnginesManager YOUTRACKDB;
 
   private static Engine ENGINE1;
@@ -282,9 +278,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public @Nonnull ReadRecordResult readRecord(
-            DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
-            boolean fetchNextRid) {
+        public @Nonnull RawBuffer readRecord(RecordIdInternal iRid) {
           return null;
         }
 
@@ -607,19 +601,6 @@ public class PostponedEngineStartTest {
 
         @Override
         public YouTrackDBInternalEmbedded getContext() {
-          return null;
-        }
-
-        @Override
-        public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool,
-            String query, BasicLiveQueryResultListener<DatabaseSession, Result> listener,
-            Map<String, ?> args) {
-          return null;
-        }
-
-        @Override
-        public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-            BasicLiveQueryResultListener listener, Object... args) {
           return null;
         }
       };

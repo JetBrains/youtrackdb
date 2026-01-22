@@ -1,22 +1,31 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.NoSuchElementException;
-import org.apache.tinkerpop.gremlin.structure.Element;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBVertexPropertyProperty<U> implements
-    org.apache.tinkerpop.gremlin.structure.Property<U> {
+public final class YTDBVertexPropertyProperty<U> implements YTDBProperty<U> {
 
   private final String key;
   private final U value;
+  @Nullable
+  private final PropertyType propertyType;
   private final YTDBVertexPropertyImpl<?> source;
   private boolean removed = false;
 
   public YTDBVertexPropertyProperty(
-      String key, U value, YTDBVertexPropertyImpl<?> ytdbVertexProperty) {
+      String key,
+      @Nullable U value,
+      @Nullable PropertyType propertyType,
+      YTDBVertexPropertyImpl<?> ytdbVertexProperty
+  ) {
     this.key = key;
     this.value = value;
+    this.propertyType = propertyType;
     this.source = ytdbVertexProperty;
   }
 
@@ -30,13 +39,19 @@ public final class YTDBVertexPropertyProperty<U> implements
     return value;
   }
 
+  @Nullable
+  @Override
+  public PropertyType type() {
+    return propertyType;
+  }
+
   @Override
   public boolean isPresent() {
     return !removed;
   }
 
   @Override
-  public Element element() {
+  public YTDBVertexProperty<?> element() {
     return source;
   }
 

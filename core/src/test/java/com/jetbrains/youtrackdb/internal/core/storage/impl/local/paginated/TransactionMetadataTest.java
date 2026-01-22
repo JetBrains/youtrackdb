@@ -4,10 +4,12 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
@@ -29,11 +31,11 @@ public class TransactionMetadataTest {
 
   @Before
   public void before() {
-
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.execute(
-        "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");
-    db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin", "admin");
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()));
+    youTrackDB.create(DB_NAME, DatabaseType.DISK,
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+    db = youTrackDB.open(DB_NAME, "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @Test
@@ -50,12 +52,10 @@ public class TransactionMetadataTest {
     YouTrackDBInternal.extract((YouTrackDBImpl) youTrackDB)
         .restore(
             DB_NAME + "_re",
-            null,
-            null,
             DatabaseType.DISK,
             "target/backup_metadata",
             YouTrackDBConfig.defaultConfig());
-    var db1 = youTrackDB.open(DB_NAME + "_re", "admin", "admin");
+    var db1 = youTrackDB.open(DB_NAME + "_re", "admin", DbTestBase.ADMIN_PASSWORD);
     var fromStorage =
         ((AbstractStorage) ((DatabaseSessionInternal) db1).getStorage())
             .getLastMetadata();

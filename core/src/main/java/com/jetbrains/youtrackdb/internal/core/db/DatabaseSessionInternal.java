@@ -20,46 +20,37 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.SessionListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Blob;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.RecordHook;
-import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
-import com.jetbrains.youtrackdb.api.record.StatefulEdge;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
-import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
-import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
-import com.jetbrains.youtrackdb.api.transaction.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook.TYPE;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -67,12 +58,17 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.StatefullEdgeEntityImp
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import com.jetbrains.youtrackdb.internal.core.tx.TxBiConsumer;
+import com.jetbrains.youtrackdb.internal.core.tx.TxConsumer;
+import com.jetbrains.youtrackdb.internal.core.tx.TxFunction;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -184,25 +180,20 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   void callbackHooks(final TYPE type, final RecordAbstract record);
 
+  /// Read the record by `rid`. If the record is found in the active transaction cache, it's gonna
+  /// be returned. Otherwise it will be read from the storage.
+  ///
+  /// @param rid                            ID of the record to find.
+  /// @param prefetchedBuffer               Raw buffer to be used instead of reading from the
+  ///                                       storage.
+  /// @param throwExceptionIfRecordNotFound Whether an exception should be thrown when the record
+  ///                                       does not exist.
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadFirstRecordAndNextRidInCollection(
-      int collectionId);
-
-  @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadLastRecordAndPreviousRidInCollection(
-      int collectionId);
-
-  @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndNextRidInCollection(
-      @Nonnull final RecordIdInternal recordId);
-
-  @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndPreviousRidInCollection(
-      @Nonnull final RecordIdInternal recordId);
-
-  @Nullable
-  LoadRecordResult executeReadRecord(@Nonnull final RecordIdInternal rid, boolean fetchPreviousRid,
-      boolean fetchNextRid, boolean throwIfNotFound);
+  RecordAbstract executeReadRecord(
+      @Nonnull final RecordIdInternal rid,
+      @Nullable final RawBuffer prefetchedBuffer,
+      boolean throwExceptionIfRecordNotFound
+  );
 
   boolean executeExists(@Nonnull RID rid);
 
@@ -726,24 +717,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   default TransactionMeters transactionMeters() {
     return TransactionMeters.NOOP;
   }
-
-  /**
-   * Subscribe a query as a live query for future create/update event with the referred conditions
-   *
-   * @param query    live query
-   * @param listener the listener that receive the query results
-   * @param args     the live query args
-   */
-  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Map<String, ?> args);
-
-  /**
-   * Subscribe a query as a live query for future create/update event with the referred conditions
-   *
-   * @param query    live query
-   * @param listener the listener that receive the query results
-   * @param args     the live query args
-   */
-  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args);
 
 
   @Nonnull
@@ -1338,6 +1311,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Override
   @Nonnull
   FrontendTransaction getActiveTransaction();
+
+  @Override
+  @Nullable
+  FrontendTransaction getActiveTransactionOrNull();
 
   @Override
   FrontendTransaction begin();

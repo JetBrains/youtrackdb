@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.sql;
 
-import com.jetbrains.youtrackdb.api.exception.ValidationException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import org.junit.Assert;
 import org.junit.Test;
 

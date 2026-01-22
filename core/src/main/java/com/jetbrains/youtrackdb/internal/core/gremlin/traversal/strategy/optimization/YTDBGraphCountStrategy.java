@@ -1,14 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map.YTDBClassCountStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -47,36 +45,36 @@ public class YTDBGraphCountStrategy
       return;
     }
 
-    var steps = traversal.getSteps();
-    if (steps.size() < 2) {
+    final var polymorphicSetting = YTDBStrategyUtil.isPolymorphic(traversal);
+    if (polymorphicSetting == null) {
+      // means we couldn't access the graph from the traversal
       return;
     }
 
-    var startStep = traversal.getStartStep();
-    var endStep = traversal.getEndStep();
-    if (steps.size() == 2
-        && startStep instanceof YTDBGraphStep<?, ?> step
-        && endStep instanceof CountGlobalStep) {
+    final var steps = traversal.getSteps();
 
-      if (step.getHasContainers().size() == 1) {
-        var hasContainers = step.getHasContainers();
-        var classes =
-            hasContainers.stream()
-                .filter(YTDBGraphCountStrategy::isLabelFilter)
-                .map(YTDBGraphCountStrategy::extractLabels)
-                .flatMap(Collection::stream)
-                .collect(Collectors.toList());
-        if (!classes.isEmpty()) {
-          TraversalHelper.removeAllSteps(traversal);
-          traversal.addStep(new YTDBClassCountStep<>(traversal, classes, step.isVertexStep()));
-        }
-      } else if (step.getHasContainers().isEmpty() && step.getIds().length == 0) {
+    if (steps.size() == 2
+        && steps.getFirst() instanceof YTDBGraphStep<?, ?> step
+        && steps.getLast() instanceof CountGlobalStep) {
+
+      final var hasContainers = step.getHasContainers();
+      List<String> classes = List.of();
+      boolean polymorphic = polymorphicSetting;
+
+      if (hasContainers.size() == 1 && isLabelFilter(hasContainers.getFirst())) {
+        // g.V().hasLabel('Foo').count()
+        classes = extractLabels(hasContainers.getFirst());
+      } else if (hasContainers.isEmpty() && step.getIds().length == 0) {
+        // g.V().count()
+        classes = List.of(
+            step.isVertexStep() ? SchemaClass.VERTEX_CLASS_NAME : SchemaClass.EDGE_CLASS_NAME);
+        polymorphic = true; // should be polymorphic, because we want to see all vertices or edges
+      }
+
+      if (!classes.isEmpty()) {
         TraversalHelper.removeAllSteps(traversal);
-        var baseClass =
-            step.isVertexStep() ? SchemaClass.VERTEX_CLASS_NAME : SchemaClass.EDGE_CLASS_NAME;
         traversal.addStep(
-            new YTDBClassCountStep<>(
-                traversal, Collections.singletonList(baseClass), step.isVertexStep()));
+            new YTDBClassCountStep<>(traversal, classes, step.isVertexStep(), polymorphic));
       }
     }
   }

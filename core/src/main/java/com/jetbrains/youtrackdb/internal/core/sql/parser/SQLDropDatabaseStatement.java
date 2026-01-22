@@ -2,8 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.command.ServerCommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -35,7 +35,7 @@ public class SQLDropDatabaseStatement extends SQLSimpleExecServerStatement {
     result.setProperty("operation", "drop database");
     result.setProperty("name", nameString);
 
-    if (ifExists && !server.exists(nameString, null, null)) {
+    if (ifExists && !server.exists(nameString)) {
       result.setProperty("dropped", false);
       result.setProperty("existing", false);
     } else {

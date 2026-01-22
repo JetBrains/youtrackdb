@@ -19,7 +19,6 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
-    <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
     <argLine>
       -ea
       -Xms${heapSize}
@@ -45,7 +44,7 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-console</artifactId>
     </dependency>
     <dependency>
@@ -108,73 +107,29 @@
           </archive>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <configuration>
+          <skipPublishing>true</skipPublishing>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+        <inherited>false</inherited>
+      </plugin>
     </plugins>
-
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>io.fabric8</groupId>
-          <artifactId>docker-maven-plugin</artifactId>
-          <configuration>
-            <images>
-              <image>
-                <name>youtrackdb/youtrackdb-console</name>
-                <build>
-                  <dockerFile>${project.build.directory}/../Dockerfile</dockerFile>
-                  <args>
-                    <YTDB_CONSOLE_DIR>
-                      target/${project.artifactId}-${project.version}-standalone
-                    </YTDB_CONSOLE_DIR>
-                  </args>
-                  <tags>
-                    <!-- docker.tags.* properties are empty if project.version is a pre-release
-                        resulting in no additional tags -->
-                    <tag>${docker.tags.majorVersion.minorVersion}</tag>
-                    <tag>${docker.tags.latest}</tag>
-                  </tags>
-                  <buildx>
-                    <platforms>
-                      <platform>${docker.platforms}</platform>
-                    </platforms>
-                  </buildx>
-                </build>
-              </image>
-            </images>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
   </build>
 
   <profiles>
     <profile>
       <id>docker-images</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-        <property>
-          <name>dockerImages</name>
-        </property>
-      </activation>
       <build>
         <plugins>
-          <!--
-          Deploying docker images will happen out of the normal jvm artifact deployment flow, so disable that
-          -->
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-deploy-plugin</artifactId>
-            <configuration>
-              <skip>true</skip>
-            </configuration>
-          </plugin>
-          <plugin>
-            <groupId>org.sonatype.central</groupId>
-            <artifactId>central-publishing-maven-plugin</artifactId>
-            <configuration>
-              <skipPublishing>true</skipPublishing>
-            </configuration>
-          </plugin>
-
           <plugin>
             <groupId>io.fabric8</groupId>
             <artifactId>docker-maven-plugin</artifactId>
@@ -194,6 +149,30 @@
                 <phase>deploy</phase>
               </execution>
             </executions>
+            <configuration>
+              <images>
+                <image>
+                  <name>youtrackdb/youtrackdb-console</name>
+                  <build>
+                    <dockerFile>${project.build.directory}/../Dockerfile</dockerFile>
+                    <args>
+                      <DISTRIBUTION_DIR>
+                        target/${project.artifactId}-${project.version}-standalone
+                      </DISTRIBUTION_DIR>
+                    </args>
+                    <tags>
+                      <tag>${docker.tags.majorVersion.minorVersion}</tag>
+                      <tag>${docker.tags.latest}</tag>
+                    </tags>
+                    <buildx>
+                      <platforms>
+                        <platform>${docker.platforms}</platform>
+                      </platforms>
+                    </buildx>
+                  </build>
+                </image>
+              </images>
+            </configuration>
           </plugin>
         </plugins>
       </build>

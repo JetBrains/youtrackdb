@@ -15,24 +15,28 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM alpine
+FROM eclipse-temurin:21
 
-ARG YTDB_CONSOLE_DIR
+RUN apt-get update
+RUN apt-get install -y dos2unix gosu
+RUN rm -rf /var/lib/apt/lists/*
 
-RUN apk add --no-cache --update \
-    bash \
-    openjdk21-jdk
+ARG DISTRIBUTION_DIR
 
 COPY docker/docker-entrypoint.sh /
-COPY ${YTDB_CONSOLE_DIR} /opt/ytdb-console
+COPY ${DISTRIBUTION_DIR} /opt/ytdb-console
+
+
+RUN dos2unix /docker-entrypoint.sh
+RUN dos2unix /opt/ytdb-console/bin/ytdb.sh
+
+RUN groupadd -r ytdb
+RUN useradd -m -r -g ytdb -s /bin/false ytdb
+RUN chown -R ytdb:ytdb /opt/ytdb-console
 
 WORKDIR /opt/ytdb-console
 
-RUN addgroup -S ytdb && adduser -S -s /bin/false -G ytdb ytdb
-RUN chown -R ytdb:ytdb /opt/ytdb-console
-USER ytdb
-
 VOLUME /opt/ytdb-console/conf
-VOLUME /opt/ytdb-console/data
+VOLUME /opt/ytdb-console/databases
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

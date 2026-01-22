@@ -25,7 +25,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import javax.annotation.Nonnull;
-import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang3.ArrayUtils;
 
 /**
  * Iterator to browse multiple collections forward and backward. Once browsed in a direction, the
@@ -34,21 +34,25 @@ import org.apache.commons.lang.ArrayUtils;
  * item in any collection the iterator is browsing. If the collection are hot removed by from the database
  * the iterator could be invalid and throw exception of collection not found.
  */
-public class RecordIteratorCollections<REC extends RecordAbstract> implements Iterator<REC> {
+public class RecordIteratorCollections<REC extends RecordAbstract>
+    implements Iterator<REC>, AutoCloseable {
 
   private final RecordIteratorCollection<REC>[] collectionIterators;
 
   private int collectionIndex = 0;
   private REC currentRecord;
   private RecordIteratorCollection<REC> currentCollectionIterator;
+  private boolean colIteratorsInitialized = false;
 
   @Nonnull
   private final DatabaseSessionInternal session;
   private final int[] collectionIds;
 
   public RecordIteratorCollections(
-      @Nonnull final DatabaseSessionInternal session, final int[] iCollectionIds,
+      @Nonnull final DatabaseSessionInternal session,
+      final int[] iCollectionIds,
       boolean forwardDirection) {
+    RecordIteratorUtil.checkCollectionsAccess(session, iCollectionIds);
     this.session = session;
 
     collectionIds = iCollectionIds.clone();
@@ -62,7 +66,8 @@ public class RecordIteratorCollections<REC extends RecordAbstract> implements It
     collectionIterators = new RecordIteratorCollection[collectionIds.length];
 
     for (var i = 0; i < collectionIds.length; ++i) {
-      collectionIterators[i] = new RecordIteratorCollection<>(session, collectionIds[i], forwardDirection);
+      collectionIterators[i] =
+          new RecordIteratorCollection<>(session, collectionIds[i], forwardDirection, false);
     }
 
     currentCollectionIterator = collectionIterators[collectionIndex];
@@ -74,6 +79,16 @@ public class RecordIteratorCollections<REC extends RecordAbstract> implements It
 
   @Override
   public boolean hasNext() {
+    if (!colIteratorsInitialized) {
+      // we want to initialize the underlying collection iterators as early as possible
+      // so that they remember the current lowest record id in transaction and
+      // don't return records created after the iteration has started.
+      for (var it : collectionIterators) {
+        it.initialize(true);
+      }
+      colIteratorsInitialized = true;
+    }
+
     if (currentCollectionIterator == null) {
       return false;
     }
@@ -106,5 +121,12 @@ public class RecordIteratorCollections<REC extends RecordAbstract> implements It
 
     session.delete(currentRecord);
     currentRecord = null;
+  }
+
+  @Override
+  public void close() {
+    for (var iterator : collectionIterators) {
+      iterator.close();
+    }
   }
 }

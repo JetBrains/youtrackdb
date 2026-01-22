@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.command.script.transformer.result;
 
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.stream.Collectors;

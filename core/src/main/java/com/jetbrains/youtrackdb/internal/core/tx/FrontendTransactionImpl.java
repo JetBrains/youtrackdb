@@ -20,41 +20,37 @@
 
 package com.jetbrains.youtrackdb.internal.core.tx;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.exception.CommandScriptException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.api.record.Blob;
-import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.record.StatefulEdge;
-import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.transaction.RecordOperationType;
-import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
@@ -409,7 +405,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public @Nonnull LoadRecordResult loadRecord(RID rid) {
+  public @Nonnull RecordAbstract loadRecord(RID rid) {
     checkTransactionValid();
 
     if (isDeletedInTx(rid)) {
@@ -417,11 +413,11 @@ public class FrontendTransactionImpl implements
     }
     final var txRecord = getRecord(rid);
     if (txRecord != null) {
-      return new LoadRecordResult(txRecord, null, null);
+      return txRecord;
     }
 
     // DELEGATE TO THE STORAGE, NO TOMBSTONES SUPPORT IN TX MODE
-    return session.executeReadRecord((RecordIdInternal) rid, false, false, true);
+    return session.executeReadRecord((RecordIdInternal) rid, null, true);
   }
 
   @Override
@@ -1103,62 +1099,21 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordIdInternal getFirstRid(int collectionId) {
-    var result = recordsInTransaction.ceiling(new RecordId(collectionId, Long.MIN_VALUE));
-
-    if (result == null) {
-      return null;
-    }
-
-    if (result.getCollectionId() != collectionId) {
-      return null;
-    }
-
-    var record = getRecordEntry(result);
-    if (record != null && record.type == RecordOperation.DELETED) {
-      return getNextRidInCollection(result);
-    }
-
-    return result;
-  }
-
-  @Override
-  @Nullable
-  public RecordIdInternal getLastRid(int collectionId) {
-    var result = recordsInTransaction.floor(new RecordId(collectionId, Long.MAX_VALUE));
-
-    if (result == null) {
-      return null;
-    }
-
-    if (result.getCollectionId() != collectionId) {
-      return null;
-    }
-
-    var record = getRecordEntry(result);
-    if (record != null && record.type == RecordOperation.DELETED) {
-      return getPreviousRidInCollection(result);
-    }
-
-    return result;
-  }
-
-  @Override
-  @Nullable
-  public RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid) {
-    var collectionId = rid.getCollectionId();
-
+  public RecordIdInternal getNextRidInCollection(
+      @Nonnull RecordIdInternal rid,
+      long upperBoundExclusive
+  ) {
+    final var collectionId = rid.getCollectionId();
     while (true) {
       var result = recordsInTransaction.higher(rid);
 
-      if (result == null) {
-        return null;
-      }
-      if (result.getCollectionId() != collectionId) {
+      if (result == null ||
+          result.getCollectionId() != collectionId ||
+          result.getCollectionPosition() >= upperBoundExclusive) {
         return null;
       }
 
-      var record = getRecordEntry(result);
+      final var record = getRecordEntry(result);
 
       if (record != null && record.type == RecordOperation.DELETED) {
         rid = result;
@@ -1170,19 +1125,23 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid) {
-    var collectionId = rid.getCollectionId();
+  public RecordIdInternal getPreviousRidInCollection(
+      @Nonnull RecordIdInternal rid,
+      long lowerBoundInclusive
+  ) {
+    final var collectionId = rid.getCollectionId();
+
     while (true) {
       var result = recordsInTransaction.lower(rid);
 
-      if (result == null) {
-        return null;
-      }
-      if (result.getCollectionId() != collectionId) {
+      if (result == null ||
+          result.getCollectionId() != collectionId ||
+          result.getCollectionPosition() < lowerBoundInclusive
+      ) {
         return null;
       }
 
-      var record = getRecordEntry(result);
+      final var record = getRecordEntry(result);
       if (record != null && record.type == RecordOperation.DELETED) {
         rid = result;
         continue;
@@ -1761,18 +1720,18 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public @Nonnull Stream<com.jetbrains.youtrackdb.api.transaction.RecordOperation> getRecordOperations() {
+  public @Nonnull Stream<com.jetbrains.youtrackdb.internal.core.tx.RecordOperation> getRecordOperations() {
     checkIfActive();
     return getRecordOperationsInternal().stream().map(recordOperation ->
         switch (recordOperation.type) {
           case RecordOperation.CREATED ->
-              new com.jetbrains.youtrackdb.api.transaction.RecordOperation(recordOperation.record,
+              new com.jetbrains.youtrackdb.internal.core.tx.RecordOperation(recordOperation.record,
                   RecordOperationType.CREATED);
           case RecordOperation.UPDATED ->
-              new com.jetbrains.youtrackdb.api.transaction.RecordOperation(recordOperation.record,
+              new com.jetbrains.youtrackdb.internal.core.tx.RecordOperation(recordOperation.record,
                   RecordOperationType.UPDATED);
           case RecordOperation.DELETED ->
-              new com.jetbrains.youtrackdb.api.transaction.RecordOperation(recordOperation.record,
+              new com.jetbrains.youtrackdb.internal.core.tx.RecordOperation(recordOperation.record,
                   RecordOperationType.DELETED);
           default -> throw new IllegalStateException("Unexpected value: " + recordOperation.type);
         });

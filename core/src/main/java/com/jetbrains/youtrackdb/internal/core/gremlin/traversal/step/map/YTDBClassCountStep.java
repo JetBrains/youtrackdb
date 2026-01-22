@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -15,13 +15,20 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
 
   private boolean vertexStep;
   private List<String> klasses;
+  private boolean polymorphic;
 
   protected boolean done = false;
 
-  public YTDBClassCountStep(Traversal.Admin traversal, List<String> klasses, boolean vertexStep) {
+  public YTDBClassCountStep(
+      Traversal.Admin traversal,
+      List<String> klasses,
+      boolean vertexStep,
+      boolean polymorphic
+  ) {
     super(traversal);
     this.klasses = klasses;
     this.vertexStep = vertexStep;
+    this.polymorphic = polymorphic;
   }
 
   @Override
@@ -32,7 +39,7 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
       Long v =
           klasses.stream()
               .filter(this::filterClass)
-              .mapToLong(session::countClass)
+              .mapToLong(cl -> session.countClass(cl, polymorphic))
               .reduce(0, Long::sum);
       //noinspection unchecked
       return this.traversal.getTraverserGenerator().generate(v, (Step<Long, ?>) this, 1L);
@@ -74,6 +81,7 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
     newCount.klasses = this.klasses;
     newCount.vertexStep = this.vertexStep;
     newCount.done = false;
+    newCount.polymorphic = this.polymorphic;
     return newCount;
   }
 }

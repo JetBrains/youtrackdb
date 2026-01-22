@@ -24,6 +24,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -55,8 +58,12 @@ public class SQLFunctionUUIDTest {
   @Test
   public void testQuery() {
     try (var ctx = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()))) {
-      ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
+        DbTestBase.getBaseDirectoryPathStr(getClass()))) {
+      if (ctx.exists("test")) {
+        ctx.drop("test");
+      }
+      ctx.create("test", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try (var db = ctx.open("test", "admin", "adminpwd")) {
         db.executeInTx(transaction -> {
           try (final var result = transaction.query("select uuid() as uuid")) {

@@ -2,20 +2,20 @@ package com.jetbrains.youtrackdb.internal.core.schedule;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import io.netty.util.internal.ThreadLocalRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,12 +29,13 @@ import org.junit.Test;
  */
 public class SchedulerTest {
 
+  private static final String NEW_ADMIN_PASSWORD = "adminpwd";
+
   @Test
   public void scheduleSQLFunction() throws Exception {
-    try (var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext()) {
+    try (var context = createContext()) {
       var db =
-          (DatabaseSessionEmbedded) context.cachedPool("test", "admin",
-              CreateDatabaseUtil.NEW_ADMIN_PASSWORD).acquire();
+          context.cachedPool("test", "admin", NEW_ADMIN_PASSWORD).acquire();
       createLogEvent(db);
 
       DbTestBase.assertWithTimeout(
@@ -48,16 +49,14 @@ public class SchedulerTest {
 
   @Test
   public void scheduleWithDbClosed() throws Exception {
-    var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext();
+    var context = createContext();
     {
-      var db = (DatabaseSessionEmbedded) context.open("test", "admin",
-          CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      var db = context.open("test", "admin", NEW_ADMIN_PASSWORD);
       createLogEvent(db);
       db.close();
     }
 
-    var db = (DatabaseSessionEmbedded) context.open("test", "admin",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    var db = context.open("test", "admin", NEW_ADMIN_PASSWORD);
     DbTestBase.assertWithTimeout(
         db,
         () -> {
@@ -71,10 +70,9 @@ public class SchedulerTest {
 
   @Test
   public void eventLifecycle() throws Exception {
-    try (var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext()) {
+    try (var context = createContext()) {
       var db =
-          (DatabaseSessionEmbedded) context.cachedPool("test", "admin",
-              CreateDatabaseUtil.NEW_ADMIN_PASSWORD).acquire();
+          context.cachedPool("test", "admin", NEW_ADMIN_PASSWORD).acquire();
       createLogEvent(db);
 
       Thread.sleep(2000);
@@ -98,18 +96,15 @@ public class SchedulerTest {
 
   @Test
   public void eventSavedAndLoaded() throws Exception {
-    var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext();
+    var context = createContext();
     var db =
-        (DatabaseSessionInternal) context.open("test", "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+        (DatabaseSessionInternal) context.open("test", "admin", NEW_ADMIN_PASSWORD);
     createLogEvent(db);
     db.close();
 
     Thread.sleep(1000);
 
-    final var db2 =
-        (DatabaseSessionEmbedded) context.open("test", "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    final var db2 = context.open("test", "admin", NEW_ADMIN_PASSWORD);
     try {
       Thread.sleep(4000);
       var count = getLogCounter(db2);
@@ -129,20 +124,16 @@ public class SchedulerTest {
 
     final var youTrackDb =
         (YouTrackDBImpl) YourTracks.instance(
-            DbTestBase.getBaseDirectoryPath(getClass()),
+            DbTestBase.getBaseDirectoryPathStr(getClass()),
             config);
-    if (!youTrackDb.exists("test")) {
-      youTrackDb.execute(
-          "create database "
-              + "test"
-              + " "
-              + "memory"
-              + " users ( admin identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role admin)");
+    if (youTrackDb.exists("test")) {
+      youTrackDb.drop("test");
     }
+
+    youTrackDb.create("test", DatabaseType.DISK,
+        new LocalUserCredential("admin", NEW_ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var pool =
-        youTrackDb.cachedPool("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+        youTrackDb.cachedPool("test", "admin", NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();
 
     createLogEvent(db);
@@ -151,11 +142,9 @@ public class SchedulerTest {
 
   @Test
   public void eventBySQL() throws Exception {
-    var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext();
+    var context = createContext();
     try (context;
-        var db =
-            (DatabaseSessionEmbedded) context.open("test", "admin",
-                CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+        var db = context.open("test", "admin", NEW_ADMIN_PASSWORD)) {
       var func = createFunction(db);
       db.begin();
       db.execute(
@@ -228,14 +217,21 @@ public class SchedulerTest {
     }
   }
 
-  private YouTrackDBAbstract<?, ?> createContext() {
-    YouTrackDBAbstract<?, ?> youTrackDB =
-        CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
+  private YouTrackDBImpl createContext() {
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + ThreadLocalRandom.current().nextInt());
+    if (youTrackDB.exists("test")) {
+      youTrackDB.drop("test");
+    }
+
+    youTrackDB.create("test",
+        DatabaseType.MEMORY, "admin", NEW_ADMIN_PASSWORD, "admin");
+
     YouTrackDBEnginesManager.instance()
         .registerThreadDatabaseFactory(
             new TestScheduleDatabaseFactory(
-                youTrackDB, "test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD));
+                youTrackDB, "test", "admin", NEW_ADMIN_PASSWORD));
+
     return youTrackDB;
   }
 
@@ -284,13 +280,13 @@ public class SchedulerTest {
 
   private static class TestScheduleDatabaseFactory implements DatabaseThreadLocalFactory {
 
-    private final YouTrackDBAbstract<?, ?> context;
+    private final YouTrackDBImpl context;
     private final String database;
     private final String username;
     private final String password;
 
     public TestScheduleDatabaseFactory(
-        YouTrackDBAbstract<?, ?> context, String database, String username, String password) {
+        YouTrackDBImpl context, String database, String username, String password) {
       this.context = context;
       this.database = database;
       this.username = username;
@@ -299,7 +295,7 @@ public class SchedulerTest {
 
     @Override
     public DatabaseSessionInternal getThreadDatabase() {
-      return (DatabaseSessionInternal) context.cachedPool(database, username, password).acquire();
+      return context.cachedPool(database, username, password).acquire();
     }
   }
 }

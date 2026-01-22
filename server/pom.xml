@@ -44,12 +44,11 @@ nse, Version 2.0 (the "License");
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-client</artifactId>
-      <version>${project.version}</version>
+      <artifactId>tinkergraph-gremlin</artifactId>
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-tools</artifactId>
+      <artifactId>youtrackdb-core</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -62,12 +61,6 @@ nse, Version 2.0 (the "License");
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-jdk14</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.glassfish.jaxb</groupId>
-      <artifactId>jaxb-runtime</artifactId>
-      <version>3.0.2</version>
     </dependency>
 
     <dependency>
@@ -90,16 +83,16 @@ nse, Version 2.0 (the "License");
     </dependency>
 
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-server</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-util</artifactId>
     </dependency>
 
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
+      <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
     </dependency>
@@ -113,6 +106,11 @@ nse, Version 2.0 (the "License");
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>fluent-hc</artifactId>
       <version>4.5.14</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -141,17 +139,6 @@ nse, Version 2.0 (the "License");
         </argLine>
       </properties>
     </profile>
-
-    <profile>
-      <id>development</id>
-      <activation>
-        <activeByDefault>true</activeByDefault>
-      </activation>
-      <properties>
-        <exclude.test.1>**/AutomaticBackupTest.java</exclude.test.1>
-      </properties>
-    </profile>
-
     <profile>
       <id>ci</id>
       <activation>
@@ -163,56 +150,71 @@ nse, Version 2.0 (the "License");
       <properties>
         <exclude.test.1>empty.java</exclude.test.1>
       </properties>
-
     </profile>
     <profile>
-      <id>release</id>
-      <activation>
-        <property>
-          <name>youtrackdb.test.env</name>
-          <value>release</value>
-        </property>
-      </activation>
-      <properties>
-        <exclude.test.1>empty.java</exclude.test.1>
-      </properties>
-
-    </profile>
-    <profile>
-      <id>localDeploy</id>
-      <activation>
-        <property>
-          <name>localDeploy</name>
-        </property>
-      </activation>
-    </profile>
-    <profile>
-      <id>crash-tests</id>
+      <id>docker-images</id>
       <build>
         <plugins>
+          <!--
+          Deploying docker images will happen out of the normal jvm artifact deployment flow, so disable that
+          -->
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-failsafe-plugin</artifactId>
-            <version>${surefire.version}</version>
+            <artifactId>maven-deploy-plugin</artifactId>
             <configuration>
-              <skipTests>true</skipTests>
+              <skip>true</skip>
             </configuration>
           </plugin>
-        </plugins>
-      </build>
-    </profile>
-    <profile>
-      <id>secondary-tests</id>
-      <build>
-        <plugins>
           <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire.version}</version>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
             <configuration>
-              <includes>
-                <include>**/*ST.java</include>
-              </includes>
+              <skipPublishing>true</skipPublishing>
+            </configuration>
+          </plugin>
+
+          <plugin>
+            <groupId>io.fabric8</groupId>
+            <artifactId>docker-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>docker:build</id>
+                <goals>
+                  <goal>build</goal>
+                </goals>
+                <phase>package</phase>
+              </execution>
+              <execution>
+                <id>docker:push</id>
+                <goals>
+                  <goal>push</goal>
+                </goals>
+                <phase>deploy</phase>
+              </execution>
+            </executions>
+            <configuration>
+              <images>
+                <image>
+                  <name>youtrackdb/youtrackdb-server</name>
+                  <build>
+                    <dockerFile>${project.build.directory}/../Dockerfile</dockerFile>
+                    <args>
+                      <DISTRIBUTION_DIR>
+                        target/${project.artifactId}-${project.version}-standalone
+                      </DISTRIBUTION_DIR>
+                    </args>
+                    <tags>
+                      <tag>${docker.tags.majorVersion.minorVersion}</tag>
+                      <tag>${docker.tags.latest}</tag>
+                    </tags>
+                    <buildx>
+                      <platforms>
+                        <platform>${docker.platforms}</platform>
+                      </platforms>
+                    </buildx>
+                  </build>
+                </image>
+              </images>
             </configuration>
           </plugin>
         </plugins>
@@ -246,6 +248,23 @@ nse, Version 2.0 (the "License");
               <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
+          <argLine>${argLine}
+            -ea
+            -XX:+IgnoreUnrecognizedVMOptions
+            --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-exports=java.base/sun.security.x509=ALL-UNNAMED
+            --add-exports=java.base/sun.security.action=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+          </argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -281,6 +300,33 @@ nse, Version 2.0 (the "License");
             </goals>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <configuration>
+          <skipPublishing>true</skipPublishing>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <descriptors>
+            <descriptor>src/assembly/standalone.xml</descriptor>
+          </descriptors>
+          <finalName>${project.artifactId}-${project.version}</finalName>
+          <outputDirectory>target</outputDirectory>
+          <workDirectory>target/assembly/work</workDirectory>
+        </configuration>
       </plugin>
     </plugins>
   </build>

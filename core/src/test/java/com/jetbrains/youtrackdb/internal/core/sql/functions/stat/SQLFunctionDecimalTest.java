@@ -3,6 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -50,10 +53,11 @@ public class SQLFunctionDecimalTest {
 
   @Test
   public void testFromQuery() {
-    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(getClass()))) {
-      ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var db = ctx.open("test", "admin", "adminpwd")) {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()))) {
+      ytdb.create("test", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+      try (var db = ytdb.open("test", "admin", DbTestBase.ADMIN_PASSWORD)) {
         var initial = "12324124321234543256758654.76543212345676543254356765434567654";
         db.executeInTx(transaction -> {
           try (var result = transaction.query("select decimal('" + initial + "') as decimal")) {
@@ -61,7 +65,7 @@ public class SQLFunctionDecimalTest {
           }
         });
       }
-      ctx.drop("test");
+      ytdb.drop("test");
     }
   }
 }

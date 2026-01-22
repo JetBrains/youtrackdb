@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import java.lang.module.ResolutionException;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import org.apache.commons.lang3.function.FailableConsumer;
@@ -11,8 +13,11 @@ import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.util.AbstractTransaction;
 import org.apache.tinkerpop.gremlin.structure.util.TransactionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class YTDBTransaction extends AbstractTransaction {
+  private static final Logger logger = LoggerFactory.getLogger(YTDBTransaction.class);
 
   private Consumer<Transaction> readWriteConsumerInternal = READ_WRITE_BEHAVIOR.AUTO;
   private Consumer<Transaction> closeConsumerInternal = CLOSE_BEHAVIOR.ROLLBACK;
@@ -27,58 +32,62 @@ public final class YTDBTransaction extends AbstractTransaction {
   }
 
   public static <X extends Exception> void executeInTX(
-      FailableConsumer<YTDBGraphTraversalSource, X> code, YTDBTransaction tx) throws X {
+      FailableConsumer<YTDBGraphTraversalSource, X> code, YTDBGraphTraversalSource g) throws X {
     var ok = false;
-    YTDBGraphTraversalSource g = tx.begin();
+    var tx = g.tx();
     try {
-      code.accept(g);
+      code.accept(tx.begin(YTDBGraphTraversalSource.class));
       ok = true;
     } finally {
-      if (ok) {
-        tx.commit();
-      } else {
-        tx.rollback();
-      }
+      finishTx(ok, tx);
     }
   }
 
   public static <X extends Exception> void executeInTX(
       FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code,
-      YTDBTransaction tx) throws X {
+      YTDBGraphTraversalSource g) throws X {
     var ok = false;
-    YTDBGraphTraversalSource g = tx.begin();
+    var tx = g.tx();
     try {
-      var traversal = code.apply(g);
+      var traversal = code.apply(tx.begin(YTDBGraphTraversalSource.class));
       traversal.iterate();
       ok = true;
     } finally {
-      if (ok) {
-        tx.commit();
-      } else {
-        tx.rollback();
-      }
+      finishTx(ok, tx);
     }
   }
 
 
   public static <X extends Exception, R> R computeInTx(
-      FailableFunction<YTDBGraphTraversalSource, R, X> code, YTDBTransaction tx) throws X {
+      FailableFunction<YTDBGraphTraversalSource, R, X> code, YTDBGraphTraversalSource g) throws X {
     var ok = false;
     R result;
-
-    YTDBGraphTraversalSource g = tx.begin();
+    var tx = g.tx();
     try {
-      result = code.apply(g);
+      result = code.apply(tx.begin(YTDBGraphTraversalSource.class));
       ok = true;
     } finally {
+      finishTx(ok, tx);
+    }
+    return result;
+  }
+
+  private static void finishTx(boolean ok, Transaction tx) {
+    if (tx.isOpen()) {
       if (ok) {
-        tx.commit();
+        try {
+          tx.commit();
+        } catch (Exception e) {
+          logger.error("Failed to commit transaction", e);
+        }
       } else {
-        tx.rollback();
+        try {
+          tx.rollback();
+        } catch (Exception e) {
+          logger.error("Failed to rollback transaction", e);
+        }
       }
     }
-
-    return result;
   }
 
   @Override

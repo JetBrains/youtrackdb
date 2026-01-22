@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.ByteArrayOutputStream;
@@ -94,12 +97,10 @@ public class DatabaseImportSimpleCompatibilityTest {
 
   private void setup(
       final String databaseName, final InputStream input, final OutputStream output) {
-    final var importDbUrl = "embedded:target/import_" + this.getClass().getSimpleName();
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            databaseName, importDbUrl, CreateDatabaseUtil.TYPE_MEMORY);
-    importDatabase = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    final var importDbPath = "target/import_" + this.getClass().getSimpleName();
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(importDbPath);
+    youTrackDB.create(databaseName, DatabaseType.DISK,
+        new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
     try {
       importer = new DatabaseImport(importDatabase, input, iText -> {
       });

@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -22,7 +24,7 @@ public class RevokeStatementExecutionTest {
   @BeforeClass
   public static void beforeClass() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPath(RevokeStatementExecutionTest.class));
+        DbTestBase.getBaseDirectoryPathStr(RevokeStatementExecutionTest.class));
   }
 
   @AfterClass
@@ -32,9 +34,9 @@ public class RevokeStatementExecutionTest {
 
   @Before
   public void before() {
-    CreateDatabaseUtil.createDatabase("test", youTrackDB, CreateDatabaseUtil.TYPE_MEMORY);
-    this.session = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
-        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB.create("test", DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+    this.session = youTrackDB.open("test", "admin", "adminpwd");
   }
 
   @After

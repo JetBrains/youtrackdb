@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.serialization.SerializableStream;
 import java.io.ByteArrayInputStream;

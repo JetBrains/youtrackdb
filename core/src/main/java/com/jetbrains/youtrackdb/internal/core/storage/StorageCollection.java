@@ -154,7 +154,7 @@ public interface StorageCollection {
    */
   void acquireAtomicExclusiveLock();
 
-  CollectionBrowsePage nextPage(long lastPosition) throws IOException;
+  CollectionBrowsePage nextPage(long lastPosition, boolean forward) throws IOException;
 
   int getBinaryVersion();
 

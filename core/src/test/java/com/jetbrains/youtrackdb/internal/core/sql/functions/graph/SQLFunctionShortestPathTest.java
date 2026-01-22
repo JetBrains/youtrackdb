@@ -1,13 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
+
 import static java.util.Arrays.asList;
 
-import com.jetbrains.youtrackdb.api.record.Vertex;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.After;
@@ -37,13 +41,12 @@ public class SQLFunctionShortestPathTest {
   }
 
   private void setUpDatabase() {
-    youTrackDB =
-        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            "SQLFunctionShortestPath", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    session =
-        (DatabaseSessionEmbedded) youTrackDB.open("SQLFunctionShortestPath", "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    youTrackDB.create("SQLFunctionShortestPath", DatabaseType.MEMORY,
+        new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+
+    session = youTrackDB.open("SQLFunctionShortestPath", "admin",
+        DbTestBase.ADMIN_PASSWORD);
 
     session.createEdgeClass("Edge1");
     session.createEdgeClass("Edge2");
