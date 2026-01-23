@@ -219,8 +219,64 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   @Override
   public void executeCommand(String command, Map<?, ?> params) {
     try (var session = acquireSession()) {
-      session.command(command, params);
+      var normalized = command == null ? "" : command.trim().toUpperCase();
+      if ("BEGIN".equals(normalized)) {
+        if (!session.isTxActive()) {
+          session.begin();
+        }
+        return;
+      }
+      if ("COMMIT".equals(normalized)) {
+        if (session.isTxActive()) {
+          session.commit();
+        }
+        return;
+      }
+      if ("ROLLBACK".equals(normalized)) {
+        if (session.isTxActive()) {
+          session.rollback();
+        }
+        return;
+      }
+
+      if (isSchemaCommand(normalized)) {
+        if (session.isTxActive()) {
+          session.commit();
+        }
+        session.command(command, params);
+        return;
+      }
+
+      var startedTx = false;
+      if (!session.isTxActive()) {
+        session.begin();
+        startedTx = true;
+      }
+
+      try {
+        session.command(command, params);
+        if (startedTx) {
+          session.commit();
+        }
+      } catch (Exception e) {
+        if (startedTx && session.isTxActive()) {
+          session.rollback();
+        }
+        throw e;
+      }
     }
+  }
+
+  private static boolean isSchemaCommand(String normalized) {
+    return normalized.startsWith("CREATE CLASS")
+        || normalized.startsWith("DROP CLASS")
+        || normalized.startsWith("ALTER CLASS")
+        || normalized.startsWith("CREATE PROPERTY")
+        || normalized.startsWith("DROP PROPERTY")
+        || normalized.startsWith("CREATE INDEX")
+        || normalized.startsWith("DROP INDEX")
+        || normalized.startsWith("CREATE VERTEX")
+        || normalized.startsWith("CREATE EDGE");
   }
 
   @Override

@@ -5,7 +5,7 @@ Feature: Command Support
     Given the empty graph
     And the traversal of
       """
-      g.command("CREATE CLASS Employee IF NOT EXISTS EXTENDS V")
+      g.command("BEGIN").command("CREATE CLASS Employee IF NOT EXISTS EXTENDS V").command("COMMIT")
       """
     When iterated to list
 

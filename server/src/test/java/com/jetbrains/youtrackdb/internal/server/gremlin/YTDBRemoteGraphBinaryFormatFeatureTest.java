@@ -43,7 +43,7 @@ import org.junit.runner.RunWith;
         "com.jetbrains.youtrackdb.internal.server.gremlin.features"},
     objectFactory = GuiceFactory.class,
     features = {"classpath:/org/apache/tinkerpop/gremlin/test/features",
-        "classpath:/com/jetbrains/youtrackdb/internal/server/gremlin/features"},
+        "classpath:/com/jetbrains/youtrackdb/internal/core/gremlin/gremlintest/features"},
     plugin = {"progress", "junit:target/cucumber.xml"})
 public class YTDBRemoteGraphBinaryFormatFeatureTest {
 

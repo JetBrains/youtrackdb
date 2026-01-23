@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
 import java.util.Set;
@@ -14,7 +13,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 /// TinkerPop service that allows running any YouTrackDB non-idempotent command via GraphTraversal.
 ///
 /// Supports both Start and Streaming execution modes to allow chaining: g.command("BEGIN").command("INSERT")
-public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> {
+public class YTDBCommandService implements Service<Object, Object> {
 
   public static final String NAME = "command";
   public static final String COMMAND = "command";
@@ -30,7 +29,7 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
     this.type = type;
   }
 
-  public static class Factory<E extends YTDBElement> implements ServiceFactory<E, E> {
+  public static class Factory implements ServiceFactory<Object, Object> {
 
     @Override
     public String getName() {
@@ -44,7 +43,7 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
     }
 
     @Override
-    public Service<E, E> createService(boolean isStart, Map params) {
+    public Service<Object, Object> createService(boolean isStart, Map params) {
 
       final String command;
       final Map<?, ?> commandParams;
@@ -64,7 +63,7 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
       }
 
       Service.Type type = isStart ? Service.Type.Start : Service.Type.Streaming;
-      return new YTDBCommandService<>(command, commandParams, type);
+      return new YTDBCommandService(command, commandParams, type);
     }
   }
 
@@ -79,18 +78,20 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
   }
 
   @Override
-  public CloseableIterator<E> execute(ServiceCallContext ctx, Map params) {
+  public CloseableIterator<Object> execute(ServiceCallContext ctx, Map params) {
     final var graph = (((Admin<?, ?>) ctx.getTraversal()))
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
     (((YTDBGraphInternal) graph)).executeCommand(command, commandParams);
 
-    return CloseableIterator.empty();
+    // Emit a single placeholder so chaining works (Streaming needs an input traverser).
+    return CloseableIterator.of(IteratorUtils.of(Boolean.TRUE));
   }
 
   @Override
-  public CloseableIterator<E> execute(ServiceCallContext ctx, Traverser.Admin<E> in, Map params) {
+  public CloseableIterator<Object> execute(ServiceCallContext ctx, Traverser.Admin<Object> in,
+      Map params) {
     final var graph = (((Admin<?, ?>) ctx.getTraversal()))
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));

@@ -13,11 +13,10 @@ public final class YTDBServices {
     private final boolean frozen;
     {
       registerService(new YTDBRemovePropertyService.Factory<>());
-      registerService(new YTDBCommandService.Factory<>());
+      registerService(new YTDBCommandService.Factory());
       registerService(new YTDBFullBackupService.Factory());
       registerService(new YTDBIncrementalBackupService.Factory());
       registerService(new YTDBGraphUuidService.Factory());
-
       frozen = true;
     }
 
