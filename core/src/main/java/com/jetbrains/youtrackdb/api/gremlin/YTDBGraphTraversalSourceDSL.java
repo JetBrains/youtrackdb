@@ -84,26 +84,27 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
 
-  /// Execute a generic YouTrackDB command. The result of the execution is ignored, so it only makes
-  /// sense to use this method for running non-idempotent commands.
+  /// Execute a generic YouTrackDB command. Returns a traversal that can be chained.
   ///
   /// @param command The command to execute.
-  public void command(@Nonnull String command) {
-    command(command, Map.of());
+  /// @return A traversal that can be chained with other steps.
+  public <S> YTDBGraphTraversal<S, S> command(@Nonnull String command) {
+    return command(command, Map.of());
   }
 
-  /// Execute a generic parameterized YouTrackDB command. The result of the execution is ignored, so
-  /// it only makes sense to use this method for running non-idempotent commands.
+  /// Execute a generic parameterized YouTrackDB command. Returns a traversal that can be chained.
   ///
   /// @param command   The command to execute.
   /// @param arguments The arguments to pass to the command.
-  public void command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
-    call(
+  /// @return A traversal that can be chained with other steps.
+  public <S> YTDBGraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+    //noinspection unchecked
+    return (YTDBGraphTraversal<S, S>) call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments
         )
-    ).iterate();
+    );
   }
 
   /// Performs backup of database content to the selected folder.

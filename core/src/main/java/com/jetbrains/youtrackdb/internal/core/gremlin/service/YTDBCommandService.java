@@ -5,26 +5,29 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 /// TinkerPop service that allows running any YouTrackDB non-idempotent command via GraphTraversal.
 ///
-/// This is a `Start` service, meaning that it is not allowed to be used mid-traversal. It always
-/// produces an empty result.
+/// Supports both Start and Streaming execution modes to allow chaining: g.command("BEGIN").command("INSERT")
 public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> {
 
-  public static final String NAME = "ytdbCommand";
+  public static final String NAME = "command";
   public static final String COMMAND = "command";
   public static final String ARGUMENTS = "args";
 
   private final String command;
   private final Map<?, ?> commandParams;
+  private final Service.Type type;
 
-  public YTDBCommandService(String command, Map<?, ?> commandParams) {
+  public YTDBCommandService(String command, Map<?, ?> commandParams, Service.Type type) {
     this.command = command;
     this.commandParams = commandParams;
+    this.type = type;
   }
 
   public static class Factory<E extends YTDBElement> implements ServiceFactory<E, E> {
@@ -36,39 +39,54 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
 
     @Override
     public Set<Type> getSupportedTypes() {
-      return Set.of(Type.Start);
+      // Support both Start and Streaming to allow chaining: g.command("BEGIN").command("INSERT")
+      return Set.of(Type.Start, Type.Streaming);
     }
 
     @Override
     public Service<E, E> createService(boolean isStart, Map params) {
-      if (!isStart) {
-        throw new UnsupportedOperationException(Exceptions.cannotUseMidTraversal);
-      }
 
       final String command;
       final Map<?, ?> commandParams;
 
-      if (params.get(COMMAND) instanceof String c) {
+      // Handle two parameter formats:
+      // 1. From YTDBGraphTraversalSourceDSL.command(): Map with "command" and "args" keys
+      // 2. From Gremlin parser (.feature files): Map with "args" as List containing the command string
+      Object commandObj = params.get(COMMAND);
+      if (commandObj == null) {
+        // Check if args is a List (format from Gremlin parser)
+        Object argsObj = params.get(ARGUMENTS);
+        if (argsObj instanceof java.util.List<?> list && !list.isEmpty()) {
+          commandObj = list.get(0);
+        }
+      }
+
+      if (commandObj instanceof String c) {
         command = c;
       } else {
-        throw new IllegalArgumentException(params.get(COMMAND) + " is not a String");
+        throw new IllegalArgumentException("Command parameter not found. Params: " + params);
       }
 
-      if (params.get(ARGUMENTS) instanceof Map<?, ?> m) {
-        commandParams = m;
-      } else if (params.get(ARGUMENTS) == null) {
+      // Parse command parameters
+      Object argsObj = params.get(ARGUMENTS);
+      if (argsObj instanceof java.util.List<?>) {
+        // Format from Gremlin parser - args is a List, command params are empty
         commandParams = Map.of();
+      } else if (argsObj instanceof Map<?, ?> m) {
+        // Format from YTDBGraphTraversalSourceDSL - args is a Map
+        commandParams = m;
       } else {
-        throw new IllegalArgumentException(params.get(ARGUMENTS) + " is not a Map");
+        commandParams = Map.of();
       }
 
-      return new YTDBCommandService<>(command, commandParams);
+      Service.Type type = isStart ? Service.Type.Start : Service.Type.Streaming;
+      return new YTDBCommandService<>(command, commandParams, type);
     }
   }
 
   @Override
   public Type getType() {
-    return Type.Start;
+    return type;
   }
 
   @Override
@@ -78,7 +96,6 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
 
   @Override
   public CloseableIterator<E> execute(ServiceCallContext ctx, Map params) {
-
     final var graph = (((Admin<?, ?>) ctx.getTraversal()))
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
@@ -86,5 +103,17 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
     (((YTDBGraphInternal) graph)).executeCommand(command, commandParams);
 
     return CloseableIterator.empty();
+  }
+
+  @Override
+  public CloseableIterator<E> execute(ServiceCallContext ctx, Traverser.Admin<E> in, Map params) {
+    final var graph = (((Admin<?, ?>) ctx.getTraversal()))
+        .getGraph()
+        .orElseThrow(() -> new IllegalStateException("Graph is not available"));
+
+    (((YTDBGraphInternal) graph)).executeCommand(command, commandParams);
+
+    // Pass through the input traverser for Streaming mode
+    return CloseableIterator.of(IteratorUtils.of(in.get()));
   }
 }
