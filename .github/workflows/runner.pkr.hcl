@@ -20,7 +20,7 @@ source "hcloud" "runner-x86" {
   token         = var.hcloud_token
   image         = "ubuntu-24.04"
   location      = "nbg1"
-  server_type   = "cx52"
+  server_type = "cx53"
   ssh_username  = "root"
   snapshot_name = "github-runner-x86-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
