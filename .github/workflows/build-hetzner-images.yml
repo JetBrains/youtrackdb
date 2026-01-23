@@ -1,0 +1,63 @@
+name: Build Hetzner Runner Images
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 1 * *' # Runs at 02:00 on the 1st of every month
+
+jobs:
+  build-and-cleanup:
+    runs-on: ubuntu-latest
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "latest"
+
+      - name: Initialize Packer
+        run: packer init runner.pkr.hcl
+
+      - name: Build Images
+        run: packer build runner.pkr.hcl
+
+      # Install hcloud CLI for the cleanup step
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar -xz
+          sudo mv hcloud /usr/local/bin/hcloud
+
+      - name: Cleanup Old Snapshots (Keep Last 2)
+        shell: bash
+        run: |
+          # Function to clean up images by architecture
+          cleanup_arch() {
+            local ARCH=$1
+            echo "Processing cleanup for $ARCH..."
+          
+            # List images with specific labels, sorted by creation (newest first)
+            # We skip the first 2 (keep them) and get the IDs of the rest
+            IMAGES_TO_DELETE=$(hcloud image list \
+              --label "role=github-runner" \
+              --label "arch=$ARCH" \
+              --sort created:desc \
+              -o json | jq -r '.[2:] | .[].id')
+
+            if [ -z "$IMAGES_TO_DELETE" ]; then
+              echo "No old images to delete for $ARCH."
+            else
+              echo "Deleting old images for $ARCH: $IMAGES_TO_DELETE"
+              for ID in $IMAGES_TO_DELETE; do
+                hcloud image delete "$ID" || echo "Failed to delete $ID"
+              done
+            fi
+          }
+
+          # Run cleanup for both architectures
+          cleanup_arch "x86"
+          cleanup_arch "arm"
