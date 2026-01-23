@@ -49,20 +49,18 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
       final String command;
       final Map<?, ?> commandParams;
 
-      Object argsObj = params.get(ARGUMENTS);
-      Object commandObj = params.get(COMMAND);
-      
-      if (argsObj instanceof java.util.List<?> list && !list.isEmpty()) {
-        commandObj = list.get(0);
-        commandParams = Map.of();
-      } else {
-        commandParams = argsObj instanceof Map<?, ?> m ? m : Map.of();
-      }
-
-      if (commandObj instanceof String c) {
+      if (params.get(COMMAND) instanceof String c) {
         command = c;
       } else {
-        throw new IllegalArgumentException("Command must be a String. Params: " + params);
+        throw new IllegalArgumentException(params.get(COMMAND) + " is not a String");
+      }
+
+      if (params.get(ARGUMENTS) instanceof Map<?, ?> m) {
+        commandParams = m;
+      } else if (params.get(ARGUMENTS) == null) {
+        commandParams = Map.of();
+      } else {
+        throw new IllegalArgumentException(params.get(ARGUMENTS) + " is not a Map");
       }
 
       Service.Type type = isStart ? Service.Type.Start : Service.Type.Streaming;
