@@ -68,9 +68,17 @@ flowchart TB
   classDef trigger fill: #e1f5fe, stroke: #01579b
   classDef pipeline fill: #fff3e0, stroke: #e65100
   classDef artifact fill: #e8f5e9, stroke: #2e7d32
-  class push_develop, pr_develop, schedule, push_main, manual trigger
-  class maven_pipeline, integration_pipeline, main_pipeline pipeline
-  class maven_dev, maven_release, docker artifact
+  class push_develop trigger
+  class pr_develop trigger
+  class schedule trigger
+  class push_main trigger
+  class manual trigger
+  class maven_pipeline pipeline
+  class integration_pipeline pipeline
+  class main_pipeline pipeline
+  class maven_dev artifact
+  class maven_release artifact
+  class docker artifact
 ```
 
 ## Workflow Summary
