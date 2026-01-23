@@ -49,9 +49,6 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
       final String command;
       final Map<?, ?> commandParams;
 
-      // Handle two parameter formats:
-      // 1. From YTDBGraphTraversalSourceDSL.command(): Map with "command" and "args" keys
-      // 2. From Gremlin parser (.feature files): Map with "args" as List containing the command string
       Object commandObj = params.get(COMMAND);
       if (commandObj == null) {
         // Check if args is a List (format from Gremlin parser)
