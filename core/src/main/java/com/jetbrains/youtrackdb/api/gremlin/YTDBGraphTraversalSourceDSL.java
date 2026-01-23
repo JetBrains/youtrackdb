@@ -16,6 +16,7 @@ import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
@@ -88,7 +89,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   ///
   /// @param command The command to execute.
   /// @return A traversal that can be chained with other steps.
-  public <S> YTDBGraphTraversal<S, S> command(@Nonnull String command) {
+  public <S> GraphTraversal<S, S> command(@Nonnull String command) {
     return command(command, Map.of());
   }
 
@@ -97,9 +98,9 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @param command   The command to execute.
   /// @param arguments The arguments to pass to the command.
   /// @return A traversal that can be chained with other steps.
-  public <S> YTDBGraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+  public <S> GraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
     //noinspection unchecked
-    return (YTDBGraphTraversal<S, S>) call(
+    return call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments
