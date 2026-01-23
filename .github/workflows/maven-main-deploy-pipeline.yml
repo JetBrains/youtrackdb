@@ -43,6 +43,16 @@ jobs:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
 
+      - name: Annotate deployed versions
+        run: |
+          VERSION_SNAPSHOT=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -q -DforceStdout)
+          VERSION_SHA=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -q -DforceStdout)
+          echo "::notice title=Maven Artifact Deployed::${VERSION_SNAPSHOT}"
+          echo "::notice title=Maven Artifact Deployed::${VERSION_SHA}"
+        env:
+          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
+          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+
   deploy-docker:
     name: Deploy Docker Images (${{ matrix.platform.arch }})
     runs-on: ${{ matrix.platform.os }}
