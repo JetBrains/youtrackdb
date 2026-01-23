@@ -81,6 +81,30 @@ flowchart TB
   class docker artifact
 ```
 
+## Workflow Descriptions
+
+### maven-pipeline.yml (Develop Branch)
+
+This is the primary CI pipeline triggered on every push or pull request to the `develop` branch. It
+runs the full test matrix across multiple JDK versions (21, 25), distributions (temurin, corretto,
+oracle, zulu, microsoft), and platforms (ubuntu-x64, ubuntu-arm64, windows). On successful push (not
+PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven Central. Each deployment
+is annotated with the exact version for traceability.
+
+### maven-integration-tests-pipeline.yml (Nightly)
+
+This pipeline runs on a daily schedule (2:00 AM UTC) to execute comprehensive integration tests. It
+first checks if there are new changes since the last successful run to avoid redundant testing. Upon
+successful completion of all integration tests, it automatically merges `develop` into `main` using
+fast-forward only, ensuring `main` always contains fully tested code.
+
+### maven-main-deploy-pipeline.yml (Main Branch)
+
+Triggered by pushes to `main` (typically from the integration tests pipeline merge), this pipeline
+handles production-ready deployments. It deploys Maven artifacts without the `-dev` prefix to Maven
+Central and builds/publishes Docker images for both `console` and `server` components to Docker Hub.
+This ensures that `main` branch artifacts are always the stable, fully tested versions.
+
 ## Workflow Summary
 
 | Workflow                                 | Trigger                   | Purpose                              | Artifacts                                                       |
