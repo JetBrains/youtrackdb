@@ -26,10 +26,10 @@ jobs:
           version: "latest"
 
       - name: Initialize Packer
-        run: packer init runner.pkr.hcl
+        run: packer init .github/workflows/runner.pkr.hcl
 
       - name: Build Images
-        run: packer build runner.pkr.hcl
+        run: packer build .github/workflows/runner.pkr.hcl
 
       # Install hcloud CLI for the cleanup step
       - name: Install hcloud CLI
