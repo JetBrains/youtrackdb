@@ -65,9 +65,9 @@ flowchart TB
 %% Integration triggers main
     it_merge -->|" triggers "| push_main
 %% Styling
-  classDef trigger fill: #e1f5fe, stroke: #01579b
+  classDef trigger fill: #fff, stroke: #1565c0, stroke-width: 2px
   classDef pipeline fill: #fff3e0, stroke: #e65100
-  classDef artifact fill: #e8f5e9, stroke: #2e7d32
+  classDef artifact fill: #fff, stroke: #2e7d32, stroke-width: 2px
   class push_develop trigger
   class pr_develop trigger
   class schedule trigger
