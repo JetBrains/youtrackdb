@@ -122,11 +122,25 @@ nse, Version 2.0 (the "License");
       <artifactId>jakarta.xml.bind-api</artifactId>
       <version>3.0.1</version>
     </dependency>
-
     <dependency>
       <groupId>org.glassfish.jaxb</groupId>
       <artifactId>jaxb-core</artifactId>
       <version>3.0.2</version>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-java</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-core</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

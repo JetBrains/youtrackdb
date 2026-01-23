@@ -140,7 +140,7 @@
             </goals>
             <configuration>
               <sourceDirectory>${basedir}/src/main/grammar/antlr</sourceDirectory>
-              <outputDirectory>${basedir}/src/main/grammar/antlr/gen</outputDirectory>
+              <outputDirectory>${project.build.directory}/generated-sources/antlr4/com/jetbrains/youtrackdb/internal/core/gql/parser/gen</outputDirectory>
               <arguments>
                 <argument>-package</argument>
                 <argument>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</argument>
@@ -211,6 +211,25 @@
             <goals>
               <goal>test-jar</goal>
             </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.4.0</version>
+        <executions>
+          <execution>
+            <id>add-antlr-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${project.build.directory}/generated-sources/antlr4</source>
+              </sources>
+            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -310,6 +329,10 @@
       <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-test</artifactId>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.antlr</groupId>
+      <artifactId>antlr4-runtime</artifactId>
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
