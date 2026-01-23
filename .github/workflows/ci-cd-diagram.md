@@ -25,10 +25,10 @@ flowchart TB
         direction TB
         it_check["Check for Changes<br/>(Skip if already tested)"]
         it_test["Integration Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>ubuntu-x64, ubuntu-arm64, windows"]
-        it_merge["Merge develop → main<br/>(fast-forward only)"]
-        it_notify["Zulip Notifications"]
+        it_merge["Merge develop → main<br/>(fast-forward only)<br/><i>skipped on manual dispatch</i>"]
+        it_notify["Zulip Notifications<br/><i>skipped on manual dispatch</i>"]
         it_check --> it_test
-        it_test --> it_merge
+        it_test -->|"schedule only"| it_merge
         it_merge --> it_notify
     end
 
@@ -91,12 +91,16 @@ oracle, zulu, microsoft), and platforms (ubuntu-x64, ubuntu-arm64, windows). On 
 PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven Central. Each deployment
 is annotated with the exact version for traceability.
 
-### maven-integration-tests-pipeline.yml (Nightly)
+### maven-integration-tests-pipeline.yml (Nightly / Manual)
 
 This pipeline runs on a daily schedule (2:00 AM UTC) to execute comprehensive integration tests. It
 first checks if there are new changes since the last successful run to avoid redundant testing. Upon
 successful completion of all integration tests, it automatically merges `develop` into `main` using
 fast-forward only, ensuring `main` always contains fully tested code.
+
+**Manual Dispatch Mode**: When triggered manually via `workflow_dispatch`, the pipeline runs only the
+integration tests without merging to `main` or sending Zulip notifications. This is useful for
+validating changes before the nightly run or debugging test failures.
 
 ### maven-main-deploy-pipeline.yml (Main Branch)
 
@@ -107,11 +111,12 @@ This ensures that `main` branch artifacts are always the stable, fully tested ve
 
 ## Workflow Summary
 
-| Workflow                                 | Trigger                   | Purpose                              | Artifacts                                                       |
-|------------------------------------------|---------------------------|--------------------------------------|-----------------------------------------------------------------|
-| **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts      | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
-| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main | N/A (triggers main pipeline)                                    |
-| **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker    | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+| Workflow                                 | Trigger                            | Purpose                                        | Artifacts                                                       |
+|------------------------------------------|------------------------------------|------------------------------------------------|-----------------------------------------------------------------|
+| **maven-pipeline.yml**                   | Push/PR to `develop`               | Run tests, deploy dev artifacts                | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
+| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)          | Run integration tests, merge to main           | N/A (triggers main pipeline)                                    |
+| **maven-integration-tests-pipeline.yml** | Manual dispatch                    | Run integration tests only (no merge/notify)   | N/A                                                             |
+| **maven-main-deploy-pipeline.yml**       | Push to `main`                     | Deploy release artifacts & Docker              | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
 
 ## Version Format
 
