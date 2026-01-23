@@ -14,7 +14,7 @@ variable "hcloud_token" {
 }
 
 # ------------------------------------------------------------------------
-# Source: x86_64 (Intel/AMD) - cx22
+# Source: x86_64 (Intel/AMD)
 # ------------------------------------------------------------------------
 source "hcloud" "runner-x86" {
   token         = var.hcloud_token
@@ -32,12 +32,12 @@ source "hcloud" "runner-x86" {
 }
 
 # ------------------------------------------------------------------------
-# Source: ARM64 - cax11
+# Source: ARM64
 # ------------------------------------------------------------------------
 source "hcloud" "runner-arm" {
   token         = var.hcloud_token
   image         = "ubuntu-24.04"
-  location      = "fsn1"
+  location = "nbg1"
   server_type   = "cax41"
   ssh_username  = "root"
   snapshot_name = "github-runner-arm-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"

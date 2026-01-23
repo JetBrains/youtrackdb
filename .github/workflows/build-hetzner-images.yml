@@ -1,12 +1,17 @@
 name: Build Hetzner Runner Images
 
 on:
+  push:
+    paths:
+      - '.github/workflows/build-hetzner-images.yml'
   workflow_dispatch:
   schedule:
     - cron: '0 2 1 * *' # Runs at 02:00 on the 1st of every month
 
 jobs:
   build-and-cleanup:
+    # Skip job on push events (push trigger is only for workflow registration)
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     env:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
