@@ -65,13 +65,12 @@ flowchart TB
 %% Integration triggers main
     it_merge -->|" triggers "| push_main
 %% Styling
-    classDef trigger fill: #e1f5fe, stroke: #01579b
-    classDef pipeline fill: #fff3e0, stroke: #e65100
-    classDef artifact fill: #e8f5e9, stroke: #2e7d32
-    classDef job fill: #fce4ec, stroke: #880e4f
-    class push_develop, pr_develop, schedule, push_main, manual trigger
-    class maven_pipeline, integration_pipeline, main_pipeline pipeline
-    class maven_dev, maven_release, docker artifact
+  classDef trigger fill: #e1f5fe, stroke: #01579b
+  classDef pipeline fill: #fff3e0, stroke: #e65100
+  classDef artifact fill: #e8f5e9, stroke: #2e7d32
+  class push_develop, pr_develop, schedule, push_main, manual trigger
+  class maven_pipeline, integration_pipeline, main_pipeline pipeline
+  class maven_dev, maven_release, docker artifact
 ```
 
 ## Workflow Summary
