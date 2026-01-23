@@ -126,7 +126,7 @@ jobs:
   merge-to-main:
     name: Merge develop into main
     needs: test
-    if: success()
+    if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -165,7 +165,7 @@ jobs:
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test, merge-to-main ]
-    if: always() && (needs.test.result == 'failure' || needs.merge-to-main.result == 'failure')
+    if: always() && github.event_name != 'workflow_dispatch' && (needs.test.result == 'failure' || needs.merge-to-main.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Send Zulip Notification
@@ -185,7 +185,7 @@ jobs:
   notify-fixed:
     name: Notify build fixed on Zulip
     needs: [ test, merge-to-main ]
-    if: success()
+    if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
