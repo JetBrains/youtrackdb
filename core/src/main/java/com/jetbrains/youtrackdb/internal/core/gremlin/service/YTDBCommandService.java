@@ -49,31 +49,20 @@ public class YTDBCommandService<E extends YTDBElement> implements Service<E, E> 
       final String command;
       final Map<?, ?> commandParams;
 
+      Object argsObj = params.get(ARGUMENTS);
       Object commandObj = params.get(COMMAND);
-      if (commandObj == null) {
-        // Check if args is a List (format from Gremlin parser)
-        Object argsObj = params.get(ARGUMENTS);
-        if (argsObj instanceof java.util.List<?> list && !list.isEmpty()) {
-          commandObj = list.get(0);
-        }
+      
+      if (argsObj instanceof java.util.List<?> list && !list.isEmpty()) {
+        commandObj = list.get(0);
+        commandParams = Map.of();
+      } else {
+        commandParams = argsObj instanceof Map<?, ?> m ? m : Map.of();
       }
 
       if (commandObj instanceof String c) {
         command = c;
       } else {
-        throw new IllegalArgumentException("Command parameter not found. Params: " + params);
-      }
-
-      // Parse command parameters
-      Object argsObj = params.get(ARGUMENTS);
-      if (argsObj instanceof java.util.List<?>) {
-        // Format from Gremlin parser - args is a List, command params are empty
-        commandParams = Map.of();
-      } else if (argsObj instanceof Map<?, ?> m) {
-        // Format from YTDBGraphTraversalSourceDSL - args is a Map
-        commandParams = m;
-      } else {
-        commandParams = Map.of();
+        throw new IllegalArgumentException("Command must be a String. Params: " + params);
       }
 
       Service.Type type = isStart ? Service.Type.Start : Service.Type.Streaming;
