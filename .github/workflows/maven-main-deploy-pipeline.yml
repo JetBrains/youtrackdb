@@ -17,9 +17,11 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v6
 
-      - name: Set Short SHA
+      - name: Set Short SHA and Timestamp
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +'%Y%m%d.%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -31,10 +33,10 @@ jobs:
 
       - name: Maven deploy
         #1. Deploy to Maven Central as SNAPSHOT
-        #2. Deploy to Maven Central with SHA-SNAPSHOT suffix
+        #2. Deploy to Maven Central with TIMESTAMP-SHA-SNAPSHOT suffix (sortable by date)
         run: |
           mvn -s .github/workflows/settings.xml clean deploy -B
-          mvn -s .github/workflows/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -B
         env:
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
