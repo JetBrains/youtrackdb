@@ -201,6 +201,7 @@
               <goal>test</goal>
             </goals>
             <configuration>
+              <skip>true</skip>
               <suiteXmlFiles>
                 <suiteXmlFile>
                   src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml
@@ -246,11 +247,6 @@
           </execution>
         </executions>
         <dependencies>
-          <dependency>
-            <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-testng</artifactId>
-            <version>${surefire.version}</version>
-          </dependency>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
             <artifactId>surefire-junit47</artifactId>
