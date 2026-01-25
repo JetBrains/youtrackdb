@@ -226,11 +226,34 @@
 <!--              </suiteXmlFiles>-->
 <!--            </configuration>-->
 <!--          </execution>-->
+          <execution>
+            <id>test-junit</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <testNGArtifactName>none:none</testNGArtifactName>
+              <includes>
+                <include>**/junit/DatabaseTestSuite.java</include>
+              </includes>
+              <properties>
+                <property>
+                  <name>listener</name>
+                  <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+                </property>
+              </properties>
+            </configuration>
+          </execution>
         </executions>
         <dependencies>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
             <artifactId>surefire-testng</artifactId>
+            <version>${surefire.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-junit47</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>

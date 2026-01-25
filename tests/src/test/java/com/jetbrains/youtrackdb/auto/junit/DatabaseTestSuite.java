@@ -129,7 +129,7 @@ import org.junit.runners.Suite;
     ConcurrentQueriesTest.class,
     ConcurrentCommandAndOpenTest.class,
     CollateTest.class,
-    // EmbeddedLinkBagTest - skipped (requires LinkBagTest base class migration)
+    EmbeddedLinkBagTest.class,
     BTreeBasedLinkBagTest.class,
     StringsTest.class,
     DBSequenceTest.class,
