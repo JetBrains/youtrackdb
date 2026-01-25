@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
@@ -33,6 +32,7 @@ public class ConcurrentQueriesTest extends BaseDBTest {
   public static void setUpClass() throws Exception {
     instance = new ConcurrentQueriesTest();
     instance.beforeClass();
+    instance.init();
   }
 
   /**
@@ -40,7 +40,6 @@ public class ConcurrentQueriesTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentQueriesTest.java
    */
   @Test
-  @Ignore
   public void test01_ConcurrentCommands() {
     ConcurrentTestHelper.test(THREADS, CommandExecutor::new);
     Assert.assertEquals(counter.get(), CYCLES * THREADS);

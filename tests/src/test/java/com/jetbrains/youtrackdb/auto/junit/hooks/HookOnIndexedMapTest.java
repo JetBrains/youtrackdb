@@ -22,26 +22,29 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.auto.hooks.BrokenMapHook;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
  * JUnit 4 migration of HookOnIndexedMapTest. Original test class:
  * com.jetbrains.youtrackdb.auto.hooks.HookOnIndexedMapTest Location:
  * tests/src/test/java/com/jetbrains/youtrackdb/auto/hooks/HookOnIndexedMapTest.java
+ *
+ * <p>This test verifies that the database correctly rejects the broken hook pattern where
+ * a hook tries to modify records during callback processing (which would trigger setDirty).
+ * The BrokenMapHook demonstrates this anti-pattern by modifying the map in onAfterRecordCreate
+ * which triggers an update, and then trying to modify the map again in onBeforeRecordUpdate.
  */
 public class HookOnIndexedMapTest {
 
   /**
    * Original test method: test Location:
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/hooks/HookOnIndexedMapTest.java:14
-   * <p>
-   * NOTE: This test is ignored because the original test is broken. It fails with
-   * IllegalStateException: "Cannot set dirty in callback processing" due to BrokenMapHook modifying
-   * records in onBeforeRecordUpdate callback.
+   *
+   * <p>This test expects IllegalStateException because BrokenMapHook tries to call setDirty
+   * during callback processing, which is not allowed. The error message advises moving
+   * such calls from beforeCallbackXXX to afterCallbackXX methods.
    */
-  @Test
-  @Ignore("Original test is broken - IllegalStateException in BrokenMapHook.onBeforeRecordUpdate")
+  @Test(expected = IllegalStateException.class)
   public void test() {
     var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(HookOnIndexedMapTest.class));

@@ -30,14 +30,16 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
@@ -96,7 +98,7 @@ public class IndexManagerTest extends BaseDBTest {
             null,
             null);
 
-    assertEquals(result.getName(), "propertyone");
+    assertEquals("propertyone", result.getName());
 
     indexManager.reload(session);
     assertEquals(
@@ -106,6 +108,99 @@ public class IndexManagerTest extends BaseDBTest {
             .getClassIndex(session, CLASS_NAME, "propertyone")
             .getName(),
         result.getName());
+  }
+
+  /**
+   * Original: createCompositeIndexTestWithoutListener (line 77) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
+   */
+  @Test
+  public void test01a_CreateCompositeIndexTestWithoutListener() {
+    final var indexManager = session.getSharedContext().getIndexManager();
+
+    final var result =
+        indexManager.createIndex(
+            session,
+            "compositeone",
+            SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+            new CompositeIndexDefinition(
+                CLASS_NAME,
+                Arrays.asList(
+                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING))),
+            new int[]{session.getCollectionIdByName(CLASS_NAME)},
+            null,
+            null);
+
+    assertEquals("compositeone", result.getName());
+
+    assertEquals(
+        result.getName(),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getClassIndex(session, CLASS_NAME, "compositeone")
+            .getName());
+  }
+
+  /**
+   * Original: createCompositeIndexTestWithListener (line 106) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
+   */
+  @Test
+  public void test01b_CreateCompositeIndexTestWithListener() {
+    final var atomicInteger = new AtomicInteger(0);
+    final var progressListener =
+        new ProgressListener() {
+          @Override
+          public void onBegin(final Object iTask, final long iTotal, Object metadata) {
+            atomicInteger.incrementAndGet();
+          }
+
+          @Override
+          public boolean onProgress(final Object iTask, final long iCounter, final float iPercent) {
+            return true;
+          }
+
+          @Override
+          public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
+              final boolean iSucceed) {
+            atomicInteger.incrementAndGet();
+          }
+        };
+
+    final var indexManager = session.getSharedContext().getIndexManager();
+
+    session.executeInTx(transaction -> {
+      transaction.newEntity(CLASS_NAME);
+    });
+
+    final var result =
+        indexManager.createIndex(
+            session,
+            "compositetwo",
+            SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+            new CompositeIndexDefinition(
+                CLASS_NAME,
+                Arrays.asList(
+                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING),
+                    new PropertyIndexDefinition(CLASS_NAME, "fThree",
+                        PropertyTypeInternal.BOOLEAN))),
+            session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
+            progressListener,
+            null);
+
+    assertEquals("compositetwo", result.getName());
+    assertEquals(2, atomicInteger.get());
+
+    assertEquals(
+        result.getName(),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getClassIndex(session, CLASS_NAME, "compositetwo")
+            .getName());
   }
 
   /**
@@ -139,7 +234,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test04_AreIndexedTwoProperties() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -153,7 +247,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test05_AreIndexedThreeProperties() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -168,7 +261,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test06_AreIndexedThreePropertiesBrokenFiledNameCase() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -183,7 +275,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test07_AreIndexedThreePropertiesBrokenClassNameCase() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -253,7 +344,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test12_AreIndexedTwoPropertiesArrayParams() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -267,7 +357,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test13_AreIndexedThreePropertiesArrayParams() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -308,13 +397,12 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test16_GetClassInvolvedIndexesOnePropertyArrayParams() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var result = indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fOne");
 
-    assertEquals(result.size(), 3);
+    assertEquals(3, result.size());
 
     assertTrue(containsIndex(result, "propertyone"));
     assertTrue(containsIndex(result, "compositeone"));
@@ -326,13 +414,12 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test17_GetClassInvolvedIndexesTwoPropertiesArrayParams() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var result =
         indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fOne");
-    assertEquals(result.size(), 2);
+    assertEquals(2, result.size());
 
     assertTrue(containsIndex(result, "compositeone"));
     assertTrue(containsIndex(result, "compositetwo"));
@@ -343,15 +430,14 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test18_GetClassInvolvedIndexesThreePropertiesArrayParams() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var result =
         indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fOne", "fThree");
 
-    assertEquals(result.size(), 1);
-    assertEquals(result.iterator().next().getName(), "compositetwo");
+    assertEquals(1, result.size());
+    assertEquals("compositetwo", result.iterator().next().getName());
   }
 
   /**
@@ -365,7 +451,7 @@ public class IndexManagerTest extends BaseDBTest {
     final var result =
         indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fFour");
 
-    assertEquals(result.size(), 0);
+    assertEquals(0, result.size());
   }
 
   /**
@@ -380,7 +466,7 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.getClassInvolvedIndexes(
             session, CLASS_NAME, "fTwo", "fOne", "fThee", "fFour");
 
-    assertEquals(result.size(), 0);
+    assertEquals(0, result.size());
   }
 
   /**
@@ -395,7 +481,7 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.getClassInvolvedIndexes(
             session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
-    assertEquals(result.size(), 0);
+    assertEquals(0, result.size());
   }
 
   /**
@@ -417,14 +503,13 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test23_GetClassInvolvedIndexesOneProperty() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var result =
         indexManager.getClassInvolvedIndexes(session, CLASS_NAME, List.of("fOne"));
 
-    assertEquals(result.size(), 3);
+    assertEquals(3, result.size());
 
     assertTrue(containsIndex(result, "propertyone"));
     assertTrue(containsIndex(result, "compositeone"));
@@ -436,14 +521,13 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test24_GetClassInvolvedIndexesOnePropertyBrokenClassNameCase() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var result =
         indexManager.getClassInvolvedIndexes(session, "ClaSSforindeXmanagerTEST", List.of("fOne"));
 
-    assertEquals(result.size(), 3);
+    assertEquals(3, result.size());
 
     assertTrue(containsIndex(result, "propertyone"));
     assertTrue(containsIndex(result, "compositeone"));
@@ -455,13 +539,12 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test25_GetClassInvolvedIndexesTwoProperties() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var result =
         indexManager.getClassInvolvedIndexes(session, CLASS_NAME, Arrays.asList("fTwo", "fOne"));
-    assertEquals(result.size(), 2);
+    assertEquals(2, result.size());
 
     assertTrue(containsIndex(result, "compositeone"));
     assertTrue(containsIndex(result, "compositetwo"));
@@ -472,7 +555,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test26_GetClassInvolvedIndexesThreeProperties() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -480,8 +562,8 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.getClassInvolvedIndexes(
             session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
 
-    assertEquals(result.size(), 1);
-    assertEquals(result.iterator().next().getName(), "compositetwo");
+    assertEquals(1, result.size());
+    assertEquals("compositetwo", result.iterator().next().getName());
   }
 
   /**
@@ -489,7 +571,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test27_GetClassInvolvedIndexesThreePropertiesBrokenFiledNameTest() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -497,8 +578,8 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.getClassInvolvedIndexes(
             session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
 
-    assertEquals(result.size(), 1);
-    assertEquals(result.iterator().next().getName(), "compositetwo");
+    assertEquals(1, result.size());
+    assertEquals("compositetwo", result.iterator().next().getName());
   }
 
   /**
@@ -512,7 +593,7 @@ public class IndexManagerTest extends BaseDBTest {
     final var result =
         indexManager.getClassInvolvedIndexes(session, CLASS_NAME, Arrays.asList("fTwo", "fFour"));
 
-    assertEquals(result.size(), 0);
+    assertEquals(0, result.size());
   }
 
   /**
@@ -527,7 +608,7 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.getClassInvolvedIndexes(
             session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
-    assertEquals(result.size(), 0);
+    assertEquals(0, result.size());
   }
 
   /**
@@ -582,23 +663,23 @@ public class IndexManagerTest extends BaseDBTest {
         null);
 
     var result = indexManager.getClassInvolvedIndexes(session, className, List.of("one"));
-    assertEquals(result.size(), 3);
+    assertEquals(3, result.size());
 
     result = indexManager.getClassInvolvedIndexes(session, className, Arrays.asList("one", "two"));
-    assertEquals(result.size(), 2);
+    assertEquals(2, result.size());
 
     result =
         indexManager.getClassInvolvedIndexes(
             session, className, Arrays.asList("one", "two", "three"));
-    assertEquals(result.size(), 1);
+    assertEquals(1, result.size());
 
     result = indexManager.getClassInvolvedIndexes(session, className, List.of("two"));
-    assertEquals(result.size(), 0);
+    assertEquals(0, result.size());
 
     result =
         indexManager.getClassInvolvedIndexes(
             session, className, Arrays.asList("two", "one", "three"));
-    assertEquals(result.size(), 1);
+    assertEquals(1, result.size());
   }
 
   /**
@@ -606,7 +687,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test31_GetClassIndexes() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -638,7 +718,7 @@ public class IndexManagerTest extends BaseDBTest {
     propertyIndex.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(propertyIndex);
 
-    assertEquals(indexes.size(), 3);
+    assertEquals(3, indexes.size());
 
     for (final var index : indexes) {
       assertTrue(expectedIndexDefinitions.contains(index.getDefinition()));
@@ -650,7 +730,6 @@ public class IndexManagerTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexManagerTest.java
    */
   @Test
-  @Ignore
   public void test32_GetClassIndexesBrokenClassNameCase() {
     final var indexManager = session.getSharedContext().getIndexManager();
 
@@ -682,7 +761,7 @@ public class IndexManagerTest extends BaseDBTest {
     propertyIndex.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(propertyIndex);
 
-    assertEquals(indexes.size(), 3);
+    assertEquals(3, indexes.size());
 
     for (final var index : indexes) {
       assertTrue(expectedIndexDefinitions.contains(index.getDefinition()));
@@ -765,7 +844,7 @@ public class IndexManagerTest extends BaseDBTest {
 
     final var result = indexManager.getClassIndex(session, CLASS_NAME, "propertyone");
     assertNotNull(result);
-    assertEquals(result.getName(), "propertyone");
+    assertEquals("propertyone", result.getName());
   }
 
   /**
@@ -779,7 +858,7 @@ public class IndexManagerTest extends BaseDBTest {
     final var result =
         indexManager.getClassIndex(session, "ClaSSforindeXManagerTeST", "propertyone");
     assertNotNull(result);
-    assertEquals(result.getName(), "propertyone");
+    assertEquals("propertyone", result.getName());
   }
 
   /**

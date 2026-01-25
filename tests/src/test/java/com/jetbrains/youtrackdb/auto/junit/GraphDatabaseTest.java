@@ -28,7 +28,6 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
@@ -57,13 +56,22 @@ public class GraphDatabaseTest extends BaseDBTest {
   }
 
   /**
+   * Original: populate (line 36) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/GraphDatabaseTest.java
+   */
+  @Test
+  public void test00_Populate() {
+    generateGraphData();
+  }
+
+  /**
    * Original: testSQLAgainstGraph (line 41) Location:
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/GraphDatabaseTest.java
    */
   @Test
-  @Ignore
   public void test01_SQLAgainstGraph() {
     session.createEdgeClass("drives");
+    session.createEdgeClass("owns");
 
     session.begin();
     var tom = session.newVertex();

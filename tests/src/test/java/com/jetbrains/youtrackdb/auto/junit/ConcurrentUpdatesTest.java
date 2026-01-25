@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
@@ -41,7 +40,6 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
    */
   @Test
-  @Ignore
   public void test01_ConcurrentOptimisticUpdates() throws Exception {
     counter.set(0);
 
@@ -86,8 +84,8 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     doc1 = database.load(rid1);
 
     for (var i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc1.getProperty(ops[i].threadName), ops[i].fieldValue,
-          ops[i].threadName);
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc1.getProperty(ops[i].threadName));
     }
 
     doc1.toJSON();
@@ -95,8 +93,8 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     doc2 = database.load(rid2);
 
     for (var i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc2.getProperty(ops[i].threadName), ops[i].fieldValue,
-          ops[i].threadName);
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc2.getProperty(ops[i].threadName));
     }
 
     doc2.toJSON();
@@ -333,8 +331,8 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     doc1 = database.load(rid1);
 
     for (var i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc1.getProperty(ops[i].threadName), ops[i].fieldValue,
-          ops[i].threadName);
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc1.getProperty(ops[i].threadName));
     }
 
     doc1.toJSON();
@@ -342,8 +340,8 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     doc2 = database.load(rid2);
 
     for (var i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc2.getProperty(ops[i].threadName), ops[i].fieldValue,
-          ops[i].threadName);
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc2.getProperty(ops[i].threadName));
     }
 
     doc2.toJSON();

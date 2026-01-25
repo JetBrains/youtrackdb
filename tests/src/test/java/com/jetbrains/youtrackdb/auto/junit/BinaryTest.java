@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
@@ -34,7 +33,7 @@ import org.junit.runners.MethodSorters;
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class BinaryTest extends BaseDBTest {
 
-  private RID rid;
+  private static RID rid;
   private static BinaryTest instance;
 
   @BeforeClass
@@ -90,7 +89,6 @@ public class BinaryTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/BinaryTest.java
    */
   @Test
-  @Ignore
   public void test03_BasicReadExternal() {
     session.executeInTx(tx -> {
       RecordAbstract record = session.load(rid);
@@ -120,7 +118,6 @@ public class BinaryTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/BinaryTest.java
    */
   @Test
-  @Ignore
   public void test05_MixedReadExternal() {
     session.executeInTx(tx -> {
       var transaction = session.getActiveTransaction();
