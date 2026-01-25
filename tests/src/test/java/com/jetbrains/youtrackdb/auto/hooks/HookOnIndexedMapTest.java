@@ -12,8 +12,7 @@ public class HookOnIndexedMapTest {
 
   @Test
   public void test() {
-    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(HookOnIndexedMapTest.class));
+    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(".");
 
     youTrackDb.create("test", DatabaseType.MEMORY,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
