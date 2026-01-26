@@ -87,6 +87,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   }
 
   /// Execute a generic YouTrackDB command. Returns a traversal that can be chained.
+  /// Schema commands (CREATE CLASS, DROP CLASS, etc.) are executed immediately for embedded graphs.
   ///
   /// @param command The command to execute.
   /// @return A traversal that can be chained with other steps.
@@ -95,19 +96,15 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   }
 
   /// Execute a generic parameterized YouTrackDB command. Returns a traversal that can be chained.
-  ///
-  /// Schema commands (CREATE CLASS, DROP CLASS, ALTER CLASS, CREATE PROPERTY, DROP PROPERTY,
-  /// CREATE INDEX, DROP INDEX, CREATE VERTEX, CREATE EDGE) are executed immediately.
-  /// Other commands are executed lazily when the traversal is iterated.
+  /// Schema commands (CREATE CLASS, DROP CLASS, etc.) are executed immediately for embedded graphs.
   ///
   /// @param command   The command to execute.
   /// @param arguments The arguments to pass to the command.
   /// @return A traversal that can be chained with other steps.
   public <S> GraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
-    // Schema commands should be executed immediately since they don't return data
-    // and are typically expected to complete before subsequent operations
-    if (isSchemaCommand(command)) {
-      ((YTDBGraphInternal) graph).executeCommand(command, arguments);
+    // For embedded graphs with schema commands, execute immediately
+    if (graph instanceof YTDBGraphInternal ytdbGraph && isSchemaCommand(command)) {
+      ytdbGraph.executeCommand(command, arguments);
       //noinspection unchecked
       return (GraphTraversal<S, S>) inject();
     }

@@ -12,16 +12,17 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
     super.beforeTest();
 
-    traversal.command("create class SomeTx extends V");
-    traversal.command("create class SomeTx2 extends V");
-    traversal.command("create class IndexedTx extends V");
+    // Remote connections require .iterate() for schema commands
+    traversal.command("create class SomeTx extends V").iterate();
+    traversal.command("create class SomeTx2 extends V").iterate();
+    traversal.command("create class IndexedTx extends V").iterate();
 
-    traversal.command("create property IndexedTx.name STRING");
-    traversal.command("create index IndexedTx.name on IndexedTx (name) NOTUNIQUE");
+    traversal.command("create property IndexedTx.name STRING").iterate();
+    traversal.command("create index IndexedTx.name on IndexedTx (name) NOTUNIQUE").iterate();
 
-    traversal.command("create class UniqueIndexedTx extends V");
-    traversal.command("create property UniqueIndexedTx.name STRING");
-    traversal.command("create index UniqueIndexedTx.name on UniqueIndexedTx (name) UNIQUE");
+    traversal.command("create class UniqueIndexedTx extends V").iterate();
+    traversal.command("create property UniqueIndexedTx.name STRING").iterate();
+    traversal.command("create index UniqueIndexedTx.name on UniqueIndexedTx (name) UNIQUE").iterate();
   }
 
   @Test
