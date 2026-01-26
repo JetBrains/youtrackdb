@@ -1,0 +1,31 @@
+name: Block Merge Commits
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-merges:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch all history to inspect commits
+
+      - name: Check for merge commits in PR
+        run: |
+          # Get the list of parents for each commit in the PR
+          # A merge commit has more than 1 parent
+          
+          # We only look at commits strictly between the base branch and the PR head
+          MERGE_COMMITS=$(git rev-list --merges origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }})
+          
+          if [ -n "$MERGE_COMMITS" ]; then
+            echo "::error::Merge commits detected! Please rebase your branch."
+            echo "The following commits are merges:"
+            echo "$MERGE_COMMITS"
+            exit 1
+          else
+            echo "No merge commits found. History is linear."
+          fi
