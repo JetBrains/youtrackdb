@@ -29,10 +29,11 @@ if [ "$COMMAND" == "start" ]; then
 
     # Prepare User Data: Inject the real token into our YAML template
     # We use sed to replace the placeholders in the yaml file
-    USER_DATA=$(sed -e "s|\${GITHUB_REPOSITORY}|$REPO|g" \
-                    -e "s|\${RUNNER_TOKEN}|$REG_TOKEN|g" \
-                    -e "s|\${RUNNER_NAME}|$RUNNER_NAME|g" \
-                    .github/workflows/scripts/user-data.yaml)
+    USER_DATA_FILE=$(mktemp)
+    sed -e "s|\${GITHUB_REPOSITORY}|$REPO|g" \
+        -e "s|\${RUNNER_TOKEN}|$REG_TOKEN|g" \
+        -e "s|\${RUNNER_NAME}|$RUNNER_NAME|g" \
+        .github/workflows/scripts/user-data.yaml > "$USER_DATA_FILE"
 
     echo ">>> Creating Hetzner Server..."
     SERVER_TYPE="cx22" # default x86
@@ -43,8 +44,10 @@ if [ "$COMMAND" == "start" ]; then
         --image "$IMAGE_ID" \
         --type "$SERVER_TYPE" \
         --location "nbg1" \
-        --user-data "$USER_DATA" \
+        --user-data-from-file "$USER_DATA_FILE" \
         --label "run-id=${GITHUB_RUN_ID}"
+
+    rm -f "$USER_DATA_FILE"
 
     echo ">>> Server created. Waiting for runner to register..."
     # Optional: Wait loop to ensure runner is online before returning
