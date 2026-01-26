@@ -11,11 +11,17 @@ RUNNER_NAME="runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}"
 if [ "$COMMAND" == "start" ]; then
     echo ">>> Generating GitHub Runner Token..."
     # Call GitHub API to get a registration token
-    REG_TOKEN=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+    RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/$REPO/actions/runners/registration-token" | jq -r .token)
+        "https://api.github.com/repos/$REPO/actions/runners/registration-token")
 
-    if [ "$REG_TOKEN" == "null" ]; then echo "Failed to get token"; exit 1; fi
+    REG_TOKEN=$(echo "$RESPONSE" | jq -r .token)
+
+    if [ "$REG_TOKEN" == "null" ]; then
+        echo "Failed to get token. API response:"
+        echo "$RESPONSE" | jq .
+        exit 1
+    fi
 
     # Find the snapshot ID we created with Packer
     IMAGE_ID=$(hcloud image list --selector "role=github-runner,arch=$ARCH" --sort created:desc -o json | jq -r '.[0].id')
