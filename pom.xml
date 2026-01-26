@@ -98,7 +98,7 @@
     <cucumber.version>7.31.0</cucumber.version>
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
     <guice.version>7.0.0</guice.version>
-    <antlr.version>4.9.1</antlr.version>
+    <antlr.version>4.13.2</antlr.version>
   </properties>
 
 
@@ -289,8 +289,6 @@
           <artifactId>antlr4-runtime</artifactId>
           <version>${antlr.version}</version>
         </dependency>
-        <!-- Force ANTLR 4.13.2 for gremlin-language to avoid version mismatch in CI/CD -->
-        <!-- This ensures that even if gremlin-language was built with ANTLR 4.9.1, we use 4.13.2 runtime -->
         <dependency>
           <groupId>io.youtrackdb</groupId>
           <artifactId>gremlin-language</artifactId>
