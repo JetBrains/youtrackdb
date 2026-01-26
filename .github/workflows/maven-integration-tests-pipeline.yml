@@ -81,11 +81,11 @@ jobs:
 
       - name: Start Self-Hosted Runner
         run: |
-          bash .github/workflows/scripts/manage-runner.sh start ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.GITHUB_TOKEN }}" "${{ github.repository }}"
+          bash .github/workflows/scripts/manage-runner.sh start ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.RUNNER_TOKEN }}" "${{ github.repository }}"
 
       - name: Wait for Runner to Register
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         run: |
           RUNNER_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
           echo "Waiting for runner '$RUNNER_NAME' to come online..."
@@ -225,7 +225,7 @@ jobs:
       - name: Remove Runner from GitHub
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         run: |
           RUNNER_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
           RUNNER_ID=$(gh api repos/${{ github.repository }}/actions/runners --jq ".runners[] | select(.name==\"$RUNNER_NAME\") | .id" 2>/dev/null || echo "")
@@ -238,7 +238,7 @@ jobs:
 
       - name: Stop Self-Hosted Runner
         run: |
-          bash .github/workflows/scripts/manage-runner.sh stop ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.GITHUB_TOKEN }}" "${{ github.repository }}"
+          bash .github/workflows/scripts/manage-runner.sh stop ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.RUNNER_TOKEN }}" "${{ github.repository }}"
 
   merge-to-main:
     name: Merge develop into main
