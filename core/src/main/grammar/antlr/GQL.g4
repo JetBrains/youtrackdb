@@ -9,47 +9,47 @@ composite_linear_query_statement: simple_linear_query_statement
                                   simple_linear_query_statement )* ;
 
 simple_linear_query_statement: (primitive_query_statement)* return_statment?;
-primitive_query_statement: call_statment | filter_statment | for_statment | let_statmnet |
-                           limit_statment | match_statment | offset_statment | order_by_statment |
-                           skip_statment | with_statmnet;
+primitive_query_statement: call_statement | filter_statement | for_statement | let_statement |
+                           limit_statement | match_statement | offset_statement | order_by_statement |
+                           skip_statement | with_statement;
 
 
-call_statment: OPTIONAL? CALL '(' call_parameters ')' '{' graph_query '}';
+call_statement: OPTIONAL? CALL '(' call_parameters ')' '{' graph_query '}';
 call_parameters: (ID (',' ID)*)?;
 
-filter_statment: FILTER WHERE? boolean_expression;
+filter_statement: FILTER WHERE? boolean_expression;
 
-for_statment: FOR STRING IN list (WITH OFFSET (as_statment)?)?;
+for_statement: FOR STRING IN list (WITH OFFSET (as_statment)?)?;
 list: list_literal | ID | property_reference | NULL_TOKEN;
 
 as_statment: AS STRING;
 
-let_statmnet: LET linear_graph_variable(',' linear_graph_variable)*;
+let_statement: LET linear_graph_variable(',' linear_graph_variable)*;
 linear_graph_variable: STRING EQ value_expression;
 
-limit_statment: LIMIT INT;
+limit_statement: LIMIT INT;
 
-match_statment: OPTIONAL? MATCH match_hint? graph_pattern (exists_predicate)?;
+match_statement: OPTIONAL? MATCH match_hint? graph_pattern (exists_predicate)?;
 match_hint: '@{' hint_key EQ hint_value '}';
 hint_key: ID;
 hint_value: ID | STRING | math_expression | BOOL;
 
-offset_statment: OFFSET INT;
-skip_statment: SKIP_TOKEN INT;
+offset_statement: OFFSET INT;
+skip_statement: SKIP_TOKEN INT;
 
-order_by_statment: ORDER BY order_by_specification;
+order_by_statement: ORDER BY order_by_specification;
 order_by_specification: (COLLATE collation_specification)? (ASC | ASCENDING | DESC | DESCENDING)?;
 collation_specification: STRING;
 
 return_statment: RETURN ('*' | (ALL | DISTINCT)? return_items? group_by_clause?
-                 order_by_statment? limit_statment? offset_statment?);
+                 order_by_statement? limit_statement? offset_statement?);
 
 return_items: return_item (',' return_item)*;
 return_item: value_expression (AS ID)?;
 group_by_clause: GROUP BY groupable_item (',' groupable_item)*;
 groupable_item: property_reference | ID | INT | value_expression;
 
-with_statmnet: WITH (ALL | DISTINCT)? (return_items | '*') group_by_clause?;
+with_statement: WITH (ALL | DISTINCT)? (return_items | '*') group_by_clause?;
 
 graph_pattern: path_pattern_list (where_clause)?;
 path_pattern_list: top_level_path_pattern (',' top_level_path_pattern)*;
