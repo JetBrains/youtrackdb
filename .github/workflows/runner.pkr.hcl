@@ -69,7 +69,7 @@ build {
 
       # 2. Install Runner Dependencies (Added jq, tar, unzip here)
       # 'jq' is crucial for the startup script to parse the GitHub API response
-      "apt-get install -y git curl jq tar unzip apt-transport-https ca-certificates software-properties-common",
+      "apt-get install -y git curl jq tar unzip apt-transport-https ca-certificates software-properties-common maven",
 
       # 3. Install Docker
       "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg",
@@ -84,7 +84,8 @@ build {
       # 5. Verify installations
       "docker --version",
       "git --version",
-      "jq --version"
+      "jq --version",
+      "mvn --version"
     ]
   }
 }
