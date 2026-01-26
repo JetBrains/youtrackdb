@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 # Git hook to automatically add issue prefix to commit messages
-# based on the branch name pattern: letters + non-letter + numbers
-# Example: ytdb-509-feature-name -> "Issue ytdb-509: <message>"
+# based on the branch name pattern: ytdb + non-letter + numbers
+# Example: ytdb-509-feature-name -> "ytdb-509: <message>"
 
 COMMIT_MSG_FILE=$1
 COMMIT_SOURCE=$2
@@ -21,15 +21,16 @@ if [ -z "$BRANCH_NAME" ]; then
     exit 0
 fi
 
-# Extract issue prefix: letters followed by a single non-letter followed by numbers
-# Pattern explanation: ^([a-zA-Z]+[^a-zA-Z0-9][0-9]+)
+# Extract issue prefix: "ytdb" followed by a single non-letter followed by numbers
+# Pattern explanation: ^(ytdb)([^a-zA-Z0-9])([0-9]+)
 # - ^           : start of string
-# - [a-zA-Z]+   : one or more letters
+# - ytdb        : literal "ytdb" prefix (case-sensitive)
 # - [^a-zA-Z0-9]: single non-alphanumeric character (separator like - or _)
 # - [0-9]+      : one or more digits
-if [[ $BRANCH_NAME =~ ^([a-zA-Z]+[^a-zA-Z0-9][0-9]+) ]]; then
-    ISSUE_PREFIX="${BASH_REMATCH[1]}"
-    FULL_PREFIX="Issue $ISSUE_PREFIX: "
+if [[ $BRANCH_NAME =~ ^(ytdb)([^a-zA-Z0-9])([0-9]+) ]]; then
+    # Normalize the prefix: always use '-' as separator
+    ISSUE_PREFIX="ytdb-${BASH_REMATCH[3]}"
+    FULL_PREFIX="$ISSUE_PREFIX: "
 
     # Read current commit message
     COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
