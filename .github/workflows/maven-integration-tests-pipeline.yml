@@ -73,8 +73,6 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
-        with:
-          ref: 'develop'
 
       - name: Install hcloud CLI
         run: |
@@ -220,8 +218,6 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
-        with:
-          ref: 'develop'
 
       - name: Install hcloud CLI
         run: |

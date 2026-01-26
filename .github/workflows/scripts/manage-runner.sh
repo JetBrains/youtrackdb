@@ -26,7 +26,7 @@ if [ "$COMMAND" == "start" ]; then
     USER_DATA=$(sed -e "s|\${GITHUB_REPOSITORY}|$REPO|g" \
                     -e "s|\${RUNNER_TOKEN}|$REG_TOKEN|g" \
                     -e "s|\${RUNNER_NAME}|$RUNNER_NAME|g" \
-                    .github/scripts/user-data.yaml)
+                    .github/workflows/scripts/user-data.yaml)
 
     echo ">>> Creating Hetzner Server..."
     SERVER_TYPE="cx22" # default x86
