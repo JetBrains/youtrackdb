@@ -131,7 +131,7 @@
       <plugin>
         <groupId>org.antlr</groupId>
         <artifactId>antlr4-maven-plugin</artifactId>
-        <version>4.13.2</version>
+        <version>${antlr.version}</version>
         <executions>
           <execution>
             <id>antlr</id>
@@ -163,6 +163,10 @@
             <artifactId>surefire-junit47</artifactId>
             <version>${surefire.version}</version>
           </dependency>
+          <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr.version}</version> </dependency>
         </dependencies>
         <configuration>
           <systemPropertyVariables>

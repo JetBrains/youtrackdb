@@ -283,6 +283,10 @@ public class GremlinDslProcessor extends AbstractProcessor {
             .addModifiers(Modifier.PUBLIC)
             .addAnnotation(Override.class);
 
+        // Copy type parameters from the template method
+        templateMethod.getTypeParameters()
+            .forEach(tp -> methodToAdd.addTypeVariable(TypeVariableName.get(tp)));
+
         methodToAdd.addStatement("$T clone = this.clone()", ctx.traversalSourceClassName);
         addMethodBody(methodToAdd, templateMethod, "return new $T (clone, super.$L(",
             ").asAdmin())",
