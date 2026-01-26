@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.api.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupService;
@@ -95,10 +96,22 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
   /// Execute a generic parameterized YouTrackDB command. Returns a traversal that can be chained.
   ///
+  /// Schema commands (CREATE CLASS, DROP CLASS, ALTER CLASS, CREATE PROPERTY, DROP PROPERTY,
+  /// CREATE INDEX, DROP INDEX, CREATE VERTEX, CREATE EDGE) are executed immediately.
+  /// Other commands are executed lazily when the traversal is iterated.
+  ///
   /// @param command   The command to execute.
   /// @param arguments The arguments to pass to the command.
   /// @return A traversal that can be chained with other steps.
   public <S> GraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+    // Schema commands should be executed immediately since they don't return data
+    // and are typically expected to complete before subsequent operations
+    if (isSchemaCommand(command)) {
+      ((YTDBGraphInternal) graph).executeCommand(command, arguments);
+      //noinspection unchecked
+      return (GraphTraversal<S, S>) inject();
+    }
+
     //noinspection unchecked
     return call(
         YTDBCommandService.NAME, Map.of(
@@ -106,6 +119,22 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             YTDBCommandService.ARGUMENTS, arguments
         )
     );
+  }
+
+  private static boolean isSchemaCommand(String command) {
+    if (command == null) {
+      return false;
+    }
+    var normalized = command.trim().toUpperCase();
+    return normalized.startsWith("CREATE CLASS")
+        || normalized.startsWith("DROP CLASS")
+        || normalized.startsWith("ALTER CLASS")
+        || normalized.startsWith("CREATE PROPERTY")
+        || normalized.startsWith("DROP PROPERTY")
+        || normalized.startsWith("CREATE INDEX")
+        || normalized.startsWith("DROP INDEX")
+        || normalized.startsWith("CREATE VERTEX")
+        || normalized.startsWith("CREATE EDGE");
   }
 
   /// Performs backup of database content to the selected folder.
