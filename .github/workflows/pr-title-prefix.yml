@@ -1,0 +1,56 @@
+name: PR Title Issue Prefix
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  add-issue-prefix:
+    name: Add issue prefix to PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check and update PR title
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const branchName = context.payload.pull_request.head.ref;
+            const currentTitle = context.payload.pull_request.title;
+
+            // Match YTDB prefix (case-insensitive) with optional separator followed by numbers
+            // Pattern: ytdb/YTDB + optional non-alphanumeric + digits
+            const branchMatch = branchName.toLowerCase().match(/^(ytdb)[^a-z0-9]?(\d+)/);
+
+            if (!branchMatch) {
+              console.log(`Branch "${branchName}" does not match YTDB pattern. Skipping.`);
+              return;
+            }
+
+            const issueNumber = branchMatch[2];
+            const issuePrefix = `YTDB-${issueNumber}`;
+
+            // Check if the issue prefix already exists in the title (case-insensitive)
+            const titleLower = currentTitle.toLowerCase();
+            const prefixLower = issuePrefix.toLowerCase();
+
+            if (titleLower.includes(prefixLower)) {
+              console.log(`PR title already contains "${issuePrefix}". Skipping.`);
+              return;
+            }
+
+            // Update PR title with the prefix
+            const newTitle = `${issuePrefix}: ${currentTitle}`;
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              title: newTitle
+            });
+
+            console.log(`Updated PR title from "${currentTitle}" to "${newTitle}"`);
