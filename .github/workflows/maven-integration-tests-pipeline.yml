@@ -107,7 +107,7 @@ jobs:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: [check-changes, start-runners]
     if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: ${{ matrix.runner_label }}
+    runs-on: runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
@@ -116,11 +116,9 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
-            runner_label: runner-${{ github.run_id }}-${{ github.run_attempt }}-x86
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
             java_arch: x64
           - arch: arm
-            runner_label: runner-${{ github.run_id }}-${{ github.run_attempt }}-arm
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
             java_arch: aarch64
     steps:
