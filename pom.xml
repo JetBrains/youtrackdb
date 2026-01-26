@@ -98,7 +98,7 @@
     <cucumber.version>7.31.0</cucumber.version>
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
     <guice.version>7.0.0</guice.version>
-    <antlr.version>4.13.2</antlr.version>
+    <antlr.version>4.9.1</antlr.version>
   </properties>
 
 
