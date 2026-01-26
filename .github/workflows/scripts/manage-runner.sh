@@ -36,8 +36,9 @@ if [ "$COMMAND" == "start" ]; then
         .github/workflows/scripts/user-data.yaml > "$USER_DATA_FILE"
 
     echo ">>> Creating Hetzner Server..."
-    SERVER_TYPE="cx22" # default x86
-    if [ "$ARCH" == "arm" ]; then SERVER_TYPE="cax11"; fi
+    # Server types must have disk >= Packer build server disk size
+    SERVER_TYPE="cx53" # x86: 8 vCPU, 16GB RAM, 160GB disk
+    if [ "$ARCH" == "arm" ]; then SERVER_TYPE="cax41"; fi # ARM: 16 vCPU, 32GB RAM, 320GB disk
 
     hcloud server create \
         --name "$RUNNER_NAME" \
