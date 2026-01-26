@@ -45,8 +45,7 @@ jobs:
             # List images with specific labels, sorted by creation (newest first)
             # We skip the first 2 (keep them) and get the IDs of the rest
             IMAGES_TO_DELETE=$(hcloud image list \
-              --label "role=github-runner" \
-              --label "arch=$ARCH" \
+              --selector "role=github-runner,arch=$ARCH" \
               --sort created:desc \
               -o json | jq -r '.[2:] | .[].id')
 
