@@ -1,3 +1,7 @@
+#### PR Title:
+
+If this PR is related to an issue, prefix the title with the issue number (e.g., `YTDB-123: Your PR title`).
+
 #### Motivation:
 
 A clear and concise explanation of why this change is necessary and what problem it solves.
