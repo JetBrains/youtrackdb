@@ -289,6 +289,13 @@
           <artifactId>antlr4-runtime</artifactId>
           <version>${antlr.version}</version>
         </dependency>
+        <!-- Force ANTLR 4.13.2 for gremlin-language to avoid version mismatch in CI/CD -->
+        <!-- This ensures that even if gremlin-language was built with ANTLR 4.9.1, we use 4.13.2 runtime -->
+        <dependency>
+          <groupId>io.youtrackdb</groupId>
+          <artifactId>gremlin-language</artifactId>
+          <version>${gremlin.version}</version>
+        </dependency>
     </dependencies>
   </dependencyManagement>
 
