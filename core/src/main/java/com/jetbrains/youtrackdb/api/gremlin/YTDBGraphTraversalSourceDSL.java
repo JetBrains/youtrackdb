@@ -96,19 +96,31 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   }
 
   /// Execute a generic parameterized YouTrackDB command. Returns a traversal that can be chained.
-  /// Schema commands (CREATE CLASS, DROP CLASS, etc.) are executed immediately for embedded graphs.
+  /// Schema commands (CREATE CLASS, DROP CLASS, etc.) are executed immediately.
   ///
   /// @param command   The command to execute.
   /// @param arguments The arguments to pass to the command.
   /// @return A traversal that can be chained with other steps.
   public <S> GraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
-    // For embedded graphs with schema commands, execute immediately
-    if (graph instanceof YTDBGraphInternal ytdbGraph && isSchemaCommand(command)) {
-      ytdbGraph.executeCommand(command, arguments);
+    // For schema commands, execute immediately (both embedded and remote)
+    if (isSchemaCommand(command)) {
+      if (graph instanceof YTDBGraphInternal ytdbGraph) {
+        // Embedded: execute directly
+        ytdbGraph.executeCommand(command, arguments);
+      } else {
+        // Remote: execute via call() and iterate immediately
+        call(
+            YTDBCommandService.NAME, Map.of(
+                YTDBCommandService.COMMAND, command,
+                YTDBCommandService.ARGUMENTS, arguments
+            )
+        ).iterate();
+      }
       //noinspection unchecked
       return (GraphTraversal<S, S>) inject();
     }
 
+    // Non-schema commands: return lazy traversal for chaining
     //noinspection unchecked
     return call(
         YTDBCommandService.NAME, Map.of(
