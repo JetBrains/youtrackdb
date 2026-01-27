@@ -146,24 +146,50 @@ every 5 minutes to maintain pool health and auto-scale based on demand.
 |---------|-------|-------------|
 | MIN_SERVERS_PER_ARCH | 1 | Always keep at least 1 server per architecture (x86 + arm) |
 | MAX_SERVERS_PER_ARCH | 2 | Maximum servers per architecture during high load |
-| RUNNERS_PER_SERVER | 2 | Each server runs 2 GitHub runner instances |
+| RUNNERS_PER_SERVER | 2 | Each server runs 2 ephemeral runner instances |
 | IDLE_TIMEOUT_MINUTES | 30 | Delete extra servers after being idle for this duration |
 
 **Server Types**:
 - x86: `cx53` (16 vCPUs, 32GB RAM, 160GB disk)
 - arm: `cax41` (16 vCPUs, 32GB RAM, 160GB disk)
 
+**Ephemeral Runner Architecture**:
+
+Each server runs a launcher service that manages ephemeral runners:
+```
+┌─────────────────────────────────────────────────────┐
+│  Launcher Loop (per runner slot)                    │
+│  1. Check for drain file → exit if exists           │
+│  2. Get fresh registration token                    │
+│  3. Configure ephemeral runner (--ephemeral flag)   │
+│  4. Run runner (waits for job, executes, exits)     │
+│  5. Go to step 1                                    │
+└─────────────────────────────────────────────────────┘
+```
+
 **How It Works**:
 1. **Minimum Pool**: 2 servers always running (1 x86 + 1 arm), each with 2 runners = 4 parallel jobs
 2. **Scale Up**: When pending jobs exceed available runners, add servers (up to max)
-3. **Scale Down**: Extra servers deleted after 30 minutes of idle time
-4. **Status Tracking**: Servers labeled as `idle` or `busy` based on runner activity
+3. **Scale Down**: Safe two-phase deletion via SSH drain signal:
+   - Phase 1: SSH creates `/var/run/drain-runner` file, launcher stops creating new runners
+   - Phase 2: When no runners are busy (checked via GitHub API), delete server
+4. **Status Tracking**: Servers labeled as `idle`, `busy`, or `draining` based on activity
+
+**Required Secrets**:
+- `HCLOUD_TOKEN` - Hetzner Cloud API token
+- `RUNNER_TOKEN` - GitHub PAT with `admin:org` or repo admin permissions
+- `HETZNER_SSH_PRIVATE_KEY` - SSH private key for drain signaling
+
+**Hetzner Setup**:
+1. Create SSH key pair: `ssh-keygen -t ed25519 -f github-runner-key`
+2. Add public key to Hetzner Cloud: `hcloud ssh-key create --name github-runner-key --public-key-from-file github-runner-key.pub`
+3. Add private key as `HETZNER_SSH_PRIVATE_KEY` secret in GitHub
 
 **Manual Actions** (via workflow_dispatch):
 - `init` - Initialize pool with minimum servers
 - `scale` - Run scaling logic (default)
 - `status` - Show current pool status
-- `cleanup` - Delete all pool servers
+- `cleanup` - Force delete all pool servers (use with caution)
 
 ### maven-main-deploy-pipeline.yml (Main Branch)
 
