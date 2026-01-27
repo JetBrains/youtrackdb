@@ -60,58 +60,12 @@ jobs:
             echo "should_run=true" >> $GITHUB_OUTPUT
           fi
 
-  start-runners:
-    name: Start Hetzner Runner (${{ matrix.arch }})
-    needs: check-changes
-    if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86, arm]
-    env:
-      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v6
-
-      - name: Install hcloud CLI
-        run: |
-          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar -xz
-          sudo mv hcloud /usr/local/bin/hcloud
-
-      - name: Start Self-Hosted Runner
-        run: |
-          bash .github/workflows/scripts/manage-runner.sh start ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.RUNNER_TOKEN }}" "${{ github.repository }}"
-
-      - name: Wait for Runners to Register
-        env:
-          GH_TOKEN: ${{ secrets.RUNNER_TOKEN }}
-        run: |
-          BASE_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
-          NUM_RUNNERS=2
-          echo "Waiting for $NUM_RUNNERS runners with base name '$BASE_NAME' to come online..."
-
-          for i in {1..60}; do
-            ONLINE_COUNT=$(gh api repos/${{ github.repository }}/actions/runners \
-              --jq "[.runners[] | select(.name | startswith(\"$BASE_NAME\")) | select(.status==\"online\")] | length" 2>/dev/null || echo "0")
-
-            echo "Attempt $i/60: $ONLINE_COUNT/$NUM_RUNNERS runners online..."
-
-            if [ "$ONLINE_COUNT" -ge "$NUM_RUNNERS" ]; then
-              echo "All $NUM_RUNNERS runners are online!"
-              exit 0
-            fi
-            sleep 10
-          done
-
-          echo "ERROR: Not all runners came online within 10 minutes"
-          exit 1
-
   test-linux:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
-    needs: [check-changes, start-runners]
+    needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+    # Use pool runners - they have labels: self-hosted, Linux, pool-runner, and architecture (x64 or arm64)
+    runs-on: [self-hosted, Linux, pool-runner, '${{ matrix.arch == ''x86'' && ''x64'' || ''arm64'' }}']
     strategy:
       fail-fast: false
       matrix:
@@ -232,52 +186,9 @@ jobs:
           comment_mode: off
           check_name: Integration Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
-  stop-runners:
-    name: Stop Hetzner Runner (${{ matrix.arch }})
-    needs: [start-runners, test-linux]
-    if: always() && needs.start-runners.result != 'skipped'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86, arm]
-    env:
-      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v6
-
-      - name: Install hcloud CLI
-        run: |
-          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar -xz
-          sudo mv hcloud /usr/local/bin/hcloud
-
-      - name: Remove Runners from GitHub
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.RUNNER_TOKEN }}
-        run: |
-          BASE_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
-          echo "Removing all runners with base name '$BASE_NAME'..."
-
-          RUNNER_IDS=$(gh api repos/${{ github.repository }}/actions/runners \
-            --jq ".runners[] | select(.name | startswith(\"$BASE_NAME\")) | .id" 2>/dev/null || echo "")
-
-          if [ -z "$RUNNER_IDS" ]; then
-            echo "No runners found with base name '$BASE_NAME'"
-          else
-            for RUNNER_ID in $RUNNER_IDS; do
-              echo "Removing runner ID: $RUNNER_ID..."
-              gh api -X DELETE repos/${{ github.repository }}/actions/runners/$RUNNER_ID || true
-            done
-          fi
-
-      - name: Stop Self-Hosted Runner
-        run: |
-          bash .github/workflows/scripts/manage-runner.sh stop ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.RUNNER_TOKEN }}" "${{ github.repository }}"
-
   merge-to-main:
     name: Merge develop into main
-    needs: [test-linux, stop-runners]  # test-windows temporarily disabled
+    needs: test-linux  # test-windows temporarily disabled
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:

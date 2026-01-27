@@ -1,0 +1,40 @@
+name: Runner Pool Manager
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'scale'
+        type: choice
+        options:
+          - scale
+          - init
+          - status
+          - cleanup
+
+permissions:
+  actions: write
+
+jobs:
+  manage-pool:
+    runs-on: ubuntu-latest
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar -xz
+          sudo mv hcloud /usr/local/bin/hcloud
+
+      - name: Run Pool Manager
+        run: |
+          chmod +x .github/workflows/scripts/pool-manager.sh
+          ACTION="${{ github.event.inputs.action || 'scale' }}"
+          bash .github/workflows/scripts/pool-manager.sh "$ACTION" "$HCLOUD_TOKEN" "${{ secrets.RUNNER_TOKEN }}" "${{ github.repository }}"
