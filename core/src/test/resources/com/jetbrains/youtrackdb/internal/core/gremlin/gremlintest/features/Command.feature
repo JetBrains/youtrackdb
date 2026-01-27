@@ -5,14 +5,14 @@ Feature: Command Support
     Given the empty graph
     And the traversal of
       """
-      g.command("BEGIN").command("CREATE CLASS Employee IF NOT EXISTS EXTENDS V").command("COMMIT")
+      g.sqlCommand("BEGIN").sqlCommand("CREATE CLASS Employee IF NOT EXISTS EXTENDS V").sqlCommand("COMMIT")
       """
     When iterated to list
 
   Scenario: g_commandXINSERT_and_verify
     And the traversal of
       """
-      g.command("BEGIN").command("INSERT INTO Employee SET name = 'Alice'").command("COMMIT")
+      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Alice'").sqlCommand("COMMIT")
       """
     When iterated to list
     And the traversal of

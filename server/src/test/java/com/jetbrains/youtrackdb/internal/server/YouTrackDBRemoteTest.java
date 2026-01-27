@@ -217,7 +217,7 @@ public class YouTrackDBRemoteTest {
   @Test
   public void testCreateRootSystemUser() throws Exception {
     createAndCheckSystemUser(PredefinedSystemRole.ROOT,
-        graphTraversalSource -> graphTraversalSource.command("create class TestClass").iterate()
+        graphTraversalSource -> graphTraversalSource.command("create class TestClass")
     );
   }
 

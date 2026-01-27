@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.api.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupService;
@@ -86,41 +85,44 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
 
-  /// Execute a generic YouTrackDB command. Returns a traversal that can be chained.
-  /// Schema commands (CREATE CLASS, DROP CLASS, etc.) are executed immediately for embedded graphs.
+  /// Execute a generic YouTrackDB command immediately.
+  /// The command is executed eagerly - no need to call .iterate().
   ///
   /// @param command The command to execute.
-  /// @return A traversal that can be chained with other steps.
-  public <S> GraphTraversal<S, S> command(@Nonnull String command) {
-    return command(command, Map.of());
+  public void command(@Nonnull String command) {
+    command(command, Map.of());
   }
 
-  /// Execute a generic parameterized YouTrackDB command. Returns a traversal that can be chained.
-  /// Schema commands (CREATE CLASS, DROP CLASS, etc.) are executed immediately.
+  /// Execute a generic parameterized YouTrackDB command immediately.
+  /// The command is executed eagerly - no need to call .iterate().
   ///
   /// @param command   The command to execute.
   /// @param arguments The arguments to pass to the command.
-  /// @return A traversal that can be chained with other steps.
-  public <S> GraphTraversal<S, S> command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
-    // For schema commands, execute immediately (both embedded and remote)
-    if (isSchemaCommand(command)) {
-      if (graph instanceof YTDBGraphInternal ytdbGraph) {
-        // Embedded: execute directly
-        ytdbGraph.executeCommand(command, arguments);
-      } else {
-        // Remote: execute via call() and iterate immediately
-        call(
-            YTDBCommandService.NAME, Map.of(
-                YTDBCommandService.COMMAND, command,
-                YTDBCommandService.ARGUMENTS, arguments
-            )
-        ).iterate();
-      }
-      //noinspection unchecked
-      return (GraphTraversal<S, S>) inject();
-    }
+  public void command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+    call(
+        YTDBCommandService.NAME, Map.of(
+            YTDBCommandService.COMMAND, command,
+            YTDBCommandService.ARGUMENTS, arguments
+        )
+    ).iterate();
+  }
 
-    // Non-schema commands: return lazy traversal for chaining
+  /// Execute a generic YouTrackDB SQL command. Returns a lazy traversal that can be chained.
+  /// Users must call .iterate() or another terminal operation to execute the command.
+  ///
+  /// @param command The SQL command to execute.
+  /// @return A traversal that can be chained with other steps.
+  public <S> GraphTraversal<S, S> sqlCommand(@Nonnull String command) {
+    return sqlCommand(command, Map.of());
+  }
+
+  /// Execute a generic parameterized YouTrackDB SQL command. Returns a lazy traversal.
+  /// Users must call .iterate() or another terminal operation to execute the command.
+  ///
+  /// @param command   The SQL command to execute.
+  /// @param arguments The arguments to pass to the command.
+  /// @return A traversal that can be chained with other steps.
+  public <S> GraphTraversal<S, S> sqlCommand(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
     //noinspection unchecked
     return call(
         YTDBCommandService.NAME, Map.of(
@@ -128,22 +130,6 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             YTDBCommandService.ARGUMENTS, arguments
         )
     );
-  }
-
-  private static boolean isSchemaCommand(String command) {
-    if (command == null) {
-      return false;
-    }
-    var normalized = command.trim().toUpperCase();
-    return normalized.startsWith("CREATE CLASS")
-        || normalized.startsWith("DROP CLASS")
-        || normalized.startsWith("ALTER CLASS")
-        || normalized.startsWith("CREATE PROPERTY")
-        || normalized.startsWith("DROP PROPERTY")
-        || normalized.startsWith("CREATE INDEX")
-        || normalized.startsWith("DROP INDEX")
-        || normalized.startsWith("CREATE VERTEX")
-        || normalized.startsWith("CREATE EDGE");
   }
 
   /// Performs backup of database content to the selected folder.
