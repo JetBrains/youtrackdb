@@ -208,6 +208,22 @@ journalctl -u github-hetzner-runners -n 100
 
 ## Maintenance
 
+### Runner Image Updates (Automated)
+
+Runner images are rebuilt monthly by the `build-hetzner-images.yml` workflow. The workflow automatically:
+
+1. Builds new x86 and arm64 runner images with Packer
+2. SSHs to the orchestrator server
+3. Updates `IMAGE_X64` and `IMAGE_ARM64` in `/etc/github-hetzner-runners/env`
+4. Restarts the orchestrator service
+5. Cleans up old snapshots (keeps last 2)
+
+**Requirements for automated updates:**
+- `ORCHESTRATOR_HOST` secret set to orchestrator server IP/hostname
+- `ORCHESTRATOR_SSH_KEY` secret set to SSH private key for root access
+
+Running jobs are not affected during the restart (see architecture notes above).
+
 ### Updating TestFlows
 
 ```bash
@@ -240,6 +256,8 @@ packer build testflows-orchestrator.pkr.hcl
 | `HETZNER_S3_ACCESS_KEY` | Maven cache storage |
 | `HETZNER_S3_SECRET_KEY` | Maven cache storage |
 | `HETZNER_S3_ENDPOINT` | Maven cache storage |
+| `ORCHESTRATOR_HOST` | Orchestrator server IP/hostname (for automated image updates) |
+| `ORCHESTRATOR_SSH_KEY` | SSH private key for orchestrator root access (for automated image updates) |
 
 ### Orchestrator Server Environment
 
