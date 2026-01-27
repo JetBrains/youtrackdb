@@ -83,24 +83,28 @@ jobs:
         run: |
           bash .github/workflows/scripts/manage-runner.sh start ${{ matrix.arch }} "$HCLOUD_TOKEN" "${{ secrets.RUNNER_TOKEN }}" "${{ github.repository }}"
 
-      - name: Wait for Runner to Register
+      - name: Wait for Runners to Register
         env:
           GH_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         run: |
-          RUNNER_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
-          echo "Waiting for runner '$RUNNER_NAME' to come online..."
+          BASE_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
+          NUM_RUNNERS=2
+          echo "Waiting for $NUM_RUNNERS runners with base name '$BASE_NAME' to come online..."
 
           for i in {1..60}; do
-            STATUS=$(gh api repos/${{ github.repository }}/actions/runners --jq ".runners[] | select(.name==\"$RUNNER_NAME\") | .status" 2>/dev/null || echo "")
-            if [ "$STATUS" == "online" ]; then
-              echo "Runner '$RUNNER_NAME' is online!"
+            ONLINE_COUNT=$(gh api repos/${{ github.repository }}/actions/runners \
+              --jq "[.runners[] | select(.name | startswith(\"$BASE_NAME\")) | select(.status==\"online\")] | length" 2>/dev/null || echo "0")
+
+            echo "Attempt $i/60: $ONLINE_COUNT/$NUM_RUNNERS runners online..."
+
+            if [ "$ONLINE_COUNT" -ge "$NUM_RUNNERS" ]; then
+              echo "All $NUM_RUNNERS runners are online!"
               exit 0
             fi
-            echo "Attempt $i/60: Runner not yet online (status: ${STATUS:-not found}). Waiting 10s..."
             sleep 10
           done
 
-          echo "ERROR: Runner '$RUNNER_NAME' did not come online within 10 minutes"
+          echo "ERROR: Not all runners came online within 10 minutes"
           exit 1
 
   test-linux:
@@ -221,18 +225,24 @@ jobs:
           curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar -xz
           sudo mv hcloud /usr/local/bin/hcloud
 
-      - name: Remove Runner from GitHub
+      - name: Remove Runners from GitHub
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         run: |
-          RUNNER_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
-          RUNNER_ID=$(gh api repos/${{ github.repository }}/actions/runners --jq ".runners[] | select(.name==\"$RUNNER_NAME\") | .id" 2>/dev/null || echo "")
-          if [ -n "$RUNNER_ID" ]; then
-            echo "Removing runner '$RUNNER_NAME' (ID: $RUNNER_ID) from GitHub..."
-            gh api -X DELETE repos/${{ github.repository }}/actions/runners/$RUNNER_ID
+          BASE_NAME="runner-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}"
+          echo "Removing all runners with base name '$BASE_NAME'..."
+
+          RUNNER_IDS=$(gh api repos/${{ github.repository }}/actions/runners \
+            --jq ".runners[] | select(.name | startswith(\"$BASE_NAME\")) | .id" 2>/dev/null || echo "")
+
+          if [ -z "$RUNNER_IDS" ]; then
+            echo "No runners found with base name '$BASE_NAME'"
           else
-            echo "Runner '$RUNNER_NAME' not found in GitHub, may have already been removed."
+            for RUNNER_ID in $RUNNER_IDS; do
+              echo "Removing runner ID: $RUNNER_ID..."
+              gh api -X DELETE repos/${{ github.repository }}/actions/runners/$RUNNER_ID || true
+            done
           fi
 
       - name: Stop Self-Hosted Runner
