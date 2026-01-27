@@ -79,8 +79,12 @@ hcloud server create \
   --type cx23 \
   --image <snapshot-id> \
   --location nbg1 \
-  --ssh-key <your-ssh-key>
+  --ssh-key <your-ssh-key> \
+  --firewall testflows-orchestrator-protection
 ```
+
+**Note:** The firewall `testflows-orchestrator-protection` allows SSH (port 22) and ICMP inbound,
+and all outbound traffic. Create it first using `terraform apply` on `network.tf` if not already done.
 
 **Estimated cost:** ~4-8 EUR/month
 

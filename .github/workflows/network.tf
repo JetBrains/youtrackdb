@@ -57,8 +57,62 @@ resource "hcloud_firewall" "runner_firewall" {
 }
 
 # ------------------------------------------------------------------------
-# Output: We need this ID for your GitHub Action
+# Security: TestFlows Orchestrator Firewall
+# ------------------------------------------------------------------------
+resource "hcloud_firewall" "orchestrator_firewall" {
+  name = "testflows-orchestrator-protection"
+
+  # INBOUND: Allow SSH for automated updates from GitHub Actions
+  rule {
+    direction = "in"
+    protocol  = "tcp"
+    port      = "22"
+    source_ips = [
+      "0.0.0.0/0",
+      "::/0"
+    ]
+  }
+
+  # INBOUND: Allow ICMP (Ping) for debugging connectivity
+  rule {
+    direction = "in"
+    protocol  = "icmp"
+    source_ips = [
+      "0.0.0.0/0",
+      "::/0"
+    ]
+  }
+
+  # OUTBOUND: Allow everything
+  # The orchestrator needs to communicate with GitHub API and Hetzner API
+  rule {
+    direction = "out"
+    protocol  = "tcp"
+    port      = "any"
+    destination_ips = [
+      "0.0.0.0/0",
+      "::/0"
+    ]
+  }
+
+  rule {
+    direction = "out"
+    protocol  = "udp"
+    port      = "any"
+    destination_ips = [
+      "0.0.0.0/0",
+      "::/0"
+    ]
+  }
+}
+
+# ------------------------------------------------------------------------
+# Output: Firewall names for reference
 # ------------------------------------------------------------------------
 output "firewall_name" {
   value = hcloud_firewall.runner_firewall.name
+}
+
+output "orchestrator_firewall_name" {
+  value = hcloud_firewall.orchestrator_firewall.name
 }
