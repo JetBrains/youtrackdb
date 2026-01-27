@@ -25,7 +25,7 @@ flowchart TB
         direction TB
         it_check["Check for Changes<br/>(Skip if already tested)"]
         it_cache_restore["Restore Maven Cache<br/>(Hetzner S3)"]
-        it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu<br/>x86, arm<br/><i>Pool Runners (always-on)</i>"]
+        it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>TestFlows On-Demand Runners</i>"]
         it_cache_save["Save Maven Cache<br/>(Hetzner S3)"]
         it_merge["Merge develop → main<br/>(fast-forward only)<br/><i>skipped on manual dispatch</i>"]
         it_notify["Zulip Notifications<br/><i>skipped on manual dispatch</i>"]
@@ -34,15 +34,6 @@ flowchart TB
         it_test_linux --> it_cache_save
         it_cache_save -->|"schedule only"| it_merge
         it_merge --> it_notify
-    end
-
-    subgraph pool_manager["runner-pool-manager.yml<br/>(Every 5 minutes)"]
-        direction TB
-        pm_scale["Auto-scale Pool<br/>Min: 1 server/arch<br/>Max: 2 servers/arch"]
-        pm_status["Update Server Status<br/>(idle/busy)"]
-        pm_cleanup["Cleanup Idle Servers<br/>(after 30 min)"]
-        pm_scale --> pm_status
-        pm_status --> pm_cleanup
     end
 
     subgraph main_pipeline["maven-main-deploy-pipeline.yml<br/>(main branch)"]
@@ -113,16 +104,21 @@ first checks if there are new changes since the last successful run to avoid red
 
 | Platform | Runners | JDK Distributions | Maven Goal | Tests |
 |----------|---------|-------------------|------------|-------|
-| Linux (Hetzner) | Pool runners (always-on) | temurin, corretto, oracle, zulu | `verify` | Unit + Integration |
-| Windows (GitHub) | GitHub-hosted | temurin, corretto, oracle, zulu, microsoft | `package` | Unit only (disk limits) |
+| Linux (Hetzner) | TestFlows on-demand | temurin, oracle | `verify` | Unit + Integration |
+| Windows (GitHub) | GitHub-hosted | temurin, oracle | `package` | Unit only (disk limits) |
 
-- **Runner Pool**: Managed by `runner-pool-manager.yml` (see below)
-- **Maven cache**: Shared via Hetzner S3 Object Storage (synced before/after each job)
+**TestFlows Runners**:
+- Managed by external [TestFlows GitHub Hetzner Runners](https://github.com/testflows/testflows-github-hetzner-runners) service
+- Runners created on-demand when jobs queue (~1-2 min startup)
+- Zero cost when no jobs running (no idle servers)
+- Max 4 concurrent servers (2 x64 + 2 arm64)
+- Custom Packer images with JDK, Maven, Docker, rclone pre-installed
+- See [testflows-runner-setup.md](testflows-runner-setup.md) for deployment details
 
 **Job Flow**:
 1. `check-changes` - Skip if current commit was already tested successfully
-2. `test-linux` - Restore Maven cache from S3, run full integration tests (16 jobs), save cache to S3
-3. `test-windows` - Run unit tests only on GitHub-hosted runners (10 jobs)
+2. `test-linux` - Restore Maven cache from S3, run full integration tests (8 jobs), save cache to S3
+3. `test-windows` - Run unit tests only on GitHub-hosted runners (4 jobs, currently disabled)
 4. `merge-to-main` - Fast-forward merge develop into main (schedule only)
 
 Upon successful completion of all tests, it automatically merges `develop` into `main`
@@ -135,62 +131,6 @@ validating changes before the nightly run or debugging test failures.
 **Note**: Windows tests use `package` goal (unit tests only) instead of `verify` due to disk space
 limitations on GitHub-hosted runners. Full integration tests run on Linux/Hetzner only.
 
-### runner-pool-manager.yml (Runner Pool)
-
-This workflow manages a pool of always-on Hetzner servers with GitHub self-hosted runners. It runs
-every 5 minutes to maintain pool health and auto-scale based on demand.
-
-**Pool Configuration**:
-
-| Setting | Value | Description |
-|---------|-------|-------------|
-| MIN_SERVERS_PER_ARCH | 1 | Always keep at least 1 server per architecture (x86 + arm) |
-| MAX_SERVERS_PER_ARCH | 2 | Maximum servers per architecture during high load |
-| RUNNERS_PER_SERVER | 2 | Each server runs 2 ephemeral runner instances |
-| IDLE_TIMEOUT_MINUTES | 30 | Delete extra servers after being idle for this duration |
-
-**Server Types**:
-- x86: `cx53` (16 vCPUs, 32GB RAM, 160GB disk)
-- arm: `cax41` (16 vCPUs, 32GB RAM, 160GB disk)
-
-**Ephemeral Runner Architecture**:
-
-Each server runs a launcher service that manages ephemeral runners:
-```
-┌─────────────────────────────────────────────────────┐
-│  Launcher Loop (per runner slot)                    │
-│  1. Check for drain file → exit if exists           │
-│  2. Get fresh registration token                    │
-│  3. Configure ephemeral runner (--ephemeral flag)   │
-│  4. Run runner (waits for job, executes, exits)     │
-│  5. Go to step 1                                    │
-└─────────────────────────────────────────────────────┘
-```
-
-**How It Works**:
-1. **Minimum Pool**: 2 servers always running (1 x86 + 1 arm), each with 2 runners = 4 parallel jobs
-2. **Scale Up**: When pending jobs exceed available runners, add servers (up to max)
-3. **Scale Down**: Safe two-phase deletion via SSH drain signal:
-   - Phase 1: SSH creates `/var/run/drain-runner` file, launcher stops creating new runners
-   - Phase 2: When no runners are busy (checked via GitHub API), delete server
-4. **Status Tracking**: Servers labeled as `idle`, `busy`, or `draining` based on activity
-
-**Required Secrets**:
-- `HCLOUD_TOKEN` - Hetzner Cloud API token
-- `RUNNER_TOKEN` - GitHub PAT with `admin:org` or repo admin permissions
-- `HETZNER_SSH_PRIVATE_KEY` - SSH private key for drain signaling
-
-**Hetzner Setup**:
-1. Create SSH key pair: `ssh-keygen -t ed25519 -f github-runner-key`
-2. Add public key to Hetzner Cloud: `hcloud ssh-key create --name github-runner-key --public-key-from-file github-runner-key.pub`
-3. Add private key as `HETZNER_SSH_PRIVATE_KEY` secret in GitHub
-
-**Manual Actions** (via workflow_dispatch):
-- `init` - Initialize pool with minimum servers
-- `scale` - Run scaling logic (default)
-- `status` - Show current pool status
-- `cleanup` - Force delete all pool servers (use with caution)
-
 ### maven-main-deploy-pipeline.yml (Main Branch)
 
 Triggered by pushes to `main` (typically from the integration tests pipeline merge), this pipeline
@@ -198,14 +138,21 @@ handles production-ready deployments. It deploys Maven artifacts without the `-d
 Central and builds/publishes Docker images for both `console` and `server` components to Docker Hub.
 This ensures that `main` branch artifacts are always the stable, fully tested versions.
 
+## TestFlows Runner Setup
+
+Self-hosted runners for integration tests are managed by TestFlows GitHub Hetzner Runners, an
+external orchestrator running on a dedicated small Hetzner server. This replaces the previous
+custom pool management system.
+
+For complete setup and configuration instructions, see [testflows-runner-setup.md](testflows-runner-setup.md).
+
 ## Workflow Summary
 
 | Workflow                                 | Trigger                   | Purpose                                      | Infrastructure                                              | Artifacts                                                       |
 |------------------------------------------|---------------------------|----------------------------------------------|-------------------------------------------------------------|-----------------------------------------------------------------|
 | **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts              | GitHub-hosted runners                                       | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
-| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | Pool runners (Hetzner) + GitHub (Windows) + S3 cache        | N/A (triggers main pipeline)                                    |
-| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | Pool runners (Hetzner) + GitHub (Windows) + S3 cache        | N/A                                                             |
-| **runner-pool-manager.yml**              | Every 5 minutes           | Maintain runner pool, auto-scale             | Hetzner (2-4 servers, 4-8 runners)                          | N/A                                                             |
+| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | TestFlows runners (Hetzner) + GitHub (Windows) + S3 cache   | N/A (triggers main pipeline)                                    |
+| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | TestFlows runners (Hetzner) + GitHub (Windows) + S3 cache   | N/A                                                             |
 | **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker            | GitHub-hosted runners                                       | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
 
 ## Version Format

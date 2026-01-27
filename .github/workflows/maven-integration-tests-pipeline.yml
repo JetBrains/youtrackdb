@@ -64,13 +64,13 @@ jobs:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    # Use pool runners - they have labels: self-hosted, Linux, pool-runner, and architecture (x64 or arm64)
-    runs-on: [self-hosted, Linux, pool-runner, '${{ matrix.arch == ''x86'' && ''x64'' || ''arm64'' }}']
+    # Use TestFlows on-demand runners - they have labels: self-hosted, Linux, and architecture (x64 or arm64)
+    runs-on: [self-hosted, Linux, '${{ matrix.arch == ''x86'' && ''x64'' || ''arm64'' }}']
     strategy:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu' ]  # microsoft removed for Linux (4 runners)
+        distribution: [ 'temurin', 'oracle' ]
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
@@ -150,7 +150,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
+        distribution: [ 'temurin', 'oracle' ]
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
