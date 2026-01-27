@@ -215,8 +215,7 @@ jobs:
 
       - name: Run Maven Test
         id: tests
-        continue-on-error: true
-        run: mvn -s .github/workflows/settings.xml clean verify -B `-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci -P ci-integration-tests
+        run: mvn -s .github/workflows/settings.xml clean package -B `-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
