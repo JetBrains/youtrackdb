@@ -47,8 +47,8 @@ build {
       "apt-get update",
       "apt-get upgrade -y",
 
-      # 2. Install Python and pip
-      "apt-get install -y python3 python3-pip python3-venv",
+      # 2. Install Python, pip, and SSH client
+      "apt-get install -y python3 python3-pip python3-venv openssh-client",
 
       # 3. Create virtual environment for testflows
       "python3 -m venv /opt/testflows-runners",
