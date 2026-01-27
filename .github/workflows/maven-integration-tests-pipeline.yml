@@ -64,8 +64,8 @@ jobs:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    # Use TestFlows on-demand runners - they have labels: self-hosted, Linux, and architecture (x64 or arm64)
-    runs-on: [self-hosted, Linux, '${{ matrix.arch == ''x86'' && ''x64'' || ''arm64'' }}']
+    # Use TestFlows on-demand runners with architecture-specific server types
+    runs-on: [self-hosted, Linux, '${{ matrix.arch == ''x86'' && ''x64'' || ''arm64'' }}', '${{ matrix.server_type }}']
     strategy:
       fail-fast: false
       matrix:
@@ -76,9 +76,11 @@ jobs:
           - arch: x86
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
             java_arch: x64
+            server_type: type-cx53
           - arch: arm
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
             java_arch: aarch64
+            server_type: type-cax41
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6

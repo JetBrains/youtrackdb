@@ -122,9 +122,6 @@ HCLOUD_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # Maximum concurrent runners (default: 4)
 MAX_RUNNERS=4
 
-# Server type for runners (default: cx53 - 16 vCPU, 32GB RAM)
-SERVER_TYPE_X64=cx53
-
 # Snapshot names (created by build-hetzner-images.yml)
 IMAGE_X64=github-runner-x86
 IMAGE_ARM64=github-runner-arm
@@ -132,6 +129,20 @@ IMAGE_ARM64=github-runner-arm
 # Hetzner datacenter location
 LOCATION=nbg1
 ```
+
+### Server Type Configuration
+
+Server types are specified per-job using **workflow labels**, not orchestrator config:
+
+```yaml
+# In workflow file - x64 jobs use cx53 (Intel/AMD)
+runs-on: [self-hosted, Linux, x64, type-cx53]
+
+# arm64 jobs use cax41 (ARM Ampere)
+runs-on: [self-hosted, Linux, arm64, type-cax41]
+```
+
+Jobs without a `type-*` label will fail, ensuring explicit server type selection.
 
 ### Firewall Configuration (Security)
 
