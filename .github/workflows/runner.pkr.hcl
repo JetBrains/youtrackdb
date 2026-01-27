@@ -77,15 +77,19 @@ build {
       "apt-get update",
       "apt-get install -y docker-ce docker-ce-cli containerd.io",
 
-      # 4. Clean up apt cache to keep image small
+      # 4. Install rclone for S3 cache sync
+      "curl -fsSL https://rclone.org/install.sh | bash",
+
+      # 5. Clean up apt cache to keep image small
       "apt-get clean",
       "rm -rf /var/lib/apt/lists/*",
 
-      # 5. Verify installations
+      # 6. Verify installations
       "docker --version",
       "git --version",
       "jq --version",
-      "mvn --version"
+      "mvn --version",
+      "rclone --version"
     ]
   }
 }
