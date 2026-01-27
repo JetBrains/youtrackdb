@@ -24,6 +24,31 @@ Before starting, ensure you have:
 3. **Runner images** already built (see `build-hetzner-images.yml` workflow)
 4. **Firewall** configured (see `network.tf`)
 
+## Hetzner Cloud Token Setup
+
+Create an API token for Hetzner Cloud:
+
+1. Go to https://console.hetzner.cloud/
+2. Select your project
+3. Navigate to **Security** → **API Tokens**
+4. Click **Generate API Token**
+5. Give it **Read & Write** permissions
+6. Copy the token (it's only shown once)
+
+Set up the token for CLI usage:
+
+```bash
+# Option 1: Create a named context (recommended)
+hcloud context create youtrackdb
+# Paste your token when prompted
+
+# Verify it works
+hcloud server list
+
+# Option 2: Set as environment variable (for scripts/Packer)
+export HCLOUD_TOKEN="your-token-here"
+```
+
 ## Step 1: Build the Orchestrator Image (One-time)
 
 Build the orchestrator server image using Packer:
@@ -48,10 +73,10 @@ Using Hetzner Cloud Console or CLI:
 # Find the snapshot ID
 hcloud image list --type snapshot | grep testflows-orchestrator
 
-# Create server (CX22 is sufficient - 2 vCPU, 4GB RAM)
+# Create server (CX23 is sufficient - 2 vCPU, 4GB RAM)
 hcloud server create \
   --name testflows-orchestrator \
-  --type cx22 \
+  --type cx23 \
   --image <snapshot-id> \
   --location nbg1 \
   --ssh-key <your-ssh-key>

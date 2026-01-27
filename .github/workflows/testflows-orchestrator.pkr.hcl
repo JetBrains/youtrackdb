@@ -20,7 +20,7 @@ source "hcloud" "testflows-orchestrator" {
   token         = var.hcloud_token
   image         = "ubuntu-24.04"
   location      = "nbg1"
-  server_type   = "cx22"
+  server_type   = "cx23"
   ssh_username  = "root"
   snapshot_name = "testflows-orchestrator-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
