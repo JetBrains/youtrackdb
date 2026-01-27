@@ -24,18 +24,18 @@ flowchart TB
     subgraph integration_pipeline["maven-integration-tests-pipeline.yml"]
         direction TB
         it_check["Check for Changes<br/>(Skip if already tested)"]
-        it_start["Start Hetzner Runners<br/>(x86 + arm)"]
-        it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>x86, arm<br/><i>Self-hosted Hetzner</i>"]
-        it_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/><i>GitHub-hosted</i>"]
+        it_start["Start Hetzner Runners<br/>(2 runners per server)<br/>(x86 + arm)"]
+        it_cache_restore["Restore Maven Cache<br/>(Hetzner S3)"]
+        it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>x86, arm<br/><i>Self-hosted Hetzner (4 parallel jobs)</i>"]
+        it_cache_save["Save Maven Cache<br/>(Hetzner S3)"]
         it_stop["Stop Hetzner Runners<br/>(cleanup)"]
         it_merge["Merge develop → main<br/>(fast-forward only)<br/><i>skipped on manual dispatch</i>"]
         it_notify["Zulip Notifications<br/><i>skipped on manual dispatch</i>"]
         it_check --> it_start
-        it_check --> it_test_windows
-        it_start --> it_test_linux
-        it_test_linux --> it_stop
-        it_test_linux -->|"schedule only"| it_merge
-        it_test_windows -->|"schedule only"| it_merge
+        it_start --> it_cache_restore
+        it_cache_restore --> it_test_linux
+        it_test_linux --> it_cache_save
+        it_cache_save --> it_stop
         it_stop -->|"schedule only"| it_merge
         it_merge --> it_notify
     end
@@ -105,15 +105,17 @@ This pipeline runs on a daily schedule (2:00 AM UTC) to execute comprehensive in
 first checks if there are new changes since the last successful run to avoid redundant testing.
 
 **Infrastructure**: Linux tests run on self-hosted Hetzner Cloud runners (x86 and arm64) that are
-dynamically provisioned at the start of the pipeline and cleaned up after tests complete. Windows
-tests run on GitHub-hosted runners. This approach provides cost-effective, dedicated compute for
-Linux workloads while maintaining compatibility with Windows testing.
+dynamically provisioned at the start of the pipeline and cleaned up after tests complete.
+
+- **Servers**: 2 Hetzner VMs (cx53 for x86, cax41 for arm)
+- **Runners per server**: 2 (total 4 parallel jobs)
+- **Maven cache**: Shared via Hetzner S3 Object Storage (synced before/after each job)
 
 **Job Flow**:
 1. `check-changes` - Skip if current commit was already tested successfully
-2. `start-runners` - Provision Hetzner VMs and wait for runners to come online
-3. `test-linux` / `test-windows` - Run test matrix in parallel on respective runners
-4. `stop-runners` - Remove runners from GitHub and delete Hetzner servers (always runs)
+2. `start-runners` - Provision Hetzner VMs, start 2 runners per server, wait for all to come online
+3. `test-linux` - Restore Maven cache from S3, run test matrix (4 parallel jobs), save cache to S3
+4. `stop-runners` - Remove all runners from GitHub and delete Hetzner servers (always runs)
 5. `merge-to-main` - Fast-forward merge develop into main (schedule only)
 
 Upon successful completion of all integration tests, it automatically merges `develop` into `main`
@@ -122,6 +124,8 @@ using fast-forward only, ensuring `main` always contains fully tested code.
 **Manual Dispatch Mode**: When triggered manually via `workflow_dispatch`, the pipeline runs only the
 integration tests without merging to `main` or sending Zulip notifications. This is useful for
 validating changes before the nightly run or debugging test failures.
+
+**Note**: Windows tests are temporarily disabled and will be re-enabled on GitHub-hosted runners.
 
 ### maven-main-deploy-pipeline.yml (Main Branch)
 
@@ -132,12 +136,12 @@ This ensures that `main` branch artifacts are always the stable, fully tested ve
 
 ## Workflow Summary
 
-| Workflow                                 | Trigger                   | Purpose                                      | Infrastructure                          | Artifacts                                                       |
-|------------------------------------------|---------------------------|----------------------------------------------|-----------------------------------------|-----------------------------------------------------------------|
-| **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts              | GitHub-hosted runners                   | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
-| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | Hetzner (Linux), GitHub-hosted (Windows)| N/A (triggers main pipeline)                                    |
-| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | Hetzner (Linux), GitHub-hosted (Windows)| N/A                                                             |
-| **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker            | GitHub-hosted runners                   | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+| Workflow                                 | Trigger                   | Purpose                                      | Infrastructure                                    | Artifacts                                                       |
+|------------------------------------------|---------------------------|----------------------------------------------|---------------------------------------------------|-----------------------------------------------------------------|
+| **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts              | GitHub-hosted runners                             | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
+| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | Hetzner self-hosted (2 servers, 4 runners) + S3 cache | N/A (triggers main pipeline)                                    |
+| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | Hetzner self-hosted (2 servers, 4 runners) + S3 cache | N/A                                                             |
+| **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker            | GitHub-hosted runners                             | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
 
 ## Version Format
 
