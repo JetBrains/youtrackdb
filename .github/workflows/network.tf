@@ -21,6 +21,12 @@ provider "hcloud" {
 resource "hcloud_firewall" "runner_firewall" {
   name = "github-runner-protection"
 
+  # AUTO-APPLY: Automatically attach to servers with label role=github-runner
+  # TestFlows creates runners with this label via --with-label option
+  apply_to {
+    label_selector = "role=github-runner"
+  }
+
   # INBOUND: Block everything (Safety first)
   # GitHub runners communicate OUT to GitHub, so they don't need open ports.
   # We only allow ICMP (Ping) for debugging connectivity.

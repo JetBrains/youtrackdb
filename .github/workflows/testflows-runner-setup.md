@@ -122,20 +122,27 @@ HCLOUD_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # Maximum concurrent runners (default: 4)
 MAX_RUNNERS=4
 
-# Server types for each architecture
-SERVER_TYPE_X64=cx53     # 16 vCPU, 32GB RAM
-SERVER_TYPE_ARM64=cax41  # 16 vCPU, 32GB RAM
+# Server type for runners (default: cx53 - 16 vCPU, 32GB RAM)
+SERVER_TYPE_X64=cx53
 
 # Snapshot names (created by build-hetzner-images.yml)
 IMAGE_X64=github-runner-x86
 IMAGE_ARM64=github-runner-arm
 
-# Firewall to attach (created by network.tf)
-FIREWALL=github-runner-protection
-
 # Hetzner datacenter location
 LOCATION=nbg1
 ```
+
+### Firewall Configuration (Security)
+
+Runner servers are automatically protected by the `github-runner-protection` firewall:
+
+1. TestFlows creates runners with label `role=github-runner` (configured in wrapper script)
+2. The firewall has `apply_to { label_selector = "role=github-runner" }` in `network.tf`
+3. Hetzner automatically attaches the firewall to any server with this label
+
+**Important:** Run `terraform apply` on `network.tf` to update the firewall with the label selector
+if it was created before this change.
 
 ## Step 4: Start the Service
 

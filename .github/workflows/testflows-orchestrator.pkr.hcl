@@ -61,7 +61,25 @@ build {
       # 5. Create configuration directory
       "mkdir -p /etc/github-hetzner-runners",
 
-      # 6. Create systemd service file
+      # 6. Create wrapper script with defaults
+      "cat > /usr/local/bin/github-hetzner-runners-wrapper << 'WRAPPER'",
+      "#!/bin/bash",
+      "set -e",
+      "source /etc/github-hetzner-runners/env",
+      "exec /usr/local/bin/github-hetzner-runners \\",
+      "    --github-token \"$${GITHUB_TOKEN}\" \\",
+      "    --github-repository \"$${GITHUB_REPOSITORY}\" \\",
+      "    --hetzner-token \"$${HCLOUD_TOKEN}\" \\",
+      "    --max-runners \"$${MAX_RUNNERS:-4}\" \\",
+      "    --default-type \"$${SERVER_TYPE_X64:-cx53}\" \\",
+      "    --default-image \"x64:snapshot:$${IMAGE_X64:-github-runner-x86}\" \\",
+      "    --default-image \"arm64:snapshot:$${IMAGE_ARM64:-github-runner-arm}\" \\",
+      "    --default-location \"$${LOCATION:-nbg1}\" \\",
+      "    --with-label role=github-runner",
+      "WRAPPER",
+      "chmod +x /usr/local/bin/github-hetzner-runners-wrapper",
+
+      # 7. Create systemd service file
       "cat > /etc/systemd/system/github-hetzner-runners.service << 'EOF'",
       "[Unit]",
       "Description=TestFlows GitHub Hetzner Runners",
@@ -69,18 +87,7 @@ build {
       "",
       "[Service]",
       "Type=simple",
-      "EnvironmentFile=/etc/github-hetzner-runners/env",
-      "ExecStart=/usr/local/bin/github-hetzner-runners \\",
-      "    --github-token $${GITHUB_TOKEN} \\",
-      "    --github-repository $${GITHUB_REPOSITORY} \\",
-      "    --hetzner-token $${HCLOUD_TOKEN} \\",
-      "    --max-runners $${MAX_RUNNERS:-4} \\",
-      "    --type-x64 $${SERVER_TYPE_X64:-cx53} \\",
-      "    --type-arm64 $${SERVER_TYPE_ARM64:-cax41} \\",
-      "    --default-image-x64 $${IMAGE_X64:-github-runner-x86} \\",
-      "    --default-image-arm64 $${IMAGE_ARM64:-github-runner-arm} \\",
-      "    --default-firewall $${FIREWALL:-github-runner-protection} \\",
-      "    --location $${LOCATION:-nbg1}",
+      "ExecStart=/usr/local/bin/github-hetzner-runners-wrapper",
       "Restart=always",
       "RestartSec=10",
       "StandardOutput=journal",
@@ -90,7 +97,7 @@ build {
       "WantedBy=multi-user.target",
       "EOF",
 
-      # 7. Create example environment file
+      # 8. Create example environment file
       "cat > /etc/github-hetzner-runners/env.example << 'EOF'",
       "# Required tokens",
       "GITHUB_TOKEN=ghp_your_github_personal_access_token",
@@ -100,21 +107,19 @@ build {
       "# Optional settings (defaults shown)",
       "MAX_RUNNERS=4",
       "SERVER_TYPE_X64=cx53",
-      "SERVER_TYPE_ARM64=cax41",
       "IMAGE_X64=github-runner-x86",
       "IMAGE_ARM64=github-runner-arm",
-      "FIREWALL=github-runner-protection",
       "LOCATION=nbg1",
       "EOF",
 
-      # 8. Reload systemd
+      # 9. Reload systemd
       "systemctl daemon-reload",
 
-      # 9. Clean up apt cache
+      # 10. Clean up apt cache
       "apt-get clean",
       "rm -rf /var/lib/apt/lists/*",
 
-      # 10. Verify installation
+      # 11. Verify installation
       "github-hetzner-runners --help || echo 'TestFlows runners installed (help may require tokens)'"
     ]
   }
