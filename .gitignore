@@ -105,6 +105,9 @@ $RECYCLE.BIN/
 *.lnk
 ### Maven template
 target/
+
+# Generated sources
+**/src/main/generated/
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
