@@ -27,9 +27,19 @@ resource "hcloud_firewall" "runner_firewall" {
     label_selector = "role=github-runner"
   }
 
-  # INBOUND: Block everything (Safety first)
-  # GitHub runners communicate OUT to GitHub, so they don't need open ports.
-  # We only allow ICMP (Ping) for debugging connectivity.
+  # INBOUND: Allow SSH for TestFlows orchestrator to configure runners
+  # Runners are ephemeral and protected by SSH key authentication
+  rule {
+    direction = "in"
+    protocol  = "tcp"
+    port      = "22"
+    source_ips = [
+      "0.0.0.0/0",
+      "::/0"
+    ]
+  }
+
+  # INBOUND: Allow ICMP (Ping) for debugging connectivity
   rule {
     direction = "in"
     protocol  = "icmp"

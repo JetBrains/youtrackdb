@@ -155,6 +155,20 @@ Runner servers are automatically protected by the `github-runner-protection` fir
 **Important:** Run `terraform apply` on `network.tf` to update the firewall with the label selector
 if it was created before this change.
 
+### SSH Key Setup
+
+TestFlows needs an SSH key to access the runner servers it creates. Generate one on the orchestrator:
+
+```bash
+# Generate SSH key (no passphrase for automation)
+ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N ""
+
+# Verify it exists
+ls -la /root/.ssh/id_rsa*
+```
+
+The public key (`id_rsa.pub`) will be automatically added to runner servers when they are created.
+
 ## Step 4: Start the Service
 
 ```bash
