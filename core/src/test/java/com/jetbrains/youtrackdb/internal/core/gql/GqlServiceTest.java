@@ -21,19 +21,14 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
-  public void testGqlServiceThrowsNotImplemented() {
+  public void testGqlFlowReturnsEmptyMap() {
     var g = graph.traversal();
 
-    // Currently, executing the traversal should throw UnsupportedOperationException
-    var exception = assertThrows(
-        UnsupportedOperationException.class,
-        () -> g.gql("MATCH (a:Person)").toList()
-    );
+    // Execute the full flow - should return one empty map
+    var results = g.gql("MATCH (a:Person)").toList();
 
-    assertTrue(
-        "Exception message should mention the query",
-        exception.getMessage().contains("MATCH (a:Person)")
-    );
+    assertEquals("Should return 1 result", 1, results.size());
+    assertTrue("Result should be an empty map", results.get(0).isEmpty());
   }
 
   @Test
