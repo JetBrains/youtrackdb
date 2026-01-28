@@ -129,22 +129,22 @@ MAX_RUNNERS=4
 Runners are configured per-job using workflow labels. The integration tests workflow uses:
 
 ```yaml
-runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cx43 type-cpx42'' || ''type-cax31'' }}',
+runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
            'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
            docker, firewall, git, mcache, volume-cache ]
 ```
 
-| Label                                 | Purpose                                 |
-|---------------------------------------|-----------------------------------------|
-| `self-hosted`                         | Required for self-hosted runners        |
-| `in-nbg1`                             | Hetzner datacenter location             |
-| `type-cx43 type-cpx42` / `type-cax31` | Server type with fallback (x64 / arm64) |
-| `image-*-ubuntu-24.04`                | Base Ubuntu image to use                |
-| `docker`                              | Run Docker installation script          |
-| `firewall`                            | Run UFW firewall configuration script   |
-| `git`                                 | Run Git installation script             |
-| `mcache`                              | Run Maven cache mount script            |
-| `volume-cache`                        | Attach persistent volume for caching    |
+| Label                       | Purpose                               |
+|-----------------------------|---------------------------------------|
+| `self-hosted`               | Required for self-hosted runners      |
+| `in-nbg1`                   | Hetzner datacenter location           |
+| `type-cpx42` / `type-cax31` | Server type (x64 / arm64)             |
+| `image-*-ubuntu-24.04`      | Base Ubuntu image to use              |
+| `docker`                    | Run Docker installation script        |
+| `firewall`                  | Run UFW firewall configuration script |
+| `git`                       | Run Git installation script           |
+| `mcache`                    | Run Maven cache mount script          |
+| `volume-cache`              | Attach persistent volume for caching  |
 
 ### Setup Scripts
 
@@ -207,12 +207,12 @@ journalctl -u github-hetzner-runners --since "10 minutes ago"
 
 ## Scaling Behavior
 
-| Scenario             | Behavior                               |
-|----------------------|----------------------------------------|
-| No jobs queued       | No servers running (zero cost)         |
-| 1 x64 job queued     | 1 cx43/cpx42 server created            |
-| 2 x64 + 2 arm64 jobs | 2 cx43/cpx42 + 2 cax31 servers (max 4) |
-| Jobs > max runners   | Jobs queue until runners available     |
+| Scenario             | Behavior                           |
+|----------------------|------------------------------------|
+| No jobs queued       | No servers running (zero cost)     |
+| 1 x64 job queued     | 1 cpx42 server created             |
+| 2 x64 + 2 arm64 jobs | 2 cpx42 + 2 cax31 servers (max 4)  |
+| Jobs > max runners   | Jobs queue until runners available |
 
 ## Troubleshooting
 
