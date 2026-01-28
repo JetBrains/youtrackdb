@@ -131,7 +131,7 @@ Runners are configured per-job using workflow labels. The integration tests work
 ```yaml
 runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
            'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
-           docker, firewall, git, mcache, volume-cache ]
+           setup-docker, setup-firewall, setup-git, setup-mcache, volume-cache ]
 ```
 
 | Label                       | Purpose                               |
@@ -140,10 +140,10 @@ runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' |
 | `in-nbg1`                   | Hetzner datacenter location           |
 | `type-cpx42` / `type-cax31` | Server type (x64 / arm64)             |
 | `image-*-ubuntu-24.04`      | Base Ubuntu image to use              |
-| `docker`                    | Run Docker installation script        |
-| `firewall`                  | Run UFW firewall configuration script |
-| `git`                       | Run Git installation script           |
-| `mcache`                    | Run Maven cache mount script          |
+| `setup-docker`              | Run Docker installation script        |
+| `setup-firewall`            | Run UFW firewall configuration script |
+| `setup-git`                 | Run Git installation script           |
+| `setup-mcache`              | Run Maven cache mount script          |
 | `volume-cache`              | Attach persistent volume for caching  |
 
 ### Setup Scripts
@@ -242,7 +242,7 @@ journalctl -u github-hetzner-runners -n 100
 
 1. Verify `volume-cache` label is in the workflow
 2. Check if `/mnt/cache` directory exists on the runner
-3. Verify `mcache` label is included
+3. Verify `setup-mcache` label is included
 
 ## Maintenance
 
