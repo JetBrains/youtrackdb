@@ -3,8 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.BitSet;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class AtomicOperationsTable {
@@ -25,7 +24,17 @@ public class AtomicOperationsTable {
   private volatile long minPersistedOperationId;
   private volatile long maxPersistedOperationId;
 
-  public record AtomicOperationTableState(long maxPersistedOperationId, List<Long> inProgressOpList) {
+  public record AtomicOperationTableState(long minPersistedOperationId,
+                                          long maxPersistedOperationId,
+                                          BitSet inProgressBits) {
+    public boolean isInProgress(long opId) {
+      if (opId < minPersistedOperationId || opId >= maxPersistedOperationId) return false;
+      return inProgressBits.get((int) (opId - minPersistedOperationId));
+    }
+
+    public boolean isInProgressNotEmpty() {
+      return !inProgressBits.isEmpty();
+    }
   }
 
   public AtomicOperationsTable(final int tableCompactionInterval, final long idOffset) {
@@ -38,27 +47,32 @@ public class AtomicOperationsTable {
   public AtomicOperationTableState snapshotAtomicOperationTableState() {
     compactionLock.sharedLock();
     try {
-      final long maxPersistedOpId = maxPersistedOperationId;
-      final long minPersistedOpId = minPersistedOperationId;
+      final long minOp = minPersistedOperationId;
+      final long maxOp = maxPersistedOperationId;
 
-      if (maxPersistedOpId <= minPersistedOpId) {
-        return new AtomicOperationTableState(maxPersistedOpId, List.of());
+      if (maxOp <= minOp) {
+        return new AtomicOperationTableState(minOp, maxOp, new BitSet(0));
       }
+
+      final var inProgress = new BitSet((int) (maxOp - minOp));
 
       final var table = tables[tables.length - 1];
       final long offset = idOffsets[tables.length - 1];
+      final int size = table.size();
 
-      final int from = (int) (minPersistedOpId - offset);
-      final int toExclusive = (int) (maxPersistedOpId - offset);
+      // compute overlap [from, to)
+      final long fromOp = Math.max(minOp, offset);
+      final long toOp = Math.min(maxOp, offset + size);
 
-      final List<Long> inProgress = new ArrayList<>();
-      for (int i = from; i < toExclusive; i++) {
-        final var info = table.get(i);
+      for (long opId = fromOp; opId < toOp; opId++) {
+        final int index = (int) (opId - offset);
+        final var info = table.get(index);
+
         if (info.status == AtomicOperationStatus.IN_PROGRESS) {
-          inProgress.add(info.operationId);
+          inProgress.set((int) (opId - minOp));
         }
       }
-      return new AtomicOperationTableState(maxPersistedOpId, inProgress);
+      return new AtomicOperationTableState(minOp, maxOp, inProgress);
     } finally {
       compactionLock.sharedUnlock();
     }
