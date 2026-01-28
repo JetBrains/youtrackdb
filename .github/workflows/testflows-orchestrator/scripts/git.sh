@@ -1,4 +1,3 @@
-set -x
 {
    echo "Setup build tools: git"
    apt-get -y update

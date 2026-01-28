@@ -1,25 +1,3 @@
-set -x
-
-{
-    echo "Create and configure ubuntu user"
-    adduser ubuntu --disabled-password --gecos ""
-
-    echo "%wheel   ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers
-    addgroup wheel
-    usermod -aG wheel ubuntu
-    usermod -aG sudo ubuntu
-}
-
-{
-    echo "Install fail2ban"
-    apt-get update
-    apt-get install --yes --no-install-recommends \
-        fail2ban
-
-    echo "Launch fail2ban"
-    systemctl start fail2ban
-}
-
 {
     echo "Install Docker Engine"
     apt-get -y update

@@ -1,4 +1,3 @@
-set -x
 {
   # 1. Install UFW if it's missing (standard Hetzner images have it, but safety first)
   apt-get update && apt-get install -y ufw
