@@ -108,7 +108,7 @@ first checks if there are new changes since the last successful run to avoid red
 - Runners created on-demand when jobs queue (~1-2 min startup)
 - Zero cost when no jobs running (no idle servers)
 - Max 4 concurrent servers (2 x64 + 2 arm64)
-- Uses base Ubuntu images with label-based setup scripts (Docker, Git, firewall, Maven cache)
+- Uses base Ubuntu images with setup scripts (Docker, Git, firewall, Maven cache)
 - Maven cache persisted via Hetzner volume mounts (`volume-cache` label)
 - See [testflows-runner-setup.md](testflows-runner-setup.md) for deployment details
 

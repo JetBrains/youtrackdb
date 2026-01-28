@@ -1,10 +1,15 @@
-set -x
+#!/bin/bash
+set -euxo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 {
     echo "Create and configure ubuntu user"
-    adduser ubuntu --disabled-password --gecos ""
-    echo "%wheel   ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers
-    addgroup wheel
-    addgroup docker
+    id -u ubuntu &>/dev/null || adduser ubuntu --disabled-password --gecos ""
+    getent group wheel &>/dev/null || addgroup wheel
+    getent group docker &>/dev/null || addgroup docker
+    echo "%wheel ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/wheel-nopasswd
+    chmod 440 /etc/sudoers.d/wheel-nopasswd
     usermod -aG wheel ubuntu
     usermod -aG sudo ubuntu
     usermod -aG docker ubuntu
@@ -18,3 +23,8 @@ set -x
     echo "Launch fail2ban"
     systemctl start fail2ban
 }
+
+source "$SCRIPT_DIR/firewall.sh"
+source "$SCRIPT_DIR/docker.sh"
+source "$SCRIPT_DIR/git.sh"
+source "$SCRIPT_DIR/mcache.sh"

@@ -1,4 +1,5 @@
-set -x
+#!/bin/bash
+set -euxo pipefail
 
 # Create hostedtoolcache directory for GitHub Actions (required by setup-ruby, setup-python, etc.)
 sudo mkdir -p /opt/hostedtoolcache
@@ -53,7 +54,7 @@ fi
 tar xzf "./${ACTIONS_RUNNER_FILE}"
 
 echo "Configure runner"
-./config.sh --unattended --replace --url https://github.com/${GITHUB_REPOSITORY} --token ${GITHUB_RUNNER_TOKEN} --name "$(hostname)-${SERVER_TYPE_NAME}-${SERVER_LOCATION_NAME}" --runnergroup "${GITHUB_RUNNER_GROUP}" --labels "${GITHUB_RUNNER_LABELS}" --work _work --ephemeral
+./config.sh --unattended --replace --url "https://github.com/${GITHUB_REPOSITORY}" --token "${GITHUB_RUNNER_TOKEN}" --name "$(hostname)-${SERVER_TYPE_NAME}-${SERVER_LOCATION_NAME}" --runnergroup "${GITHUB_RUNNER_GROUP}" --labels "${GITHUB_RUNNER_LABELS}" --work _work --ephemeral
 
 echo "Start runner"
 bash -c "screen -d -m bash -c './run.sh; sudo poweroff'"
