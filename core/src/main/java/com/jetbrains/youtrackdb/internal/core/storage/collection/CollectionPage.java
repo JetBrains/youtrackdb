@@ -86,7 +86,7 @@ public final class CollectionPage extends DurablePage {
   }
 
   public int appendRecord(
-      final int recordVersion,
+      final long recordVersion,
       final byte[] record,
       final int requestedPosition,
       final IntSet bookedRecordPositions) {
@@ -262,7 +262,7 @@ public final class CollectionPage extends DurablePage {
   }
 
   private boolean insertIntoRequestedSlot(
-      final int recordVersion,
+      final long recordVersion,
       final int freePosition,
       final int entrySize,
       final int requestedPosition,
@@ -336,7 +336,7 @@ public final class CollectionPage extends DurablePage {
 
   @Nullable
   private RawPairIntegerBoolean findFirstEmptySlot(
-      int recordVersion,
+      long recordVersion,
       int entryPosition,
       int indexesLength,
       int entrySize,
@@ -401,7 +401,7 @@ public final class CollectionPage extends DurablePage {
     return new RawPairIntegerBoolean(entryIndex, allocatedFromFreeList);
   }
 
-  private int appendEntry(int recordVersion, int freePosition, int indexesLength, int entrySize) {
+  private int appendEntry(long recordVersion, int freePosition, int indexesLength, int entrySize) {
     int entryIndex;
     entryIndex = indexesLength;
 
@@ -441,7 +441,7 @@ public final class CollectionPage extends DurablePage {
     return oldRecord;
   }
 
-  public int getRecordVersion(int position) {
+  public long getRecordVersion(int position) {
     var indexesLength = getPageIndexesLength();
     if (position >= indexesLength) {
       return -1;
@@ -837,16 +837,16 @@ public final class CollectionPage extends DurablePage {
     return getPointerValuePositionAt(computePointerPosition(position));
   }
 
-  public void setVersionAt(int entryIndexPosition, int version) {
-    setIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
+  public void setVersionAt(int entryIndexPosition, long version) {
+    setLongValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
   }
 
-  public int getVersionAt(int entryIndexPosition) {
-    return getIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE);
+  public long getVersionAt(int entryIndexPosition) {
+    return getLongValue(entryIndexPosition + IntegerSerializer.INT_SIZE);
   }
 
-  public void updateVersionAt(int entryIndexPosition, int version) {
-    setIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
+  public void updateVersionAt(int entryIndexPosition, long version) {
+    setLongValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
   }
 
   public static int computePointerPosition(int position) {
