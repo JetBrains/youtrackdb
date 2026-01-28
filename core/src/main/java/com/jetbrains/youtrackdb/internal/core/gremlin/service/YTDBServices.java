@@ -18,6 +18,7 @@ public final class YTDBServices {
       registerService(new YTDBFullBackupService.Factory());
       registerService(new YTDBIncrementalBackupService.Factory());
       registerService(new YTDBGraphUuidService.Factory());
+      registerService(new GqlService.Factory());
       frozen = true;
     }
 

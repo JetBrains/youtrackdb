@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.GqlService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBGraphUuidService;
