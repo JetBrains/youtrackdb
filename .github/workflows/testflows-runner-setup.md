@@ -74,10 +74,10 @@ Using Hetzner Cloud Console or CLI:
 # Find the snapshot ID
 hcloud image list --type snapshot | grep testflows-orchestrator
 
-# Create server (CX23 is sufficient - 2 vCPU, 4GB RAM)
+# Create server (cpx22 is sufficient - 3 vCPU, 4GB RAM)
 hcloud server create \
   --name testflows-orchestrator \
-  --type cx23 \
+  --type cpx22 \
   --image <snapshot-id> \
   --location nbg1 \
   --ssh-key <your-ssh-key>
@@ -129,22 +129,22 @@ MAX_RUNNERS=4
 Runners are configured per-job using workflow labels. The integration tests workflow uses:
 
 ```yaml
-runs-on: [self-hosted, in-nbg1, 'type-${{ matrix.arch == ''x86'' && ''cx53'' || ''cax41'' }}',
-          'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-20.04',
+runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cx43 type-cpx42'' || ''type-cax31'' }}',
+           'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
           setup-docker, setup-firewall, setup-git, setup-mcache, volume-cache]
 ```
 
-| Label                      | Purpose                               |
-|----------------------------|---------------------------------------|
-| `self-hosted`              | Required for self-hosted runners      |
-| `in-nbg1`                  | Hetzner datacenter location           |
-| `type-cx53` / `type-cax41` | Server type (x64 / arm64)             |
-| `image-*-ubuntu-20.04`     | Base Ubuntu image to use              |
-| `setup-docker`             | Run Docker installation script        |
-| `setup-firewall`           | Run UFW firewall configuration script |
-| `setup-git`                | Run Git installation script           |
-| `setup-mcache`             | Run Maven cache mount script          |
-| `volume-cache`             | Attach persistent volume for caching  |
+| Label                                 | Purpose                                 |
+|---------------------------------------|-----------------------------------------|
+| `self-hosted`                         | Required for self-hosted runners        |
+| `in-nbg1`                             | Hetzner datacenter location             |
+| `type-cx43 type-cpx42` / `type-cax31` | Server type with fallback (x64 / arm64) |
+| `image-*-ubuntu-24.04`                | Base Ubuntu image to use                |
+| `setup-docker`                        | Run Docker installation script          |
+| `setup-firewall`                      | Run UFW firewall configuration script   |
+| `setup-git`                           | Run Git installation script             |
+| `setup-mcache`                        | Run Maven cache mount script            |
+| `volume-cache`                        | Attach persistent volume for caching    |
 
 ### Setup Scripts
 
@@ -207,12 +207,12 @@ journalctl -u github-hetzner-runners --since "10 minutes ago"
 
 ## Scaling Behavior
 
-| Scenario | Behavior |
-|----------|----------|
-| No jobs queued | No servers running (zero cost) |
-| 1 x64 job queued | 1 cx53 server created |
-| 2 x64 + 2 arm64 jobs | 2 cx53 + 2 cax41 servers (max 4) |
-| Jobs > max runners | Jobs queue until runners available |
+| Scenario             | Behavior                               |
+|----------------------|----------------------------------------|
+| No jobs queued       | No servers running (zero cost)         |
+| 1 x64 job queued     | 1 cx43/cpx42 server created            |
+| 2 x64 + 2 arm64 jobs | 2 cx43/cpx42 + 2 cax31 servers (max 4) |
+| Jobs > max runners   | Jobs queue until runners available     |
 
 ## Troubleshooting
 
