@@ -91,9 +91,7 @@ public interface StorageCollection {
       byte recordType,
       AtomicOperation atomicOperation);
 
-  void updateRecordVersion(long collectionPosition,
-      long recordVersion,
-      AtomicOperation atomicOperation);
+  void updateRecordVersion(long collectionPosition, AtomicOperation atomicOperation);
 
   @Nonnull
   RawBuffer readRecord(long collectionPosition) throws IOException;

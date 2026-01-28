@@ -56,6 +56,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationTableState;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,15 +66,13 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
-
-  private static final AtomicLong txSerial = new AtomicLong();
 
   @Nonnull
   protected DatabaseSessionEmbedded session;
@@ -110,13 +109,15 @@ public class FrontendTransactionImpl implements
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
+  private AtomicOperationTableState atomicOperationTableState;
+
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
     this(iDatabase, false);
   }
 
   public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, boolean readOnly) {
     this.session = session;
-    this.id = txSerial.incrementAndGet();
+    this.id = ThreadLocalRandom.current().nextLong(Long.MAX_VALUE);
     this.readOnly = readOnly;
   }
 
@@ -125,6 +126,14 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txId;
     this.readOnly = readOnly;
+  }
+
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
+      boolean readOnly, AtomicOperationTableState atomicOperationTableState) {
+    this.session = session;
+    this.id = txId;
+    this.readOnly = readOnly;
+    this.atomicOperationTableState = atomicOperationTableState;
   }
 
 
@@ -1144,6 +1153,10 @@ public class FrontendTransactionImpl implements
     return txEntry != null && txEntry.type == RecordOperation.DELETED;
   }
 
+  public AtomicOperationTableState getAtomicOperationTableState() {
+    return atomicOperationTableState;
+  }
+
   private enum Dependency {
     Unknown,
     Yes,
@@ -1725,7 +1738,7 @@ public class FrontendTransactionImpl implements
   }
 
   public static long generateTxId() {
-    return txSerial.incrementAndGet();
+    return ThreadLocalRandom.current().nextLong(Long.MAX_VALUE);
   }
 
 }

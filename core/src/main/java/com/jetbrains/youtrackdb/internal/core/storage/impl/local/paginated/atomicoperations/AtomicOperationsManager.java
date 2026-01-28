@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationTableState;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -50,6 +51,7 @@ import javax.annotation.Nullable;
 public class AtomicOperationsManager {
 
   private final ThreadLocal<AtomicOperation> currentOperation = new ThreadLocal<>();
+  private final ThreadLocal<AtomicOperationTableState> currentAtomicOperationTableState = new ThreadLocal<>();
 
   private final AbstractStorage storage;
 
@@ -232,6 +234,22 @@ public class AtomicOperationsManager {
 
   public final AtomicOperation getCurrentOperation() {
     return currentOperation.get();
+  }
+
+  public AtomicOperationTableState shapshotAtomicOperationTableState() {
+    return atomicOperationsTable.snapshotAtomicOperationTableState();
+  }
+
+  public void setAtomicOperationTableState(AtomicOperationTableState atomicOperationTableState) {
+    currentAtomicOperationTableState.set(atomicOperationTableState);
+  }
+
+  public AtomicOperationTableState getAtomicOperationTableState() {
+    return currentAtomicOperationTableState.get();
+  }
+
+  public void clearAtomicOperationTableState() {
+    currentAtomicOperationTableState.remove();
   }
 
   /**
