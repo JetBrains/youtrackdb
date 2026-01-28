@@ -102,6 +102,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageTransaction;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -157,6 +158,7 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -279,6 +281,9 @@ public abstract class AbstractStorage
   private final Stopwatch dropDuration;
   private final Stopwatch synchDuration;
   private final Stopwatch shutdownDuration;
+
+  // Tracking active transactions, should be used for unreachable record versions cleanup
+  protected Map<Long, FrontendTransaction> transactionsTracker = new ConcurrentHashMap<>();
 
   public AbstractStorage(
       final String name, final String filePath, final int id,
@@ -4051,8 +4056,7 @@ public abstract class AbstractStorage
     collection.meters().create().record();
     PhysicalPosition ppos;
     try {
-      ppos = collection.createRecord(content, recordVersion, recordType, allocated,
-          atomicOperation);
+      ppos = collection.createRecord(content, recordVersion, recordType, allocated, atomicOperation);
       if (rid instanceof ChangeableRecordId changeableRecordId) {
         changeableRecordId.setCollectionPosition(ppos.collectionPosition);
       } else {
@@ -4080,7 +4084,6 @@ public abstract class AbstractStorage
       final boolean updateContent,
       byte[] content,
       final long version,
-      final long txId,
       final byte recordType,
       final StorageCollection collection) {
 
@@ -4095,16 +4098,15 @@ public abstract class AbstractStorage
             name, rid, dbVersion, version, RecordOperation.UPDATED);
       }
 
-      ppos.recordVersion = txId;
+      final var newRecordVersion = atomicOperation.getOperationUnitId();
+      ppos.recordVersion = newRecordVersion;
       if (updateContent) {
         collection.updateRecord(
-            rid.getCollectionPosition(), content, ppos.recordVersion, recordType, atomicOperation);
+            rid.getCollectionPosition(), content, newRecordVersion, recordType, atomicOperation);
       } else {
-        collection.updateRecordVersion(rid.getCollectionPosition(), ppos.recordVersion,
-            atomicOperation);
+        collection.updateRecordVersion(rid.getCollectionPosition(), atomicOperation);
       }
 
-      final var newRecordVersion = ppos.recordVersion;
       if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(this, "Updated record %s v.%s size=%d", logger, rid, newRecordVersion,
@@ -4575,7 +4577,6 @@ public abstract class AbstractStorage
     final var collection = doGetAndCheckCollection(rid.getCollectionId());
 
     var db = frontendTransaction.getDatabaseSession();
-    var txId = frontendTransaction.getId();
 
     switch (txEntry.type) {
       case RecordOperation.CREATED: {
@@ -4594,7 +4595,7 @@ public abstract class AbstractStorage
         if (allocated != null) {
           final PhysicalPosition ppos;
           final var recordType = rec.getRecordType();
-          final var recordVersion = rec.getVersion() > -1 ? txId : 0;
+          final var recordVersion = rec.getVersion() > -1 ? atomicOperation.getOperationUnitId() : 0;
           ppos =
               doCreateRecord(
                   atomicOperation,
@@ -4603,7 +4604,6 @@ public abstract class AbstractStorage
                   recordVersion,
                   recordType,
                   collection, allocated);
-
           rec.setVersion(ppos.recordVersion);
         } else {
           final var updatedVersion =
@@ -4613,7 +4613,6 @@ public abstract class AbstractStorage
                   rec.isContentChanged(),
                   stream,
                   -2,
-                  txId,
                   rec.getRecordType(),
                   collection);
           rec.setVersion(updatedVersion);
@@ -4638,7 +4637,6 @@ public abstract class AbstractStorage
                 rec.isContentChanged(),
                 stream,
                 rec.getVersion(),
-                txId,
                 rec.getRecordType(),
                 collection);
         rec.setVersion(version);
@@ -5575,4 +5573,33 @@ public abstract class AbstractStorage
   public boolean isMemory() {
     return false;
   }
+
+  public void registryFrontendTransaction(FrontendTransaction transaction) {
+    transactionsTracker.put(transaction.getId(), transaction);
+  }
+
+  public void unregisterFrontendTransaction(long transactionId) {
+    transactionsTracker.remove(transactionId);
+  }
+
+  public List<FrontendTransaction> getActiveTransactions() {
+    return List.copyOf(transactionsTracker.values());
+  }
+
+  public int getActiveTransactionsCount() {
+    return transactionsTracker.size();
+  }
+
+  // TODO: How to test?
+  public void cleanUnreachableRecordVersions() {
+    Long min = transactionsTracker.values().stream().
+        mapToLong(t ->
+            ((FrontendTransactionImpl) t).getAtomicOperationTableState().maxPersistedOperationId()).
+        min().orElse(Long.MAX_VALUE);
+    Collection<? extends StorageCollection> collectionInstances = getCollectionInstances();
+    for (var collection : collectionInstances) {
+      ((PaginatedCollectionV2) collection).cleanUnreachableRecordVersions(min);
+    }
+  }
+
 }

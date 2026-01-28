@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
@@ -38,6 +39,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
@@ -50,7 +52,9 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -82,6 +86,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private volatile int id;
   private long fileId;
   private RecordConflictStrategy recordConflictStrategy;
+  private NavigableMap<CompositeKey, PositionEntry> snapshotIndex = new ConcurrentSkipListMap<>();
+  private NavigableMap<CompositeKey, CompositeKey> visibleSnapshotIndex = new ConcurrentSkipListMap<>();
 
   public PaginatedCollectionV2(
       @Nonnull final String name, @Nonnull final AbstractStorage storage) {
@@ -673,6 +679,36 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           recordVersion = localPage.getRecordVersion(recordPosition);
         }
 
+        var atomicOperationTableState = atomicOperationsManager.getAtomicOperationTableState();
+        if (atomicOperationTableState != null) {
+          var visibleVersion = atomicOperationTableState.maxPersistedOperationId();
+          if (recordVersion > visibleVersion) {
+            var versionedPositionEntry = snapshotIndex.floorEntry(
+                new CompositeKey(id, collectionPosition, visibleVersion));
+
+            if (versionedPositionEntry != null) {
+              // Check if the founded record version is in the in-progress list
+              List<Long> inProgressOpList = atomicOperationTableState.inProgressOpList();
+              while (!inProgressOpList.isEmpty()) {
+                var prevRecordVersion = versionedPositionEntry.getKey().getKeys().get(2);
+                if (inProgressOpList.remove(prevRecordVersion)) {
+                  versionedPositionEntry = snapshotIndex.lowerEntry(
+                      new CompositeKey(id, collectionPosition, prevRecordVersion));
+                } else {
+                  break;
+                }
+              }
+
+              var historicalPositionEntry = versionedPositionEntry.getValue();
+              return internalReadRecord(
+                  collectionPosition,
+                  historicalPositionEntry.getPageIndex(),
+                  historicalPositionEntry.getRecordPosition(),
+                  atomicOperation);
+            }
+          }
+        }
+
         if (localPage.isDeleted(recordPosition)) {
           if (recordChunks.isEmpty()) {
             throw new RecordNotFoundException(storageName,
@@ -829,105 +865,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   new RecordId(id, collectionPosition));
             }
 
-            var oldContentSize = 0;
-            var nextPageIndex = (int) positionEntry.getPageIndex();
-            var nextRecordPosition = positionEntry.getRecordPosition();
-
-            var nextPagePointer = createPagePointer(nextPageIndex, nextRecordPosition);
-
-            var storedPages = new ArrayList<CollectionPage>();
-
-            while (nextPagePointer >= 0) {
-              final var cacheEntry =
-                  loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
-              final var page = new CollectionPage(cacheEntry);
-              final var deletedRecord = page.deleteRecord(nextRecordPosition, true);
-              assert deletedRecord != null;
-              oldContentSize = calculateContentSizeFromCollectionEntrySize(deletedRecord.length);
-              nextPagePointer =
-                  LongSerializer.INSTANCE.deserializeNative(
-                      deletedRecord, deletedRecord.length - LongSerializer.LONG_SIZE);
-
-              nextPageIndex = (int) getPageIndex(nextPagePointer);
-              nextRecordPosition = getRecordPosition(nextPagePointer);
-
-              storedPages.add(page);
-            }
-
-            final var reverseIterator =
-                storedPages.listIterator(storedPages.size());
-            var result =
-                serializeRecord(
-                    content,
-                    calculateCollectionEntrySize(content.length),
-                    recordType,
-                    recordVersion,
-                    -1,
-                    atomicOperation,
-                    entrySize -> {
-                      if (reverseIterator.hasPrevious()) {
-                        return reverseIterator.previous();
-                      }
-                      //noinspection ReturnOfNull
-                      return null;
-                    },
-                    page -> {
-                      final var cacheEntry = page.getCacheEntry();
-                      try {
-                        cacheEntry.close();
-                      } catch (final IOException e) {
-                        throw BaseException.wrapException(
-                            new PaginatedCollectionException(storageName,
-                                "Can not update record with rid "
-                                    + new RecordId(id, collectionPosition), this),
-                            e, storageName);
-                      }
-                    });
-
-            nextPageIndex = result[0];
-            nextRecordPosition = result[1];
-
-            while (reverseIterator.hasPrevious()) {
-              final var page = reverseIterator.previous();
-              page.getCacheEntry().close();
-            }
-
-            if (result[2] != 0) {
-              result =
-                  serializeRecord(
-                      content,
-                      result[2],
-                      recordType,
-                      recordVersion,
-                      createPagePointer(nextPageIndex, nextRecordPosition),
-                      atomicOperation,
-                      entrySize -> findNewPageToWrite(atomicOperation, entrySize),
-                      page -> {
-                        final var cacheEntry = page.getCacheEntry();
-                        try {
-                          cacheEntry.close();
-                        } catch (final IOException e) {
-                          throw BaseException.wrapException(
-                              new PaginatedCollectionException(storageName,
-                                  "Can not update record with rid "
-                                      + new RecordId(id, collectionPosition), this),
-                              e, storageName);
-                        }
-                      });
-
-              nextPageIndex = result[0];
-              nextRecordPosition = result[1];
-            }
-
-            assert result[2] == 0;
-            updateCollectionState(0, content.length - oldContentSize, atomicOperation);
-
-            if (nextPageIndex != positionEntry.getPageIndex()
-                || nextRecordPosition != positionEntry.getRecordPosition()) {
-              collectionPositionMap.update(
-                  collectionPosition,
-                  new CollectionPositionMapBucket.PositionEntry(nextPageIndex, nextRecordPosition),
-                  atomicOperation);
+            // If there are no parallel transactions, don't need to preserve a previous record version
+            if (storage.getActiveTransactionsCount() == 0) {
+              updateRecordWithSubstitutingPreviousVersion(collectionPosition, content, recordVersion, recordType, atomicOperation, positionEntry);
+            } else {
+              updateRecordWithPreservingPreviousVersion(collectionPosition, content, recordVersion, recordType, atomicOperation, positionEntry);
             }
           } finally {
             releaseExclusiveLock();
@@ -935,9 +877,166 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
+  private void updateRecordWithSubstitutingPreviousVersion(long collectionPosition, byte[] content,
+      long recordVersion, byte recordType, AtomicOperation atomicOperation, PositionEntry positionEntry) throws IOException {
+    var oldContentSize = 0;
+    var nextPageIndex = (int) positionEntry.getPageIndex();
+    var nextRecordPosition = positionEntry.getRecordPosition();
+
+    var nextPagePointer = createPagePointer(nextPageIndex, nextRecordPosition);
+
+    var storedPages = new ArrayList<CollectionPage>();
+
+    while (nextPagePointer >= 0) {
+      final var cacheEntry =
+          loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
+      final var page = new CollectionPage(cacheEntry);
+      final var deletedRecord = page.deleteRecord(nextRecordPosition, true);
+      assert deletedRecord != null;
+      oldContentSize = calculateContentSizeFromCollectionEntrySize(deletedRecord.length);
+      nextPagePointer =
+          LongSerializer.INSTANCE.deserializeNative(
+              deletedRecord, deletedRecord.length - LongSerializer.LONG_SIZE);
+
+      nextPageIndex = (int) getPageIndex(nextPagePointer);
+      nextRecordPosition = getRecordPosition(nextPagePointer);
+
+      storedPages.add(page);
+    }
+
+    final var reverseIterator =
+        storedPages.listIterator(storedPages.size());
+    var result =
+        serializeRecord(
+            content,
+            calculateCollectionEntrySize(content.length),
+            recordType,
+            recordVersion,
+            -1,
+            atomicOperation,
+            entrySize -> {
+              if (reverseIterator.hasPrevious()) {
+                return reverseIterator.previous();
+              }
+              //noinspection ReturnOfNull
+              return null;
+            },
+            page -> {
+              final var cacheEntry = page.getCacheEntry();
+              try {
+                cacheEntry.close();
+              } catch (final IOException e) {
+                throw BaseException.wrapException(
+                    new PaginatedCollectionException(storageName,
+                        "Can not update record with rid "
+                            + new RecordId(id, collectionPosition), this),
+                    e, storageName);
+              }
+            });
+
+    nextPageIndex = result[0];
+    nextRecordPosition = result[1];
+
+    while (reverseIterator.hasPrevious()) {
+      final var page = reverseIterator.previous();
+      page.getCacheEntry().close();
+    }
+
+    if (result[2] != 0) {
+      result =
+          serializeRecord(
+              content,
+              result[2],
+              recordType,
+              recordVersion,
+              createPagePointer(nextPageIndex, nextRecordPosition),
+              atomicOperation,
+              entrySize -> findNewPageToWrite(atomicOperation, entrySize),
+              page -> {
+                final var cacheEntry = page.getCacheEntry();
+                try {
+                  cacheEntry.close();
+                } catch (final IOException e) {
+                  throw BaseException.wrapException(
+                      new PaginatedCollectionException(storageName,
+                          "Can not update record with rid "
+                              + new RecordId(id, collectionPosition), this),
+                      e, storageName);
+                }
+              });
+
+      nextPageIndex = result[0];
+      nextRecordPosition = result[1];
+    }
+
+    assert result[2] == 0;
+    updateCollectionState(0, content.length - oldContentSize, atomicOperation);
+
+    if (nextPageIndex != positionEntry.getPageIndex()
+        || nextRecordPosition != positionEntry.getRecordPosition()) {
+      collectionPositionMap.update(
+          collectionPosition,
+          new PositionEntry(nextPageIndex, nextRecordPosition),
+          atomicOperation);
+    }
+  }
+
+  private void updateRecordWithPreservingPreviousVersion(long collectionPosition, byte[] content,
+      long recordVersion, byte recordType, AtomicOperation atomicOperation, PositionEntry positionEntry) throws IOException {
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, positionEntry.getPageIndex())) {
+      final var localPage = new CollectionPage(cacheEntry);
+      var oldRecordVersion = localPage.getRecordVersion(positionEntry.getRecordPosition());
+
+      var versionedRecord = new CompositeKey(id, collectionPosition, oldRecordVersion);
+      //System.out.println("versionedRecord: " + versionedRecord);
+      snapshotIndex.put(versionedRecord, positionEntry);
+
+      // The versionedRecord should be kept until the presence of active transactions
+      // started before the new record version is added - recordVersion
+      // Transaction keeps the state when it was started in atomicOperationTableState
+      var visibleRecordVersion = new CompositeKey(recordVersion, id, collectionPosition);
+      visibleSnapshotIndex.put(visibleRecordVersion, versionedRecord);
+    }
+
+    final var result =
+        serializeRecord(
+            content,
+            calculateCollectionEntrySize(content.length),
+            recordType,
+            recordVersion,
+            -1,
+            atomicOperation,
+            entrySize -> findNewPageToWrite(atomicOperation, entrySize),
+            page -> {
+              final var cacheEntry = page.getCacheEntry();
+              try {
+                cacheEntry.close();
+              } catch (final IOException e) {
+                throw BaseException.wrapException(
+                    new PaginatedCollectionException(storageName,
+                        "Can not update record with rid "
+                            + new RecordId(id, collectionPosition), this),
+                    e, storageName);
+              }
+            });
+
+    final var nextPageIndex = result[0];
+    final var nextRecordPosition = result[1];
+
+    assert result[2] == 0;
+    updateCollectionState(1, content.length, atomicOperation);
+
+    if (nextPageIndex != positionEntry.getPageIndex()
+        || nextRecordPosition != positionEntry.getRecordPosition()) {
+      collectionPositionMap.update(
+          collectionPosition,
+          new PositionEntry(nextPageIndex, nextRecordPosition),
+          atomicOperation);
+    }
+  }
+
   @Override
-  public void updateRecordVersion(long collectionPosition, long recordVersion,
-      AtomicOperation atomicOperation) {
+  public void updateRecordVersion(long collectionPosition, AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -1510,4 +1609,69 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public Meters meters() {
     return meters;
   }
+
+  public int cleanUnreachableRecordVersions(long minimalReachableVersion) {
+    var reachabilityKey = new CompositeKey(minimalReachableVersion);
+    var unreachableRecords = visibleSnapshotIndex.headMap(reachabilityKey);
+    for (var unreachableRecord : unreachableRecords.values()) {
+      PositionEntry positionEntry = snapshotIndex.get(unreachableRecord);
+      // should clean space in a record heap
+      try {
+        removeRecord(positionEntry);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+      snapshotIndex.remove(unreachableRecord);
+    }
+    int removed = unreachableRecords.size();
+    unreachableRecords.clear();
+    return removed;
+  }
+
+  private void removeRecord(PositionEntry positionEntry) throws IOException {
+    atomicOperationsManager.executeInsideAtomicOperation(
+        operation -> {
+          var atomicOperation = atomicOperationsManager.getCurrentOperation();
+          acquireExclusiveLock();
+          try {
+            var pageIndex = positionEntry.getPageIndex();
+            var recordPosition = positionEntry.getRecordPosition();
+
+            long nextPagePointer;
+            int removeRecordSize;
+
+            do {
+              var cacheEntryReleased = false;
+              final int maxRecordSize;
+              var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+              try {
+                var localPage = new CollectionPage(cacheEntry);
+
+                final var content = localPage.deleteRecord(recordPosition, true);
+                assert content != null;
+                removeRecordSize = calculateContentSizeFromCollectionEntrySize(content.length);
+
+                maxRecordSize = localPage.getMaxRecordSize();
+                nextPagePointer =
+                    LongSerializer.INSTANCE.deserializeNative(
+                        content, content.length - LongSerializer.LONG_SIZE);
+              } finally {
+                if (!cacheEntryReleased) {
+                  cacheEntry.close();
+                }
+              }
+
+              freeSpaceMap.updatePageFreeSpace(atomicOperation, (int) pageIndex, maxRecordSize);
+
+              pageIndex = getPageIndex(nextPagePointer);
+              recordPosition = getRecordPosition(nextPagePointer);
+            } while (nextPagePointer >= 0);
+
+            updateCollectionState(-1, -removeRecordSize, atomicOperation);
+          } finally {
+            releaseExclusiveLock();
+          }
+        });
+  }
+
 }
