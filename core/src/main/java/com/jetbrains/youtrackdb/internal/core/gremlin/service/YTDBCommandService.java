@@ -76,9 +76,9 @@ public class YTDBCommandService implements Service<Object, Object> {
         if (argsList.get(0) instanceof String cmd) {
           finalCommand = cmd;
           if (argsList.size() > 1) {
-            var map = new java.util.LinkedHashMap<String, Object>();
-            for (int i = 1; i < argsList.size(); i++) {
-              map.put("arg" + (i - 1), argsList.get(i));
+            var map = new java.util.LinkedHashMap<Object, Object>();
+            for (int i = 1; i + 1 < argsList.size(); i += 2) {
+              map.put(argsList.get(i), argsList.get(i + 1));
             }
             finalCommandParams = map;
           }

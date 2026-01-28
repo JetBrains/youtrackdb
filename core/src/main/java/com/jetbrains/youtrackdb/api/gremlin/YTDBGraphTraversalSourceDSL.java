@@ -96,9 +96,16 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// Execute a generic parameterized YouTrackDB command immediately.
   /// The command is executed eagerly - no need to call .iterate().
   ///
-  /// @param command   The command to execute.
-  /// @param arguments The arguments to pass to the command.
-  public void command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+  /// @param command The command to execute.
+  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2, value2, ...).
+  public void command(@Nonnull String command, @Nonnull Object... keyValues) {
+    if (keyValues.length % 2 != 0) {
+      throw new IllegalArgumentException("keyValues must be an even number of arguments (key/value pairs)");
+    }
+    var arguments = new java.util.HashMap<Object, Object>();
+    for (int i = 0; i < keyValues.length; i += 2) {
+      arguments.put(keyValues[i], keyValues[i + 1]);
+    }
     call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
@@ -119,10 +126,17 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// Execute a generic parameterized YouTrackDB SQL command. Returns a lazy traversal.
   /// Users must call .iterate() or another terminal operation to execute the command.
   ///
-  /// @param command   The SQL command to execute.
-  /// @param arguments The arguments to pass to the command.
+  /// @param command The SQL command to execute.
+  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2, value2, ...).
   /// @return A traversal that can be chained with other steps.
-  public <S> GraphTraversal<S, S> sqlCommand(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+  public <S> GraphTraversal<S, S> sqlCommand(@Nonnull String command, @Nonnull Object... keyValues) {
+    if (keyValues.length % 2 != 0) {
+      throw new IllegalArgumentException("keyValues must be an even number of arguments (key/value pairs)");
+    }
+    var arguments = new java.util.HashMap<Object, Object>();
+    for (int i = 0; i < keyValues.length; i += 2) {
+      arguments.put(keyValues[i], keyValues[i + 1]);
+    }
     //noinspection unchecked
     return call(
         YTDBCommandService.NAME, Map.of(
