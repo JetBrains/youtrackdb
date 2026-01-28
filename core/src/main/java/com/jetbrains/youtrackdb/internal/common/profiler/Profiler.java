@@ -64,6 +64,10 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
     ticker.stop();
   }
 
+  public Ticker getTicker() {
+    return ticker;
+  }
+
   public static String dumpEnvironment() {
     final StringBuilder buffer = new StringBuilder();
 
