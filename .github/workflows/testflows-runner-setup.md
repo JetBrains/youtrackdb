@@ -162,18 +162,6 @@ The orchestrator image includes setup scripts in `/etc/github-hetzner-runners/sc
 
 These scripts run on runner startup based on the workflow labels.
 
-### SSH Key Setup
-
-TestFlows needs an SSH key to access the runner servers it creates. Generate one on the orchestrator:
-
-```bash
-# Generate SSH key (no passphrase for automation)
-ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N ""
-
-# Verify it exists
-ls -la /root/.ssh/id_rsa*
-```
-
 The public key (`id_rsa.pub`) will be automatically added to runner servers when they are created.
 
 ## Step 4: Start the Service

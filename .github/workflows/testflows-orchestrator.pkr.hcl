@@ -20,7 +20,7 @@ source "hcloud" "testflows-orchestrator" {
   token         = var.hcloud_token
   image         = "ubuntu-24.04"
   location      = "nbg1"
-  server_type   = "cx23"
+  server_type = "cpx22"
   ssh_username  = "root"
   snapshot_name = "testflows-orchestrator"
 
@@ -82,6 +82,8 @@ build {
       "ufw allow 22/tcp",
       "ufw --force enable",
       "ufw status verbose",
+
+      "ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N ''",
 
       # 3. Install Python, pip, and SSH client
       "apt-get install -y python3 python3-pip python3-venv openssh-client",
