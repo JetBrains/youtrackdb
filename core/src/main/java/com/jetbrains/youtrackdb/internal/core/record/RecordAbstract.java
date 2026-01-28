@@ -52,7 +52,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Nonnull
   protected final RecordIdInternal recordId;
-  protected int recordVersion = 0;
+  protected long recordVersion = 0;
 
   protected byte[] source;
   protected int size;
@@ -267,15 +267,15 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   @Override
-  public final int getVersion() {
+  public final long getVersion() {
     return recordVersion;
   }
 
-  public final int getVersionNoLoad() {
+  public final long getVersionNoLoad() {
     return recordVersion;
   }
 
-  public final void setVersion(final int iVersion) {
+  public final void setVersion(final long iVersion) {
     recordVersion = iVersion;
   }
 
@@ -384,7 +384,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public RecordAbstract fill(
-      final int version, final byte[] buffer, boolean dirty) {
+      final long version, final byte[] buffer, boolean dirty) {
     var session = getSession();
     if (this.dirty > 0) {
       throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
