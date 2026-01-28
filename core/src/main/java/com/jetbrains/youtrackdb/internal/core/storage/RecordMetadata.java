@@ -28,9 +28,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 public final class RecordMetadata {
 
   private final RID recordId;
-  private final int recordVersion;
+  private final long recordVersion;
 
-  public RecordMetadata(RID recordId, int recordVersion) {
+  public RecordMetadata(RID recordId, long recordVersion) {
     this.recordId = recordId;
     this.recordVersion = recordVersion;
   }
@@ -39,7 +39,7 @@ public final class RecordMetadata {
     return recordId;
   }
 
-  public int getVersion() {
+  public long getVersion() {
     return recordVersion;
   }
 }

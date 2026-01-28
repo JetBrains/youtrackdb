@@ -77,7 +77,7 @@ public interface StorageCollection {
    */
   PhysicalPosition createRecord(
       byte[] content,
-      int recordVersion,
+      long recordVersion,
       byte recordType,
       PhysicalPosition allocatedPosition,
       AtomicOperation atomicOperation);
@@ -87,12 +87,12 @@ public interface StorageCollection {
   void updateRecord(
       long collectionPosition,
       byte[] content,
-      int recordVersion,
+      long recordVersion,
       byte recordType,
       AtomicOperation atomicOperation);
 
   void updateRecordVersion(long collectionPosition,
-      int recordVersion,
+      long recordVersion,
       AtomicOperation atomicOperation);
 
   @Nonnull

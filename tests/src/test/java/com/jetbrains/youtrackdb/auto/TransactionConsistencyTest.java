@@ -61,8 +61,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     RID vDocA_Rid = vDocA_db1.getIdentity().copy();
     RID vDocB_Rid = vDocB_db1.getIdentity().copy();
 
-    var vDocA_version = -1;
-    var vDocB_version = -1;
+    var vDocA_version = -1L;
+    var vDocB_version = -1L;
 
     database2 = acquireSession();
     database2.begin();
