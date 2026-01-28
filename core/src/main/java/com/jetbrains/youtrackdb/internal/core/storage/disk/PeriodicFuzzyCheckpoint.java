@@ -19,6 +19,7 @@ public class PeriodicFuzzyCheckpoint implements Runnable {
   @Override
   public final void run() {
     try {
+      storage.cleanUnreachableRecordVersions();
       storage.makeFuzzyCheckpoint();
     } catch (final RuntimeException e) {
       LogManager.instance().error(this, "Error during fuzzy checkpoint", e);
