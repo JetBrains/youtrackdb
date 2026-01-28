@@ -12,7 +12,8 @@ self-hosted runners based on job demand.
 **Key benefits:**
 - Zero cost when no jobs are running (no idle servers)
 - Automatic scaling based on queued jobs
-- Uses custom Packer-built images with pre-installed tools
+- Uses base Ubuntu images with label-based setup scripts
+- Maven cache persisted via Hetzner volume mounts
 - Simple systemd-based deployment
 
 ## Prerequisites
@@ -21,8 +22,6 @@ Before starting, ensure you have:
 
 1. **Hetzner Cloud account** with API access
 2. **GitHub repository** or organization admin access
-3. **Runner images** already built (see `build-hetzner-images.yml` workflow)
-4. **Firewall** configured (see `network.tf`)
 
 ## Hetzner Cloud Token Setup
 
@@ -59,11 +58,13 @@ packer init testflows-orchestrator.pkr.hcl
 packer build testflows-orchestrator.pkr.hcl
 ```
 
-This creates a snapshot named `testflows-orchestrator-YYYY-MM-DD-HHMM` with:
+This creates a snapshot named `testflows-orchestrator` with:
 - Python 3 and pip
 - testflows.github.hetzner.runners package
 - systemd service template
 - Configuration directory at `/etc/github-hetzner-runners/`
+- Setup scripts for runners at `/etc/github-hetzner-runners/scripts/`
+- UFW firewall configured (SSH only)
 
 ## Step 2: Create Server from Snapshot
 
@@ -79,12 +80,12 @@ hcloud server create \
   --type cx23 \
   --image <snapshot-id> \
   --location nbg1 \
-  --ssh-key <your-ssh-key> \
-  --firewall testflows-orchestrator-protection
+  --ssh-key <your-ssh-key>
 ```
 
-**Note:** The firewall `testflows-orchestrator-protection` allows SSH (port 22) and ICMP inbound,
-and all outbound traffic. Create it first using `terraform apply` on `network.tf` if not already done.
+**Note:** The orchestrator image has UFW firewall pre-configured, allowing only SSH (port 22)
+inbound
+and all outbound traffic.
 
 **Estimated cost:** ~4-8 EUR/month
 
@@ -121,39 +122,45 @@ HCLOUD_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```bash
 # Maximum concurrent runners (default: 4)
 MAX_RUNNERS=4
-
-# Snapshot names (created by build-hetzner-images.yml)
-IMAGE_X64=github-runner-x86
-IMAGE_ARM64=github-runner-arm
-
-# Hetzner datacenter location
-LOCATION=nbg1
 ```
 
-### Server Type Configuration
+### Workflow Labels
 
-Server types are specified per-job using **workflow labels**, not orchestrator config:
+Runners are configured per-job using workflow labels. The integration tests workflow uses:
 
 ```yaml
-# In workflow file - x64 jobs use cx53 (Intel/AMD)
-runs-on: [self-hosted, Linux, x64, type-cx53]
-
-# arm64 jobs use cax41 (ARM Ampere)
-runs-on: [self-hosted, Linux, arm64, type-cax41]
+runs-on: [self-hosted, in-nbg1, 'type-${{ matrix.arch == ''x86'' && ''cx53'' || ''cax41'' }}',
+          'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-20.04',
+          setup-docker, setup-firewall, setup-git, setup-mcache, volume-cache]
 ```
 
-Jobs without a `type-*` label will fail, ensuring explicit server type selection.
+| Label                      | Purpose                               |
+|----------------------------|---------------------------------------|
+| `self-hosted`              | Required for self-hosted runners      |
+| `in-nbg1`                  | Hetzner datacenter location           |
+| `type-cx53` / `type-cax41` | Server type (x64 / arm64)             |
+| `image-*-ubuntu-20.04`     | Base Ubuntu image to use              |
+| `setup-docker`             | Run Docker installation script        |
+| `setup-firewall`           | Run UFW firewall configuration script |
+| `setup-git`                | Run Git installation script           |
+| `setup-mcache`             | Run Maven cache mount script          |
+| `volume-cache`             | Attach persistent volume for caching  |
 
-### Firewall Configuration (Security)
+### Setup Scripts
 
-Runner servers are automatically protected by the `github-runner-protection` firewall:
+The orchestrator image includes setup scripts in `/etc/github-hetzner-runners/scripts/`:
 
-1. TestFlows creates runners with label `role=github-runner` (configured in wrapper script)
-2. The firewall has `apply_to { label_selector = "role=github-runner" }` in `network.tf`
-3. Hetzner automatically attaches the firewall to any server with this label
+| Script              | Purpose                                              |
+|---------------------|------------------------------------------------------|
+| `setup-docker.sh`   | Installs Docker Engine, creates ubuntu user          |
+| `setup-firewall.sh` | Configures UFW (deny incoming, allow SSH)            |
+| `setup-git.sh`      | Installs Git                                         |
+| `setup-mcache.sh`   | Mounts Maven cache from volume to `~/.m2/repository` |
+| `setup.sh`          | Basic setup (ubuntu user, fail2ban)                  |
+| `startup-x64.sh`    | GitHub Actions runner setup for x64                  |
+| `startup-arm64.sh`  | GitHub Actions runner setup for arm64                |
 
-**Important:** Run `terraform apply` on `network.tf` to update the firewall with the label selector
-if it was created before this change.
+These scripts run on runner startup based on the workflow labels.
 
 ### SSH Key Setup
 
@@ -205,9 +212,10 @@ journalctl -u github-hetzner-runners --since "10 minutes ago"
 ### Expected Behavior
 
 1. When a job is queued, TestFlows creates a server (~1-2 min startup)
-2. Server registers as a self-hosted runner with labels: `self-hosted`, `Linux`, `x64` or `arm64`
-3. Job runs on the runner
-4. After job completes, server is deleted immediately
+2. Setup scripts run based on workflow labels (Docker, firewall, Git, Maven cache)
+3. Server registers as a self-hosted runner
+4. Job runs on the runner
+5. After job completes, server is deleted immediately
 
 ## Scaling Behavior
 
@@ -232,9 +240,9 @@ journalctl -u github-hetzner-runners -n 100
 
 ### Servers created but jobs not running
 
-1. Verify runner images exist and have correct names
-2. Check firewall allows outbound connections
-3. Ensure images have GitHub runner pre-configured
+1. Check setup scripts completed successfully (review server logs)
+2. Verify firewall allows outbound connections
+3. Check if runner registration succeeded
 
 ### Service won't start
 
@@ -242,23 +250,13 @@ journalctl -u github-hetzner-runners -n 100
 2. Verify all required variables are set
 3. Check systemd logs: `journalctl -u github-hetzner-runners -e`
 
+### Maven cache not working
+
+1. Verify `volume-cache` label is in the workflow
+2. Check if `/mnt/cache` directory exists on the runner
+3. Verify `setup-mcache` label is included
+
 ## Maintenance
-
-### Runner Image Updates (Automated)
-
-Runner images are rebuilt monthly by the `build-hetzner-images.yml` workflow. The workflow automatically:
-
-1. Builds new x86 and arm64 runner images with Packer
-2. SSHs to the orchestrator server
-3. Updates `IMAGE_X64` and `IMAGE_ARM64` in `/etc/github-hetzner-runners/env`
-4. Restarts the orchestrator service
-5. Cleans up old snapshots (keeps last 2)
-
-**Requirements for automated updates:**
-- `ORCHESTRATOR_HOST` secret set to orchestrator server IP/hostname
-- `ORCHESTRATOR_SSH_KEY` secret set to SSH private key for root access
-
-Running jobs are not affected during the restart (see architecture notes above).
 
 ### Updating TestFlows
 
@@ -273,11 +271,21 @@ systemctl restart github-hetzner-runners
 2. Update `/etc/github-hetzner-runners/env`
 3. Restart service: `systemctl restart github-hetzner-runners`
 
+### Updating Setup Scripts
+
+To update the setup scripts:
+
+1. Modify scripts in `.github/workflows/testflows-orchestrator/scripts/`
+2. Rebuild the orchestrator image: `packer build testflows-orchestrator.pkr.hcl`
+3. Create a new server from the new snapshot
+4. Migrate the `/etc/github-hetzner-runners/env` configuration
+
 ### Rebuilding Orchestrator Image
 
 If you need to rebuild the orchestrator image with updates:
 
 ```bash
+cd .github/workflows
 packer build testflows-orchestrator.pkr.hcl
 # Then create new server from new snapshot and migrate config
 ```
@@ -289,16 +297,12 @@ packer build testflows-orchestrator.pkr.hcl
 | Secret | Purpose |
 |--------|---------|
 | `HCLOUD_TOKEN` | Hetzner API (for Packer image builds) |
-| `HETZNER_S3_ACCESS_KEY` | Maven cache storage |
-| `HETZNER_S3_SECRET_KEY` | Maven cache storage |
-| `HETZNER_S3_ENDPOINT` | Maven cache storage |
-| `ORCHESTRATOR_HOST` | Orchestrator server IP/hostname (for automated image updates) |
-| `ORCHESTRATOR_SSH_KEY` | SSH private key for orchestrator root access (for automated image updates) |
 
 ### Orchestrator Server Environment
 
-| Variable | Purpose |
-|----------|---------|
-| `GITHUB_TOKEN` | Runner registration (PAT with repo/admin:org scope) |
-| `GITHUB_REPOSITORY` | Target repository |
-| `HCLOUD_TOKEN` | Server creation/deletion |
+| Variable            | Purpose                                             |
+|---------------------|-----------------------------------------------------|
+| `GITHUB_TOKEN`      | Runner registration (PAT with repo/admin:org scope) |
+| `GITHUB_REPOSITORY` | Target repository                                   |
+| `HCLOUD_TOKEN`      | Server creation/deletion                            |
+| `MAX_RUNNERS`       | Maximum concurrent runners (optional, default: 4)   |
