@@ -1,7 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
+import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
@@ -72,8 +75,20 @@ public class GqlService implements Service<Object, Map<String, Object>> {
       return CloseableIterator.empty();
     }
 
-    // TODO: Implement GQL query execution
-    throw new UnsupportedOperationException("GQL query execution not yet implemented: " + query);
+    // 1. Get traversal from context
+    var traversal = (Traversal.Admin<?, ?>) ctx.getTraversal();
+
+    // 2. Plan the query (parse + create step)
+    var planner = new GqlPlanner();
+    var matchStep = planner.plan(query, traversal);
+
+    // 3. Collect results from the step
+    var results = new ArrayList<Map<String, Object>>();
+    while (matchStep.hasNext()) {
+      results.add(matchStep.next().get());
+    }
+
+    return CloseableIterator.of(results.iterator());
   }
 
   @Override
