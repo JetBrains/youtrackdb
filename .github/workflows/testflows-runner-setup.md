@@ -117,13 +117,6 @@ GITHUB_REPOSITORY=JetBrains/youtrackdb
 HCLOUD_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### Optional Configuration
-
-```bash
-# Maximum concurrent runners (default: 4)
-MAX_RUNNERS=4
-```
-
 ### Workflow Labels
 
 Runners are configured per-job using workflow labels. The integration tests workflow uses:
@@ -293,4 +286,3 @@ packer build testflows-orchestrator.pkr.hcl
 | `GITHUB_TOKEN`      | Runner registration (PAT with repo/admin:org scope) |
 | `GITHUB_REPOSITORY` | Target repository                                   |
 | `HCLOUD_TOKEN`      | Server creation/deletion                            |
-| `MAX_RUNNERS`       | Maximum concurrent runners (optional, default: 4)   |

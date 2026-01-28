@@ -5,6 +5,5 @@ exec /usr/local/bin/github-hetzner-runners \
      --github-token "${GITHUB_TOKEN}" \
      --github-repository "${GITHUB_REPOSITORY}" \
      --hetzner-token "${HCLOUD_TOKEN}" \
-     --max-runners "${MAX_RUNNERS:-4}" \
      --scripts /etc/github-hetzner-runners/scripts
 
