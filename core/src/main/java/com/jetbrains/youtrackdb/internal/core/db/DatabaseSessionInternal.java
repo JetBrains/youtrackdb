@@ -154,6 +154,9 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   void addBlobCollection(String iCollectionName, Object... iParameters);
 
+  /**
+   * @return Amount of nested transaction calls. First call is 1.
+   */
   int begin(FrontendTransactionImpl tx);
 
   void setSerializer(RecordSerializer serializer);

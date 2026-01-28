@@ -357,11 +357,9 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
   String getCurrentUserName();
 
   /**
-   * Begins a new transaction.If a previous transaction is running a nested call counter is
+   * Begins a new transaction. If a previous transaction is running a nested call counter is
    * incremented. A transaction once begun has to be closed by calling the
-   * {@link Transaction#commit()} or {@link Transaction#rollback()}.
-   *
-   * @return Amount of nested transaction calls. First call is 1.
+   * {@link Transaction#commit()} or {@link Transaction#rollback()}.*
    */
   Transaction begin();
 

@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class AtomicOperationsTable {
@@ -20,11 +22,46 @@ public class AtomicOperationsTable {
   private final AtomicLong operationsStarted = new AtomicLong();
   private volatile long lastCompactionOperation;
 
+  private volatile long minPersistedOperationId;
+  private volatile long maxPersistedOperationId;
+
+  public record AtomicOperationTableState(long maxPersistedOperationId, List<Long> inProgressOpList) {
+  }
+
   public AtomicOperationsTable(final int tableCompactionInterval, final long idOffset) {
     this.tableCompactionInterval = tableCompactionInterval;
     this.idOffsets = new long[]{idOffset};
     //noinspection unchecked
     tables = new CASObjectArray[]{new CASObjectArray<>()};
+  }
+
+  public AtomicOperationTableState snapshotAtomicOperationTableState() {
+    compactionLock.sharedLock();
+    try {
+      final long maxPersistedOpId = maxPersistedOperationId;
+      final long minPersistedOpId = minPersistedOperationId;
+
+      if (maxPersistedOpId <= minPersistedOpId) {
+        return new AtomicOperationTableState(maxPersistedOpId, List.of());
+      }
+
+      final var table = tables[tables.length - 1];
+      final long offset = idOffsets[tables.length - 1];
+
+      final int from = (int) (minPersistedOpId - offset);
+      final int toExclusive = (int) (maxPersistedOpId - offset);
+
+      final List<Long> inProgress = new ArrayList<>();
+      for (int i = from; i < toExclusive; i++) {
+        final var info = table.get(i);
+        if (info.status == AtomicOperationStatus.IN_PROGRESS) {
+          inProgress.add(info.operationId);
+        }
+      }
+      return new AtomicOperationTableState(maxPersistedOpId, inProgress);
+    } finally {
+      compactionLock.sharedUnlock();
+    }
   }
 
   public void startOperation(final long operationId, final long segment) {
@@ -167,6 +204,10 @@ public class AtomicOperationsTable {
               idOffsets.length > currentIndex + 1 ? idOffsets[currentIndex + 1] : Long.MAX_VALUE;
         }
       }
+
+      if (newStatus == AtomicOperationStatus.PERSISTED) {
+        updatePersistedRange(operationId);
+      }
     } finally {
       compactionLock.sharedUnlock();
     }
@@ -256,6 +297,28 @@ public class AtomicOperationsTable {
       lastCompactionOperation = operationsStarted.get();
     } finally {
       compactionLock.exclusiveUnlock();
+    }
+  }
+
+  private void updatePersistedRange(long operationId) {
+    if (operationId > maxPersistedOperationId) {
+      maxPersistedOperationId = operationId;
+    }
+
+    if ((minPersistedOperationId + 1) == operationId) {
+      var p = operationId;
+      CASObjectArray<OperationInformation> table = tables[tables.length - 1];
+      var currentOffset = idOffsets[tables.length - 1];
+
+      while (p < maxPersistedOperationId) {
+        var status = table.get((int) (p - currentOffset)).status;
+        if (status == AtomicOperationStatus.PERSISTED || status == AtomicOperationStatus.ROLLED_BACK) {
+          p++;
+        } else {
+          break;
+        }
+      }
+      minPersistedOperationId = p;
     }
   }
 

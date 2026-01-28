@@ -126,6 +126,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.FreezableStorageComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationTableState;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
@@ -1212,7 +1213,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         recordBuffer = prefetchedBuffer;
       } else {
         try {
+          // Setting atomicOperationTableState in a ThreadLocal to identify a record version to read
+          var atomicOperationTableState = ((FrontendTransactionImpl) currentTx).getAtomicOperationTableState();
+          var atomicOperationsManager = ((AbstractStorage) storage).getAtomicOperationsManager();
+          atomicOperationsManager.setAtomicOperationTableState(atomicOperationTableState);
+
           recordBuffer = storage.readRecord(rid);
+
+          atomicOperationsManager.clearAtomicOperationTableState();
         } catch (RecordNotFoundException e) {
           if (throwExceptionIfRecordNotFound) {
             throw e;
@@ -1359,6 +1367,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new FrontendTransactionImpl(this, txId, false);
   }
 
+  private FrontendTransactionImpl newTxInstance(long txId, AtomicOperationTableState aotState) {
+    assert assertIfNotActive();
+
+    return new FrontendTransactionImpl(this, txId, false, aotState);
+  }
+
   private FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
     assert assertIfNotActive();
 
@@ -1384,7 +1398,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return currentTx;
     }
 
-    begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
+    // Preserving atomicOperationTableState on the beginning of the transaction to support snapshot isolation
+    var atomicOperationsManager = ((AbstractStorage) storage).getAtomicOperationsManager();
+    AtomicOperationTableState atomicOperationTableState = atomicOperationsManager.shapshotAtomicOperationTableState();
+
+    begin(newTxInstance(FrontendTransactionImpl.generateTxId(), atomicOperationTableState));
     return currentTx;
   }
 
@@ -3136,6 +3154,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     currentTx = transaction;
 
+    ((AbstractStorage) storage).registryFrontendTransaction(transaction);
     return currentTx.beginInternal();
   }
 
@@ -3382,6 +3401,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           "No active transaction to commit. Call begin() first");
     }
 
+    ((AbstractStorage) storage).unregisterFrontendTransaction(currentTx.getId());
     if (currentTx.amountOfNestedTxs() > 1) {
       // This just do count down no real commit here
       return currentTx.commitInternal();
@@ -3478,6 +3498,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
+    ((AbstractStorage) storage).unregisterFrontendTransaction(currentTx.getId());
     if (currentTx.isActive()) {
       // WAKE UP LISTENERS
       currentTx.rollbackInternal();
