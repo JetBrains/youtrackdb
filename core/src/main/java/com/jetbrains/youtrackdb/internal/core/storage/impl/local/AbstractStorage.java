@@ -4039,19 +4039,13 @@ public abstract class AbstractStorage
       final AtomicOperation atomicOperation,
       final RecordIdInternal rid,
       @Nonnull final byte[] content,
-      int recordVersion,
+      long recordVersion,
       final byte recordType,
       final StorageCollection collection,
       final PhysicalPosition allocated) {
     //noinspection ConstantValue
     if (content == null) {
       throw new IllegalArgumentException("Record is null");
-    }
-
-    if (recordVersion > -1) {
-      recordVersion++;
-    } else {
-      recordVersion = 0;
     }
 
     collection.meters().create().record();
@@ -4080,12 +4074,13 @@ public abstract class AbstractStorage
     return ppos;
   }
 
-  private int doUpdateRecord(
+  private long doUpdateRecord(
       final AtomicOperation atomicOperation,
       final RecordIdInternal rid,
       final boolean updateContent,
       byte[] content,
-      final int version,
+      final long version,
+      final long txId,
       final byte recordType,
       final StorageCollection collection) {
 
@@ -4100,7 +4095,7 @@ public abstract class AbstractStorage
             name, rid, dbVersion, version, RecordOperation.UPDATED);
       }
 
-      ppos.recordVersion = version + 1;
+      ppos.recordVersion = txId;
       if (updateContent) {
         collection.updateRecord(
             rid.getCollectionPosition(), content, ppos.recordVersion, recordType, atomicOperation);
@@ -4131,7 +4126,7 @@ public abstract class AbstractStorage
   private void doDeleteRecord(
       final AtomicOperation atomicOperation,
       final RecordIdInternal rid,
-      final int version,
+      final long version,
       final StorageCollection collection) {
     collection.meters().delete().record();
     try {
@@ -4580,6 +4575,8 @@ public abstract class AbstractStorage
     final var collection = doGetAndCheckCollection(rid.getCollectionId());
 
     var db = frontendTransaction.getDatabaseSession();
+    var txId = frontendTransaction.getId();
+
     switch (txEntry.type) {
       case RecordOperation.CREATED: {
         final byte[] stream;
@@ -4597,12 +4594,13 @@ public abstract class AbstractStorage
         if (allocated != null) {
           final PhysicalPosition ppos;
           final var recordType = rec.getRecordType();
+          final var recordVersion = rec.getVersion() > -1 ? txId : 0;
           ppos =
               doCreateRecord(
                   atomicOperation,
                   rid,
                   stream,
-                  rec.getVersion(),
+                  recordVersion,
                   recordType,
                   collection, allocated);
 
@@ -4615,6 +4613,7 @@ public abstract class AbstractStorage
                   rec.isContentChanged(),
                   stream,
                   -2,
+                  txId,
                   rec.getRecordType(),
                   collection);
           rec.setVersion(updatedVersion);
@@ -4639,6 +4638,7 @@ public abstract class AbstractStorage
                 rec.isContentChanged(),
                 stream,
                 rec.getVersion(),
+                txId,
                 rec.getRecordType(),
                 collection);
         rec.setVersion(version);
@@ -4648,8 +4648,7 @@ public abstract class AbstractStorage
         if (rec instanceof EntityImpl entity) {
           LinkBagDeleter.deleteAllRidBags(entity, frontendTransaction);
         }
-        doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(),
-            collection);
+        doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(), collection);
         break;
       }
       default:

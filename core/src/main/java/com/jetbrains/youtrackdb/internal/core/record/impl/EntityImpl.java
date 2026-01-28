@@ -3485,7 +3485,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   public final RecordAbstract fill(
-      final int version, final byte[] buffer, final boolean dirty) {
+      final long version, final byte[] buffer, final boolean dirty) {
     var session = getSession();
     if (this.dirty > 0) {
       throw new DatabaseException(session.getDatabaseName(),
