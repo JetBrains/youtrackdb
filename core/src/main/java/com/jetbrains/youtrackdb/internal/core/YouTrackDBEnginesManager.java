@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Profiler;
+import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.util.ClassLoaderHelper;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -599,6 +600,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   public MetricsRegistry getMetricsRegistry() {
     return profiler.getMetricsRegistry();
+  }
+
+  public Ticker getTicker() {
+    return profiler.getTicker();
   }
 
   public void registerThreadDatabaseFactory(final DatabaseThreadLocalFactory iDatabaseFactory) {

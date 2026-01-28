@@ -2,10 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
@@ -24,6 +28,8 @@ public final class YTDBTransaction extends AbstractTransaction {
   private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners = new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
   private DatabaseSessionEmbedded activeSession;
+  private QueryMetricsListener queryMetricsListener = QueryMetricsListener.NO_OP;
+  private TransactionMetricsListener transactionMetricsListener = TransactionMetricsListener.NO_OP;
 
   public YTDBTransaction(YTDBGraphImplAbstract graph) {
     super(graph);
@@ -198,5 +204,49 @@ public final class YTDBTransaction extends AbstractTransaction {
     }
 
     return activeSession;
+  }
+
+  /// Register a query metrics listener for this transaction. Supported only when YouTrackDB is run
+  /// in embedded mode.
+  ///
+  /// @param mode       Mode under which the listener will operate. Lightweight mode uses
+  ///                   approximate timestamps and lower precision of durations. Exact mode uses
+  ///                   precise timestamp values but is heavier performance-wise.
+  /// @param trackingId Optional tracking ID that can be obtained from the QueryDetails inside the
+  ///                   listener. If null, YTDB will generate its own tracking ID.
+  /// @throws IllegalStateException when called on a remote transaction.
+  public YTDBTransaction withQueryListener(
+      QueryMonitoringMode mode,
+      @Nullable String trackingId,
+      QueryMetricsListener listener) {
+
+    this.queryMetricsListener = listener;
+    return this;
+  }
+
+  /// Register a metrics listener for this transaction. Supported only when YouTrackDB is run in
+  /// embedded mode.
+  ///
+  /// @param mode       Mode under which the listener will operate. Lightweight mode uses
+  ///                   approximate timestamps and lower precision of durations. Exact mode uses
+  ///                   precise timestamp values but is heavier performance-wise.
+  /// @param trackingId Optional tracking ID that can be obtained from the TransactionDetails inside
+  ///                   the listener. If null, YTDB will generate its own tracking ID.
+  /// @throws IllegalStateException when called on a remote transaction.
+  public YTDBTransaction withTransactionListener(
+      QueryMonitoringMode mode,
+      @Nullable String trackingId,
+      TransactionMetricsListener listener) {
+
+    this.transactionMetricsListener = listener;
+    return this;
+  }
+
+  public QueryMetricsListener getQueryMetricsListener() {
+    return queryMetricsListener;
+  }
+
+  public TransactionMetricsListener getTransactionMetricsListener() {
+    return transactionMetricsListener;
   }
 }
