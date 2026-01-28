@@ -131,7 +131,7 @@ Runners are configured per-job using workflow labels. The integration tests work
 ```yaml
 runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cx43 type-cpx42'' || ''type-cax31'' }}',
            'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
-          setup-docker, setup-firewall, setup-git, setup-mcache, volume-cache]
+           docker, firewall, git, mcache, volume-cache ]
 ```
 
 | Label                                 | Purpose                                 |
@@ -140,25 +140,25 @@ runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cx43 type
 | `in-nbg1`                             | Hetzner datacenter location             |
 | `type-cx43 type-cpx42` / `type-cax31` | Server type with fallback (x64 / arm64) |
 | `image-*-ubuntu-24.04`                | Base Ubuntu image to use                |
-| `setup-docker`                        | Run Docker installation script          |
-| `setup-firewall`                      | Run UFW firewall configuration script   |
-| `setup-git`                           | Run Git installation script             |
-| `setup-mcache`                        | Run Maven cache mount script            |
+| `docker`                              | Run Docker installation script          |
+| `firewall`                            | Run UFW firewall configuration script   |
+| `git`                                 | Run Git installation script             |
+| `mcache`                              | Run Maven cache mount script            |
 | `volume-cache`                        | Attach persistent volume for caching    |
 
 ### Setup Scripts
 
 The orchestrator image includes setup scripts in `/etc/github-hetzner-runners/scripts/`:
 
-| Script              | Purpose                                              |
-|---------------------|------------------------------------------------------|
-| `setup-docker.sh`   | Installs Docker Engine, creates ubuntu user          |
-| `setup-firewall.sh` | Configures UFW (deny incoming, allow SSH)            |
-| `setup-git.sh`      | Installs Git                                         |
-| `setup-mcache.sh`   | Mounts Maven cache from volume to `~/.m2/repository` |
-| `setup.sh`          | Basic setup (ubuntu user, fail2ban)                  |
-| `startup-x64.sh`    | GitHub Actions runner setup for x64                  |
-| `startup-arm64.sh`  | GitHub Actions runner setup for arm64                |
+| Script             | Purpose                                              |
+|--------------------|------------------------------------------------------|
+| `docker.sh`        | Installs Docker Engine, creates ubuntu user          |
+| `firewall.sh`      | Configures UFW (deny incoming, allow SSH)            |
+| `git.sh`           | Installs Git                                         |
+| `mcache.sh`        | Mounts Maven cache from volume to `~/.m2/repository` |
+| `setup.sh`         | Basic setup (ubuntu user, fail2ban)                  |
+| `startup-x64.sh`   | GitHub Actions runner setup for x64                  |
+| `startup-arm64.sh` | GitHub Actions runner setup for arm64                |
 
 These scripts run on runner startup based on the workflow labels.
 
@@ -242,7 +242,7 @@ journalctl -u github-hetzner-runners -n 100
 
 1. Verify `volume-cache` label is in the workflow
 2. Check if `/mnt/cache` directory exists on the runner
-3. Verify `setup-mcache` label is included
+3. Verify `mcache` label is included
 
 ## Maintenance
 
