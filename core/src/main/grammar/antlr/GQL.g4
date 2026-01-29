@@ -8,7 +8,7 @@ composite_linear_query_statement: simple_linear_query_statement
                                   ( (UNION | INTERSECT | EXCEPT) (ALL | DISTINCT)?
                                   simple_linear_query_statement )* ;
 
-simple_linear_query_statement: (primitive_query_statement)* return_statment?;
+simple_linear_query_statement: (primitive_query_statement)* return_statement?;
 primitive_query_statement: call_statement | filter_statement | for_statement | let_statement |
                            limit_statement | match_statement | offset_statement | order_by_statement |
                            skip_statement | with_statement;
@@ -19,10 +19,10 @@ call_parameters: (ID (',' ID)*)?;
 
 filter_statement: FILTER WHERE? boolean_expression;
 
-for_statement: FOR STRING IN list (WITH OFFSET (as_statment)?)?;
+for_statement: FOR STRING IN list (WITH OFFSET (as_statement)?)?;
 list: list_literal | ID | property_reference | NULL_TOKEN;
 
-as_statment: AS STRING;
+as_statement: AS STRING;
 
 let_statement: LET linear_graph_variable(',' linear_graph_variable)*;
 linear_graph_variable: STRING EQ value_expression;
@@ -41,7 +41,7 @@ order_by_statement: ORDER BY order_by_specification;
 order_by_specification: (COLLATE collation_specification)? (ASC | ASCENDING | DESC | DESCENDING)?;
 collation_specification: STRING;
 
-return_statment: RETURN ('*' | (ALL | DISTINCT)? return_items? group_by_clause?
+return_statement: RETURN ('*' | (ALL | DISTINCT)? return_items? group_by_clause?
                  order_by_statement? limit_statement? offset_statement?);
 
 return_items: return_item (',' return_item)*;

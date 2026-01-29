@@ -12,7 +12,8 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 /// TinkerPop service that allows running any YouTrackDB non-idempotent command via GraphTraversal.
 ///
-/// Supports both Start and Streaming execution modes to allow chaining: g.sqlCommand("BEGIN").sqlCommand("INSERT")
+/// Supports both Start and Streaming execution modes to allow chaining:
+/// g.sqlCommand("BEGIN").sqlCommand("INSERT")
 public class YTDBCommandService implements Service<Object, Object> {
 
   public static final String NAME = "command";
@@ -70,13 +71,12 @@ public class YTDBCommandService implements Service<Object, Object> {
         if (safeParams.get(ARGUMENTS) instanceof Map<?, ?> m) {
           finalCommandParams = m;
         }
-      }
-      else if (safeParams.get(ARGUMENTS) instanceof java.util.List<?> argsList
+      } else if (safeParams.get(ARGUMENTS) instanceof java.util.List<?> argsList
           && !argsList.isEmpty()) {
         if (argsList.getFirst() instanceof String cmd) {
           finalCommand = cmd;
           if (argsList.size() > 1) {
-            var map = new java.util.LinkedHashMap<Object, Object>();
+            var map = new java.util.LinkedHashMap<>();
             for (var i = 1; i + 1 < argsList.size(); i += 2) {
               map.put(argsList.get(i), argsList.get(i + 1));
             }
@@ -92,6 +92,7 @@ public class YTDBCommandService implements Service<Object, Object> {
 
   /// Factory for the sqlCommand service - an alias for command that can be used for chaining.
   public static class SqlCommandFactory extends Factory {
+
     public SqlCommandFactory() {
       super(SQL_COMMAND_NAME);
     }
@@ -130,7 +131,7 @@ public class YTDBCommandService implements Service<Object, Object> {
     if (command.isEmpty()) {
       return CloseableIterator.of(IteratorUtils.of(in.get()));
     }
-    
+
     final var graph = (((Admin<?, ?>) ctx.getTraversal()))
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));

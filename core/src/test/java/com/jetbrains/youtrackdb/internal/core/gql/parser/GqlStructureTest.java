@@ -87,12 +87,15 @@ public class GqlStructureTest {
       return Stream.empty();
     }
 
-    return Files.walk(path)
+    try (var pathStream = Files.walk(path)
         .filter(Files::isRegularFile)
-        .filter(p -> p.getFileName().toString().endsWith(".gql"));
+        .filter(p -> p.getFileName().toString().endsWith(".gql"))) {
+      return pathStream;
+    }
   }
 
   public static class ThrowingErrorListener extends BaseErrorListener {
+
     @Override
     public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol,
         int line, int charPositionInLine, String msg, RecognitionException e) {

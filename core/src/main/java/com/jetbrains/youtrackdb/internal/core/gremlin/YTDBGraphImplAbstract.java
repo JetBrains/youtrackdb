@@ -220,7 +220,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   public void executeCommand(String command, Map<?, ?> params) {
     var normalized = command == null ? "" : command.trim().toUpperCase();
 
-
     if (isSchemaCommand(normalized)) {
       try (var session = acquireSession()) {
         session.command(command, params);
@@ -228,30 +227,30 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return;
     }
 
-    if ("BEGIN".equals(normalized)) {
-      var tx = tx();
-      if (!tx.isOpen()) {
-        tx.readWrite();
+    switch (normalized) {
+      case "BEGIN" -> {
+        var tx = tx();
+        if (!tx.isOpen()) {
+          tx.readWrite();
+        }
+        return;
       }
-      return;
-    }
-
-    if ("COMMIT".equals(normalized)) {
-      var tx = tx();
-      if (tx.isOpen()) {
-        tx.commit();
-      } else {
-        throw new IllegalStateException("No active transaction to commit");
+      case "COMMIT" -> {
+        var tx = tx();
+        if (tx.isOpen()) {
+          tx.commit();
+        } else {
+          throw new IllegalStateException("No active transaction to commit");
+        }
+        return;
       }
-      return;
-    }
-
-    if ("ROLLBACK".equals(normalized)) {
-      var tx = tx();
-      if (tx.isOpen()) {
-        tx.rollback();
+      case "ROLLBACK" -> {
+        var tx = tx();
+        if (tx.isOpen()) {
+          tx.rollback();
+        }
+        return;
       }
-      return;
     }
 
     var session = tx().getDatabaseSession();
@@ -308,6 +307,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         YTDBGraphFactory.CONFIG_DB_NAME) + "]";
   }
 
+  @SuppressWarnings("resource")
   public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {
     var threadLocalState = this.threadLocalState.get();
     var currentSession = threadLocalState.sessionEmbedded;

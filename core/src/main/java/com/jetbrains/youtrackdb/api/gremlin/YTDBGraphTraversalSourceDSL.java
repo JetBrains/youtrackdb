@@ -22,6 +22,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
+@SuppressWarnings("unused")
 public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
   public YTDBGraphTraversalSourceDSL(Graph graph,
@@ -85,12 +86,12 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
 
-  /// Execute a generic YouTrackDB command immediately.
-  /// The command is executed eagerly - no need to call .iterate().
+  /// Execute a generic YouTrackDB command immediately. The command is executed eagerly - no need to
+  /// call .iterate().
   ///
   /// @param command The command to execute.
   public void command(@Nonnull String command) {
-    call(
+    this.call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, Map.of()
@@ -98,14 +99,15 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     ).iterate();
   }
 
-  /// Execute a generic parameterized YouTrackDB command immediately.
-  /// The command is executed eagerly - no need to call .iterate().
+  /// Execute a generic parameterized YouTrackDB command immediately. The command is executed
+  /// eagerly - no need to call .iterate().
   ///
-  /// @param command The command to execute.
-  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2, value2, ...).
+  /// @param command   The command to execute.
+  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
+  ///                  value2, ...).
   public void command(@Nonnull String command, @Nonnull Object... keyValues) {
     var arguments = processKeyValueArguments(keyValues);
-    call(
+    this.call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments
@@ -113,8 +115,8 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     ).iterate();
   }
 
-  /// Execute a generic YouTrackDB SQL command. Returns a lazy traversal that can be chained.
-  /// Users must call .iterate() or another terminal operation to execute the command.
+  /// Execute a generic YouTrackDB SQL command. Returns a lazy traversal that can be chained. Users
+  /// must call .iterate() or another terminal operation to execute the command.
   ///
   /// @param command The SQL command to execute.
   /// @return A traversal that can be chained with other steps.
@@ -127,13 +129,15 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     );
   }
 
-  /// Execute a generic parameterized YouTrackDB SQL command. Returns a lazy traversal.
-  /// Users must call .iterate() or another terminal operation to execute the command.
+  /// Execute a generic parameterized YouTrackDB SQL command. Returns a lazy traversal. Users must
+  /// call .iterate() or another terminal operation to execute the command.
   ///
-  /// @param command The SQL command to execute.
-  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2, value2, ...).
+  /// @param command   The SQL command to execute.
+  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
+  ///                  value2, ...).
   /// @return A traversal that can be chained with other steps.
-  public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command, @Nonnull Object... keyValues) {
+  public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command,
+      @Nonnull Object... keyValues) {
     var arguments = processKeyValueArguments(keyValues);
     return (YTDBGraphTraversal<Object, Object>) call(
         YTDBCommandService.SQL_COMMAND_NAME, Map.of(
