@@ -25,6 +25,10 @@
   <properties>
     <jna.version>4.0.0</jna.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
+    <generated.sources.dir>${basedir}/src/main/generated/java</generated.sources.dir>
+    <gql.antlr.package>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</gql.antlr.package>
+    <gql.antlr.output.dir>${generated.sources.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen</gql.antlr.output.dir>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>-ea
@@ -128,30 +132,47 @@
           <outputDirectory>${basedir}/src/main/java</outputDirectory>
         </configuration>
       </plugin>
+      <!-- Generate ANTLR sources using official antlr4-maven-plugin -->
       <plugin>
         <groupId>org.antlr</groupId>
         <artifactId>antlr4-maven-plugin</artifactId>
         <version>${antlr.version}</version>
         <executions>
           <execution>
-            <id>antlr</id>
+            <id>generate-antlr</id>
+            <phase>generate-sources</phase>
             <goals>
               <goal>antlr4</goal>
             </goals>
             <configuration>
               <sourceDirectory>${basedir}/src/main/grammar/antlr</sourceDirectory>
-              <outputDirectory>${project.build.directory}/generated-sources/antlr4/com/jetbrains/youtrackdb/internal/core/gql/parser/gen</outputDirectory>
-              <arguments>
-                <argument>-package</argument>
-                <argument>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</argument>
-                <argument>-encoding</argument>
-                <argument>utf-8</argument>
-              </arguments>
+              <outputDirectory>${gql.antlr.output.dir}</outputDirectory>
               <visitor>true</visitor>
               <listener>true</listener>
+              <treatWarningsAsErrors>true</treatWarningsAsErrors>
+              <arguments>
+                <argument>-package</argument>
+                <argument>${gql.antlr.package}</argument>
+              </arguments>
             </configuration>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-clean-plugin</artifactId>
+        <version>${maven.clean.plugin.version}</version>
+        <configuration>
+          <filesets>
+            <fileset>
+              <directory>${generated.sources.dir}</directory>
+              <includes>
+                <include>**/*.java</include>
+                <include>**/*.tokens</include>
+                <include>**/*.interp</include>
+              </includes>
+            </fileset>
+          </filesets>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -220,14 +241,26 @@
         <version>3.4.0</version>
         <executions>
           <execution>
-            <id>add-antlr-sources</id>
+            <id>add-generated-sources</id>
             <phase>generate-sources</phase>
             <goals>
               <goal>add-source</goal>
             </goals>
             <configuration>
               <sources>
-                <source>${project.build.directory}/generated-sources/antlr4</source>
+                <source>${generated.sources.dir}</source>
+              </sources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>add-generated-test-sources</id>
+            <phase>generate-test-sources</phase>
+            <goals>
+              <goal>add-test-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${generated.sources.dir}</source>
               </sources>
             </configuration>
           </execution>
@@ -237,11 +270,13 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
+          <encoding>${project.build.sourceEncoding}</encoding>
           <annotationProcessors>
             <annotationProcessor>
               com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
             </annotationProcessor>
           </annotationProcessors>
+          <generatedSourcesDirectory>${generated.sources.dir}/annotations</generatedSourcesDirectory>
           <compilerArgs>
             <arg>-parameters</arg>
           </compilerArgs>
