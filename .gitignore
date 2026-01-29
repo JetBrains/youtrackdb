@@ -233,3 +233,7 @@ local.properties
 
 # stack-pr config
 .stack-pr.cfg
+/.githooks/post-checkout
+/.githooks/post-commit
+/.githooks/post-merge
+/.githooks/pre-push
