@@ -117,7 +117,7 @@ jobs:
   test-windows:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
-    if: false # Temporarily disabled
+    if: needs.check-changes.outputs.should_run == 'true'
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -162,7 +162,7 @@ jobs:
 
   merge-to-main:
     name: Merge develop into main
-    needs: test-linux  # test-windows temporarily disabled
+    needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -201,8 +201,8 @@ jobs:
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ test-linux, merge-to-main ]  # test-windows temporarily disabled
-    if: always() && github.event_name != 'workflow_dispatch' && (needs.test-linux.result == 'failure' || needs.merge-to-main.result == 'failure')
+    needs: [ test-linux, test-windows, merge-to-main ]
+    if: always() && github.event_name != 'workflow_dispatch' && (needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure' || needs.merge-to-main.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Send Zulip Notification
@@ -221,7 +221,7 @@ jobs:
 
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ test-linux, merge-to-main ]  # test-windows temporarily disabled
+    needs: [ test-linux, test-windows, merge-to-main ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:

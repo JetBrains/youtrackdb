@@ -25,10 +25,13 @@ flowchart TB
         direction TB
         it_check["Check for Changes<br/>(Skip if already tested)"]
         it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>TestFlows On-Demand Runners</i>"]
+        it_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         it_merge["Merge develop → main<br/>(fast-forward only)<br/><i>skipped on manual dispatch</i>"]
         it_notify["Zulip Notifications<br/><i>skipped on manual dispatch</i>"]
       it_check --> it_test_linux
+      it_check --> it_test_windows
       it_test_linux -->|" schedule only "| it_merge
+      it_test_windows -->|" schedule only "| it_merge
         it_merge --> it_notify
     end
 
@@ -116,8 +119,9 @@ first checks if there are new changes since the last successful run to avoid red
 1. `check-changes` - Skip if current commit was already tested successfully
 2. `test-linux` - Run full integration tests on TestFlows runners (8 jobs) with volume-mounted Maven
    cache
-3. `test-windows` - Run unit tests only on GitHub-hosted runners (4 jobs, currently disabled)
-4. `merge-to-main` - Fast-forward merge develop into main (schedule only)
+3. `test-windows` - Run unit tests only on GitHub-hosted runners (4 jobs)
+4. `merge-to-main` - Fast-forward merge develop into main (schedule only, requires both Linux and
+   Windows tests to pass)
 
 Upon successful completion of all tests, it automatically merges `develop` into `main`
 using fast-forward only, ensuring `main` always contains fully tested code.
@@ -145,12 +149,12 @@ For complete setup and configuration instructions, see [testflows-runner-setup.m
 
 ## Workflow Summary
 
-| Workflow                                 | Trigger                   | Purpose                                      | Infrastructure                             | Artifacts                                                       |
-|------------------------------------------|---------------------------|----------------------------------------------|--------------------------------------------|-----------------------------------------------------------------|
-| **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts              | GitHub-hosted runners                      | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
-| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | TestFlows runners (Hetzner) + volume cache | N/A (triggers main pipeline)                                    |
-| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | TestFlows runners (Hetzner) + volume cache | N/A                                                             |
-| **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker            | GitHub-hosted runners                      | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+| Workflow                                 | Trigger                   | Purpose                                      | Infrastructure                                      | Artifacts                                                       |
+|------------------------------------------|---------------------------|----------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------|
+| **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts              | GitHub-hosted runners                               | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
+| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
+| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
+| **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker            | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
 
 ## Version Format
 
