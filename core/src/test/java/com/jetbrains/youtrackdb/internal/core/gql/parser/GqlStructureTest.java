@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 public class GqlStructureTest {
 
   @ParameterizedTest
-  @MethodSource("getPositiveGqlFiles")
+  @MethodSource("com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStructureTest#getPositiveGqlFiles")
   @DisplayName("Positive GQL Parser Test")
   public void testPositiveGqlStructure(Path gqlFile) throws IOException {
     var query = Files.readString(gqlFile);
@@ -46,7 +46,7 @@ public class GqlStructureTest {
   }
 
   @ParameterizedTest
-  @MethodSource("getNegativeGqlFiles")
+  @MethodSource("com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStructureTest#getNegativeGqlFiles")
   @DisplayName("Negative GQL Parser Test")
   public void testNegativeGqlStructure(Path gqlFile) throws IOException {
     var query = Files.readString(gqlFile);
