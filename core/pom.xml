@@ -28,7 +28,9 @@
     <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
     <generated.sources.dir>${basedir}/src/main/generated/java</generated.sources.dir>
     <gql.antlr.package>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</gql.antlr.package>
-    <gql.antlr.output.dir>${generated.sources.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen</gql.antlr.output.dir>
+    <gql.antlr.output.dir>
+      ${generated.sources.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen
+    </gql.antlr.output.dir>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>-ea
@@ -276,7 +278,9 @@
               com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
             </annotationProcessor>
           </annotationProcessors>
-          <generatedSourcesDirectory>${generated.sources.dir}/annotations</generatedSourcesDirectory>
+          <generatedSourcesDirectory>
+            ${generated.sources.dir}/annotations
+          </generatedSourcesDirectory>
           <compilerArgs>
             <arg>-parameters</arg>
           </compilerArgs>

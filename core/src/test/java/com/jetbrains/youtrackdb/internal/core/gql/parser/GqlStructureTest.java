@@ -39,7 +39,8 @@ public class GqlStructureTest {
             "Generated tree for " + gqlFile.getFileName() + " does not match!");
       } else {
         Files.writeString(expectedTreePath, actualTree);
-        System.out.println("[GOLDEN MASTER] Created new pattern: " + expectedTreePath.getFileName());
+        System.out.println("[GOLDEN MASTER] Created new pattern: "
+            + expectedTreePath.getFileName());
       }
     }, "Syntax error in positive test: " + gqlFile);
   }
@@ -80,7 +81,7 @@ public class GqlStructureTest {
   }
 
   private static Stream<Path> getFilesFromPath(String pathStr) throws IOException {
-    Path path = Paths.get(pathStr).toAbsolutePath();
+    var path = Paths.get(pathStr).toAbsolutePath();
     if (!Files.exists(path)) {
       System.err.println("WARNING: Directory does not exist: " + path);
       return Stream.empty();

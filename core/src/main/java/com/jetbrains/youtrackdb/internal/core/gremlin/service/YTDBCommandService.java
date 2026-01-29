@@ -62,7 +62,7 @@ public class YTDBCommandService implements Service<Object, Object> {
     @Override
     public Service<Object, Object> createService(boolean isStart, Map params) {
       final Map<?, ?> safeParams = (params == null) ? Map.of() : params;
-      String finalCommand = "";
+      var finalCommand = "";
       Map<?, ?> finalCommandParams = Map.of();
 
       if (safeParams.get(COMMAND) instanceof String cmd) {
@@ -73,11 +73,11 @@ public class YTDBCommandService implements Service<Object, Object> {
       }
       else if (safeParams.get(ARGUMENTS) instanceof java.util.List<?> argsList
           && !argsList.isEmpty()) {
-        if (argsList.get(0) instanceof String cmd) {
+        if (argsList.getFirst() instanceof String cmd) {
           finalCommand = cmd;
           if (argsList.size() > 1) {
             var map = new java.util.LinkedHashMap<Object, Object>();
-            for (int i = 1; i + 1 < argsList.size(); i += 2) {
+            for (var i = 1; i + 1 < argsList.size(); i += 2) {
               map.put(argsList.get(i), argsList.get(i + 1));
             }
             finalCommandParams = map;

@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupServ
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBGraphUuidService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBIncrementalBackupService;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nonnull;
@@ -16,7 +17,6 @@ import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
@@ -104,13 +104,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @param command The command to execute.
   /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2, value2, ...).
   public void command(@Nonnull String command, @Nonnull Object... keyValues) {
-    if (keyValues.length % 2 != 0) {
-      throw new IllegalArgumentException("keyValues must be an even number of arguments (key/value pairs)");
-    }
-    var arguments = new java.util.HashMap<Object, Object>();
-    for (int i = 0; i < keyValues.length; i += 2) {
-      arguments.put(keyValues[i], keyValues[i + 1]);
-    }
+    var arguments = processKeyValueArguments(keyValues);
     call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
@@ -126,7 +120,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @return A traversal that can be chained with other steps.
   public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command) {
     return (YTDBGraphTraversal<Object, Object>) call(
-        YTDBCommandService.NAME, Map.of(
+        YTDBCommandService.SQL_COMMAND_NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, Map.of()
         )
@@ -140,19 +134,25 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2, value2, ...).
   /// @return A traversal that can be chained with other steps.
   public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command, @Nonnull Object... keyValues) {
-    if (keyValues.length % 2 != 0) {
-      throw new IllegalArgumentException("keyValues must be an even number of arguments (key/value pairs)");
-    }
-    var arguments = new java.util.HashMap<Object, Object>();
-    for (int i = 0; i < keyValues.length; i += 2) {
-      arguments.put(keyValues[i], keyValues[i + 1]);
-    }
+    var arguments = processKeyValueArguments(keyValues);
     return (YTDBGraphTraversal<Object, Object>) call(
-        YTDBCommandService.NAME, Map.of(
+        YTDBCommandService.SQL_COMMAND_NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments
         )
     );
+  }
+
+  private static HashMap<Object, Object> processKeyValueArguments(@Nonnull Object[] keyValues) {
+    if (keyValues.length % 2 != 0) {
+      throw new IllegalArgumentException("keyValues must be an even number of arguments "
+          + "(key/value pairs)");
+    }
+    var arguments = new HashMap<>();
+    for (var i = 0; i < keyValues.length; i += 2) {
+      arguments.put(keyValues[i], keyValues[i + 1]);
+    }
+    return arguments;
   }
 
   /// Performs backup of database content to the selected folder.
