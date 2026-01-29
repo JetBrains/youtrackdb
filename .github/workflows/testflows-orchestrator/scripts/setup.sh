@@ -161,9 +161,10 @@ apt-get update
     fi
 
     echo "Add NodeSource GPG key"
-    NODE_GPG_PATH="/etc/apt/keyrings/nodesource.asc"
+    install -m 0755 -d /etc/apt/keyrings
+    NODE_GPG_PATH="/etc/apt/keyrings/nodesource.gpg"
 
-    NODE_GPG_CACHE="${CACHE_DIR_NODE}/nodesource.asc"
+    NODE_GPG_CACHE="${CACHE_DIR_NODE}/nodesource.gpg"
     if [ -n "$CACHE_DIR_NODE" ] && [ -f "$NODE_GPG_CACHE" ]; then
         echo "Using cached NodeSource GPG key"
         cp "$NODE_GPG_CACHE" "$NODE_GPG_PATH"
@@ -179,17 +180,10 @@ apt-get update
     echo "Set up NodeSource repository"
     NODE_MAJOR=22
     NODE_LIST_PATH="/etc/apt/sources.list.d/nodesource.list"
-    if [ -n "$CACHE_DIR_NODE" ] && [ -f "$CACHE_DIR_NODE/nodesource.list" ]; then
-        echo "Using cached NodeSource repository list"
-        cp "$CACHE_DIR_NODE/nodesource.list" "$NODE_LIST_PATH"
-    else
-        echo "Creating NodeSource repository list"
-        echo "deb [signed-by=$NODE_GPG_PATH] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | \
-        tee "$NODE_LIST_PATH" > /dev/null
-        if [ -n "$CACHE_DIR_NODE" ]; then
-            cp "$NODE_LIST_PATH" "$CACHE_DIR_NODE/nodesource.list"
-        fi
-    fi
+
+    # Always recreate the repo list to ensure correct GPG path (don't cache this file)
+    echo "deb [signed-by=$NODE_GPG_PATH] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | \
+    tee "$NODE_LIST_PATH" > /dev/null
 
     echo "Install Node.js"
     apt-get -y update
