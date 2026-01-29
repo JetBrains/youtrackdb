@@ -87,10 +87,12 @@ public class GqlStructureTest {
       return Stream.empty();
     }
 
-    try (var pathStream = Files.walk(path)
-        .filter(Files::isRegularFile)
-        .filter(p -> p.getFileName().toString().endsWith(".gql"))) {
-      return pathStream;
+    try (var walkStream = Files.walk(path)) {
+      return walkStream
+          .filter(Files::isRegularFile)
+          .filter(p -> p.getFileName().toString().endsWith(".gql"))
+          .toList()
+          .stream();
     }
   }
 

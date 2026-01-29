@@ -1,1 +1,0 @@
-MATCH (a)-[:KNOWS {, 4}]->(b), (a)-[:KNOWS {2,}]->(b)
