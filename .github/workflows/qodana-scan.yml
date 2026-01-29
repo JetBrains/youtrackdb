@@ -20,7 +20,7 @@ jobs:
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3.1
         with:
-          args: --linter, jetbrains/qodana-jvm:2025.3
+          args: --linter, jetbrains/qodana-jvm:2025.3${{ github.event_name == 'pull_request' && ', --fail-threshold, 0' || '' }}
           pr-mode: 'true'
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
