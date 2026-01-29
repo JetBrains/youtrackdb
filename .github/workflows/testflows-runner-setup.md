@@ -139,17 +139,24 @@ runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' |
 
 The orchestrator image includes setup scripts in `/etc/github-hetzner-runners/scripts/`:
 
-| Script             | Purpose                                                                                                          |
-|--------------------|------------------------------------------------------------------------------------------------------------------|
-| `setup.sh`         | Main setup script: creates ubuntu user, installs fail2ban, and sources docker.sh, firewall.sh, git.sh, mcache.sh |
-| `docker.sh`        | Installs Docker Engine                                                                                           |
-| `firewall.sh`      | Configures UFW (deny incoming, allow SSH)                                                                        |
-| `git.sh`           | Installs Git                                                                                                     |
-| `mcache.sh`        | Mounts Maven cache from volume to `~/.m2/repository`                                                             |
-| `startup-x64.sh`   | GitHub Actions runner setup for x64                                                                              |
-| `startup-arm64.sh` | GitHub Actions runner setup for arm64                                                                            |
+| Script             | Purpose                                                                                        |
+|--------------------|------------------------------------------------------------------------------------------------|
+| `setup.sh`         | Main setup script: creates ubuntu user, configures firewall, installs Docker, Git, Maven cache |
+| `startup-x64.sh`   | GitHub Actions runner setup for x64                                                            |
+| `startup-arm64.sh` | GitHub Actions runner setup for arm64                                                          |
 
-The `setup.sh` script runs on runner startup and orchestrates all other setup scripts.
+The `setup.sh` script runs on runner startup and performs the following:
+
+- Configures APT package cache on volume (when `volume-cache` label is used)
+- Creates and configures `ubuntu` user with sudo access
+- Installs and starts fail2ban for SSH protection
+- Configures UFW firewall (deny incoming, allow SSH, allow all outgoing)
+- Installs Docker Engine with buildx and compose plugins
+- Installs Git
+- Installs Node.js LTS (v22)
+- Mounts build tool caches from volume (when `volume-cache` label is used):
+    - Maven: `~/.m2/repository`
+    - npm: `~/.npm`
 
 The public key (`id_rsa.pub`) will be automatically added to runner servers when they are created.
 
@@ -227,11 +234,13 @@ journalctl -u github-hetzner-runners -n 100
 2. Verify all required variables are set
 3. Check systemd logs: `journalctl -u github-hetzner-runners -e`
 
-### Maven cache not working
+### Build tool cache not working (Maven/npm)
 
 1. Verify `volume-cache` label is in the workflow
 2. Check if `/mnt/cache` directory exists on the runner
-3. Verify `mcache.sh` script ran successfully (check runner logs)
+3. Verify cache directories are owned by ubuntu: `ls -la /mnt/cache/maven /mnt/cache/npm`
+4. Check if bind mounts are active: `mount | grep /home/ubuntu`
+5. Verify cache setup in `setup.sh` ran successfully (check runner logs)
 
 ## Maintenance
 
