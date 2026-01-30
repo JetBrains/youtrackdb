@@ -1,5 +1,4 @@
 version: "1.0"
 projectJDK: 21
 profile:
-  path: .idea/inspectionProfiles/youtrackdb.xml
-minSeverity: Moderate
+  path: .idea/inspectionProfiles/qodana-profile.yaml

@@ -1,0 +1,12 @@
+name: "youtrackdb-no-low-severity"
+baseProfile: .idea/inspectionProfiles/youtrackdb.xml
+
+groups:
+  - groupId: LowSeverityInspections
+    groups:
+      - "severity:WEAK WARNING"
+      - "severity:INFORMATION"
+
+inspections:
+  - group: LowSeverityInspections
+    enabled: false
