@@ -110,7 +110,7 @@ echo ""
 
 # Check which commits need fixing
 COMMITS_TO_FIX=()
-echo "$COMMITS" | while read -r COMMIT; do
+while read -r COMMIT; do
     MSG=$(git log --format=%s -n 1 "$COMMIT")
     MSG_LOWER="${MSG,,}"
     if [[ ! "$MSG_LOWER" =~ $ISSUE_PREFIX_LOWER ]]; then
@@ -119,9 +119,9 @@ echo "$COMMITS" | while read -r COMMIT; do
     else
         echo -e "  ${GREEN}OK:${NC} ${COMMIT:0:7} - $MSG"
     fi
-done
+done <<< "$COMMITS"
 
-echo ""
+echo "--------"
 
 if [ ${#COMMITS_TO_FIX[@]} -eq 0 ]; then
     echo -e "${GREEN}All commits already have the issue prefix. Nothing to do.${NC}"
