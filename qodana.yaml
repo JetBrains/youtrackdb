@@ -1,4 +1,13 @@
 version: "1.0"
 projectJDK: 21
 profile:
-  path: .idea/inspectionProfiles/qodana-profile.yaml
+  path: .idea/inspectionProfiles/youtrackdb.xml
+
+groups:
+  - groupId: LowSeverityInspections
+    groups:
+      - "severity:WEAK WARNING"
+      - "severity:INFORMATION"
+
+exclude:
+  - name: LowSeverityInspections
