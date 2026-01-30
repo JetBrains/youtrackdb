@@ -72,7 +72,8 @@ jobs:
                 console.log(`  - ${commit.sha}: ${commit.message}`);
               }
               console.log(`\nAll commits must contain the issue prefix "${issuePrefix}" somewhere in the message.`);
-              console.log(`Use the prepare-commit-msg hook or manually add the prefix.`);
+              console.log(`To fix existing commits, run: ./fix-commit-prefixes.sh ${issuePrefix}`);
+              console.log(`To prevent this in the future, use the prepare-commit-msg hook.`);
               core.setFailed(`${failingCommits.length} commit(s) missing issue prefix "${issuePrefix}"`);
             } else {
               console.log(`\n✓ All ${commits.length} commit(s) contain the issue prefix "${issuePrefix}"`);
