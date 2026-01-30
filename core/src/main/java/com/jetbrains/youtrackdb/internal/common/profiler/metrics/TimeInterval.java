@@ -8,6 +8,10 @@ public record TimeInterval(long amount, TimeUnit unit) {
     return unit.toNanos(amount);
   }
 
+  public long toMillis() {
+    return unit.toMillis(amount);
+  }
+
   public static TimeInterval of(long amount, TimeUnit unit) {
     return new TimeInterval(amount, unit);
   }

@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.FinalizationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
@@ -12,23 +14,31 @@ public class YTDBQueryMetricsStrategy
     implements FinalizationStrategy {
 
   private static final YTDBQueryMetricsStrategy INSTANCE = new YTDBQueryMetricsStrategy();
-  private static final String MARKER = Graph.Hidden.hide("ytdb.query.metrics");
 
   private YTDBQueryMetricsStrategy() {
   }
 
   @Override
   public void apply(Admin<?, ?> traversal) {
-    if (traversal.isRoot() && !traversal.getEndStep().getLabels().contains(MARKER)) {
-//      TraversalHelper.applyTraversalRecursively(t -> t.getEndStep().addLabel(MARKER), traversal);
+
+    if (!traversal.isRoot() || traversal.getEndStep() instanceof YTDBQueryMetricsStep) {
+      return;
     }
 
-    if (traversal.isRoot() && !(traversal.getEndStep() instanceof YTDBQueryMetricsStep)) {
-
-      final var ticker = YouTrackDBEnginesManager.instance().getTicker();
-      final var metricsStep = new YTDBQueryMetricsStep<>(traversal, ticker);
-      traversal.addStep(metricsStep);
+    if (traversal.getGraph().isEmpty() ||
+        !(traversal.getGraph().get() instanceof YTDBGraph ytdbGraph)) {
+      // this is not an embedded mode
+      return;
     }
+
+    final var ytdbTx = ((YTDBTransaction) ytdbGraph.tx());
+    if (!ytdbTx.isMonitoringEnabled()) {
+      return;
+    }
+
+    final var ticker = YouTrackDBEnginesManager.instance().getTicker();
+    final var metricsStep = new YTDBQueryMetricsStep<>(traversal, ytdbTx, ticker);
+    traversal.addStep(metricsStep);
   }
 
   public static YTDBQueryMetricsStrategy instance() {
