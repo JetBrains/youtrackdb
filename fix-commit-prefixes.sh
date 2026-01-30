@@ -110,7 +110,7 @@ echo ""
 
 # Check which commits need fixing
 COMMITS_TO_FIX=()
-for COMMIT in $COMMITS; do
+echo "$COMMITS" | while read -r COMMIT; do
     MSG=$(git log --format=%s -n 1 "$COMMIT")
     MSG_LOWER="${MSG,,}"
     if [[ ! "$MSG_LOWER" =~ $ISSUE_PREFIX_LOWER ]]; then
