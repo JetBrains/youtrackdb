@@ -163,8 +163,7 @@ chmod +x "$FILTER_SCRIPT"
 echo -e "${YELLOW}Rewriting commits...${NC}"
 
 # Use git filter-branch with msg-filter
-FILTER_BRANCH_SETUP="ISSUE_PREFIX='$ISSUE_PREFIX'"
-git filter-branch -f --msg-filter "$FILTER_SCRIPT '$ISSUE_PREFIX'" "$MERGE_BASE"..HEAD
+FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --msg-filter "$FILTER_SCRIPT '$ISSUE_PREFIX'" "$MERGE_BASE"..HEAD
 
 # Clean up
 rm -f "$FILTER_SCRIPT"
