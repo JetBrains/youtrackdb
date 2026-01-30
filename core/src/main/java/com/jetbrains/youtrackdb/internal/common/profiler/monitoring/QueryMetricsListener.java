@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
+import javax.annotation.Nullable;
+
 public interface QueryMetricsListener {
 
   /// Called when a query is finished, providing information about its runtime.
@@ -22,7 +24,7 @@ public interface QueryMetricsListener {
     String getQuery();
 
     /// Optional client-provided summary of the query.
-    String getQuerySummary();
+    @Nullable String getQuerySummary();
 
     /// Get transaction tracking id
     String getTransactionTrackingId();

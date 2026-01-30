@@ -11,28 +11,42 @@ import java.util.concurrent.TimeUnit;
 public class GranularTicker implements Ticker, AutoCloseable {
 
   private final long granularity;
-  private volatile long time;
+  private final long timestampRefreshRate;
+  private volatile long nanoTime;
+  private volatile long nanoTimeDifference;
 
   private final ScheduledExecutorService executor;
 
-  public GranularTicker(long granularity) {
+  public GranularTicker(long granularityNanos, long timestampRefreshRate) {
     this.executor = ThreadPoolExecutors.newSingleThreadScheduledPool("GranularTicker");
-    this.granularity = granularity;
+    this.timestampRefreshRate = timestampRefreshRate;
+    this.granularity = granularityNanos;
   }
 
   @Override
   public void start() {
-    assert time == 0 : "Ticker is already started";
-    this.time = System.nanoTime();
+    assert nanoTime == 0 : "Ticker is already started";
+    this.nanoTime = System.nanoTime();
+    this.nanoTimeDifference = System.currentTimeMillis() - this.nanoTime / 1_000_000;
+
     executor.scheduleAtFixedRate(
-        () -> time = System.nanoTime(),
-        0, granularity, TimeUnit.NANOSECONDS
+        () -> nanoTime = System.nanoTime(),
+        granularity, granularity, TimeUnit.NANOSECONDS
+    );
+    executor.scheduleAtFixedRate(
+        () -> nanoTimeDifference = System.currentTimeMillis() - System.nanoTime() / 1_000_000,
+        timestampRefreshRate, timestampRefreshRate, TimeUnit.MILLISECONDS
     );
   }
 
   @Override
-  public long lastNanoTime() {
-    return time;
+  public long approximateNanoTime() {
+    return nanoTime;
+  }
+
+  @Override
+  public long approximateCurrentTimeMillis() {
+    return nanoTime / 1_000_000 + nanoTimeDifference;
   }
 
   @Override
@@ -42,7 +56,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   @Override
   public long getTick() {
-    return time / granularity;
+    return nanoTime / granularity;
   }
 
   @Override
@@ -56,7 +70,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     stop();
   }
 }

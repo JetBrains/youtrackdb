@@ -131,7 +131,7 @@ public class RatioTest extends MetricsBaseTest {
     final var eventPeriodNanos = 1000; // 1 event per 1000ns
     final var successEveryNthIt = 3;
 
-    final var ticker = closeable(new GranularTicker(TICK.toNanos()));
+    final var ticker = closeable(new GranularTicker(TICK.toNanos(), TICK.toNanos()));
     ticker.start();
     final var meter = Ratio.create(
         ticker,

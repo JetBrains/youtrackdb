@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
@@ -28,6 +29,10 @@ public final class YTDBTransaction extends AbstractTransaction {
   private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners = new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
   private DatabaseSessionEmbedded activeSession;
+
+  // Query monitoring
+  private QueryMonitoringMode queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
+  private String trackingId;
   private QueryMetricsListener queryMetricsListener = QueryMetricsListener.NO_OP;
   private TransactionMetricsListener transactionMetricsListener = TransactionMetricsListener.NO_OP;
 
@@ -191,11 +196,15 @@ public final class YTDBTransaction extends AbstractTransaction {
   @Override
   protected void fireOnCommit() {
     this.transactionListeners.forEach(c -> c.accept(Status.COMMIT));
+    this.queryMetricsListener = QueryMetricsListener.NO_OP;
+    this.transactionMetricsListener = TransactionMetricsListener.NO_OP;
   }
 
   @Override
   protected void fireOnRollback() {
     this.transactionListeners.forEach(c -> c.accept(Status.ROLLBACK));
+    this.queryMetricsListener = QueryMetricsListener.NO_OP;
+    this.transactionMetricsListener = TransactionMetricsListener.NO_OP;
   }
 
   public DatabaseSessionEmbedded getDatabaseSession() {
@@ -206,40 +215,47 @@ public final class YTDBTransaction extends AbstractTransaction {
     return activeSession;
   }
 
+  /// Set the tracking ID for this transaction that can be obtained from the QueryDetails inside the
+  /// listener. If null, YTDB will generate its own tracking ID.
+  public YTDBTransaction withTrackingId(@Nonnull String trackingId) {
+    this.trackingId = trackingId;
+    return this;
+  }
+
+  /// Set the mode under which the listener will operate. Lightweight mode uses approximate
+  /// timestamps and lower precision of durations. Exact mode uses precise timestamp values but is
+  /// heavier performance-wise.
+  public YTDBTransaction withQueryMonitoringMode(@Nonnull QueryMonitoringMode mode) {
+    this.queryMonitoringMode = mode;
+    return this;
+  }
+
   /// Register a query metrics listener for this transaction. Supported only when YouTrackDB is run
   /// in embedded mode.
-  ///
-  /// @param mode       Mode under which the listener will operate. Lightweight mode uses
-  ///                   approximate timestamps and lower precision of durations. Exact mode uses
-  ///                   precise timestamp values but is heavier performance-wise.
-  /// @param trackingId Optional tracking ID that can be obtained from the QueryDetails inside the
-  ///                   listener. If null, YTDB will generate its own tracking ID.
-  /// @throws IllegalStateException when called on a remote transaction.
-  public YTDBTransaction withQueryListener(
-      QueryMonitoringMode mode,
-      @Nullable String trackingId,
-      QueryMetricsListener listener) {
-
+  public YTDBTransaction withQueryListener(QueryMetricsListener listener) {
     this.queryMetricsListener = listener;
     return this;
   }
 
   /// Register a metrics listener for this transaction. Supported only when YouTrackDB is run in
   /// embedded mode.
-  ///
-  /// @param mode       Mode under which the listener will operate. Lightweight mode uses
-  ///                   approximate timestamps and lower precision of durations. Exact mode uses
-  ///                   precise timestamp values but is heavier performance-wise.
-  /// @param trackingId Optional tracking ID that can be obtained from the TransactionDetails inside
-  ///                   the listener. If null, YTDB will generate its own tracking ID.
-  /// @throws IllegalStateException when called on a remote transaction.
-  public YTDBTransaction withTransactionListener(
-      QueryMonitoringMode mode,
-      @Nullable String trackingId,
-      TransactionMetricsListener listener) {
-
+  public YTDBTransaction withTransactionListener(TransactionMetricsListener listener) {
     this.transactionMetricsListener = listener;
     return this;
+  }
+
+  public boolean isMonitoringEnabled() {
+    return queryMetricsListener != QueryMetricsListener.NO_OP ||
+        transactionMetricsListener != TransactionMetricsListener.NO_OP;
+  }
+
+  public @Nonnull QueryMonitoringMode getQueryMonitoringMode() {
+    return queryMonitoringMode;
+  }
+
+  public @Nonnull String getTrackingId() {
+    return trackingId != null ? trackingId :
+        " " + activeSession.getActiveTransaction().getId();
   }
 
   public QueryMetricsListener getQueryMetricsListener() {

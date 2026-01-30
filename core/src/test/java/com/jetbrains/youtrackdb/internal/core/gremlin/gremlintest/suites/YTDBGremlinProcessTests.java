@@ -197,8 +197,7 @@ public class YTDBGremlinProcessTests {
       YTDBQueryMetricsStrategyTest.class
   };
 
-  static final Class<?>[] embeddedTests = embeddedOnlyTests;
-  //commonTestsPlusAdditional(embeddedOnlyTests);
+  static final Class<?>[] embeddedTests = commonTestsPlusAdditional(embeddedOnlyTests);
   static final Class<?>[] remoteTests = commonTestsPlusAdditional(remoteOnlyTests);
 
   private static Class<?>[] commonTestsPlusAdditional(Class<?>[] additional) {
