@@ -3,11 +3,8 @@ projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
 
-groups:
-  - groupId: LowSeverityInspections
-    groups:
-      - "severity:WEAK WARNING"
-      - "severity:INFORMATION"
-
-exclude:
-  - name: LowSeverityInspections
+failureConditions:
+  severityThresholds:
+    critical: 0
+    high: 0
+    moderate: 0
