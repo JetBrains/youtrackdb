@@ -23,24 +23,37 @@ if [ "$COMMIT_SOURCE" = "merge" ] || [ "$COMMIT_SOURCE" = "squash" ] || [ "$COMM
     exit 0
 fi
 
-# Get current branch name
-BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null)
+# Get current branch name, checking symbolic reference chain for issue prefix
+# This handles cases like: HEAD -> refs/heads/ytdb-123-alias -> refs/heads/my-feature
+# We check each ref in the chain and use the first one containing the issue prefix
+REF="HEAD"
+BRANCH_NAME=""
+ISSUE_PREFIX=""
 
-# Exit if not on a branch (detached HEAD)
+while true; do
+    TARGET=$(git symbolic-ref "$REF" 2>/dev/null) || break
+    CURRENT_BRANCH="${TARGET#refs/heads/}"
+    CURRENT_BRANCH_LOWER=$(echo "$CURRENT_BRANCH" | tr '[:upper:]' '[:lower:]')
+
+    # Check if this ref has the issue prefix pattern
+    if [[ $CURRENT_BRANCH_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
+        BRANCH_NAME="$CURRENT_BRANCH"
+        ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
+        break
+    fi
+
+    # Keep track of the last valid branch name in case none have the prefix
+    BRANCH_NAME="$CURRENT_BRANCH"
+    REF="$TARGET"
+done
+
+# Exit if not on a branch (detached HEAD or couldn't resolve)
 if [ -z "$BRANCH_NAME" ]; then
     exit 0
 fi
 
-# Extract issue prefix: "ytdb" (case-insensitive) followed by optional non-letter followed by numbers
-# Pattern explanation: ^(ytdb)([^a-zA-Z0-9]?)([0-9]+)
-# - ^            : start of string
-# - ytdb         : literal "ytdb" prefix (matched case-insensitively)
-# - [^a-zA-Z0-9]?: optional single non-alphanumeric character (separator like - or _)
-# - [0-9]+       : one or more digits
-BRANCH_NAME_LOWER=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]')
-if [[ $BRANCH_NAME_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
-    # Normalize the prefix: always use uppercase 'YTDB' and '-' as separator
-    ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
+# Check if we found an issue prefix in the chain
+if [ -n "$ISSUE_PREFIX" ]; then
     FULL_PREFIX="$ISSUE_PREFIX: "
 
     # Read current commit message
