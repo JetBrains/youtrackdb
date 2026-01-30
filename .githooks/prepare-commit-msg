@@ -33,7 +33,7 @@ ISSUE_PREFIX=""
 while true; do
     TARGET=$(git symbolic-ref "$REF" 2>/dev/null) || break
     CURRENT_BRANCH="${TARGET#refs/heads/}"
-    CURRENT_BRANCH_LOWER=$(echo "$CURRENT_BRANCH" | tr '[:upper:]' '[:lower:]')
+    CURRENT_BRANCH_LOWER=${CURRENT_BRANCH,,}
 
     # Check if this ref has the issue prefix pattern
     if [[ $CURRENT_BRANCH_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
