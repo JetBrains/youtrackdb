@@ -4,6 +4,15 @@
 # based on the branch name pattern: ytdb/YTDB + optional non-letter + numbers (case-insensitive)
 # Examples: ytdb-509-feature -> "YTDB-509: <message>"
 #           YTDB509-feature  -> "YTDB-509: <message>"
+#
+# This hook only runs for JetBrains/youtrackdb repository.
+# Can be installed globally: git config --global core.hooksPath <path-to-hooks-dir>
+
+# Check if this is the JetBrains/youtrackdb repository
+REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+if [[ ! "$REMOTE_URL" =~ [/:]JetBrains/youtrackdb(\.git)?$ ]]; then
+    exit 0
+fi
 
 COMMIT_MSG_FILE=$1
 COMMIT_SOURCE=$2
