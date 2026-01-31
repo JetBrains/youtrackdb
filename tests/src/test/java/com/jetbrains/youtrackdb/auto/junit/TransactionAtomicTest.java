@@ -109,7 +109,7 @@ public class TransactionAtomicTest extends BaseDBTest {
       session.commit();
       Assert.fail();
     } catch (ConcurrentModificationException e) {
-      Assert.assertTrue(true);
+      session.rollback();
     }
   }
 

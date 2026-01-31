@@ -59,7 +59,7 @@ public class SQLSelectTest extends BaseDBTest {
    */
   @Override
   public void beforeClass() throws Exception {
-
+    super.beforeClass();
   }
 
   /**

@@ -1074,6 +1074,7 @@ public abstract class LinkBagTest extends BaseDBTest {
    */
   @Test
   public void test14_Remove() {
+    session.begin();
     final Set<RID> expected = new HashSet<>(8);
 
     expected.add(RecordIdInternal.fromString("#77:12", false));
@@ -1108,6 +1109,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     for (Identifiable identifiableItem : bag) {
       assertTrue(expectedTwo.remove(identifiableItem));
     }
+    session.commit();
   }
 
   /**
@@ -1807,6 +1809,7 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     teamMates.remove(bob.getIdentity());
 
     assertEquals(teamMates.size(), 0);
@@ -1815,6 +1818,7 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     assertEquals(teamMates.size(), 1);
     assertEquals(teamMates.iterator().next().getIdentity(), bob.getIdentity());
+    session.commit();
   }
 
   /**
@@ -1905,6 +1909,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
 
     session.begin();
     document = session.load(document.getIdentity());

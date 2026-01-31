@@ -988,6 +988,7 @@ public class CRUDTest extends BaseDBTest {
   @Test
   @org.junit.Ignore("Original test was disabled in TestNG")
   public void test32_TestEmbeddedBinary() {
+    session.begin();
     var a = session.newEntity("Account");
     a.setProperty("name", "Chris");
     a.setProperty("surname", "Martin");
