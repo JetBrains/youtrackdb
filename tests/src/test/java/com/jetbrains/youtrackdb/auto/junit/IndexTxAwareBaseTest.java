@@ -35,9 +35,26 @@ import org.junit.After;
 import org.junit.Before;
 
 /**
- * JUnit 4 migration of IndexTxAwareBaseTest. Original test class:
- * com.jetbrains.youtrackdb.auto.IndexTxAwareBaseTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexTxAwareBaseTest.java
+ * Abstract base class for transaction-aware index tests.
+ *
+ * <p><b>Suite Dependency:</b> Subclasses of this test are part of {@link DatabaseTestSuite}.
+ * This base class creates a test schema class with an index and provides utilities for
+ * verifying index changes within transactions.</p>
+ *
+ * <p><b>Implementing Subclasses:</b> Must add a {@code @BeforeClass} method:</p>
+ * <pre>{@code
+ * @BeforeClass
+ * public static void setUpClass() throws Exception {
+ *     MyTest instance = new MyTest();
+ *     instance.beforeClass();
+ *     instance.setupClassSchema();
+ * }
+ * }</pre>
+ *
+ * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexTxAwareBaseTest.java}</p>
+ *
+ * @see IndexTxAwareOneValueGetTest
+ * @see IndexTxAwareMultiValueGetTest
  */
 public abstract class IndexTxAwareBaseTest extends BaseDBTest {
 

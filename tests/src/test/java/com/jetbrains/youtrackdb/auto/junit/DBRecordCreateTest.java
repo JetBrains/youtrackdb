@@ -18,17 +18,27 @@ package com.jetbrains.youtrackdb.auto.junit;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of DBRecordCreateTest. Original test class:
- * com.jetbrains.youtrackdb.auto.DBRecordCreateTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/DBRecordCreateTest.java
+ * Tests for record creation and existence checking.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite}. Can be run
+ * individually as the {@code @BeforeClass} method initializes the required schema.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.DBRecordCreateTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class DBRecordCreateTest extends BaseDBTest {
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    DBRecordCreateTest instance = new DBRecordCreateTest();
+    instance.beforeClass();
+  }
 
   /**
    * Original test method: testNewRecord Location:

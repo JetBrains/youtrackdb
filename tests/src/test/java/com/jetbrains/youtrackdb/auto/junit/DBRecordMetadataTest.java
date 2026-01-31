@@ -19,19 +19,29 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of DBRecordMetadataTest. Original test class:
- * com.jetbrains.youtrackdb.auto.DBRecordMetadataTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/DBRecordMetadataTest.java
+ * Tests for record metadata including version tracking.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite}. Can be run
+ * individually as the {@code @BeforeClass} method initializes the required schema.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.DBRecordMetadataTest}</p>
  *
  * @since 11.03.13 12:00
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class DBRecordMetadataTest extends BaseDBTest {
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    DBRecordMetadataTest instance = new DBRecordMetadataTest();
+    instance.beforeClass();
+  }
 
   private static void assetORIDEquals(RID actual, RID expected) {
     assertEquals(actual.getCollectionId(), expected.getCollectionId());

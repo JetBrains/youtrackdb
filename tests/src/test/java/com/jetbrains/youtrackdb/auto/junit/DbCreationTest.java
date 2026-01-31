@@ -31,9 +31,16 @@ import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of DbCreationTest. Original test class:
- * com.jetbrains.youtrackdb.auto.DbCreationTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/DbCreationTest.java
+ * Tests for database creation, opening, and basic operations.
+ *
+ * <p><b>Suite Position:</b> This is the <b>first</b> test in {@link DatabaseTestSuite} and
+ * initializes the YouTrackDB instance. It does not extend {@link BaseDBTest} as it manages
+ * its own database lifecycle.</p>
+ *
+ * <p><b>Standalone Execution:</b> This test can be run independently as it creates its own
+ * test database (DbCreationTest) separate from the main demo database used by other tests.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.DbCreationTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class DbCreationTest {

@@ -8,8 +8,20 @@ import com.jetbrains.youtrackdb.auto.ProfilerStub;
 import org.junit.Before;
 
 /**
- * Base class for index reuse tests. Original:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/AbstractIndexReuseTest.java
+ * Abstract base class for index reuse tests that verify query optimizer behavior.
+ *
+ * <p><b>Suite Dependency:</b> Subclasses of this test are part of {@link DatabaseTestSuite}.
+ * This base class provides profiler integration for measuring index usage during query
+ * execution.</p>
+ *
+ * <p><b>Implementing Subclasses:</b> Must add a {@code @BeforeClass} method that calls
+ * {@code beforeClass()} and any required data generation methods.</p>
+ *
+ * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/AbstractIndexReuseTest.java}</p>
+ *
+ * @see SQLSelectIndexReuseTest
+ * @see SQLSelectByLinkedSchemaPropertyIndexReuseTest
+ * @see OrderByIndexReuseTest
  */
 public abstract class AbstractIndexReuseTest extends BaseDBTest {
 

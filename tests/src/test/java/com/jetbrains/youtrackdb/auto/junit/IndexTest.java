@@ -38,11 +38,24 @@ import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of IndexTest. Original test class: com.jetbrains.youtrackdb.auto.IndexTest
- * Location: tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexTest.java
- * <p>
- * Note: This is a large test class with many interdependent tests. Test ordering is maintained via
- * numbered method names.
+ * Comprehensive tests for database indexing functionality.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and depends on
+ * the Profile class with its indexes created by earlier tests in the Schema group. The
+ * {@code @BeforeClass} method also calls {@code generateCompanyData()} to populate test data.</p>
+ *
+ * <p><b>Test Order:</b> This is a large test class with many interdependent tests. Test ordering
+ * is maintained via numbered method names (test01_, test02_, etc.). Tests modify indexes
+ * (creating, dropping, changing types) so order is critical.</p>
+ *
+ * <p><b>Key Dependencies:</b></p>
+ * <ul>
+ *   <li>Profile class with nick, name properties and indexes</li>
+ *   <li>Account, Company classes for data population</li>
+ *   <li>Whiz class for link index tests</li>
+ * </ul>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.IndexTest}</p>
  */
 @SuppressWarnings({"deprecation"})
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)

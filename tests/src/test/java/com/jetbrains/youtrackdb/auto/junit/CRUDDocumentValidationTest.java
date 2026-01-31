@@ -27,17 +27,28 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of CRUDDocumentValidationTest. Original test class:
- * com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/CRUDDocumentValidationTest.java
+ * Tests for document validation including field comparisons and sorting.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and depends on
+ * the Account class created by earlier tests in the Schema group. Can be run individually as the
+ * {@code @BeforeClass} method initializes the required schema.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class CRUDDocumentValidationTest extends BaseDBTest {
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    CRUDDocumentValidationTest instance = new CRUDDocumentValidationTest();
+    instance.beforeClass();
+  }
 
   private EntityImpl record;
   // Static to persist across test method invocations (JUnit creates new instance per test)

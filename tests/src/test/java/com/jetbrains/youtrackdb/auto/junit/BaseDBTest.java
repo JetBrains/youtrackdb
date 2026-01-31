@@ -39,9 +39,49 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.junit.Assert;
 
 /**
- * JUnit 4 migration of BaseDBTest. Original test class: com.jetbrains.youtrackdb.auto.BaseDBTest
- * Location: tests/src/test/java/com/jetbrains/youtrackdb/auto/BaseDBTest.java
+ * Base class for database tests that require schema initialization.
  *
+ * <h2>Suite Dependency Notice</h2>
+ * <p>
+ * <b>IMPORTANT:</b> Tests extending this class are designed to run as part of
+ * {@link DatabaseTestSuite}. The {@link #beforeClass()} method creates a basic schema including:
+ * </p>
+ * <ul>
+ *   <li>Country, City, Address classes</li>
+ *   <li>Account, Company classes</li>
+ *   <li>Profile class with indexes</li>
+ *   <li>StrictTest, AnimalRace, Animal, Whiz classes</li>
+ *   <li>csv, flat, binary collections</li>
+ * </ul>
+ *
+ * <h3>Implementing Test Classes</h3>
+ * <p>
+ * Subclasses must add a static {@code @BeforeClass} method:
+ * </p>
+ * <pre>{@code
+ * @BeforeClass
+ * public static void setUpClass() throws Exception {
+ *     MyTest instance = new MyTest();
+ *     instance.beforeClass();
+ *     // Optional: additional setup like instance.generateCompanyData();
+ * }
+ * }</pre>
+ *
+ * <h3>Available Data Generation Methods</h3>
+ * <ul>
+ *   <li>{@link #fillInAccountData()} - Creates Account records</li>
+ *   <li>{@link #generateCompanyData()} - Creates Company records with addresses</li>
+ *   <li>{@link #generateProfiles()} - Creates Profile records including Obama family</li>
+ *   <li>{@link #generateGraphData()} - Creates GraphVehicle vertex hierarchy</li>
+ * </ul>
+ *
+ * <p>
+ * Original test class: {@code com.jetbrains.youtrackdb.auto.BaseDBTest}
+ * Location: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/BaseDBTest.java}
+ * </p>
+ *
+ * @see DatabaseTestSuite
+ * @see BaseTest
  * @since 7/3/14
  */
 public abstract class BaseDBTest extends BaseTest {

@@ -28,12 +28,43 @@ import org.junit.After;
 import org.junit.Before;
 
 /**
- * JUnit 4 migration of BaseTest. Original test class: com.jetbrains.youtrackdb.auto.BaseTest
- * Location: tests/src/test/java/com/jetbrains/youtrackdb/auto/BaseTest.java
+ * Base class for all JUnit 4 database tests.
+ *
+ * <h2>Suite Dependency Notice</h2>
  * <p>
- * Note: In JUnit 4, @BeforeClass/@AfterClass methods must be static. Suite-level setup
- * (@BeforeSuite/@AfterSuite in TestNG) is handled by GlobalTestSetup class which is registered in
- * AllJUnitTests suite.
+ * <b>IMPORTANT:</b> Tests extending this class are designed to run as part of
+ * {@link DatabaseTestSuite}. While each test class has a {@code @BeforeClass} method that
+ * initializes the database, tests may still depend on schema or data created by earlier tests
+ * in the suite.
+ * </p>
+ *
+ * <h3>Test Lifecycle</h3>
+ * <ul>
+ *   <li>{@code @BeforeClass} (in subclasses): Calls {@link #beforeClass()} to create/open
+ *       database and initialize schema</li>
+ *   <li>{@code @Before} ({@link #beforeMethod()}): Opens a new session for each test method</li>
+ *   <li>{@code @After} ({@link #afterMethod()}): Closes the session after each test method</li>
+ * </ul>
+ *
+ * <h3>Implementing Test Classes</h3>
+ * <p>
+ * Subclasses must add a static {@code @BeforeClass} method:
+ * </p>
+ * <pre>{@code
+ * @BeforeClass
+ * public static void setUpClass() throws Exception {
+ *     MyTest instance = new MyTest();
+ *     instance.beforeClass();
+ * }
+ * }</pre>
+ *
+ * <p>
+ * Original test class: {@code com.jetbrains.youtrackdb.auto.BaseTest}
+ * Location: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/BaseTest.java}
+ * </p>
+ *
+ * @see DatabaseTestSuite
+ * @see BaseDBTest
  */
 public abstract class BaseTest {
 

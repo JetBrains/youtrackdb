@@ -20,12 +20,53 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
 /**
- * JUnit 4 test suite that runs all migrated tests in the correct order. The order matches the
- * original TestNG XML configuration:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml
+ * JUnit 4 test suite that runs all migrated tests in the correct order.
+ *
+ * <h2>Suite Dependency Notice</h2>
  * <p>
- * Test classes are added here as they are migrated from TestNG to JUnit 4. The execution order is
- * critical as tests may depend on database state created by previous test classes.
+ * <b>IMPORTANT:</b> Tests in this suite are interdependent and share database state. The execution
+ * order is critical as tests depend on schema and data created by previous test classes.
+ * </p>
+ *
+ * <h3>Execution Order</h3>
+ * <p>
+ * The order matches the original TestNG XML configuration:
+ * {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml}
+ * </p>
+ *
+ * <h3>Test Groups and Dependencies</h3>
+ * <ul>
+ *   <li><b>DbCreation group:</b> Creates the database and basic infrastructure</li>
+ *   <li><b>Schema group:</b> Creates schema classes (Country, City, Address, Account, Company,
+ *       Profile, etc.) that subsequent tests depend on</li>
+ *   <li><b>Security group:</b> Sets up security and user roles</li>
+ *   <li><b>Population group:</b> Populates the database with test data</li>
+ *   <li><b>Tx/Index/Query groups:</b> Test various database features using the established
+ *       schema and data</li>
+ *   <li><b>End group:</b> Cleanup and final verification</li>
+ * </ul>
+ *
+ * <h3>Running Tests</h3>
+ * <ul>
+ *   <li><b>Recommended:</b> Run this suite class to execute all tests in the correct order</li>
+ *   <li><b>Individual tests:</b> Each test class has a {@code @BeforeClass} method that initializes
+ *       the database and schema, allowing individual execution. However, some tests may still
+ *       depend on data created by earlier tests in the suite.</li>
+ * </ul>
+ *
+ * <h3>Adding New Tests</h3>
+ * <p>
+ * When adding new test classes:
+ * </p>
+ * <ol>
+ *   <li>Extend {@link BaseDBTest} (or {@link BaseTest} for non-schema tests)</li>
+ *   <li>Add a {@code @BeforeClass} method that calls {@code beforeClass()}</li>
+ *   <li>Add the class to this suite in the appropriate position</li>
+ *   <li>Document any dependencies on schema or data from other tests</li>
+ * </ol>
+ *
+ * @see BaseTest
+ * @see BaseDBTest
  */
 @RunWith(Suite.class)
 @Suite.SuiteClasses({

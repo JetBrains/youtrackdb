@@ -26,17 +26,28 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.io.IOException;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of TransactionAtomicTest. Original test class:
- * com.jetbrains.youtrackdb.auto.TransactionAtomicTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/TransactionAtomicTest.java
+ * Tests for transaction atomicity and MVCC behavior.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and depends on
+ * the basic schema (Account class) created by earlier tests. Can be run individually as the
+ * {@code @BeforeClass} method initializes the required schema.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.TransactionAtomicTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class TransactionAtomicTest extends BaseDBTest {
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    TransactionAtomicTest instance = new TransactionAtomicTest();
+    instance.beforeClass();
+  }
 
   /**
    * Original test method: testTransactionAtomic Location:

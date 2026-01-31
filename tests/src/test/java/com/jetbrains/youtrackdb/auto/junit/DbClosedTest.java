@@ -12,8 +12,16 @@ import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 version of DbClosedTest. Original:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/DbClosedTest.java
+ * Tests for database connection handling and closure.
+ *
+ * <p><b>Suite Position:</b> This is the <b>last</b> test in {@link DatabaseTestSuite} and
+ * verifies that database connections can be properly opened and closed after all other tests
+ * have completed.</p>
+ *
+ * <p><b>Standalone Execution:</b> Can be run independently as the {@code @BeforeClass} method
+ * initializes the required database.</p>
+ *
+ * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/DbClosedTest.java}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class DbClosedTest extends BaseDBTest {

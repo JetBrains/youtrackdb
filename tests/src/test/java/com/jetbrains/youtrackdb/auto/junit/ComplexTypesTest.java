@@ -31,18 +31,29 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of ComplexTypesTest. Original test class:
- * com.jetbrains.youtrackdb.auto.ComplexTypesTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/ComplexTypesTest.java
+ * Tests for complex data types including BigDecimal, LinkList, LinkSet, LinkMap, and EmbeddedMap.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and depends on
+ * the Account class created by earlier tests in the Schema group. Can be run individually as the
+ * {@code @BeforeClass} method initializes the required schema.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.ComplexTypesTest}</p>
  */
 @SuppressWarnings("unchecked")
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class ComplexTypesTest extends BaseDBTest {
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    ComplexTypesTest instance = new ComplexTypesTest();
+    instance.beforeClass();
+  }
 
   /**
    * Original test method: testBigDecimal Location:

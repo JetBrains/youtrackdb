@@ -43,8 +43,17 @@ import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of CRUDTest. Original test class: com.jetbrains.youtrackdb.auto.CRUDTest
- * Location: tests/src/test/java/com/jetbrains/youtrackdb/auto/CRUDTest.java
+ * Core CRUD (Create, Read, Update, Delete) tests for the database.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and is one of the
+ * primary tests in the Population group. It creates additional schema classes (JavaSimpleTestClass,
+ * JavaComplexTestClass, etc.) and populates the database with test data that subsequent tests
+ * may depend on.</p>
+ *
+ * <p><b>Test Order:</b> Tests are ordered using numbered prefixes (test01_, test02_, etc.) because
+ * later tests depend on data created by earlier tests within this class.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.CRUDTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class CRUDTest extends BaseDBTest {

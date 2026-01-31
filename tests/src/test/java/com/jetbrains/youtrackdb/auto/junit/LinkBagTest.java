@@ -44,11 +44,23 @@ import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 version of LinkBagTest. This is an abstract base class that contains common tests
- * for LinkBag implementations. Subclasses must implement assertEmbedded() to verify the
- * expected embedded state.
+ * Abstract base class for LinkBag implementation tests.
  *
- * Original: tests/src/test/java/com/jetbrains/youtrackdb/auto/LinkBagTest.java
+ * <p><b>Suite Dependency:</b> Subclasses ({@link EmbeddedLinkBagTest}, {@link BTreeBasedLinkBagTest})
+ * are part of {@link DatabaseTestSuite}. This base class contains common tests for LinkBag
+ * operations including add, remove, iteration, and persistence.</p>
+ *
+ * <p><b>Implementing Subclasses:</b> Must:</p>
+ * <ul>
+ *   <li>Add a {@code @BeforeClass} method that calls {@code beforeClass()}</li>
+ *   <li>Implement {@link #assertEmbedded(boolean)} to verify expected storage mode</li>
+ *   <li>Configure {@code GlobalConfiguration} thresholds in {@code @Before/@After} if needed</li>
+ * </ul>
+ *
+ * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/LinkBagTest.java}</p>
+ *
+ * @see EmbeddedLinkBagTest
+ * @see BTreeBasedLinkBagTest
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public abstract class LinkBagTest extends BaseDBTest {

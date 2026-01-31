@@ -29,17 +29,29 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of FrontendTransactionImplTest. Original test class:
- * com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest Location:
- * tests/src/test/java/com/jetbrains/youtrackdb/auto/FrontendTransactionImplTest.java
+ * Tests for transaction implementation including optimistic locking, rollback, and nested
+ * transactions.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and depends on
+ * the basic schema created by earlier tests. Can be run individually as the {@code @BeforeClass}
+ * method initializes the required schema.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class FrontendTransactionImplTest extends BaseDBTest {
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    FrontendTransactionImplTest instance = new FrontendTransactionImplTest();
+    instance.beforeClass();
+  }
 
   /**
    * Original test method: testTransactionOptimisticRollback Location:

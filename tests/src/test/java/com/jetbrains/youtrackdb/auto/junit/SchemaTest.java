@@ -36,8 +36,16 @@ import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 /**
- * JUnit 4 migration of SchemaTest. Original test class: com.jetbrains.youtrackdb.auto.SchemaTest
- * Location: tests/src/test/java/com/jetbrains/youtrackdb/auto/SchemaTest.java
+ * Tests for database schema operations including class creation, property management, and indexes.
+ *
+ * <p><b>Suite Dependency:</b> This test is part of {@link DatabaseTestSuite} and is one of the
+ * first tests to run in the Schema group. It verifies and depends on the basic schema (Profile,
+ * Whiz, Company classes) created by {@link BaseDBTest#createBasicTestSchema()}.</p>
+ *
+ * <p><b>Important:</b> This test creates and modifies schema classes that subsequent tests may
+ * depend on. The test order within the suite is critical.</p>
+ *
+ * <p>Original test class: {@code com.jetbrains.youtrackdb.auto.SchemaTest}</p>
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class SchemaTest extends BaseDBTest {
@@ -174,6 +182,8 @@ public class SchemaTest extends BaseDBTest {
 
               @Override
               public void run() {
+                session.activateOnCurrentThread();
+
                 var doc = ((EntityImpl) session.newEntity("NewClass"));
 
                 session.begin();
