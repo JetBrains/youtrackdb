@@ -53,8 +53,8 @@ import org.junit.Before;
  *
  * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/IndexTxAwareBaseTest.java}</p>
  *
- * @see IndexTxAwareOneValueGetTest
- * @see IndexTxAwareMultiValueGetTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.IndexTxAwareOneValueGetTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.IndexTxAwareMultiValueGetTest
  */
 public abstract class IndexTxAwareBaseTest extends BaseDBTest {
 

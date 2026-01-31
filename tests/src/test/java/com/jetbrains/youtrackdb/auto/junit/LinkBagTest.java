@@ -46,7 +46,9 @@ import org.junit.runners.MethodSorters;
 /**
  * Abstract base class for LinkBag implementation tests.
  *
- * <p><b>Suite Dependency:</b> Subclasses ({@link EmbeddedLinkBagTest}, {@link BTreeBasedLinkBagTest})
+ * <p><b>Suite Dependency:</b> Subclasses
+ * ({@link com.jetbrains.youtrackdb.auto.junit.databasesuite.EmbeddedLinkBagTest},
+ * {@link com.jetbrains.youtrackdb.auto.junit.databasesuite.BTreeBasedLinkBagTest})
  * are part of {@link DatabaseTestSuite}. This base class contains common tests for LinkBag
  * operations including add, remove, iteration, and persistence.</p>
  *
@@ -59,8 +61,8 @@ import org.junit.runners.MethodSorters;
  *
  * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/LinkBagTest.java}</p>
  *
- * @see EmbeddedLinkBagTest
- * @see BTreeBasedLinkBagTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.EmbeddedLinkBagTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.BTreeBasedLinkBagTest
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public abstract class LinkBagTest extends BaseDBTest {

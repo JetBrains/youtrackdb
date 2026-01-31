@@ -19,9 +19,9 @@ import org.junit.Before;
  *
  * <p>Original: {@code tests/src/test/java/com/jetbrains/youtrackdb/auto/AbstractIndexReuseTest.java}</p>
  *
- * @see SQLSelectIndexReuseTest
- * @see SQLSelectByLinkedSchemaPropertyIndexReuseTest
- * @see OrderByIndexReuseTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.SQLSelectIndexReuseTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.SQLSelectByLinkedSchemaPropertyIndexReuseTest
+ * @see com.jetbrains.youtrackdb.auto.junit.databasesuite.OrderByIndexReuseTest
  */
 public abstract class AbstractIndexReuseTest extends BaseDBTest {
 
