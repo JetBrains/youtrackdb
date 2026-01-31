@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
@@ -100,9 +101,8 @@ public class BTreeBasedLinkBagTest extends BaseDBTest {
    */
   @Test
   public void test01_RidBagCollectionDistribution() {
-    if (session.getStorage().getType().equals(EngineMemory.NAME)) {
-      return;
-    }
+    Assume.assumeFalse("Test not applicable for in-memory storage",
+        session.getStorage().getType().equals(EngineMemory.NAME));
 
     final var collectionIdOne = session.addCollection("collectionOne");
 
@@ -237,7 +237,7 @@ public class BTreeBasedLinkBagTest extends BaseDBTest {
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     bag = doc.getProperty("ridBag");
-    Assert.assertEquals(bag.size(), 6);
+    Assert.assertEquals(6, bag.size());
 
     List<Identifiable> docs = new ArrayList<>();
 
@@ -264,9 +264,8 @@ public class BTreeBasedLinkBagTest extends BaseDBTest {
    */
   @Test
   public void test04_RidBagDelete() {
-    if (session.getStorage().getType().equals(EngineMemory.NAME)) {
-      return;
-    }
+    Assume.assumeFalse("Test not applicable for in-memory storage",
+        session.getStorage().getType().equals(EngineMemory.NAME));
 
     session.begin();
     var realDoc = ((EntityImpl) session.newEntity());
@@ -317,11 +316,11 @@ public class BTreeBasedLinkBagTest extends BaseDBTest {
                 + collectionId
                 + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
 
-    Assert.assertEquals(testRidBagFile.length(), testRidBagSize);
+    Assert.assertEquals(testRidBagSize, testRidBagFile.length());
 
     realDoc = session.load(realDoc.getIdentity());
     LinkBag linkBag = realDoc.getProperty("ridBag");
-    Assert.assertEquals(linkBag.size(), 10);
+    Assert.assertEquals(10, linkBag.size());
     session.commit();
   }
 
@@ -347,6 +346,6 @@ public class BTreeBasedLinkBagTest extends BaseDBTest {
    * tests/src/test/java/com/jetbrains/youtrackdb/auto/BTreeBasedLinkBagTest.java
    */
   protected void assertEmbedded(boolean isEmbedded) {
-    Assert.assertTrue((!isEmbedded));
+    Assert.assertFalse(isEmbedded);
   }
 }

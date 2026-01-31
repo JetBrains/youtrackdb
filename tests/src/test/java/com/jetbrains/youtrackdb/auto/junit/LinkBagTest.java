@@ -98,7 +98,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertTrue(bag.contains(RecordIdInternal.fromString("#77:2", false)));
     assertFalse(bag.contains(RecordIdInternal.fromString("#77:3", false)));
 
-    assertEquals(bag.size(), 2);
+    assertEquals(2, bag.size());
     assertEmbedded(bag.isEmbedded());
     session.commit();
   }
@@ -527,7 +527,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     session.begin();
     var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
-    assertEquals(bag.size(), 0);
+    assertEquals(0, bag.size());
 
     for (@SuppressWarnings("unused") Identifiable id : bag) {
       Assert.fail();
@@ -716,7 +716,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     bag.addAll(expected);
     assertEmbedded(bag.isEmbedded());
 
-    assertEquals(bag.size(), 5);
+    assertEquals(5, bag.size());
 
     Set<Identifiable> actual = new HashSet<>(8);
     for (Identifiable id : bag) {
@@ -1022,11 +1022,11 @@ public abstract class LinkBagTest extends BaseDBTest {
       }
     }
 
-    assertEquals(r2c, 2);
-    assertEquals(r3c, 1);
-    assertEquals(r6c, 1);
-    assertEquals(r4c, 1);
-    assertEquals(r7c, 1);
+    assertEquals(2, r2c);
+    assertEquals(1, r3c);
+    assertEquals(1, r6c);
+    assertEquals(1, r4c);
+    assertEquals(1, r7c);
 
     for (Identifiable identifiableItem : bag) {
       assertTrue(rids.remove(identifiableItem));
@@ -1214,8 +1214,8 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     assertTrue(result.contains(docA));
     assertFalse(result.contains(docB));
-    assertEquals(result.size(), 1);
-    assertEquals(ridBag.size(), 1);
+    assertEquals(1, result.size());
+    assertEquals(1, ridBag.size());
     session.commit();
   }
 
@@ -1341,8 +1341,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     var activeTx = session.getActiveTransaction();
     document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
-    assertEquals(ridBag.size(), 0);
-    assertEquals(docs.size(), 0);
+    assertEquals(0, ridBag.size());
+    assertEquals(0, docs.size());
     session.commit();
   }
 
@@ -1788,11 +1788,11 @@ public abstract class LinkBagTest extends BaseDBTest {
     teamMates.add(bob.getIdentity());
     teamMates.add(fred.getIdentity());
 
-    assertEquals(teamMates.size(), 2);
+    assertEquals(2, teamMates.size());
 
     teamMates.remove(jim.getIdentity());
 
-    assertEquals(teamMates.size(), 2);
+    assertEquals(2, teamMates.size());
     session.commit();
   }
 
@@ -1812,11 +1812,11 @@ public abstract class LinkBagTest extends BaseDBTest {
     session.begin();
     teamMates.remove(bob.getIdentity());
 
-    assertEquals(teamMates.size(), 0);
+    assertEquals(0, teamMates.size());
 
     teamMates.add(bob.getIdentity());
 
-    assertEquals(teamMates.size(), 1);
+    assertEquals(1, teamMates.size());
     assertEquals(teamMates.iterator().next().getIdentity(), bob.getIdentity());
     session.commit();
   }

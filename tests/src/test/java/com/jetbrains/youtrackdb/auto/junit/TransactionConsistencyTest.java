@@ -29,7 +29,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang3.ArrayUtils;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
@@ -46,6 +48,54 @@ public class TransactionConsistencyTest extends BaseDBTest {
   protected DatabaseSessionEmbedded database2;
 
   public static final String NAME = "name";
+
+  /**
+   * Sets up the test class by ensuring the database exists.
+   */
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    TransactionConsistencyTest instance = new TransactionConsistencyTest();
+    instance.beforeClass();
+  }
+
+  /**
+   * Cleanup method to ensure database1 and database2 are properly closed after each test.
+   * This prevents resource leaks if a test fails before manually closing the sessions.
+   */
+  @After
+  public void cleanupDatabaseSessions() {
+    if (database1 != null) {
+      try {
+        database1.activateOnCurrentThread();
+        if (!database1.isClosed()) {
+          if (database1.getTransactionInternal().isActive()) {
+            database1.rollback();
+          }
+          database1.close();
+        }
+      } catch (Exception e) {
+        // Ignore cleanup exceptions
+      } finally {
+        database1 = null;
+      }
+    }
+
+    if (database2 != null) {
+      try {
+        database2.activateOnCurrentThread();
+        if (!database2.isClosed()) {
+          if (database2.getTransactionInternal().isActive()) {
+            database2.rollback();
+          }
+          database2.close();
+        }
+      } catch (Exception e) {
+        // Ignore cleanup exceptions
+      } finally {
+        database2 = null;
+      }
+    }
+  }
 
   /**
    * Original test method: test1RollbackOnConcurrentException Location:
@@ -124,6 +174,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database1.close();
 
     database2.activateOnCurrentThread();
+    database2.close();
     database2 = acquireSession();
 
     database2.begin();
@@ -203,10 +254,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals("docA_v3", vDocB_db2.getProperty(NAME));
     database2.commit();
 
-    database1.activateOnCurrentThread();
-    database1.close();
-    database2.activateOnCurrentThread();
-    database2.close();
+    // Note: database1 was already closed above, database2 will be closed by @After cleanup
   }
 
   /**
@@ -271,11 +319,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals("docA_v3", vDocB_db2.getProperty(NAME));
     database2.commit();
 
-    database1.activateOnCurrentThread();
-    database1.close();
-
-    database2.activateOnCurrentThread();
-    database2.close();
+    // Note: database1 was already closed above, database2 will be closed by @After cleanup
   }
 
   /**
@@ -785,7 +829,6 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.begin();
     var account = session.newEntity("Account");
     account.setProperty("name", "John Grisham");
-    account = account;
     session.commit();
 
     session.begin();
@@ -816,7 +859,6 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(1, account.<List<Identifiable>>getProperty("addresses").size());
     account.setProperty(
         "name", "New Name"); // change an attribute to see if the change is rolled back
-    account = account;
 
     Assert.assertEquals(1,
         account.<List<Identifiable>>getProperty("addresses")
