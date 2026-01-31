@@ -1,0 +1,80 @@
+name: Check Commit Prefix
+
+on:
+  pull_request:
+    types: [ opened, edited, synchronize, reopened ]
+    branches: [ develop ]
+
+permissions:
+  contents: read
+
+jobs:
+  check-commit-prefix:
+    name: Verify commits contain issue prefix from PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages for issue prefix
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prTitle = context.payload.pull_request.title;
+
+            // Extract issue prefix from PR title (e.g., "YTDB-509" from "YTDB-509: Add feature")
+            const prefixMatch = prTitle.match(/ytdb-(\d+)/i);
+
+            if (!prefixMatch) {
+              console.log(`PR title "${prTitle}" does not contain YTDB issue prefix. Skipping check.`);
+              return;
+            }
+
+            const issuePrefix = `YTDB-${prefixMatch[1]}`;
+            const issuePrefixLower = issuePrefix.toLowerCase();
+
+            console.log(`Found issue prefix: ${issuePrefix}`);
+            console.log(`Checking all commits in PR...`);
+
+            // Get all commits in the PR
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+
+            const failingCommits = [];
+
+            for (const commit of commits) {
+              const message = commit.commit.message;
+              const messageLower = message.toLowerCase();
+
+              // Skip merge commits (they have more than one parent)
+              if (commit.parents && commit.parents.length > 1) {
+                console.log(`Skipping merge commit: ${commit.sha.substring(0, 7)}`);
+                continue;
+              }
+
+              if (!messageLower.includes(issuePrefixLower)) {
+                failingCommits.push({
+                  sha: commit.sha.substring(0, 7),
+                  message: message.split('\n')[0] // First line only
+                });
+              }
+            }
+
+            if (failingCommits.length > 0) {
+              console.log(`\n::error::Found ${failingCommits.length} commit(s) missing issue prefix "${issuePrefix}":`);
+              for (const commit of failingCommits) {
+                console.log(`  - ${commit.sha}: ${commit.message}`);
+              }
+              console.log(`\nAll commits must contain the issue prefix "${issuePrefix}" somewhere in the message.`);
+              console.log(`To fix existing commits, run: ./fix-commit-prefixes.sh ${issuePrefix}`);
+              console.log(`To prevent this in the future, use the prepare-commit-msg hook.`);
+              core.setFailed(`${failingCommits.length} commit(s) missing issue prefix "${issuePrefix}"`);
+            } else {
+              console.log(`\n✓ All ${commits.length} commit(s) contain the issue prefix "${issuePrefix}"`);
+            }
