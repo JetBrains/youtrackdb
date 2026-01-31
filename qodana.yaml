@@ -2,3 +2,9 @@ version: "1.0"
 projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
+
+failureConditions:
+  severityThresholds:
+    critical: 0
+    high: 0
+    moderate: 0
