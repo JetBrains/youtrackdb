@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -10,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -40,7 +40,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   @Test
   @LoadGraphWith(MODERN)
-  public void testQueryMonitoringLightweight() throws InterruptedException {
+  public void testQueryMonitoringLightweight() throws Exception {
     final var listener = new RememberingListener();
     for (var i = 0; i < 100; i++) {
       testQuery(QueryMonitoringMode.LIGHTWEIGHT, listener);
@@ -55,7 +55,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   @Test
   @LoadGraphWith(MODERN)
-  public void testQueryMonitoringExact() throws InterruptedException {
+  public void testQueryMonitoringExact() throws Exception {
     final var listener = new RememberingListener();
     for (var i = 0; i < 100; i++) {
       testQuery(QueryMonitoringMode.EXACT, listener);
@@ -68,28 +68,52 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).isNull();
   }
 
-  private void testQuery(QueryMonitoringMode mode, RememberingListener listener)
-      throws InterruptedException {
+  private void testQuery(QueryMonitoringMode mode, RememberingListener listener) throws Exception {
+    final var rand = RandomUtils.insecure();
     ((YTDBTransaction) g().tx())
         .withQueryMonitoringMode(mode)
         .withQueryListener(listener);
 
+    final var summary = "test_" + rand.randomInt(0, 1000);
     g.tx().open();
-    final var q = g.V().hasLabel("person");
-    final var qStr = ((Admin<?, ?>) q).getBytecode().toString();
-    final var beforeMillis = System.currentTimeMillis();
-    final var beforeNanos = System.nanoTime();
-    q.hasNext(); // query has started
-    Thread.sleep(RandomUtils.nextInt(0, 50));
-    q.toList();
-    final var afterMillis = System.currentTimeMillis();
-    final var afterNanos = System.nanoTime();
+
+    final String qStr;
+    final long beforeMillis;
+    final long beforeNanos;
+    final long afterMillis;
+    final long afterNanos;
+    final var withSummary = rand.randomBoolean();
+
+    @SuppressWarnings("resource") var gs = g();
+    if (withSummary) {
+      gs = gs.with(YTDBQueryConfigParam.querySummary, summary);
+    }
+
+    try (var q = gs.V().hasLabel("person")) {
+
+      qStr = q.getBytecode().toString();
+      beforeMillis = System.currentTimeMillis();
+      beforeNanos = System.nanoTime();
+
+      //noinspection ResultOfMethodCallIgnored
+      q.hasNext(); // query has started
+
+      Thread.sleep(rand.randomInt(0, 50));
+      q.toList(); // query has finished
+
+      afterMillis = System.currentTimeMillis();
+      afterNanos = System.nanoTime();
+    }
     g.tx().commit();
 
     final var duration = afterNanos - beforeNanos;
 
     assertThat(listener.query).isEqualTo(qStr);
-    assertThat(listener.querySummary).isNull(); // since the user hasn't provided a summary
+    if (withSummary) {
+      assertThat(listener.querySummary).isEqualTo(summary);
+    } else {
+      assertThat(listener.querySummary).isNull();
+    }
     assertThat(listener.transactionTrackingId).isNotNull();
 
     if (mode == QueryMonitoringMode.LIGHTWEIGHT) {

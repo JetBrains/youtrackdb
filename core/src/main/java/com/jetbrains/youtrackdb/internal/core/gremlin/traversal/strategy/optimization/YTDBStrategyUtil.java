@@ -24,13 +24,13 @@ public final class YTDBStrategyUtil {
     final var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
 
-    return traversal.getStrategies().getStrategy(OptionsStrategy.class)
-        .map(s -> s.getOptions().get(YTDBQueryConfigParam.polymorphicQuery.name()))
-        .map(s -> ((boolean) s))
-        .orElseGet(() ->
-            tx.getDatabaseSession()
-                .getConfiguration()
-                .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT)
-        );
+    final Boolean value = YTDBQueryConfigParam.polymorphicQuery.getValue(traversal);
+    if (value != null) {
+      return value;
+    }
+
+    return tx.getDatabaseSession()
+        .getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
   }
 }
