@@ -31,7 +31,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
@@ -45,6 +47,8 @@ import org.junit.runners.MethodSorters;
 public class BTreeBasedLinkBagTest extends BaseDBTest {
 
   private static BTreeBasedLinkBagTest instance;
+  private int topThreshold;
+  private int bottomThreshold;
 
   @BeforeClass
   public static void setUpClass() throws Exception {
@@ -59,6 +63,35 @@ public class BTreeBasedLinkBagTest extends BaseDBTest {
   @Override
   public void beforeClass() throws Exception {
     super.beforeClass();
+  }
+
+  /**
+   * Original: beforeMethod (line 54) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/BTreeBasedLinkBagTest.java
+   */
+  @Override
+  @Before
+  public void beforeMethod() throws Exception {
+    topThreshold =
+        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
+    bottomThreshold =
+        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
+
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    super.beforeMethod();
+  }
+
+  /**
+   * Original: afterMethod (line 66) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/BTreeBasedLinkBagTest.java
+   */
+  @Override
+  @After
+  public void afterMethod() throws Exception {
+    super.afterMethod();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
   }
 
   /**
