@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener.QueryDetails;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.util.NoSuchElementException;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
@@ -11,6 +12,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoCloseable {
 
   private final YTDBTransaction ytdbTx;
+  private final String querySummary;
   private final Ticker ticker;
   private final boolean isLightweight;
   private boolean hasStarted = false;
@@ -20,10 +22,12 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   public YTDBQueryMetricsStep(
       Traversal.Admin<?, ?> traversal,
       YTDBTransaction ytdbTx,
+      @Nullable String querySummary,
       Ticker ticker
   ) {
     super(traversal);
     this.ytdbTx = ytdbTx;
+    this.querySummary = querySummary;
     this.isLightweight = ytdbTx.getQueryMonitoringMode() == QueryMonitoringMode.LIGHTWEIGHT;
     this.ticker = ticker;
   }
@@ -75,7 +79,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
           @Override
           public String getQuerySummary() {
-            return null; // TODO
+            return querySummary;
           }
 
           @Override

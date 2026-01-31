@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
@@ -37,7 +38,8 @@ public class YTDBQueryMetricsStrategy
     }
 
     final var ticker = YouTrackDBEnginesManager.instance().getTicker();
-    final var metricsStep = new YTDBQueryMetricsStep<>(traversal, ytdbTx, ticker);
+    final String querySummary = YTDBQueryConfigParam.querySummary.getValue(traversal);
+    final var metricsStep = new YTDBQueryMetricsStep<>(traversal, ytdbTx, querySummary, ticker);
     traversal.addStep(metricsStep);
   }
 
