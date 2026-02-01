@@ -27,6 +27,7 @@ public class SQLFetchPlan extends SimpleNode {
     this.items.add(item);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("FETCHPLAN ");
     var first = true;
@@ -54,6 +55,7 @@ public class SQLFetchPlan extends SimpleNode {
     }
   }
 
+  @Override
   public SQLFetchPlan copy() {
     var result = new SQLFetchPlan(-1);
     result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());

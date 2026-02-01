@@ -101,7 +101,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
                 (DatabaseSessionEmbedded) importDB, testPath + "/" + exportFilePath, this);
         // UNREGISTER ALL THE HOOKS
         for (final var hook : new ArrayList<>(
-            ((DatabaseSessionInternal) importDB).getHooks())) {
+            importDB.getHooks())) {
           session.unregisterHook(hook);
         }
         dbImport.setDeleteRIDMapping(false);
@@ -118,7 +118,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
             testPath + File.separator + IMPORT_DB_PATH)) {
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var databaseCompare =
-            new DatabaseCompare(session, (DatabaseSessionEmbedded) importDB, this);
+            new DatabaseCompare(session, importDB, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);
         databaseCompare.setCompareIndexMetadata(true);
         Assert.assertTrue(databaseCompare.compare());
@@ -141,7 +141,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
       final var childDocCount = 50;
 
-      try (final var session = (DatabaseSessionEmbedded) youTrackDB.open(
+      try (final var session = youTrackDB.open(
           "original", "admin", "admin")) {
         final Schema schema = session.getMetadata().getSchema();
 
@@ -209,7 +209,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
       youTrackDB.create("imported", DatabaseType.DISK);
       try (final var session =
-          (DatabaseSessionEmbedded) youTrackDB.open("imported", "admin", "admin")) {
+          youTrackDB.open("imported", "admin", "admin")) {
         final var databaseImport =
             new DatabaseImport(session, exportPath.getPath(), System.out::println);
         databaseImport.run();

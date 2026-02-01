@@ -453,7 +453,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           final var pair =
               serializeEntryChunk(
                   content, pageChunkSize, bytesToWrite, nextRecordPointers, recordType);
-          final var chunk = pair.first;
+          final var chunk = pair.first();
 
           final var cacheEntry = page.getCacheEntry();
           nextPageOffset =
@@ -464,7 +464,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   atomicOperation.getBookedRecordPositions(id, cacheEntry.getPageIndex()));
           assert nextPageOffset >= 0;
 
-          bytesToWrite -= pair.second;
+          bytesToWrite -= pair.second();
           assert bytesToWrite >= 0;
 
           nextPageIndex = cacheEntry.getPageIndex();
@@ -640,8 +640,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         }
         return internalReadRecord(
             collectionPosition,
-            positionEntry.getPageIndex(),
-            positionEntry.getRecordPosition(),
+            positionEntry.pageIndex(),
+            positionEntry.recordPosition(),
             atomicOperation);
       } finally {
         releaseSharedLock();
@@ -743,8 +743,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               return false;
             }
 
-            var pageIndex = positionEntry.getPageIndex();
-            var recordPosition = positionEntry.getRecordPosition();
+            var pageIndex = positionEntry.pageIndex();
+            var recordPosition = positionEntry.recordPosition();
 
             long nextPagePointer;
             var removedContentSize = 0;
@@ -830,8 +830,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             }
 
             var oldContentSize = 0;
-            var nextPageIndex = (int) positionEntry.getPageIndex();
-            var nextRecordPosition = positionEntry.getRecordPosition();
+            var nextPageIndex = (int) positionEntry.pageIndex();
+            var nextRecordPosition = positionEntry.recordPosition();
 
             var nextPagePointer = createPagePointer(nextPageIndex, nextRecordPosition);
 
@@ -922,8 +922,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             assert result[2] == 0;
             updateCollectionState(0, content.length - oldContentSize, atomicOperation);
 
-            if (nextPageIndex != positionEntry.getPageIndex()
-                || nextRecordPosition != positionEntry.getRecordPosition()) {
+            if (nextPageIndex != positionEntry.pageIndex()
+                || nextRecordPosition != positionEntry.recordPosition()) {
               collectionPositionMap.update(
                   collectionPosition,
                   new CollectionPositionMapBucket.PositionEntry(nextPageIndex, nextRecordPosition),
@@ -950,8 +950,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   new RecordId(id, collectionPosition));
             }
 
-            final var pageIndex = positionEntry.getPageIndex();
-            final var recordPosition = positionEntry.getRecordPosition();
+            final var pageIndex = positionEntry.pageIndex();
+            final var recordPosition = positionEntry.recordPosition();
 
             try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex,
                 true)) {
@@ -996,8 +996,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           return null;
         }
 
-        final var pageIndex = positionEntry.getPageIndex();
-        final var recordPosition = positionEntry.getRecordPosition();
+        final var pageIndex = positionEntry.pageIndex();
+        final var recordPosition = positionEntry.recordPosition();
 
         try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
           final var localPage = new CollectionPage(cacheEntry);
@@ -1042,8 +1042,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           return false;
         }
 
-        final var pageIndex = positionEntry.getPageIndex();
-        final var recordPosition = positionEntry.getRecordPosition();
+        final var pageIndex = positionEntry.pageIndex();
+        final var recordPosition = positionEntry.recordPosition();
 
         try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
           final var localPage = new CollectionPage(cacheEntry);
@@ -1152,6 +1152,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /**
    * Returns the fileId used in disk cache.
    */
+  @Override
   public long getFileId() {
     return fileId;
   }
@@ -1440,6 +1441,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return positions;
   }
 
+  @Override
   public RECORD_STATUS getRecordStatus(final long collectionPosition) throws IOException {
     final var atomicOperation = atomicOperationsManager.getCurrentOperation();
     acquireSharedLock();

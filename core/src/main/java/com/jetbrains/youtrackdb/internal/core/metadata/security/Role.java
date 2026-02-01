@@ -257,10 +257,12 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return Collections.unmodifiableMap(rules);
   }
 
+  @Override
   public SecurityRole getParentRole() {
     return parent;
   }
 
+  @Override
   public boolean allow(
       final Rule.ResourceGeneric resourceGeneric,
       String resourceSpecific,
@@ -281,6 +283,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return false;
   }
 
+  @Override
   public boolean hasRule(final Rule.ResourceGeneric resourceGeneric, String resourceSpecific) {
     var rules = getRules();
     var rule = rules.get(resourceGeneric);
@@ -292,6 +295,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return resourceSpecific == null || rule.containsSpecificResource(resourceSpecific);
   }
 
+  @Override
   public Role addRule(
       DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation) {
@@ -381,6 +385,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
   /**
    * Grant a permission to the resource.
    */
+  @Override
   public Role grant(
       DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation) {
@@ -401,6 +406,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
   /**
    * Revoke a permission to the resource.
    */
+  @Override
   public Role revoke(
       DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation) {
@@ -423,14 +429,17 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return this;
   }
 
+  @Override
   public String getName(DatabaseSession session) {
     return name;
   }
 
+  @Override
   public void setParentRole(DatabaseSession session, final SecurityRole parent) {
     this.parent = parent;
   }
 
+  @Override
   public Set<Rule> getRuleSet() {
     return new HashSet<>(getRules().values());
   }

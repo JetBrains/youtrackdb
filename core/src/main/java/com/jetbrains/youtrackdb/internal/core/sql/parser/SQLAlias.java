@@ -14,6 +14,7 @@ public class SQLAlias extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
   }
 

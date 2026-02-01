@@ -23,6 +23,7 @@ public class PredicateCache {
     this.mapSize = size;
     map =
         new LinkedHashMap<String, SQLOrBlock>(size) {
+          @Override
           protected boolean removeEldestEntry(final Map.Entry<String, SQLOrBlock> eldest) {
             return super.size() > mapSize;
           }

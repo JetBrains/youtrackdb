@@ -38,35 +38,43 @@ public class UserSymmetricKeyConfig implements SymmetricKeyConfig {
   private String keystoreKeyPassword;
 
   // SymmetricKeyConfig
+  @Override
   public String getKeyString() {
     return keyString;
   }
 
+  @Override
   public String getKeyFile() {
     return keyFile;
   }
 
+  @Override
   public String getKeyAlgorithm() {
     return keyAlgorithm;
   }
 
+  @Override
   public String getKeystoreFile() {
     return keystoreFile;
   }
 
+  @Override
   public String getKeystorePassword() {
     return keystorePassword;
   }
 
+  @Override
   public String getKeystoreKeyAlias() {
     return keystoreKeyAlias;
   }
 
+  @Override
   public String getKeystoreKeyPassword() {
     return keystoreKeyPassword;
   }
 
   // SymmetricKeyConfig
+  @Override
   public boolean usesKeyString() {
     return keyString != null
         && !keyString.isEmpty()
@@ -74,10 +82,12 @@ public class UserSymmetricKeyConfig implements SymmetricKeyConfig {
         && !keyAlgorithm.isEmpty();
   }
 
+  @Override
   public boolean usesKeyFile() {
     return keyFile != null && !keyFile.isEmpty() && keyAlgorithm != null && !keyAlgorithm.isEmpty();
   }
 
+  @Override
   public boolean usesKeystore() {
     return keystoreFile != null
         && !keystoreFile.isEmpty()

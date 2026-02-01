@@ -354,7 +354,7 @@ public class MatchExecutionPlanner {
     // Add the starting vertices, in the correct order, to an ordered set.
     Set<String> remainingStarts = new LinkedHashSet<>();
     for (var item : rootWeights) {
-      remainingStarts.add(item.getValue());
+      remainingStarts.add(item.value());
     }
     // Add all the remaining aliases after all the suggested start points.
     remainingStarts.addAll(pattern.aliasToNode.keySet());

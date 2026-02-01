@@ -39,6 +39,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     super(NAME, 4, 5);
   }
 
+  @Override
   @Nullable
   public Object execute(
       Object iThis,
@@ -91,6 +92,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     return distance;
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "distance(<field-x>,<field-y>,<x-value>,<y-value>[,<unit>])";
   }

@@ -16,6 +16,7 @@ public class DateBinaryComparatorTest extends DbTestBase {
   private final String dateFormat = "yyyy-MM-dd";
   private final String dateValue = "2017-07-18";
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     initSchema();

@@ -231,15 +231,10 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
   }
 
   /**
-   * Holder which contains if memory tracking is enabled stack trace for the first allocation.
-   */
-  private static final class PointerTracker {
+     * Holder which contains if memory tracking is enabled stack trace for the first allocation.
+     */
+    private record PointerTracker(Exception allocation) {
 
-    private final Exception allocation;
-
-    PointerTracker(Exception allocation) {
-      this.allocation = allocation;
-    }
   }
 
   private PointerTracker generatePointer() {

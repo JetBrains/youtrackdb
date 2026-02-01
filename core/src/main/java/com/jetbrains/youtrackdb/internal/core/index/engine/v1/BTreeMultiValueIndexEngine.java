@@ -67,7 +67,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public int getId() {
+  public int id() {
     return id;
   }
 
@@ -80,7 +80,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public String getName() {
+  public String name() {
     return name;
   }
 
