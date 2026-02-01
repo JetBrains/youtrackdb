@@ -21,6 +21,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           lfs: true
+          # Use PAT to allow pushed commits to trigger other workflows
+          # GITHUB_TOKEN doesn't trigger workflows (security feature to prevent loops)
+          token: ${{ secrets.QODANA_PUSH_TOKEN }}
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
