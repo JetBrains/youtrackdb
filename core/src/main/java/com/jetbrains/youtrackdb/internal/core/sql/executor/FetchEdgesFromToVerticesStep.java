@@ -87,7 +87,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
                 false)
             .filter((e) -> filterResult(db, e, toList))
             .map(
-                (edge) -> (Result) new ResultInternal(db, (EdgeInternal) edge))
+                (edge) -> (Result) new ResultInternal(db, edge))
             .iterator());
   }
 

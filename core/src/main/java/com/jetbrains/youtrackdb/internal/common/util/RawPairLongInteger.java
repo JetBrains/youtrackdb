@@ -2,23 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.util;
 
 import it.unimi.dsi.fastutil.HashCommon;
 
-public final class RawPairLongInteger {
-
-  public final long first;
-  public final int second;
-
-  public RawPairLongInteger(long first, int second) {
-    this.first = first;
-    this.second = second;
-  }
-
-  public long getFirst() {
-    return first;
-  }
-
-  public int getSecond() {
-    return second;
-  }
+public record RawPairLongInteger(long first, int second) {
 
   @Override
   public boolean equals(Object o) {

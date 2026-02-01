@@ -278,24 +278,13 @@ public class SchedulerTest {
     });
   }
 
-  private static class TestScheduleDatabaseFactory implements DatabaseThreadLocalFactory {
-
-    private final YouTrackDBImpl context;
-    private final String database;
-    private final String username;
-    private final String password;
-
-    public TestScheduleDatabaseFactory(
-        YouTrackDBImpl context, String database, String username, String password) {
-      this.context = context;
-      this.database = database;
-      this.username = username;
-      this.password = password;
-    }
+  private record TestScheduleDatabaseFactory(YouTrackDBImpl context, String database,
+                                             String username, String password) implements
+      DatabaseThreadLocalFactory {
 
     @Override
-    public DatabaseSessionInternal getThreadDatabase() {
-      return context.cachedPool(database, username, password).acquire();
+      public DatabaseSessionInternal getThreadDatabase() {
+        return context.cachedPool(database, username, password).acquire();
+      }
     }
-  }
 }

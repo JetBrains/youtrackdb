@@ -373,18 +373,18 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         return null;
       }
 
-      final var segmentName = generateSegmentsName(segmentPosition.first);
+      final var segmentName = generateSegmentsName(segmentPosition.first());
       final var segmentPath = storagePath.resolve(segmentName);
 
       // bellow set of precautions to prevent errors during page restore
       if (Files.exists(segmentPath)) {
         try (final var channel = FileChannel.open(segmentPath, StandardOpenOption.READ)) {
           final var channelSize = channel.size();
-          if (channelSize - segmentPosition.second > RECORD_METADATA_SIZE) {
+          if (channelSize - segmentPosition.second() > RECORD_METADATA_SIZE) {
             final var metadataBuffer =
                 ByteBuffer.allocate(RECORD_METADATA_SIZE).order(ByteOrder.nativeOrder());
 
-            IOUtils.readByteBuffer(metadataBuffer, channel, segmentPosition.second, true);
+            IOUtils.readByteBuffer(metadataBuffer, channel, segmentPosition.second(), true);
             metadataBuffer.rewind();
 
             final var recordType = metadataBuffer.get();
@@ -404,11 +404,11 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
             if (storedFileId == fileId
                 && pageIndex >= storedPageIndex
                 && pageIndex < storedPageIndex + pages) {
-              if (channelSize - segmentPosition.second - RECORD_METADATA_SIZE >= compressedLen) {
+              if (channelSize - segmentPosition.second() - RECORD_METADATA_SIZE >= compressedLen) {
                 final var buffer =
                     ByteBuffer.allocate(compressedLen + RECORD_METADATA_SIZE)
                         .order(ByteOrder.nativeOrder());
-                IOUtils.readByteBuffer(buffer, channel, segmentPosition.second, true);
+                IOUtils.readByteBuffer(buffer, channel, segmentPosition.second(), true);
 
                 buffer.rewind();
 

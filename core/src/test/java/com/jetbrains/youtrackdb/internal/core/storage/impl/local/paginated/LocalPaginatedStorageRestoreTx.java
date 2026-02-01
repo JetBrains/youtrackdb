@@ -88,7 +88,7 @@ public class LocalPaginatedStorageRestoreTx {
     youTrackDB.create("localPaginatedStorageRestoreFromTx", DatabaseType.DISK,
         YouTrackDBConfig.defaultConfig(), "admin", "admin", "admin");
     baseDocumentTx =
-        (DatabaseSessionEmbedded) youTrackDB.open("localPaginatedStorageRestoreFromTx", "admin",
+        youTrackDB.open("localPaginatedStorageRestoreFromTx", "admin",
             "admin");
     createSchema(baseDocumentTx);
   }
@@ -117,7 +117,7 @@ public class LocalPaginatedStorageRestoreTx {
     Thread.sleep(1500);
     copyDataFromTestWithoutClose();
 
-    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+    testDocumentTx = youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromTx", "admin", "admin");
     var databaseCompare =
         new DatabaseCompare(

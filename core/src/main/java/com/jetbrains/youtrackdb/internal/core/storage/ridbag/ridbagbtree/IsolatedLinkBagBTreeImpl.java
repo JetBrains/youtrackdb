@@ -89,11 +89,12 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
       while (iterator.hasNext()) {
         final var entry = iterator.next();
-        bTree.remove(atomicOperation, entry.first);
+        bTree.remove(atomicOperation, entry.first());
       }
     }
   }
 
+  @Override
   public boolean isEmpty() {
     try (final var stream =
         bTree.iterateEntriesMajor(
@@ -166,7 +167,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
-        return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
+        return new RecordId(entry.first().targetCollection(), entry.first().targetPosition());
       }
     }
 
@@ -186,7 +187,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
-        return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
+        return new RecordId(entry.first().targetCollection(), entry.first().targetPosition());
       }
     }
 
@@ -207,7 +208,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       forEachEntry(
           stream,
           entry -> {
-            final var treeValue = entry.second;
+            final var treeValue = entry.second();
             size.increment(treeValue);
             return true;
           });
@@ -248,12 +249,13 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
                 new Entry<>() {
                   @Override
                   public RID getKey() {
-                    return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
+                    return new RecordId(entry.first().targetCollection(),
+                        entry.first().targetPosition());
                   }
 
                   @Override
                   public Integer getValue() {
-                    return entry.second;
+                    return entry.second();
                   }
 
                   @Override
@@ -264,37 +266,33 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
   }
 
 
-  private static final class TransformingSpliterator implements
-      Spliterator<ObjectIntPair<RID>> {
-
-    private final Spliterator<RawPairObjectInteger<EdgeKey>> delegate;
-
-    TransformingSpliterator(Spliterator<RawPairObjectInteger<EdgeKey>> delegate) {
-      this.delegate = delegate;
-    }
+  private record TransformingSpliterator(
+      Spliterator<RawPairObjectInteger<EdgeKey>> delegate) implements
+        Spliterator<ObjectIntPair<RID>> {
 
     @Override
-    public boolean tryAdvance(Consumer<? super ObjectIntPair<RID>> action) {
-      return delegate.tryAdvance(pair -> {
-        final var rid = new RecordId(pair.first.targetCollection, pair.first.targetPosition);
-        action.accept(new ObjectIntImmutablePair<>(rid, pair.second));
-      });
-    }
+      public boolean tryAdvance(Consumer<? super ObjectIntPair<RID>> action) {
+        return delegate.tryAdvance(pair -> {
+          final var rid = new RecordId(pair.first().targetCollection(),
+              pair.first().targetPosition());
+          action.accept(new ObjectIntImmutablePair<>(rid, pair.second()));
+        });
+      }
 
-    @Nullable
-    @Override
-    public Spliterator<ObjectIntPair<RID>> trySplit() {
-      return new TransformingSpliterator(delegate.trySplit());
-    }
+      @Nullable
+      @Override
+      public Spliterator<ObjectIntPair<RID>> trySplit() {
+        return new TransformingSpliterator(delegate.trySplit());
+      }
 
-    @Override
-    public long estimateSize() {
-      return delegate.estimateSize();
-    }
+      @Override
+      public long estimateSize() {
+        return delegate.estimateSize();
+      }
 
-    @Override
-    public int characteristics() {
-      return delegate.characteristics();
+      @Override
+      public int characteristics() {
+        return delegate.characteristics();
+      }
     }
-  }
 }

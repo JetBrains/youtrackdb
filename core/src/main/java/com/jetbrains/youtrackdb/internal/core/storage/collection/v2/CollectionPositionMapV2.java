@@ -682,8 +682,8 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
           result[index] = new CollectionPositionEntry(
               position,
-              entry.getPageIndex(),
-              entry.getRecordPosition());
+              entry.pageIndex(),
+              entry.recordPosition());
         }
 
         @Override

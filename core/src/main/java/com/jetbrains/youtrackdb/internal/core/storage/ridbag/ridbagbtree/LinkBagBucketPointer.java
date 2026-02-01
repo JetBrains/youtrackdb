@@ -27,26 +27,10 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
  * A pointer to bucket in disk page. Defines the page and the offset in page where the bucket is
  * placed. Is immutable.
  */
-public class LinkBagBucketPointer {
+public record LinkBagBucketPointer(long pageIndex, int pageOffset) {
 
   public static final int SIZE = LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
   public static final LinkBagBucketPointer NULL = new LinkBagBucketPointer(-1, -1);
-
-  private final long pageIndex;
-  private final int pageOffset;
-
-  public LinkBagBucketPointer(long pageIndex, int pageOffset) {
-    this.pageIndex = pageIndex;
-    this.pageOffset = pageOffset;
-  }
-
-  public long getPageIndex() {
-    return pageIndex;
-  }
-
-  public int getPageOffset() {
-    return pageOffset;
-  }
 
   @Override
   public boolean equals(Object o) {

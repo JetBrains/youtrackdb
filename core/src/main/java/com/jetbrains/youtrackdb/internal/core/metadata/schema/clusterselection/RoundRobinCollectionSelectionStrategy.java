@@ -26,11 +26,13 @@ import java.util.concurrent.ThreadLocalRandom;
 public class RoundRobinCollectionSelectionStrategy implements CollectionSelectionStrategy {
   public static final String NAME = "round-robin";
 
+  @Override
   public int getCollection(DatabaseSession session, final SchemaClass iClass,
       final EntityImpl entity) {
     return getCollection(session, iClass, iClass.getCollectionIds(), entity);
   }
 
+  @Override
   public int getCollection(DatabaseSession session, final SchemaClass clazz, final int[] collections,
       final EntityImpl entity) {
     if (collections.length == 1)

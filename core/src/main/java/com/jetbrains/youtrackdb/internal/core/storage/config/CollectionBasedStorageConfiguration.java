@@ -927,7 +927,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       return;
     }
 
-    final var property = pair.first;
+    final var property = pair.first();
 
     var pos = 0;
     final var size = IntegerSerializer.deserializeNative(property, pos);
@@ -1299,8 +1299,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         return null;
       }
 
-      final var property = pair.first;
-      return deserializeIndexEngineProperty(name, property, defaultIndexId, pair.second);
+      final var property = pair.first();
+      return deserializeIndexEngineProperty(name, property, defaultIndexId, pair.second());
     } finally {
       lock.readLock().unlock();
     }
@@ -1815,7 +1815,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       throw new IllegalStateException("Property " + name + " is absent");
     }
 
-    final var property = pair.first;
+    final var property = pair.first();
 
     if (property.length < 4) {
       throw new IllegalStateException(
@@ -1830,7 +1830,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final var pair = readProperty(name);
 
       if (pair != null) {
-        cache.put(name, IntegerSerializer.deserializeNative(pair.first, 0));
+        cache.put(name, IntegerSerializer.deserializeNative(pair.first(), 0));
       }
     }
   }
@@ -1839,7 +1839,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     for (final var name : STRING_PROPERTIES) {
       final var property = readProperty(name);
       if (property != null) {
-        cache.put(name, deserializeStringValue(property.first, 0));
+        cache.put(name, deserializeStringValue(property.first(), 0));
       }
     }
   }
