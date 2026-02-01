@@ -8,6 +8,7 @@ import org.junit.Test;
 
 public class DirtyManagerReferenceCleanTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 

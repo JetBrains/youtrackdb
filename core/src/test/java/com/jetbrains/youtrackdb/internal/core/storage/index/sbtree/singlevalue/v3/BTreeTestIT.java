@@ -54,7 +54,7 @@ public class BTreeTestIT {
     AbstractStorage storage;
     try (var databaseDocumentTx = youTrackDB.open(dbName, "admin", "admin")) {
       storage =
-          (AbstractStorage) ((DatabaseSessionInternal) databaseDocumentTx).getStorage();
+          (AbstractStorage) databaseDocumentTx.getStorage();
     }
     singleValueTree = new BTree<>("singleBTree", ".sbt", ".nbt", storage);
     atomicOperationsManager = storage.getAtomicOperationsManager();

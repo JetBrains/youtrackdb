@@ -74,6 +74,7 @@ public class BinaryToken implements Token {
     return this.payload.getUserRid();
   }
 
+  @Override
   public TokenHeader getHeader() {
     return header;
   }

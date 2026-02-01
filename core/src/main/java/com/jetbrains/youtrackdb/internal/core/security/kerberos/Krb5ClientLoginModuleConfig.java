@@ -33,6 +33,7 @@ public class Krb5ClientLoginModuleConfig extends Configuration {
 
   private final AppConfigurationEntry[] appConfigEntries = new AppConfigurationEntry[1];
 
+  @Override
   public AppConfigurationEntry[] getAppConfigurationEntry(String applicationName) {
     return appConfigEntries;
   }

@@ -230,7 +230,7 @@ public class ColumnSecurityTest {
     session.commit();
 
     session.close();
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader", "reader");
+    this.session = youTrackDB.open(DB_NAME, "reader", "reader");
     session.begin();
     var rs = session.query("select from Person");
     var fooFound = false;
@@ -279,7 +279,7 @@ public class ColumnSecurityTest {
     session.commit();
 
     session.close();
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader", "reader");
+    this.session = youTrackDB.open(DB_NAME, "reader", "reader");
     session.begin();
     var rs = session.query("select from Person where name = 'foo'");
     Assert.assertTrue(rs.hasNext());
@@ -344,7 +344,7 @@ public class ColumnSecurityTest {
     session.close();
     Thread.sleep(200);
 
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader", "reader");
+    this.session = youTrackDB.open(DB_NAME, "reader", "reader");
     session.begin();
     rs = session.query("select from Person");
     fooFound = false;
@@ -393,7 +393,7 @@ public class ColumnSecurityTest {
 
     session.close();
 
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader", "reader");
+    this.session = youTrackDB.open(DB_NAME, "reader", "reader");
     session.begin();
     var rs = session.query("select from Person where name = 'foo' OR name = 'bar'");
 
@@ -421,7 +421,7 @@ public class ColumnSecurityTest {
     session.commit();
 
     session.close();
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "writer", "writer");
+    this.session = youTrackDB.open(DB_NAME, "writer", "writer");
 
     session.begin();
     var elem = session.newEntity("Person");
@@ -463,7 +463,7 @@ public class ColumnSecurityTest {
 
     session.close();
 
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "writer", "writer");
+    this.session = youTrackDB.open(DB_NAME, "writer", "writer");
     session.begin();
     session.execute("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
     session.commit();
@@ -506,7 +506,7 @@ public class ColumnSecurityTest {
     session.commit();
 
     session.close();
-    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "writer", "writer");
+    this.session = youTrackDB.open(DB_NAME, "writer", "writer");
 
     session.begin();
     session.execute("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
@@ -542,7 +542,7 @@ public class ColumnSecurityTest {
 
     session.close();
 
-    session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader", "reader");
+    session = youTrackDB.open(DB_NAME, "reader", "reader");
     session.begin();
     try (final var resultSet = session.query("SELECT from Person")) {
       var item = resultSet.next();
@@ -566,7 +566,7 @@ public class ColumnSecurityTest {
 
     session.close();
 
-    session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader", "reader");
+    session = youTrackDB.open(DB_NAME, "reader", "reader");
     session.begin();
     try (final var resultSet = session.query("SELECT from Person")) {
       var item = resultSet.next();

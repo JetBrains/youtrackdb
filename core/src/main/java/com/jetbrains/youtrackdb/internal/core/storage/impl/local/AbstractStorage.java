@@ -2084,7 +2084,7 @@ public abstract class AbstractStorage
           return -1;
         }
         final var indexId = indexEngines.indexOf(engine);
-        assert indexId == engine.getId();
+        assert indexId == engine.id();
         return generateIndexId(indexId, engine);
       } finally {
         stateLock.readLock().unlock();
@@ -2206,7 +2206,7 @@ public abstract class AbstractStorage
                         indexMetadata.getName());
                 final var engine = indexEngineNameMap.remove(indexMetadata.getName());
                 if (engine != null) {
-                  indexEngines.set(engine.getId(), null);
+                  indexEngines.set(engine.id(), null);
 
                   engine.delete(atomicOperation);
                   ((CollectionBasedStorageConfiguration) configuration)
@@ -2347,7 +2347,7 @@ public abstract class AbstractStorage
             atomicOperation -> {
               final var engine =
                   deleteIndexEngineInternal(atomicOperation, internalIndexId);
-              final var engineName = engine.getName();
+              final var engineName = engine.name();
               ((CollectionBasedStorageConfiguration) configuration)
                   .deleteIndexEngine(atomicOperation, engineName);
             });
@@ -2373,11 +2373,11 @@ public abstract class AbstractStorage
       final AtomicOperation atomicOperation, final int indexId)
       throws IOException {
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
     indexEngines.set(indexId, null);
     engine.delete(atomicOperation);
 
-    final var engineName = engine.getName();
+    final var engineName = engine.name();
     indexEngineNameMap.remove(engineName);
     return engine;
   }
@@ -2475,7 +2475,7 @@ public abstract class AbstractStorage
       checkIndexId(indexId);
 
       final var engine = indexEngines.get(indexId);
-      assert indexId == engine.getId();
+      assert indexId == engine.id();
 
       engine.clear(this, atomicOperation);
     } catch (final IOException e) {
@@ -2520,7 +2520,7 @@ public abstract class AbstractStorage
     }
     checkIndexId(indexId);
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
     return ((IndexEngine) engine).get(db, key);
   }
 
@@ -2564,7 +2564,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return ((V1IndexEngine) engine).get(key);
   }
@@ -2581,7 +2581,7 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         final var engine = indexEngines.get(indexId);
-        assert indexId == engine.getId();
+        assert indexId == engine.id();
         return engine;
       } finally {
         stateLock.readLock().unlock();
@@ -2670,7 +2670,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert engine.getId() == indexId;
+    assert engine.id() == indexId;
 
     ((V1IndexEngine) engine).put(atomicOperation, key, value);
   }
@@ -2709,7 +2709,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert engine.getId() == indexId;
+    assert engine.id() == indexId;
 
     return ((MultiValueIndexEngine) engine).remove(atomicOperation, key, value);
   }
@@ -2761,7 +2761,7 @@ public abstract class AbstractStorage
       checkIndexId(indexId);
 
       final var engine = indexEngines.get(indexId);
-      assert indexId == engine.getId();
+      assert indexId == engine.id();
 
       if (engine instanceof IndexEngine) {
         return ((IndexEngine) engine).validatedPut(atomicOperation, key, value, validator);
@@ -2832,7 +2832,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.iterateEntriesBetween(db
         , rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
@@ -2882,7 +2882,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer);
   }
@@ -2931,7 +2931,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, transformer);
   }
@@ -2972,7 +2972,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.stream(valuesTransformer);
   }
@@ -3013,7 +3013,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.descStream(valuesTransformer);
   }
@@ -3051,7 +3051,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.keyStream();
   }
@@ -3090,7 +3090,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.size(this, transformer);
   }
@@ -3127,7 +3127,7 @@ public abstract class AbstractStorage
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
+    assert indexId == engine.id();
 
     return engine.hasRangeQuerySupport();
   }

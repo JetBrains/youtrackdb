@@ -100,7 +100,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
         "admin", "admin", "admin");
 
     baseDocumentTx =
-        (DatabaseSessionEmbedded) youTrackDB.open("baseLocalPaginatedStorageRestoreFromWAL",
+        youTrackDB.open("baseLocalPaginatedStorageRestoreFromWAL",
             "admin", "admin");
     createSchema(baseDocumentTx);
   }
@@ -131,13 +131,13 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     baseDocumentTx.close();
     baseStorage.close(baseDocumentTx);
 
-    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+    testDocumentTx = youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
     testDocumentTx.close();
 
-    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+    testDocumentTx = youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
-    baseDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+    baseDocumentTx = youTrackDB.open(
         "baseLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
 
     var databaseCompare =
@@ -201,7 +201,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
       var random = new Random();
 
-      try (var db = (DatabaseSessionEmbedded) youTrackDB.open(baseDocumentTx.getDatabaseName(),
+      try (var db = youTrackDB.open(baseDocumentTx.getDatabaseName(),
           "admin", "admin")) {
         List<RID> testTwoList = new ArrayList<>();
         List<RID> firstDocs = new ArrayList<>();

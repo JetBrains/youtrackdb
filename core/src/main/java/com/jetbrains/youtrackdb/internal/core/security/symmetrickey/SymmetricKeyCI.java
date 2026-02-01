@@ -40,10 +40,12 @@ public class SymmetricKeyCI implements CredentialInterceptor {
   private String username;
   private String encodedJSON = "";
 
+  @Override
   public String getUsername() {
     return this.username;
   }
 
+  @Override
   public String getPassword() {
     return this.encodedJSON;
   }
@@ -51,6 +53,7 @@ public class SymmetricKeyCI implements CredentialInterceptor {
   /**
    * The usual password field should be a JSON representation.
    */
+  @Override
   public void intercept(final String url, final String username, final String password)
       throws SecurityException {
     if (username == null || username.isEmpty()) {

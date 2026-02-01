@@ -26,21 +26,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 /**
  * Represents a binary field.
  */
-public class BinaryField {
-
-  public final String name;
-  public final PropertyTypeInternal type;
-  public final BytesContainer bytes;
-  public final Collate collate;
-
-  public BinaryField(
-      final String iName, final PropertyTypeInternal iType, final BytesContainer iBytes,
-      final Collate iCollate) {
-    name = iName;
-    type = iType;
-    bytes = iBytes;
-    collate = iCollate;
-  }
+public record BinaryField(String name, PropertyTypeInternal type, BytesContainer bytes,
+                          Collate collate) {
 
   public BinaryField copy() {
     return new BinaryField(name, type, bytes.copy(), collate);

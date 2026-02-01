@@ -23,7 +23,7 @@ public class DatabaseImportTest {
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
 
     final var output = new ByteArrayOutputStream();
-    try (final var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin", "admin")) {
+    try (final var db = youTrackDB.open(databaseName, "admin", "admin")) {
       db.getSchema().createClass("SimpleClass");
       db.getSchema().createVertexClass("SimpleVertexClass");
       db.getSchema().createEdgeClass("SimpleEdgeClass");
@@ -42,7 +42,7 @@ public class DatabaseImportTest {
     databaseName = "import";
 
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
-    try (var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin",
+    try (var db = youTrackDB.open(databaseName, "admin",
         "admin")) {
       final var importer =
           new DatabaseImport(

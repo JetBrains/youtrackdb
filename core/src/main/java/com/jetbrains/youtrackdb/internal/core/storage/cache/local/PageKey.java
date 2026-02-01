@@ -1,14 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
-final class PageKey implements Comparable<PageKey> {
-
-  final int fileId;
-  final long pageIndex;
-
-  PageKey(final int fileId, final long pageIndex) {
-    this.fileId = fileId;
-    this.pageIndex = pageIndex;
-  }
+record PageKey(int fileId, long pageIndex) implements Comparable<PageKey> {
 
   @Override
   public int compareTo(final PageKey other) {

@@ -12,6 +12,7 @@ public class TestOrderByIndexPropDesc extends DbTestBase {
   private static final String DOCUMENT_CLASS_NAME = "MyDocument";
   private static final String PROP_INDEXED_STRING = "dateProperty";
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     var oclass = session.getMetadata().getSchema().createClass(DOCUMENT_CLASS_NAME);

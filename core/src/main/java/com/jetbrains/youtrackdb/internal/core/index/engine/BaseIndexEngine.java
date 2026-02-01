@@ -13,7 +13,7 @@ import java.util.stream.Stream;
 
 public interface BaseIndexEngine {
 
-  int getId();
+  int id();
 
   void init(DatabaseSessionInternal session, IndexMetadata metadata);
 
@@ -61,7 +61,7 @@ public interface BaseIndexEngine {
 
   int getEngineAPIVersion();
 
-  String getName();
+  String name();
 
   /**
    * Acquires exclusive lock in the active atomic operation running on the current thread for this

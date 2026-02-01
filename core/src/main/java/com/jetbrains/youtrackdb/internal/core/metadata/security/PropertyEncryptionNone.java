@@ -8,14 +8,17 @@ public class PropertyEncryptionNone implements PropertyEncryption {
     return inst;
   }
 
+  @Override
   public boolean isEncrypted(String name) {
     return false;
   }
 
+  @Override
   public byte[] encrypt(String name, byte[] values) {
     return values;
   }
 
+  @Override
   public byte[] decrypt(String name, byte[] values) {
     return values;
   }

@@ -15,6 +15,7 @@ public class TemporaryGlobalUser implements GlobalUser {
     this.resources = resources;
   }
 
+  @Override
   public String getName() {
     return name;
   }
@@ -23,6 +24,7 @@ public class TemporaryGlobalUser implements GlobalUser {
     this.name = user;
   }
 
+  @Override
   public String getPassword() {
     return password;
   }
@@ -31,6 +33,7 @@ public class TemporaryGlobalUser implements GlobalUser {
     this.password = password;
   }
 
+  @Override
   public String getResources() {
     return resources;
   }

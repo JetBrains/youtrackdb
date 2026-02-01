@@ -73,50 +73,42 @@ public class PartitionedLockManager<T> implements LockManager<T> {
         return Integer.compare(indexOne, indexTwo);
       };
 
-  private static final class SpinLockWrapper implements Lock {
-
-    private final boolean readLock;
-    private final ReadersWriterSpinLock spinLock;
-
-    private SpinLockWrapper(boolean readLock, ReadersWriterSpinLock spinLock) {
-      this.readLock = readLock;
-      this.spinLock = spinLock;
-    }
+  private record SpinLockWrapper(boolean readLock, ReadersWriterSpinLock spinLock) implements Lock {
 
     @Override
-    public void lock() {
-      throw new UnsupportedOperationException();
-    }
+      public void lock() {
+        throw new UnsupportedOperationException();
+      }
 
-    @Override
-    public void lockInterruptibly() {
-      throw new UnsupportedOperationException();
-    }
+      @Override
+      public void lockInterruptibly() {
+        throw new UnsupportedOperationException();
+      }
 
-    @Override
-    public boolean tryLock() {
-      throw new UnsupportedOperationException();
-    }
+      @Override
+      public boolean tryLock() {
+        throw new UnsupportedOperationException();
+      }
 
-    @Override
-    public boolean tryLock(long time, TimeUnit unit) {
-      throw new UnsupportedOperationException();
-    }
+      @Override
+      public boolean tryLock(long time, TimeUnit unit) {
+        throw new UnsupportedOperationException();
+      }
 
-    @Override
-    public void unlock() {
-      if (readLock) {
-        spinLock.releaseReadLock();
-      } else {
-        spinLock.releaseWriteLock();
+      @Override
+      public void unlock() {
+        if (readLock) {
+          spinLock.releaseReadLock();
+        } else {
+          spinLock.releaseWriteLock();
+        }
+      }
+
+      @Override
+      public Condition newCondition() {
+        throw new UnsupportedOperationException();
       }
     }
-
-    @Override
-    public Condition newCondition() {
-      throw new UnsupportedOperationException();
-    }
-  }
 
   public PartitionedLockManager() {
     this(false, false);

@@ -33,6 +33,7 @@ public class SQLFunctionTraversedVertex extends SQLFunctionTraversedElement {
     super(NAME);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
