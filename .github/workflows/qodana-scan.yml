@@ -20,68 +20,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           lfs: true
-          # Use PAT to allow pushing branches and creating PRs
-          token: ${{ secrets.QODANA_PUSH_TOKEN }}
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
         with:
           args: --linter, jetbrains/qodana-jvm:2025.3, --baseline, .github/workflows/qodana.sarif.json, --cleanup
           pr-mode: 'true'
-          push-fixes: none
+          push-fixes: pull-request
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
-
-      - name: Determine base branch
-        id: base-branch
-        run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            # For PRs, use the PR's head branch as base
-            echo "base=${{ github.head_ref }}" >> $GITHUB_OUTPUT
-            echo "context=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/develop" ]; then
-            # For push to develop, use develop as base
-            echo "base=develop" >> $GITHUB_OUTPUT
-            echo "context=develop" >> $GITHUB_OUTPUT
-          else
-            # For workflow_dispatch or other cases, use the current ref
-            echo "base=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-            echo "context=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create cleanup PR
-        run: |
-          # Check if there are changes to commit
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-
-          git config user.name "qodana-bot[bot]"
-          git config user.email "qodana-bot[bot]@users.noreply.github.com"
-
-          # Create a new branch for the cleanup
-          CLEANUP_BRANCH="qodana-cleanup-${{ steps.base-branch.outputs.context }}-$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$CLEANUP_BRANCH"
-
-          git add -A
-          git commit -m "Apply Qodana cleanup fixes"
-          git push -u origin "$CLEANUP_BRANCH"
-
-          # Create PR using GitHub CLI
-          gh pr create \
-            --title "Apply Qodana cleanup fixes for ${{ steps.base-branch.outputs.base }}" \
-            --body "$(cat <<'EOF'
-          ## Summary
-          - Automated PR to apply Qodana cleanup fixes to the codebase
-
-          ## Test plan
-          - [ ] Review the automated fixes
-          - [ ] Verify tests pass
-
-          🤖 Generated automatically by Qodana workflow
-          EOF
-          )" \
-            --base "${{ steps.base-branch.outputs.base }}"
-        env:
-          GH_TOKEN: ${{ secrets.QODANA_PUSH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
