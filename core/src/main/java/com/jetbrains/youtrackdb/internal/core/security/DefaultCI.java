@@ -29,17 +29,14 @@ public class DefaultCI implements CredentialInterceptor {
   private String username;
   private String password;
 
-  @Override
   public String getUsername() {
     return this.username;
   }
 
-  @Override
   public String getPassword() {
     return this.password;
   }
 
-  @Override
   public void intercept(final String url, final String username, final String password)
       throws SecurityException {
     this.username = username;

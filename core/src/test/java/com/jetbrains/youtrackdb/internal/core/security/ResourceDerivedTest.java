@@ -143,7 +143,7 @@ public class ResourceDerivedTest {
   // This tests for a result size of three.  The "Customer_u2" record should not be included.
   public void shouldTestFiltering() {
 
-    var db = youTrackDB.open("test", "tenant1", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
 
     var tx = db.begin();
     try {
@@ -160,7 +160,7 @@ public class ResourceDerivedTest {
   // This should return the record in "Customer_t2" but filter out the "Customer_u2" record.
   public void shouldTestCustomer_t2() {
 
-    var db = youTrackDB.open("test", "tenant1", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
 
     var tx = db.begin();
     try {
@@ -175,7 +175,7 @@ public class ResourceDerivedTest {
 
   public void shouldTestAccess2() {
 
-    var db = youTrackDB.open("test", "tenant1", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
 
     var tx = db.begin();
     try {
@@ -188,7 +188,7 @@ public class ResourceDerivedTest {
   }
 
   public void shouldTestCustomer() {
-    var db = youTrackDB.open("test", "tenant2", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant2", "password");
     var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
@@ -204,7 +204,7 @@ public class ResourceDerivedTest {
   // included.
   public void shouldTestCustomer_t2Tenant2() {
 
-    var db = youTrackDB.open("test", "tenant2", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant2", "password");
     var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_t2");

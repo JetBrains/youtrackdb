@@ -38,7 +38,25 @@ import javax.annotation.Nullable;
 /**
  * @since 18.07.13
  */
-public record RemoteIndexEngine(int id, String name) implements IndexEngine {
+public class RemoteIndexEngine implements IndexEngine {
+
+  private final String name;
+  private final int id;
+
+  public RemoteIndexEngine(int id, String name) {
+    this.id = id;
+    this.name = name;
+  }
+
+  @Override
+  public int getId() {
+    return id;
+  }
+
+  @Override
+  public String getName() {
+    return name;
+  }
 
   @Override
   public String getIndexNameByKey(Object key) {

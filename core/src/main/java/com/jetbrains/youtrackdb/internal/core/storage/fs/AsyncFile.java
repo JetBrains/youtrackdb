@@ -238,15 +238,15 @@ public final class AsyncFile implements File {
 
     syncSemaphore.acquireUninterruptibly(buffers.size());
     for (final var pair : buffers) {
-      final var byteBuffer = pair.second();
+      final var byteBuffer = pair.second;
       byteBuffer.rewind();
       lock.sharedLock();
       try {
         checkForClose();
-        checkPosition(pair.first());
-        checkPosition(pair.first() + pair.second().limit() - 1);
+        checkPosition(pair.first);
+        checkPosition(pair.first + pair.second.limit() - 1);
 
-        final var position = pair.first() + HEADER_SIZE;
+        final var position = pair.first + HEADER_SIZE;
         fileChannel.write(
             byteBuffer,
             position,

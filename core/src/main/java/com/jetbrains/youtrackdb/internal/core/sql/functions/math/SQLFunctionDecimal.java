@@ -37,7 +37,6 @@ public class SQLFunctionDecimal extends SQLFunctionMathAbstract {
     super(NAME, 1, 1);
   }
 
-  @Override
   public Object execute(
       Object iThis,
       final Result iRecord,
@@ -83,12 +82,10 @@ public class SQLFunctionDecimal extends SQLFunctionMathAbstract {
     return result;
   }
 
-  @Override
   public boolean aggregateResults() {
     return false;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "decimal(<val>)";
   }

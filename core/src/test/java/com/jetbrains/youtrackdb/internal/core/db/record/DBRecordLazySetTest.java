@@ -16,7 +16,6 @@ public class DBRecordLazySetTest extends DbTestBase {
   private EntityImpl doc1;
   private EntityImpl doc2;
 
-  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     session.begin();

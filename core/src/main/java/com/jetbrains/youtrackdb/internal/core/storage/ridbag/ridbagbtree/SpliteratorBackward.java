@@ -92,7 +92,7 @@ public final class SpliteratorBackward implements Spliterator<RawPairObjectInteg
 
   @Override
   public Comparator<? super RawPairObjectInteger<EdgeKey>> getComparator() {
-    return (pairOne, pairTwo) -> -pairOne.first().compareTo(pairTwo.first());
+    return (pairOne, pairTwo) -> -pairOne.first.compareTo(pairTwo.first);
   }
 
   public List<RawPairObjectInteger<EdgeKey>> getDataCache() {

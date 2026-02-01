@@ -42,7 +42,6 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     super(NAME, 1, 1);
   }
 
-  @Override
   @Nullable
   public Object execute(
       Object iThis,
@@ -71,12 +70,10 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     }
   }
 
-  @Override
   public boolean aggregateResults() {
     return false;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "eval(<expression>)";
   }

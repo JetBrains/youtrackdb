@@ -100,8 +100,8 @@ public class StorageBackupMTIT {
 
       final var compare =
           new DatabaseCompare(
-              youTrackDB.open(dbName, "admin", "admin"),
-              youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       System.out.println("compare");
@@ -208,8 +208,8 @@ public class StorageBackupMTIT {
 
       final var compare =
           new DatabaseCompare(
-              youTrackDB.open(dbName, "admin", "admin"),
-              youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
       System.out.println("compare");
 

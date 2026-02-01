@@ -69,7 +69,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
     startStep = admin.getStartStep();
     Assert.assertEquals(YTDBGraphStep.class, startStep.getClass());
 
-    graphStep = startStep;
+    graphStep = (YTDBGraphStep<?, ?>) startStep;
     assertEquals(2, graphStep.getHasContainers().size());
 
     Assert.assertEquals(1, usedIndexes(session, admin));

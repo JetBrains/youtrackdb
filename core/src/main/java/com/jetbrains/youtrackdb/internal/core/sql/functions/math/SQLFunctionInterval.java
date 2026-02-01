@@ -25,7 +25,6 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
     super(NAME, 2, 0);
   }
 
-  @Override
   @SuppressWarnings({"rawtypes", "unchecked"})
   public Object execute(
       Object iThis,
@@ -54,12 +53,10 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
     return -1;
   }
 
-  @Override
   public boolean aggregateResults() {
     return false;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "interval(<field> [,<field>*])";
   }

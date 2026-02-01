@@ -72,7 +72,7 @@ public class BTreeTestIT {
     youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
 
     var databaseSession = youTrackDB.open(DB_NAME, "admin", "admin");
-    storage = (AbstractStorage) databaseSession.getStorage();
+    storage = (AbstractStorage) ((DatabaseSessionInternal) databaseSession).getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseSession.close();
   }
@@ -162,7 +162,7 @@ public class BTreeTestIT {
     Assert.assertEquals(bTree.lastKey(), keys.last());
 
     for (var key : keys) {
-      Assert.assertEquals(bTree.get(key), key.targetPosition());
+      Assert.assertEquals(bTree.get(key), key.targetPosition);
     }
   }
 
@@ -194,7 +194,7 @@ public class BTreeTestIT {
     Assert.assertEquals(bTree.lastKey(), keys.last());
 
     for (var key : keys) {
-      Assert.assertEquals(bTree.get(key), key.targetPosition());
+      Assert.assertEquals(bTree.get(key), key.targetPosition);
     }
   }
 
@@ -212,7 +212,7 @@ public class BTreeTestIT {
     var keysIterator = keys.iterator();
     while (keysIterator.hasNext()) {
       var key = keysIterator.next();
-      if (key.targetPosition() % 3 == 0) {
+      if (key.targetPosition % 3 == 0) {
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> bTree.remove(atomicOperation, key));
         keysIterator.remove();
@@ -228,10 +228,10 @@ public class BTreeTestIT {
     }
 
     for (final var key : keys) {
-      if (key.targetPosition() % 3 == 0) {
+      if (key.targetPosition % 3 == 0) {
         Assert.assertEquals(-1, bTree.get(key));
       } else {
-        Assert.assertEquals(key.targetPosition(), bTree.get(key));
+        Assert.assertEquals(key.targetPosition, bTree.get(key));
       }
     }
   }
@@ -263,7 +263,7 @@ public class BTreeTestIT {
     while (keysIterator.hasNext()) {
       var key = keysIterator.next();
 
-      if (key.targetPosition() % 3 == 0) {
+      if (key.targetPosition % 3 == 0) {
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> bTree.remove(atomicOperation, key));
         keysIterator.remove();
@@ -279,10 +279,10 @@ public class BTreeTestIT {
     }
 
     for (var key : keys) {
-      if (key.targetPosition() % 3 == 0) {
+      if (key.targetPosition % 3 == 0) {
         Assert.assertEquals(-1, bTree.get(key));
       } else {
-        Assert.assertEquals(bTree.get(key), key.targetPosition());
+        Assert.assertEquals(bTree.get(key), key.targetPosition);
       }
     }
   }
@@ -301,11 +301,11 @@ public class BTreeTestIT {
 
     for (var i = 0; i < keysCount; i++) {
       final var key = new EdgeKey(42, i, i);
-      if (key.targetPosition() % 3 == 0) {
+      if (key.targetPosition % 3 == 0) {
 
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation ->
-                Assert.assertEquals(bTree.remove(atomicOperation, key), key.targetPosition()));
+                Assert.assertEquals(bTree.remove(atomicOperation, key), key.targetPosition));
       }
     }
 
@@ -326,9 +326,9 @@ public class BTreeTestIT {
     for (var i = 0; i < keysCount; i++) {
       final var key = new EdgeKey(42, i, i);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> bTree.put(atomicOperation, key, key.targetCollection() % 5));
+          atomicOperation -> bTree.put(atomicOperation, key, key.targetCollection % 5));
 
-      Assert.assertEquals(bTree.get(key), key.targetCollection() % 5);
+      Assert.assertEquals(bTree.get(key), key.targetCollection % 5);
     }
 
     for (var i = 0; i < keysCount; i++) {
@@ -338,7 +338,7 @@ public class BTreeTestIT {
           atomicOperation -> {
             if (index % 3 == 0) {
               final var key = new EdgeKey(42, index, index);
-              Assert.assertEquals(bTree.remove(atomicOperation, key), key.targetCollection() % 5);
+              Assert.assertEquals(bTree.remove(atomicOperation, key), key.targetCollection % 5);
             }
 
             if (index % 2 == 0) {
@@ -420,9 +420,9 @@ public class BTreeTestIT {
       final var fromKeyIndex = random.nextInt(keys.length);
       var fromKey = keys[fromKeyIndex];
 
-      if (random.nextBoolean() && fromKey.targetPosition() > Long.MIN_VALUE) {
-        fromKey = new EdgeKey(fromKey.ridBagId(), fromKey.targetCollection(),
-            fromKey.targetPosition() - 1);
+      if (random.nextBoolean() && fromKey.targetPosition > Long.MIN_VALUE) {
+        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection,
+            fromKey.targetPosition - 1);
       }
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
@@ -446,8 +446,8 @@ public class BTreeTestIT {
           final var indexEntry = indexIterator.next();
           final var entry = iterator.next();
 
-          Assert.assertEquals(indexEntry.first(), entry.getKey());
-          Assert.assertEquals(indexEntry.second(), entry.getValue().intValue());
+          Assert.assertEquals(indexEntry.first, entry.getKey());
+          Assert.assertEquals(indexEntry.second, entry.getValue().intValue());
         }
 
         //noinspection ConstantConditions
@@ -512,7 +512,7 @@ public class BTreeTestIT {
       var toKeyIndex = random.nextInt(keys.length);
       var toKey = keys[toKeyIndex];
       if (random.nextBoolean()) {
-        toKey = new EdgeKey(toKey.ridBagId(), toKey.targetCollection(), toKey.targetPosition() + 1);
+        toKey = new EdgeKey(toKey.ridBagId, toKey.targetCollection, toKey.targetPosition + 1);
       }
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
@@ -531,8 +531,8 @@ public class BTreeTestIT {
           var indexEntry = indexIterator.next();
           var entry = iterator.next();
 
-          Assert.assertEquals(indexEntry.first(), entry.getKey());
-          Assert.assertEquals(indexEntry.second(), entry.getValue().intValue());
+          Assert.assertEquals(indexEntry.first, entry.getKey());
+          Assert.assertEquals(indexEntry.second, entry.getValue().intValue());
         }
 
         //noinspection ConstantConditions
@@ -605,12 +605,12 @@ public class BTreeTestIT {
       var toKey = keys[toKeyIndex];
 
       if (random.nextBoolean()) {
-        fromKey = new EdgeKey(fromKey.ridBagId(), fromKey.targetCollection(),
-            fromKey.targetPosition() - 1);
+        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection,
+            fromKey.targetPosition - 1);
       }
 
       if (random.nextBoolean()) {
-        toKey = new EdgeKey(toKey.ridBagId(), toKey.targetCollection(), toKey.targetPosition() + 1);
+        toKey = new EdgeKey(toKey.ridBagId, toKey.targetCollection, toKey.targetPosition + 1);
       }
 
       if (fromKey.compareTo(toKey) > 0) {
@@ -640,8 +640,8 @@ public class BTreeTestIT {
           Assert.assertNotNull(indexEntry);
 
           var mapEntry = iterator.next();
-          Assert.assertEquals(indexEntry.first(), mapEntry.getKey());
-          Assert.assertEquals(indexEntry.second(), mapEntry.getValue().intValue());
+          Assert.assertEquals(indexEntry.first, mapEntry.getKey());
+          Assert.assertEquals(indexEntry.second, mapEntry.getValue().intValue());
         }
 
         //noinspection ConstantConditions

@@ -33,7 +33,6 @@ public class SQLFunctionTraversedEdge extends SQLFunctionTraversedElement {
     super(NAME);
   }
 
-  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,

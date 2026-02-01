@@ -16,7 +16,7 @@ public class YTDBChangeableRecordIdJacksonSerializer extends StdDeserializer<Cha
 
   @Override
   public ChangeableRecordId deserialize(JsonParser jsonParser,
-      DeserializationContext deserializationContext) throws IOException {
+      DeserializationContext deserializationContext) throws IOException, JacksonException {
     var strRid = deserializationContext.readValue(jsonParser, String.class);
 
     var result = RecordIdInternal.fromString(strRid, true);

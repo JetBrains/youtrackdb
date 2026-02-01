@@ -40,7 +40,6 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
   private Index index;
 
-  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
     final var class_ = session.getMetadata().getSchema().createClass("Person");

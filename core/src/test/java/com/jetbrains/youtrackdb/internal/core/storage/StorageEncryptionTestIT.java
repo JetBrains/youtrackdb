@@ -113,7 +113,7 @@ public class StorageEncryptionTestIT {
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             config)) {
       try (final var session =
-          youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
+          (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
               "admin", "admin")) {
         final var indexManager = session.getSharedContext().getIndexManager();
         final var treeIndex = indexManager.getIndex("EncryptedTree");

@@ -23,17 +23,14 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
     this.endPointAlias = edge.edge.out.alias;
   }
 
-  @Override
   protected String targetClassName(SQLMatchPathItem item, CommandContext iCommandContext) {
     return edge.getLeftClass();
   }
 
-  @Override
   protected SQLRid targetRid(SQLMatchPathItem item, CommandContext iCommandContext) {
     return edge.getLeftRid();
   }
 
-  @Override
   protected SQLWhereClause getTargetFilter(SQLMatchPathItem item) {
     return edge.getLeftFilter();
   }

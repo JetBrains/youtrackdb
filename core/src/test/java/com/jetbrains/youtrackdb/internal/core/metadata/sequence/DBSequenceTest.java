@@ -44,7 +44,8 @@ public class DBSequenceTest {
     youTrackDB.create(
         DBSequenceTest.class.getSimpleName(), DatabaseType.MEMORY, "admin", "admin", "admin");
     db =
-        youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
+        (DatabaseSessionInternal)
+            youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
     sequences = db.getMetadata().getSequenceLibrary();
   }
 

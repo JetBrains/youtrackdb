@@ -50,7 +50,6 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     super(name, 1, 2);
   }
 
-  @Override
   public boolean aggregateResults() {
     return false;
   }
@@ -66,12 +65,10 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     return true;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return getName(session) + "(<beginIndex> [,<items>])";
   }
 
-  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,

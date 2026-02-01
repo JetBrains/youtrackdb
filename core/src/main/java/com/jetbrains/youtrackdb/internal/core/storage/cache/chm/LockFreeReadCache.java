@@ -549,7 +549,7 @@ public final class LockFreeReadCache implements ReadCache {
     }
 
     for (final var entry : filledUpTo) {
-      clearFile(entry.first(), entry.second(), writeCache);
+      clearFile(entry.first, entry.second, writeCache);
     }
 
     writeCache.delete();
@@ -564,7 +564,7 @@ public final class LockFreeReadCache implements ReadCache {
     }
 
     for (final var entry : filledUpTo) {
-      clearFile(entry.first(), entry.second(), writeCache);
+      clearFile(entry.first, entry.second, writeCache);
     }
 
     writeCache.close();

@@ -100,16 +100,16 @@ public final class SharedLinkBagBTree extends DurableComponent {
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var bucketSearchResult = findBucket(key, atomicOperation);
-        if (bucketSearchResult.itemIndex() < 0) {
+        if (bucketSearchResult.getItemIndex() < 0) {
           return -1;
         }
 
-        final var pageIndex = bucketSearchResult.pageIndex();
+        final var pageIndex = bucketSearchResult.getPageIndex();
 
         try (final var keyBucketCacheEntry =
             loadPageForRead(atomicOperation, fileId, pageIndex)) {
           final var keyBucket = new Bucket(keyBucketCacheEntry);
-          return keyBucket.getValue(bucketSearchResult.itemIndex(), serializerFactory);
+          return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
         }
       } finally {
         releaseSharedLock();
@@ -142,8 +142,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
             var keyBucket = new Bucket(keyBucketCacheEntry);
             final byte[] oldRawValue;
 
-            if (bucketSearchResult.itemIndex() > -1) {
-              oldRawValue = keyBucket.getRawValue(bucketSearchResult.itemIndex(),
+            if (bucketSearchResult.getItemIndex() > -1) {
+              oldRawValue = keyBucket.getRawValue(bucketSearchResult.getItemIndex(),
                   serializerFactory);
               result = false;
             } else {
@@ -157,23 +157,23 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
             int insertionIndex;
             final int sizeDiff;
-            if (bucketSearchResult.itemIndex() >= 0) {
+            if (bucketSearchResult.getItemIndex() >= 0) {
               assert oldRawValue != null;
 
               if (oldRawValue.length == serializedValue.length) {
                 keyBucket.updateValue(
-                    bucketSearchResult.itemIndex(), serializedValue, serializedKey.length,
+                    bucketSearchResult.getItemIndex(), serializedValue, serializedKey.length,
                     serializerFactory);
                 keyBucketCacheEntry.close();
                 return false;
               } else {
                 keyBucket.removeLeafEntry(
-                    bucketSearchResult.itemIndex(), serializedKey.length, oldRawValue.length);
-                insertionIndex = bucketSearchResult.itemIndex();
+                    bucketSearchResult.getItemIndex(), serializedKey.length, oldRawValue.length);
+                insertionIndex = bucketSearchResult.getItemIndex();
                 sizeDiff = 0;
               }
             } else {
-              insertionIndex = -bucketSearchResult.itemIndex() - 1;
+              insertionIndex = -bucketSearchResult.getItemIndex() - 1;
               sizeDiff = 1;
             }
 
@@ -182,12 +182,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
                   splitBucket(
                       keyBucket,
                       keyBucketCacheEntry,
-                      bucketSearchResult.path(),
-                      bucketSearchResult.insertionIndexes(),
+                      bucketSearchResult.getPath(),
+                      bucketSearchResult.getInsertionIndexes(),
                       insertionIndex,
                       atomicOperation);
 
-              insertionIndex = bucketSearchResult.itemIndex();
+              insertionIndex = bucketSearchResult.getItemIndex();
 
               final var pageIndex = bucketSearchResult.getLastPathItem();
 
@@ -230,9 +230,9 @@ public final class SharedLinkBagBTree extends DurableComponent {
         final var result = searchResult.get();
 
         try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.pageIndex())) {
+            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
           final var bucket = new Bucket(cacheEntry);
-          return bucket.getKey(result.itemIndex(), serializerFactory);
+          return bucket.getKey(result.getItemIndex(), serializerFactory);
         }
       } finally {
         releaseSharedLock();
@@ -263,8 +263,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (!path.isEmpty()) {
               final var pagePathItemUnit = path.removeLast();
 
-              bucketIndex = pagePathItemUnit.pageIndex();
-              itemIndex = pagePathItemUnit.itemIndex() + 1;
+              bucketIndex = pagePathItemUnit.getPageIndex();
+              itemIndex = pagePathItemUnit.getItemIndex() + 1;
             } else {
               return Optional.empty();
             }
@@ -285,8 +285,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (!path.isEmpty()) {
               final var pagePathItemUnit = path.removeLast();
 
-              bucketIndex = pagePathItemUnit.pageIndex();
-              itemIndex = pagePathItemUnit.itemIndex() + 1;
+              bucketIndex = pagePathItemUnit.getPageIndex();
+              itemIndex = pagePathItemUnit.getItemIndex() + 1;
             } else {
               return Optional.empty();
             }
@@ -322,9 +322,9 @@ public final class SharedLinkBagBTree extends DurableComponent {
         final var result = searchResult.get();
 
         try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.pageIndex())) {
+            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
           final var bucket = new Bucket(cacheEntry);
-          return bucket.getKey(result.itemIndex(), serializerFactory);
+          return bucket.getKey(result.getItemIndex(), serializerFactory);
         }
       } finally {
         releaseSharedLock();
@@ -357,8 +357,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (!path.isEmpty()) {
               final var pagePathItemUnit = path.removeLast();
 
-              bucketIndex = pagePathItemUnit.pageIndex();
-              itemIndex = pagePathItemUnit.itemIndex() - 1;
+              bucketIndex = pagePathItemUnit.getPageIndex();
+              itemIndex = pagePathItemUnit.getItemIndex() - 1;
             } else {
               return Optional.empty();
             }
@@ -379,8 +379,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (!path.isEmpty()) {
               final var pagePathItemUnit = path.removeLast();
 
-              bucketIndex = pagePathItemUnit.pageIndex();
-              itemIndex = pagePathItemUnit.itemIndex() - 1;
+              bucketIndex = pagePathItemUnit.getPageIndex();
+              itemIndex = pagePathItemUnit.getItemIndex() - 1;
             } else {
               return Optional.empty();
             }
@@ -528,7 +528,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
                   atomicOperation);
 
           parentIndex = bucketSearchResult.getLastPathItem();
-          insertionIndex = bucketSearchResult.itemIndex();
+          insertionIndex = bucketSearchResult.getItemIndex();
 
           if (parentIndex != parentCacheEntry.getPageIndex()) {
             parentCacheEntry.close();
@@ -780,7 +780,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
             final int removedValue;
             final var bucketSearchResult = findBucket(key, atomicOperation);
 
-            if (bucketSearchResult.itemIndex() < 0) {
+            if (bucketSearchResult.getItemIndex() < 0) {
               return -1;
             }
 
@@ -789,12 +789,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
             final byte[] rawValue;
             try (final var keyBucketCacheEntry =
                 loadPageForWrite(
-                    atomicOperation, fileId, bucketSearchResult.pageIndex(), true)) {
+                    atomicOperation, fileId, bucketSearchResult.getPageIndex(), true)) {
               final var keyBucket = new Bucket(keyBucketCacheEntry);
-              rawValue = keyBucket.getRawValue(bucketSearchResult.itemIndex(),
+              rawValue = keyBucket.getRawValue(bucketSearchResult.getItemIndex(),
                   serializerFactory);
               keyBucket.removeLeafEntry(
-                  bucketSearchResult.itemIndex(), serializedKey.length, rawValue.length);
+                  bucketSearchResult.getItemIndex(), serializedKey.length, rawValue.length);
               updateSize(-1, atomicOperation);
             }
 
@@ -927,7 +927,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
   public void fetchNextCachePortionForward(SpliteratorForward iter) {
     final EdgeKey lastKey;
     if (!iter.getDataCache().isEmpty()) {
-      lastKey = iter.getDataCache().getLast().first();
+      lastKey = iter.getDataCache().getLast().first;
     } else {
       lastKey = null;
     }
@@ -954,23 +954,23 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (iter.getFromKey() != null) {
               final var searchResult =
                   findBucket(iter.getFromKey(), atomicOperation);
-              iter.setPageIndex((int) searchResult.pageIndex());
+              iter.setPageIndex((int) searchResult.getPageIndex());
 
-              if (searchResult.itemIndex() >= 0) {
+              if (searchResult.getItemIndex() >= 0) {
                 if (iter.isFromKeyInclusive()) {
-                  iter.setItemIndex(searchResult.itemIndex());
+                  iter.setItemIndex(searchResult.getItemIndex());
                 } else {
-                  iter.setItemIndex(searchResult.itemIndex() + 1);
+                  iter.setItemIndex(searchResult.getItemIndex() + 1);
                 }
               } else {
-                iter.setItemIndex(-searchResult.itemIndex() - 1);
+                iter.setItemIndex(-searchResult.getItemIndex() - 1);
               }
             } else {
               final var bucketSearchResult = firstItem(atomicOperation);
               if (bucketSearchResult.isPresent()) {
                 final var searchResult = bucketSearchResult.get();
-                iter.setPageIndex((int) searchResult.pageIndex());
-                iter.setItemIndex(searchResult.itemIndex());
+                iter.setPageIndex((int) searchResult.getPageIndex());
+                iter.setItemIndex(searchResult.getItemIndex());
               } else {
                 return;
               }
@@ -979,11 +979,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
           } else {
             final var bucketSearchResult = findBucket(lastKey, atomicOperation);
 
-            iter.setPageIndex((int) bucketSearchResult.pageIndex());
-            if (bucketSearchResult.itemIndex() >= 0) {
-              iter.setItemIndex(bucketSearchResult.itemIndex() + 1);
+            iter.setPageIndex((int) bucketSearchResult.getPageIndex());
+            if (bucketSearchResult.getItemIndex() >= 0) {
+              iter.setItemIndex(bucketSearchResult.getItemIndex() + 1);
             } else {
-              iter.setItemIndex(-bucketSearchResult.itemIndex() - 1);
+              iter.setItemIndex(-bucketSearchResult.getItemIndex() - 1);
             }
           }
           iter.setLastLSN(null);
@@ -1065,7 +1065,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     if (iter.getDataCache().isEmpty()) {
       lastKey = null;
     } else {
-      lastKey = iter.getDataCache().getLast().first();
+      lastKey = iter.getDataCache().getLast().first;
     }
 
     iter.clearCache();
@@ -1089,23 +1089,23 @@ public final class SharedLinkBagBTree extends DurableComponent {
           if (lastKey == null) {
             if (iter.getToKey() != null) {
               final var searchResult = findBucket(iter.getToKey(), atomicOperation);
-              iter.setPageIndex((int) searchResult.pageIndex());
+              iter.setPageIndex((int) searchResult.getPageIndex());
 
-              if (searchResult.itemIndex() >= 0) {
+              if (searchResult.getItemIndex() >= 0) {
                 if (iter.isToKeyInclusive()) {
-                  iter.setItemIndex(searchResult.itemIndex());
+                  iter.setItemIndex(searchResult.getItemIndex());
                 } else {
-                  iter.setItemIndex(searchResult.itemIndex() - 1);
+                  iter.setItemIndex(searchResult.getItemIndex() - 1);
                 }
               } else {
-                iter.setItemIndex(-searchResult.itemIndex() - 2);
+                iter.setItemIndex(-searchResult.getItemIndex() - 2);
               }
             } else {
               final var bucketSearchResult = lastItem(atomicOperation);
               if (bucketSearchResult.isPresent()) {
                 final var searchResult = bucketSearchResult.get();
-                iter.setPageIndex((int) searchResult.pageIndex());
-                iter.setItemIndex(searchResult.itemIndex());
+                iter.setPageIndex((int) searchResult.getPageIndex());
+                iter.setItemIndex(searchResult.getItemIndex());
               } else {
                 return;
               }
@@ -1114,11 +1114,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
           } else {
             final var bucketSearchResult = findBucket(lastKey, atomicOperation);
 
-            iter.setPageIndex((int) bucketSearchResult.pageIndex());
-            if (bucketSearchResult.itemIndex() >= 0) {
-              iter.setItemIndex(bucketSearchResult.itemIndex() - 1);
+            iter.setPageIndex((int) bucketSearchResult.getPageIndex());
+            if (bucketSearchResult.getItemIndex() >= 0) {
+              iter.setItemIndex(bucketSearchResult.getItemIndex() - 1);
             } else {
-              iter.setPageIndex(-bucketSearchResult.itemIndex() - 2);
+              iter.setPageIndex(-bucketSearchResult.getItemIndex() - 2);
             }
           }
           iter.setLastLSN(null);

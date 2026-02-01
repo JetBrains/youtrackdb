@@ -39,7 +39,6 @@ public class SQLFunctionCount extends SQLFunctionMathAbstract {
     super(NAME, 1, 1);
   }
 
-  @Override
   public Object execute(
       Object iThis,
       Result iCurrentRecord,
@@ -53,12 +52,10 @@ public class SQLFunctionCount extends SQLFunctionMathAbstract {
     return total;
   }
 
-  @Override
   public boolean aggregateResults() {
     return true;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "count(<field>|*)";
   }

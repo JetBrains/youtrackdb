@@ -2,6 +2,28 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 
 import java.util.List;
 
-record RemoveSearchResult(long leafPageIndex, int leafEntryPageIndex, List<RemovalPathItem> path) {
+final class RemoveSearchResult {
 
+  private final long leafPageIndex;
+  private final int leafEntryPageIndex;
+  private final List<RemovalPathItem> path;
+
+  public RemoveSearchResult(
+      long leafPageIndex, int leafEntryPageIndex, List<RemovalPathItem> path) {
+    this.leafPageIndex = leafPageIndex;
+    this.leafEntryPageIndex = leafEntryPageIndex;
+    this.path = path;
+  }
+
+  public long getLeafPageIndex() {
+    return leafPageIndex;
+  }
+
+  public int getLeafEntryPageIndex() {
+    return leafEntryPageIndex;
+  }
+
+  public List<RemovalPathItem> getPath() {
+    return path;
+  }
 }

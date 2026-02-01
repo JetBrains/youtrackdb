@@ -58,7 +58,7 @@ public class SBTreeNullBucketV1Test {
         StringSerializer.staticSerializeNativeAsWhole("test"), StringSerializer.INSTANCE);
     var treeValue = bucket.getValue(StringSerializer.INSTANCE, serializerFactory);
     Assert.assertNotNull(treeValue);
-    Assert.assertEquals("test", treeValue.value());
+    Assert.assertEquals("test", treeValue.getValue());
 
     cacheEntry.releaseExclusiveLock();
     cachePointer.decrementReferrer();
@@ -121,7 +121,7 @@ public class SBTreeNullBucketV1Test {
 
     treeValue = bucket.getValue(StringSerializer.INSTANCE, serializerFactory);
     Assert.assertNotNull(treeValue);
-    Assert.assertEquals("testOne", treeValue.value());
+    Assert.assertEquals("testOne", treeValue.getValue());
 
     cacheEntry.releaseExclusiveLock();
     cachePointer.decrementReferrer();

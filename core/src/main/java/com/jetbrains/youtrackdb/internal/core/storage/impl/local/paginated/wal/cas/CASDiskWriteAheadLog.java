@@ -1082,10 +1082,10 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
         var pair = fileCloseQueue.poll();
         while (pair != null) {
-          final var file = pair.second();
+          final var file = pair.second;
 
           fileCloseQueueSize.decrementAndGet();
-          if (pair.first() >= segmentId) {
+          if (pair.first >= segmentId) {
             if (callFsync) {
               file.force(true);
             }
@@ -1316,7 +1316,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       }
 
       for (var pair : fileCloseQueue) {
-        final var file = pair.second();
+        final var file = pair.second;
 
         if (callFsync) {
           file.force(true);
@@ -1957,7 +1957,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         while (counter < cqSize) {
           final var pair = fileCloseQueue.poll();
           if (pair != null) {
-            final var file = pair.second();
+            final var file = pair.second;
 
             assert file.position() % pageSize == 0;
 

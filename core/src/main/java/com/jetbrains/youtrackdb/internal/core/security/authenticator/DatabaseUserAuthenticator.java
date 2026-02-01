@@ -31,19 +31,19 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
           ((UserPasswordAuthInfo) info).getUser(),
           ((UserPasswordAuthInfo) info).getPassword());
     } else if (info instanceof TokenAuthInfo) {
-      var token = ((TokenAuthInfo) info).token();
+      var token = ((TokenAuthInfo) info).getToken();
 
       if (tokenSign != null && !tokenSign.verifyTokenSign(token)) {
         throw new SecurityAccessException(session.getDatabaseName(),
             "The token provided is expired");
       }
-      if (!token.token().getIsValid()) {
+      if (!token.getToken().getIsValid()) {
         throw new SecurityAccessException(session.getDatabaseName(), "Token not valid");
       }
 
-      var user = token.token().getUser(session);
-      if (user == null && token.token().getUserName() != null) {
-        user = SecurityShared.getUserInternal(session, token.token().getUserName());
+      var user = token.getToken().getUser(session);
+      if (user == null && token.getToken().getUserName() != null) {
+        user = SecurityShared.getUserInternal(session, token.getToken().getUserName());
       }
       return user;
     }

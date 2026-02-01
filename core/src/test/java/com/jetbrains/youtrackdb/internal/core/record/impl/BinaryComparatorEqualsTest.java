@@ -286,9 +286,9 @@ public class BinaryComparatorEqualsTest extends AbstractComparatorTest {
   public void testBinaryFieldCopy() {
     final var f = field(session, PropertyTypeInternal.BYTE, 10,
         new CaseInsensitiveCollate()).copy();
-    Assert.assertEquals(f.type(), PropertyTypeInternal.BYTE);
-    Assert.assertNotNull(f.bytes());
-    Assert.assertEquals(f.collate().getName(), CaseInsensitiveCollate.NAME);
+    Assert.assertEquals(f.type, PropertyTypeInternal.BYTE);
+    Assert.assertNotNull(f.bytes);
+    Assert.assertEquals(f.collate.getName(), CaseInsensitiveCollate.NAME);
   }
 
   @Test

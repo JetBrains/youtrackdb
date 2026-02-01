@@ -54,7 +54,6 @@ public class BinaryComparatorV0 implements BinaryComparator {
   public BinaryComparatorV0() {
   }
 
-  @Override
   public boolean isBinaryComparable(final PropertyTypeInternal iType) {
     return switch (iType) {
       case INTEGER, LONG, DATETIME, SHORT, STRING, DOUBLE, FLOAT, BYTE, BOOLEAN, DATE, BINARY, LINK,
@@ -74,18 +73,18 @@ public class BinaryComparatorV0 implements BinaryComparator {
   @Override
   public boolean isEqual(DatabaseSessionInternal session, final BinaryField iField1,
       final BinaryField iField2) {
-    final var fieldValue1 = iField1.bytes();
+    final var fieldValue1 = iField1.bytes;
     final var offset1 = fieldValue1.offset;
 
-    final var fieldValue2 = iField2.bytes();
+    final var fieldValue2 = iField2.bytes;
     final var offset2 = fieldValue2.offset;
 
     try {
-      switch (iField1.type()) {
+      switch (iField1.type) {
         case INTEGER: {
           final var value1 = VarIntSerializer.readAsInteger(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1 == value2;
@@ -132,7 +131,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case LONG: {
           final var value1 = VarIntSerializer.readAsLong(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1 == value2;
@@ -179,7 +178,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case SHORT: {
           final var value1 = VarIntSerializer.readAsShort(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1 == value2;
@@ -224,7 +223,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case STRING: {
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return Integer.parseInt(readString(fieldValue1)) == value2;
@@ -263,12 +262,12 @@ public class BinaryComparatorV0 implements BinaryComparator {
               }
 
               final Collate collate;
-              if (iField1.collate() != null
-                  && !DefaultCollate.NAME.equals(iField1.collate().getName())) {
-                collate = iField1.collate();
-              } else if (iField2.collate() != null
-                  && !DefaultCollate.NAME.equals(iField2.collate().getName())) {
-                collate = iField2.collate();
+              if (iField1.collate != null
+                  && !DefaultCollate.NAME.equals(iField1.collate.getName())) {
+                collate = iField1.collate;
+              } else if (iField2.collate != null
+                  && !DefaultCollate.NAME.equals(iField2.collate.getName())) {
+                collate = iField2.collate;
               } else {
                 collate = null;
               }
@@ -312,7 +311,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case DOUBLE: {
           final var value1AsLong = readLong(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value1 = Double.longBitsToDouble(value1AsLong);
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
@@ -361,7 +360,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case FLOAT: {
           final var value1AsInt = readInteger(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value1 = Float.intBitsToFloat(value1AsInt);
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
@@ -410,7 +409,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case BYTE: {
           final var value1 = readByte(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1 == value2;
@@ -453,7 +452,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case BOOLEAN: {
           final var value1 = readByte(fieldValue1) == 1;
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case BOOLEAN: {
               final var value2 = readByte(fieldValue2) == 1;
               return value1 == value2;
@@ -469,7 +468,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case DATE: {
           final var value1 = VarIntSerializer.readAsLong(fieldValue1) * MILLISEC_PER_DAY;
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1 == value2;
@@ -513,7 +512,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case DATETIME: {
           final var value1 = VarIntSerializer.readAsLong(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1 == value2;
@@ -589,7 +588,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case BINARY: {
-          if (Objects.requireNonNull(iField2.type()) == PropertyTypeInternal.BINARY) {
+          if (Objects.requireNonNull(iField2.type) == PropertyTypeInternal.BINARY) {
             final var length1 = VarIntSerializer.readAsInteger(fieldValue1);
             final var length2 = VarIntSerializer.readAsInteger(fieldValue2);
             if (length1 != length2) {
@@ -608,7 +607,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case LINK: {
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case LINK: {
               final var collectionId1 = VarIntSerializer.readAsInteger(fieldValue1);
               final var collectionId2 = VarIntSerializer.readAsInteger(fieldValue2);
@@ -637,7 +636,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
               DecimalSerializer.INSTANCE.deserialize(session.getSerializerFactory(),
                   fieldValue1.bytes, fieldValue1.offset);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1.equals(new BigDecimal(value2));
@@ -691,18 +690,18 @@ public class BinaryComparatorV0 implements BinaryComparator {
   @Override
   public int compare(DatabaseSessionInternal session, final BinaryField iField1,
       final BinaryField iField2) {
-    final var fieldValue1 = iField1.bytes();
+    final var fieldValue1 = iField1.bytes;
     final var offset1 = fieldValue1.offset;
 
-    final var fieldValue2 = iField2.bytes();
+    final var fieldValue2 = iField2.bytes;
     final var offset2 = fieldValue2.offset;
 
     try {
-      switch (iField1.type()) {
+      switch (iField1.type) {
         case INTEGER: {
           final var value1 = VarIntSerializer.readAsInteger(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return Integer.compare(value1, value2);
@@ -751,7 +750,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case LONG: {
           final var value1 = VarIntSerializer.readAsLong(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -800,7 +799,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case SHORT: {
           final var value1 = VarIntSerializer.readAsShort(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -849,7 +848,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case STRING: {
           final var value1 = readString(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1.compareTo(Integer.toString(value2));
@@ -883,12 +882,12 @@ public class BinaryComparatorV0 implements BinaryComparator {
               final var value2 = readString(fieldValue2);
 
               final Collate collate;
-              if (iField1.collate() != null
-                  && !DefaultCollate.NAME.equals(iField1.collate().getName())) {
-                collate = iField1.collate();
-              } else if (iField2.collate() != null
-                  && !DefaultCollate.NAME.equals(iField2.collate().getName())) {
-                collate = iField2.collate();
+              if (iField1.collate != null
+                  && !DefaultCollate.NAME.equals(iField1.collate.getName())) {
+                collate = iField1.collate;
+              } else if (iField2.collate != null
+                  && !DefaultCollate.NAME.equals(iField2.collate.getName())) {
+                collate = iField2.collate;
               } else {
                 collate = null;
               }
@@ -918,7 +917,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case DOUBLE: {
           final var value1 = Double.longBitsToDouble(readLong(fieldValue1));
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -963,7 +962,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case FLOAT: {
           final var value1 = Float.intBitsToFloat(readInteger(fieldValue1));
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -1000,7 +999,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case BYTE: {
           final var value1 = readByte(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -1045,7 +1044,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case BOOLEAN: {
           final var value1 = readByte(fieldValue1) == 1;
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case BOOLEAN: {
               final var value2 = readByte(fieldValue2) == 1;
               return (value1 == value2) ? 0 : value1 ? 1 : -1;
@@ -1061,7 +1060,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case DATETIME: {
           final var value1 = VarIntSerializer.readAsLong(fieldValue1);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -1130,7 +1129,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case DATE: {
           final var value1 = VarIntSerializer.readAsLong(fieldValue1) * MILLISEC_PER_DAY;
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return (value1 < value2) ? -1 : ((value1 == value2) ? 0 : 1);
@@ -1214,7 +1213,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case BINARY: {
-          if (Objects.requireNonNull(iField2.type()) == PropertyTypeInternal.BINARY) {
+          if (Objects.requireNonNull(iField2.type) == PropertyTypeInternal.BINARY) {
             final var length1 = VarIntSerializer.readAsInteger(fieldValue1);
             final var length2 = VarIntSerializer.readAsInteger(fieldValue2);
 
@@ -1243,7 +1242,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case LINK: {
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case LINK: {
               final var collectionId1 = VarIntSerializer.readAsInteger(fieldValue1);
               final var collectionId2 = VarIntSerializer.readAsInteger(fieldValue2);
@@ -1276,7 +1275,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
               DecimalSerializer.INSTANCE.deserialize(session.getSerializerFactory(),
                   fieldValue1.bytes, fieldValue1.offset);
 
-          switch (iField2.type()) {
+          switch (iField2.type) {
             case INTEGER: {
               final var value2 = VarIntSerializer.readAsInteger(fieldValue2);
               return value1.compareTo(new BigDecimal(value2));

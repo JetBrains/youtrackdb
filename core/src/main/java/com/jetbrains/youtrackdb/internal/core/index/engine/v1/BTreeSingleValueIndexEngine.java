@@ -47,7 +47,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public int id() {
+  public int getId() {
     return id;
   }
 
@@ -60,7 +60,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public String name() {
+  public String getName() {
     return name;
   }
 

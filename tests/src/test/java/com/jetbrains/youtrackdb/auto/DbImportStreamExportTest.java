@@ -72,7 +72,7 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
       }
       youTrackDb.create(DbImportStreamExportTest.class.getSimpleName() + "Import", databaseType,
           "admin", "admin", "admin");
-      try (var importSession = youTrackDb.open(
+      try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
           DbImportStreamExportTest.class.getSimpleName() + "Import", "admin", "admin")) {
         final var dbImport =
             new DatabaseImport(importSession, new FileInputStream(testPath + "/" + exportFilePath),
@@ -94,7 +94,7 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
     var exportSession = acquireSession();
 
     try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(testPath)) {
-      try (var importSession = youTrackDb.open(
+      try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
           DbImportStreamExportTest.class.getSimpleName() + "Import", "admin", "admin")) {
         final var databaseCompare = new DatabaseCompare(exportSession, importSession, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);

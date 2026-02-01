@@ -23,7 +23,13 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 
 @SuppressWarnings({"unchecked", "DeprecatedIsStillUsed"})
 @Deprecated
-public record Dictionary<T>(Index index) {
+public class Dictionary<T> {
+
+  private final Index index;
+
+  public Dictionary(final Index iIndex) {
+    index = iIndex;
+  }
 
   public <RET extends T> RET get(final String iKey) {
     throw new UnsupportedOperationException();
@@ -43,5 +49,9 @@ public record Dictionary<T>(Index index) {
 
   public long size() {
     throw new UnsupportedOperationException();
+  }
+
+  public Index getIndex() {
+    return index;
   }
 }

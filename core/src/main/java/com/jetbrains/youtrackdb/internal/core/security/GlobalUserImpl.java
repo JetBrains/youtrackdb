@@ -12,7 +12,6 @@ public class GlobalUserImpl implements GlobalUser {
     this.resources = resources;
   }
 
-  @Override
   public String getName() {
     return name;
   }
@@ -21,7 +20,6 @@ public class GlobalUserImpl implements GlobalUser {
     this.name = name;
   }
 
-  @Override
   public String getPassword() {
     return password;
   }
@@ -30,7 +28,6 @@ public class GlobalUserImpl implements GlobalUser {
     this.password = password;
   }
 
-  @Override
   public String getResources() {
     return resources;
   }

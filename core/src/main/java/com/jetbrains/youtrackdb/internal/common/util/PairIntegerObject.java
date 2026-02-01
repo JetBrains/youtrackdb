@@ -2,7 +2,23 @@ package com.jetbrains.youtrackdb.internal.common.util;
 
 import it.unimi.dsi.fastutil.HashCommon;
 
-public record PairIntegerObject<V>(int key, V value) implements Comparable<PairIntegerObject<V>> {
+public final class PairIntegerObject<V> implements Comparable<PairIntegerObject<V>> {
+
+  public final int key;
+  public final V value;
+
+  public PairIntegerObject(int key, V value) {
+    this.key = key;
+    this.value = value;
+  }
+
+  public int getKey() {
+    return key;
+  }
+
+  public V getValue() {
+    return value;
+  }
 
   @Override
   public int compareTo(PairIntegerObject<V> o) {

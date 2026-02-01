@@ -20,7 +20,6 @@ public interface BagChangesContainer extends Iterable<RawPair<RID, Change>> {
 
   int size();
 
-  @Override
   @Nonnull
   Spliterator<RawPair<RID, Change>> spliterator();
 
@@ -32,7 +31,6 @@ public interface BagChangesContainer extends Iterable<RawPair<RID, Change>> {
     return StreamSupport.stream(spliterator(), false);
   }
 
-  @Override
   @Nonnull
   default Iterator<RawPair<RID, Change>> iterator() {
     return stream().iterator();

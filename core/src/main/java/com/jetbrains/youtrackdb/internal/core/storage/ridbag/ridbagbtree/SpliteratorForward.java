@@ -89,7 +89,7 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
 
   @Override
   public Comparator<? super RawPairObjectInteger<EdgeKey>> getComparator() {
-    return Comparator.comparing(pair -> pair.first());
+    return Comparator.comparing(pair -> pair.first);
   }
 
   EdgeKey getFromKey() {

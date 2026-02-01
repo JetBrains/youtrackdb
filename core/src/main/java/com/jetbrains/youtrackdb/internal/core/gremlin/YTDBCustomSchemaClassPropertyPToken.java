@@ -4,8 +4,14 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import javax.annotation.Nonnull;
 
-public record YTDBCustomSchemaClassPropertyPToken(@Nonnull String name) implements
+public class YTDBCustomSchemaClassPropertyPToken implements
     YTDBDomainObjectPToken<YTDBSchemaClass> {
+
+  private final @Nonnull String name;
+
+  public YTDBCustomSchemaClassPropertyPToken(@Nonnull String name) {
+    this.name = name;
+  }
 
   @Override
   public String name() {

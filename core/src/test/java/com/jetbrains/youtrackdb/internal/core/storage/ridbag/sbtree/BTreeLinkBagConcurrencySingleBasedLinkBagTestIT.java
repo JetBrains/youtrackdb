@@ -79,7 +79,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
   @Test
   public void testConcurrency() throws Exception {
-    try (var session = youTrackDB.open(
+    try (var session = (DatabaseSessionEmbedded) youTrackDB.open(
         BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(), "admin", "admin")) {
       var addedRids = session.computeInTx(transaction -> {
         var entity = session.newEntity();

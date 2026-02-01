@@ -152,7 +152,8 @@ public class TransactionRidAllocationTest {
     DatabaseSessionEmbedded second;
     youTrackDB.create("secondTest", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
     second =
-        youTrackDB.open("secondTest", "admin", ADMIN_PASSWORD);
+        (DatabaseSessionEmbedded)
+            youTrackDB.open("secondTest", "admin", ADMIN_PASSWORD);
     // THIS OFFSET FIRST DB FROM THE SECOND
     for (var i = 0; i < 20; i++) {
       second.begin();

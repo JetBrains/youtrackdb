@@ -2679,7 +2679,7 @@ public final class WOWCache extends AbstractWriteCache
       final var entry = entryIterator.next();
       final var pageKey = entry.getKey();
 
-      if (pageKey.fileId() == internalFileId) {
+      if (pageKey.fileId == internalFileId) {
         final var pagePointer = entry.getValue();
         final var groupLock = lockManager.acquireExclusiveLock(pageKey);
         try {
@@ -2819,7 +2819,7 @@ public final class WOWCache extends AbstractWriteCache
 
       while (lsnPagesIterator.hasNext() && pageKeysToFlush.size() < pagesFlushLimit - chunksSize) {
         final var pageKey = lsnPagesIterator.next();
-        var fileId = pageKey.fileId();
+        var fileId = pageKey.fileId;
         var fileSize = fileIdSizeMap.get(fileId);
 
         if (fileSize == -1) {
@@ -2835,7 +2835,7 @@ public final class WOWCache extends AbstractWriteCache
           fileIdSizeMap.put(fileId, fileSize);
         }
 
-        var diff = (pageKey.pageIndex() * pageSize - fileSize) / pageSize;
+        var diff = (pageKey.pageIndex * pageSize - fileSize) / pageSize;
         // it is important to do not create holes in the file
         // otherwise restore process after crash will be aborted
         // because of invalid data
@@ -2848,7 +2848,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        var pageEnd = pageKey.pageIndex() * pageSize + pageSize;
+        var pageEnd = pageKey.pageIndex * pageSize + pageSize;
         if (pageEnd > fileSize) {
           fileIdSizeMap.put(fileId, pageEnd);
         }
@@ -2872,7 +2872,7 @@ public final class WOWCache extends AbstractWriteCache
             throw new IllegalStateException("Last page index is -1");
           }
 
-          if (lastFileId != pageKey.fileId() || lastPageIndex != pageKey.pageIndex() - 1) {
+          if (lastFileId != pageKey.fileId || lastPageIndex != pageKey.pageIndex - 1) {
             if (!chunk.isEmpty()) {
               chunks.add(chunk);
               chunksSize += chunk.size();
@@ -2936,8 +2936,8 @@ public final class WOWCache extends AbstractWriteCache
             lastPageIndex = -1;
             lastFileId = -1;
           } else {
-            lastPageIndex = pageKey.pageIndex();
-            lastFileId = pageKey.fileId();
+            lastPageIndex = pageKey.pageIndex;
+            lastFileId = pageKey.fileId;
           }
         } else {
           if (!chunk.isEmpty()) {
@@ -2949,8 +2949,8 @@ public final class WOWCache extends AbstractWriteCache
           lastPageIndex = -1;
           lastFileId = -1;
 
-          var fileSize = files.get(externalFileId(pageKey.fileId())).getUnderlyingFileSize();
-          if (pageKey.pageIndex() * pageSize >= fileSize) {
+          var fileSize = files.get(externalFileId(pageKey.fileId)).getUnderlyingFileSize();
+          if (pageKey.pageIndex * pageSize >= fileSize) {
             // if we can not write at least one page outside of the size of the file on disk
             // we should stop the process because otherwise hole in the file during restore
             // after crash will be treated as a invalid data and restore process will be aborted
@@ -3292,28 +3292,28 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       final var pageKeyToFlush = iterator.next();
-      var fileSize = fileSizeMap.get(pageKeyToFlush.fileId());
+      var fileSize = fileSizeMap.get(pageKeyToFlush.fileId);
       if (fileSize < 0) {
-        fileSize = files.get(externalFileId(pageKeyToFlush.fileId())).getUnderlyingFileSize();
-        fileSizeMap.put(pageKeyToFlush.fileId(), fileSize);
+        fileSize = files.get(externalFileId(pageKeyToFlush.fileId)).getUnderlyingFileSize();
+        fileSizeMap.put(pageKeyToFlush.fileId, fileSize);
       }
 
       var pagesToFlush = new ArrayList<PageKey>();
       pagesToFlush.add(pageKeyToFlush);
 
-      var diff = (pageKeyToFlush.pageIndex() * pageSize - fileSize) / pageSize;
+      var diff = (pageKeyToFlush.pageIndex * pageSize - fileSize) / pageSize;
       // it is important to do not create holes in the file
       // otherwise restore process after crash will be aborted
       if (diff > 0) {
         var startPageIndex = fileSize / pageSize;
         for (var i = 0; i < diff; i++) {
-          pagesToFlush.add(new PageKey(pageKeyToFlush.fileId(), startPageIndex + i));
+          pagesToFlush.add(new PageKey(pageKeyToFlush.fileId, startPageIndex + i));
         }
       }
       // pages are sorted by position in index, so file size will be correctly incremented
-      var pageEnd = pageKeyToFlush.pageIndex() * pageSize + pageSize;
+      var pageEnd = pageKeyToFlush.pageIndex * pageSize + pageSize;
       if (pageEnd > fileSize) {
-        fileSizeMap.put(pageKeyToFlush.fileId(), pageEnd);
+        fileSizeMap.put(pageKeyToFlush.fileId, pageEnd);
       }
 
       for (var pageKey : pagesToFlush) {
@@ -3322,8 +3322,8 @@ public final class WOWCache extends AbstractWriteCache
         // between exclusiveWritePages and writeCachePages. We treat writeCachePages as source of
         // truth.
         if (pointer == null) {
-          var file = files.get(externalFileId(pageKey.fileId()));
-          if (file.getUnderlyingFileSize() < (pageKey.pageIndex() + 1) * pageSize) {
+          var file = files.get(externalFileId(pageKey.fileId));
+          if (file.getUnderlyingFileSize() < (pageKey.pageIndex + 1) * pageSize) {
             // if we can not write at least one page outside the size of the file on disk
             // we should stop the process because otherwise hole in the file during restore
             // after crash will be treated as an invalid data and restore process will be
@@ -3414,12 +3414,12 @@ public final class WOWCache extends AbstractWriteCache
             }
 
             var underlyingFileSize =
-                files.get(externalFileId(pageKey.fileId())).getUnderlyingFileSize();
+                files.get(externalFileId(pageKey.fileId)).getUnderlyingFileSize();
             // chunk size is reached flush limit, or we have a risk to have a hole in the file
             // that will lead to error during restore after crash process
             // we need to check only prevChunksSize because current chunk is empty
             if (prevChunksSize >= this.chunkSize
-                || underlyingFileSize < (pageKey.pageIndex() + 1) * pageSize) {
+                || underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
               flushedPages += flushPages(chunks, maxFullLogLSN);
 
               chunks.clear();
@@ -3430,7 +3430,7 @@ public final class WOWCache extends AbstractWriteCache
               }
             }
 
-            if (underlyingFileSize < (pageKey.pageIndex() + 1) * pageSize) {
+            if (underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
               // reset flush cycle, we can not afford holes in files
               iterator = exclusiveWritePages.iterator();
               fileSizeMap.clear();
@@ -3470,7 +3470,7 @@ public final class WOWCache extends AbstractWriteCache
     final var pagesToFlush = new TreeSet<PageKey>();
     for (final var entry : writeCachePages.entrySet()) {
       final var pageKey = entry.getKey();
-      if (fileIdSet.contains(pageKey.fileId())) {
+      if (fileIdSet.contains(pageKey.fileId)) {
         pagesToFlush.add(pageKey);
       }
     }
@@ -3479,7 +3479,7 @@ public final class WOWCache extends AbstractWriteCache
 
     final var chunks = new ArrayList<ArrayList<WritePageContainer>>(chunkSize);
     for (final var pageKey : pagesToFlush) {
-      if (fileIdSet.contains(pageKey.fileId())) {
+      if (fileIdSet.contains(pageKey.fileId)) {
         final var pagePointer = writeCachePages.get(pageKey);
         final var pageLock = lockManager.acquireExclusiveLock(pageKey);
         try {

@@ -32,7 +32,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.executeRule = entity.getString("execute");
   }
 
-  @Override
   public String getName() {
     return name;
   }
@@ -41,7 +40,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.name = name;
   }
 
-  @Override
   public boolean isActive() {
     return active;
   }
@@ -50,7 +48,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.active = active;
   }
 
-  @Override
   @Nullable
   public String getCreateRule() {
     return createRule;
@@ -62,7 +59,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.createRule = rule;
   }
 
-  @Override
   @Nullable
   public String getReadRule() {
     return readRule;
@@ -74,7 +70,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.readRule = rule;
   }
 
-  @Override
   @Nullable
   public String getBeforeUpdateRule() {
     return beforeUpdateRule;
@@ -86,7 +81,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.beforeUpdateRule = rule;
   }
 
-  @Override
   @Nullable
   public String getAfterUpdateRule() {
     return afterUpdateRule;
@@ -98,7 +92,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.afterUpdateRule = rule;
   }
 
-  @Override
   @Nullable
   public String getDeleteRule() {
     return deleteRule;
@@ -110,7 +103,6 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
     this.deleteRule = rule;
   }
 
-  @Override
   @Nullable
   public String getExecuteRule() {
     return executeRule;

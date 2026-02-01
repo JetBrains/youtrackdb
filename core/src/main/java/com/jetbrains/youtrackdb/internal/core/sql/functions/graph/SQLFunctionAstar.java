@@ -68,7 +68,6 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
           1,
           new Comparator<Vertex>() {
 
-            @Override
             public int compare(Vertex nodeA, Vertex nodeB) {
               return Double.compare(fScore.get(nodeA), fScore.get(nodeB));
             }
@@ -78,7 +77,6 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     super(NAME, 3, 4);
   }
 
-  @Override
   public LinkedList<Vertex> execute(
       final Object iThis,
       final Result iCurrentRecord,
@@ -300,7 +298,6 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     }
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "astar(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, [<options>]) \n"
         + " // options  : {direction:\"OUT\",edgeTypeNames:[] , vertexAxisNames:[] ,"

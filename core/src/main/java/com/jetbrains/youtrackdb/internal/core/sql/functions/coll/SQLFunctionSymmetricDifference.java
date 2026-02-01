@@ -58,7 +58,6 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
     }
   }
 
-  @Override
   @Nullable
   @SuppressWarnings("unchecked")
   public Object execute(
@@ -108,7 +107,6 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
     return super.getResult();
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "difference(<field>*)";
   }

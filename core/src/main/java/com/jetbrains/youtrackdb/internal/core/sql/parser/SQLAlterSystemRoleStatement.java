@@ -15,8 +15,8 @@ public class SQLAlterSystemRoleStatement extends SQLSimpleExecServerStatement {
 
   record Op(int type, SQLSecurityResourceSegment resource, SQLIdentifier policyName) {
 
-    static int TYPE_ADD = 0;
-    static int TYPE_REMOVE = 1;
+    protected static int TYPE_ADD = 0;
+    protected static int TYPE_REMOVE = 1;
 
   }
 

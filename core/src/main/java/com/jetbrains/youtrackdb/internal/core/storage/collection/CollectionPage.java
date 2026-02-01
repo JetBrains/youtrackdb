@@ -121,9 +121,9 @@ public final class CollectionPage extends DurablePage {
                   bookedRecordPositions);
 
           if (entry != null) {
-            assert entry.second(); // allocated from free list
+            assert entry.second; // allocated from free list
 
-            final var entryIndex = entry.first();
+            final var entryIndex = entry.first;
 
             assert holeSize >= entrySize;
             if (holeSize != entrySize) {
@@ -156,7 +156,7 @@ public final class CollectionPage extends DurablePage {
               false,
               bookedRecordPositions);
       Objects.requireNonNull(entry);
-      entryIndex = entry.first();
+      entryIndex = entry.first;
     } else {
       insertIntoRequestedSlot(
           recordVersion, freePosition, entrySize, requestedPosition, freeListHeader);

@@ -67,11 +67,10 @@ public abstract class QueryOperatorEquality extends QueryOperator {
       final BinaryField iSecondField,
       final CommandContext iContext,
       final EntitySerializer serializer) {
-    final var left = serializer.deserializeValue(iContext.getDatabaseSession(), iFirstField.bytes(),
-        iFirstField.type(), null);
-    final var right = serializer.deserializeValue(iContext.getDatabaseSession(),
-        iSecondField.bytes(),
-        iFirstField.type(), null);
+    final var left = serializer.deserializeValue(iContext.getDatabaseSession(), iFirstField.bytes,
+        iFirstField.type, null);
+    final var right = serializer.deserializeValue(iContext.getDatabaseSession(), iSecondField.bytes,
+        iFirstField.type, null);
 
     return evaluateExpression(null, null, left, right, iContext);
   }

@@ -40,7 +40,6 @@ public class SQLFunctionDistinct extends SQLFunctionAbstract {
     super(NAME, 1, 1);
   }
 
-  @Override
   @Nullable
   public Object execute(
       Object iThis,
@@ -63,7 +62,6 @@ public class SQLFunctionDistinct extends SQLFunctionAbstract {
     return true;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "distinct(<field>)";
   }

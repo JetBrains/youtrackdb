@@ -39,7 +39,6 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
     super(NAME, 1, -1);
   }
 
-  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -80,7 +79,6 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
     return configuredParameters.length == 1;
   }
 
-  @Override
   public String getSyntax(DatabaseSession session) {
     return "sum(<field> [,<field>*])";
   }

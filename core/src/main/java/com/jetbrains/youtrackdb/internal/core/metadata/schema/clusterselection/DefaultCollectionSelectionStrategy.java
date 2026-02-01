@@ -26,7 +26,6 @@ public class DefaultCollectionSelectionStrategy implements CollectionSelectionSt
 
   public static final String NAME = "default";
 
-  @Override
   public int getCollection(DatabaseSession session, final SchemaClass iClass,
       final EntityImpl entity) {
     return iClass.getCollectionIds()[0];

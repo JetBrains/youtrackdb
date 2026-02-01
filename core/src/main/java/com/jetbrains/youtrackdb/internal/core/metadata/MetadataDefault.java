@@ -58,17 +58,14 @@ public class MetadataDefault implements MetadataInternal {
     this.database = databaseDocument;
   }
 
-  @Override
   @Deprecated
   public void load() {
   }
 
-  @Override
   @Deprecated
   public void create() throws IOException {
   }
 
-  @Override
   public SchemaProxy getSchema() {
     return schema;
   }
@@ -119,7 +116,6 @@ public class MetadataDefault implements MetadataInternal {
     return immutableSchema;
   }
 
-  @Override
   public Security getSecurity() {
     return security;
   }
@@ -139,7 +135,6 @@ public class MetadataDefault implements MetadataInternal {
   /**
    * Reloads the internal objects.
    */
-  @Override
   public void reload() {
     // RELOAD ALL THE SHARED CONTEXT
     database.getSharedContext().reload(database);
@@ -149,7 +144,6 @@ public class MetadataDefault implements MetadataInternal {
   /**
    * Closes internal objects
    */
-  @Override
   @Deprecated
   public void close() {
     // DO NOTHING BECAUSE THE PROXY OBJECT HAVE NO DIRECT STATE
@@ -160,7 +154,6 @@ public class MetadataDefault implements MetadataInternal {
     return database;
   }
 
-  @Override
   public FunctionLibrary getFunctionLibrary() {
     return functionLibrary;
   }
@@ -170,7 +163,6 @@ public class MetadataDefault implements MetadataInternal {
     return sequenceLibrary;
   }
 
-  @Override
   public Scheduler getScheduler() {
     return scheduler;
   }

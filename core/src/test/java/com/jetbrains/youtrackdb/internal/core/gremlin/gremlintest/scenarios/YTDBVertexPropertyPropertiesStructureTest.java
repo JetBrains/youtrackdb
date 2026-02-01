@@ -24,8 +24,8 @@ public class YTDBVertexPropertyPropertiesStructureTest
   )
   @Override
   public void shouldReturnEmptyIfNoMetaProperties() {
-    Vertex v = this.graph.addVertex();
-    VertexProperty<String> vp = v.property(Cardinality.single, "name", "marko");
+    Vertex v = this.graph.addVertex(new Object[0]);
+    VertexProperty<String> vp = v.property(Cardinality.single, "name", "marko", new Object[0]);
     // using YTDBProperty.empty() instead of Property.empty()
     Assert.assertEquals(YTDBProperty.empty(), vp.property("name"));
   }

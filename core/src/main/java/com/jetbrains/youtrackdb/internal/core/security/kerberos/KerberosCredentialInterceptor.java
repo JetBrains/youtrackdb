@@ -51,17 +51,14 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
   private String principal;
   private String serviceTicket;
 
-  @Override
   public String getUsername() {
     return this.principal;
   }
 
-  @Override
   public String getPassword() {
     return this.serviceTicket;
   }
 
-  @Override
   public void intercept(final String url, final String principal, final String spn)
       throws SecurityException {
     // While the principal can be determined from the ticket cache, if a client keytab is used
@@ -224,7 +221,6 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
             Subject.doAs(
                 subject,
                 new PrivilegedAction<byte[]>() {
-                  @Override
                   @Nullable
                   public byte[] run() {
                     try {

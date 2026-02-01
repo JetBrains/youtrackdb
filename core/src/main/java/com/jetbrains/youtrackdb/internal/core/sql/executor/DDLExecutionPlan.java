@@ -42,7 +42,6 @@ public class DDLExecutionPlan implements InternalExecutionPlan {
     return ExecutionStream.empty();
   }
 
-  @Override
   public void reset(CommandContext ctx) {
     executed = false;
   }

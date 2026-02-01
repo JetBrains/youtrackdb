@@ -17,7 +17,6 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     super(lastUpstreamRecord, edge);
   }
 
-  @Override
   protected void init(CommandContext ctx) {
     if (downstream == null) {
       super.init(ctx);
@@ -27,7 +26,6 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     }
   }
 
-  @Override
   @Nullable
   public Result next(CommandContext ctx) {
     init(ctx);

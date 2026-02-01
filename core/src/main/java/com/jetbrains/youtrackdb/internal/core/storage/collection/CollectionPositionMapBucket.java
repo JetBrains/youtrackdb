@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 /**
@@ -197,16 +198,49 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return getByteValue(position);
   }
 
-  public record PositionEntry(long pageIndex, int recordPosition) {
+  public static final class PositionEntry {
+
+    private final long pageIndex;
+    private final int recordPosition;
+
+    public PositionEntry(final long pageIndex, final int recordPosition) {
+      this.pageIndex = pageIndex;
+      this.recordPosition = recordPosition;
+    }
+
+    public long getPageIndex() {
+      return pageIndex;
+    }
+
+    public int getRecordPosition() {
+      return recordPosition;
+    }
 
     @Override
-      public String toString() {
-        return "PositionEntry{"
-            + "pageIndex="
-            + pageIndex
-            + ", recordPosition="
-            + recordPosition
-            + '}';
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
       }
+      if (o == null || getClass() != o.getClass()) {
+        return false;
+      }
+      var that = (PositionEntry) o;
+      return pageIndex == that.pageIndex && recordPosition == that.recordPosition;
     }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(pageIndex, recordPosition);
+    }
+
+    @Override
+    public String toString() {
+      return "PositionEntry{"
+          + "pageIndex="
+          + pageIndex
+          + ", recordPosition="
+          + recordPosition
+          + '}';
+    }
+  }
 }

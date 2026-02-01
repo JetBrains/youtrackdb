@@ -2,7 +2,23 @@ package com.jetbrains.youtrackdb.internal.common.util;
 
 import it.unimi.dsi.fastutil.HashCommon;
 
-public record RawPairLongObject<V>(long first, V second) {
+public final class RawPairLongObject<V> {
+
+  public final long first;
+  public final V second;
+
+  public RawPairLongObject(long first, V second) {
+    this.first = first;
+    this.second = second;
+  }
+
+  public long getFirst() {
+    return first;
+  }
+
+  public V getSecond() {
+    return second;
+  }
 
   @Override
   public boolean equals(Object o) {
@@ -15,10 +31,10 @@ public record RawPairLongObject<V>(long first, V second) {
 
     var oRawPair = (RawPairIntegerObject<?>) o;
 
-    if (first != oRawPair.first()) {
+    if (first != oRawPair.first) {
       return false;
     }
-    return second.equals(oRawPair.second());
+    return second.equals(oRawPair.second);
   }
 
   @Override

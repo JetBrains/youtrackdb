@@ -100,13 +100,14 @@ public class StorageBackupTestWithLuceneIndex {
     youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
         backedUpDbDirectory,
         YouTrackDBConfig.defaultConfig().toApacheConfiguration());
-    final var backedUpDb = youTrackDB.open(
+    final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
         StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
 
     final var compare =
         new DatabaseCompare(
-            youTrackDB.open(
-                StorageBackupTestWithLuceneIndex.class.getSimpleName(), "admin", "admin"),
+            (DatabaseSessionEmbedded)
+                youTrackDB.open(
+                    StorageBackupTestWithLuceneIndex.class.getSimpleName(), "admin", "admin"),
             backedUpDb,
             System.out::println);
 
@@ -167,13 +168,14 @@ public class StorageBackupTestWithLuceneIndex {
 
     youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
         backedUpDbDirectory, YouTrackDBConfig.defaultConfig());
-    final var backedUpDb = youTrackDB.open(
+    final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
         StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
 
     final var compare =
         new DatabaseCompare(
-            youTrackDB.open(
-                StorageBackupTestWithLuceneIndex.class.getSimpleName(), "admin", "admin"),
+            (DatabaseSessionEmbedded)
+                youTrackDB.open(
+                    StorageBackupTestWithLuceneIndex.class.getSimpleName(), "admin", "admin"),
             backedUpDb,
             System.out::println);
     Assert.assertTrue(compare.compare());

@@ -128,7 +128,6 @@ public abstract class SQLFunctionPathFinder extends SQLFunctionMathAbstract {
     return path;
   }
 
-  @Override
   public boolean aggregateResults() {
     return false;
   }

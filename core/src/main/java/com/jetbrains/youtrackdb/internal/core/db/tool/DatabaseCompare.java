@@ -45,7 +45,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   private final DatabaseSessionEmbedded sessionTwo;
 
   private boolean compareEntriesForAutomaticIndexes = false;
-  private final boolean autoDetectExportImportMap = true;
+  private boolean autoDetectExportImportMap = true;
 
   private int differences = 0;
   private boolean compareIndexMetadata = false;
@@ -119,7 +119,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                         rid.toString())) {
                   if (resultSet.hasNext()) {
                     return RecordIdInternal.fromString(
-                        resultSet.next().getProperty("value"),
+                        resultSet.next().<String>getProperty("value"),
                         false);
                   }
                   //noinspection ReturnOfNull

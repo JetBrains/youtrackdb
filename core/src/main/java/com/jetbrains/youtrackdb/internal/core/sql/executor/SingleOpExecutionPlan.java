@@ -51,7 +51,6 @@ public class SingleOpExecutionPlan implements InternalExecutionPlan {
     return result;
   }
 
-  @Override
   public void reset(CommandContext ctx) {
     executed = false;
   }

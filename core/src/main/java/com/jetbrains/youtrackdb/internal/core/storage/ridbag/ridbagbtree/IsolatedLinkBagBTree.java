@@ -75,13 +75,10 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
    */
   void delete(AtomicOperation atomicOperation);
 
-  @Override
   boolean isEmpty();
 
-  @Override
   V remove(AtomicOperation atomicOperation, K key) throws IOException;
 
-  @Override
   void loadEntriesMajor(
       K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener);
 
@@ -89,7 +86,6 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
   Spliterator<ObjectIntPair<K>> spliteratorEntriesBetween(
       @Nonnull K keyFrom, boolean fromInclusive,@Nonnull K keyTo, boolean toInclusive, boolean ascSortOrder);
 
-  @Override
   @Nullable
   K firstKey();
 

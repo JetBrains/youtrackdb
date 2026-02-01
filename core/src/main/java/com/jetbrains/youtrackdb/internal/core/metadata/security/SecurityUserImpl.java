@@ -142,7 +142,6 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    * @return The role that has granted the permission if any, otherwise a SecurityAccessException
    * exception is raised
    */
-  @Override
   public Role allow(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
@@ -178,7 +177,6 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    * @param operation Requested operation
    * @return The role that has granted the permission if any, otherwise null
    */
-  @Override
   @Nullable
   public Role checkIfAllowed(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
@@ -250,7 +248,6 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    *
    * @return True is a rule is defined, otherwise false
    */
-  @Override
   public boolean isRuleDefined(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
       String resourceSpecific) {
@@ -271,49 +268,40 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     return false;
   }
 
-  @Override
   public boolean checkPassword(DatabaseSessionInternal session, final String iPassword) {
     return SecurityManager.checkPassword(iPassword, password);
   }
 
-  @Override
   public String getName(DatabaseSessionInternal session) {
     return name;
   }
 
-  @Override
   public SecurityUserImpl setName(DatabaseSessionInternal session, final String iName) {
     this.name = iName;
     return this;
   }
 
-  @Override
   public String getPassword(DatabaseSessionInternal session) {
     return password;
   }
 
-  @Override
   public SecurityUserImpl setPassword(DatabaseSessionInternal session, final String password) {
     this.password = password;
     return this;
   }
 
-  @Override
   public STATUSES getAccountStatus(DatabaseSessionInternal session) {
     return status;
   }
 
-  @Override
   public void setAccountStatus(DatabaseSessionInternal session, STATUSES accountStatus) {
     this.status = accountStatus;
   }
 
-  @Override
   public Set<Role> getRoles() {
     return Collections.unmodifiableSet(roles);
   }
 
-  @Override
   public SecurityUserImpl addRole(DatabaseSessionInternal session, final String iRole) {
     if (iRole != null) {
       var role = session.getMetadata().getSecurity().getRole(iRole);
@@ -335,12 +323,10 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     return this;
   }
 
-  @Override
   public boolean removeRole(DatabaseSessionInternal session, final String roleName) {
     return roles.removeIf(role -> role.getName(session).equals(roleName));
   }
 
-  @Override
   public boolean hasRole(DatabaseSessionInternal session, final String roleName,
       final boolean includeInherited) {
     for (final var role : roles) {

@@ -185,7 +185,7 @@ public abstract class BaseTest {
   }
 
   protected DatabaseSessionEmbedded acquireSession(String dbName) {
-    return getYouTrackDB().open(dbName, "admin", "admin");
+    return (DatabaseSessionEmbedded) getYouTrackDB().open(dbName, "admin", "admin");
   }
 
   @SuppressWarnings("MethodMayBeStatic")

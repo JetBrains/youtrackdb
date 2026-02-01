@@ -12,9 +12,9 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, EdgeKey object,
       Object... hints) {
-    return LongSerializer.getObjectSize(object.ridBagId())
-        + IntSerializer.INSTANCE.getObjectSize(serializerFactory, object.targetCollection())
-        + LongSerializer.getObjectSize(object.targetPosition());
+    return LongSerializer.getObjectSize(object.ridBagId)
+        + IntSerializer.INSTANCE.getObjectSize(serializerFactory, object.targetCollection)
+        + LongSerializer.getObjectSize(object.targetPosition);
   }
 
   @Override
@@ -37,10 +37,10 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   }
 
   private void doSerialize(EdgeKey object, byte[] stream, int startPosition) {
-    startPosition = LongSerializer.serialize(object.ridBagId(), stream, startPosition);
+    startPosition = LongSerializer.serialize(object.ridBagId, stream, startPosition);
     startPosition =
-        IntSerializer.INSTANCE.serializePrimitive(stream, startPosition, object.targetCollection());
-    LongSerializer.serialize(object.targetPosition(), stream, startPosition);
+        IntSerializer.INSTANCE.serializePrimitive(stream, startPosition, object.targetCollection);
+    LongSerializer.serialize(object.targetPosition, stream, startPosition);
   }
 
   @Override
@@ -107,10 +107,10 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   @Override
   public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, EdgeKey object,
       ByteBuffer buffer, Object... hints) {
-    LongSerializer.serialize(object.ridBagId(), buffer);
-    IntSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory, object.targetCollection(),
+    LongSerializer.serialize(object.ridBagId, buffer);
+    IntSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory, object.targetCollection,
         buffer);
-    LongSerializer.serialize(object.targetPosition(), buffer);
+    LongSerializer.serialize(object.targetPosition, buffer);
   }
 
   @Override

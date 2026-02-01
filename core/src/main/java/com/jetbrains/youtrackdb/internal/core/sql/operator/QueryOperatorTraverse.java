@@ -158,7 +158,7 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
     } else if (iTarget instanceof QueryRuntimeValueMulti multi) {
 
       for (final var o : multi.getValues()) {
-        if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext)) {
+        if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext) == Boolean.TRUE) {
           return true;
         }
       }
@@ -166,20 +166,21 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
 
       final var map = (Map<Object, Object>) iTarget;
       for (final var o : map.values()) {
-        if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext)) {
+        if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext) == Boolean.TRUE) {
           return true;
         }
       }
     } else if (MultiValue.isMultiValue(iTarget)) {
       final var collection = MultiValue.getMultiValueIterable(iTarget);
       for (final var o : collection) {
-        if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext)) {
+        if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext) == Boolean.TRUE) {
           return true;
         }
       }
     } else if (iTarget instanceof Iterator iterator) {
       while (iterator.hasNext()) {
-        if (traverse(iterator.next(), iCondition, iLevel + 1, iEvaluatedRecords, iContext)) {
+        if (traverse(iterator.next(), iCondition, iLevel + 1, iEvaluatedRecords, iContext)
+            == Boolean.TRUE) {
           return true;
         }
       }

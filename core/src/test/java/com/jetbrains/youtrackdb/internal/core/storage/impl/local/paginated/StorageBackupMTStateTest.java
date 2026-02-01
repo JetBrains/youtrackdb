@@ -165,9 +165,9 @@ public class StorageBackupMTStateTest {
       youTrackDb.restore(StorageBackupMTStateTest.class.getSimpleName() + "Restored",
           backupDir.getAbsolutePath(), YouTrackDBConfig.defaultConfig());
 
-      try (var backedUpDb = youTrackDb.open(
+      try (var backedUpDb = (DatabaseSessionEmbedded) youTrackDb.open(
           StorageBackupMTStateTest.class.getSimpleName() + "Restored", "admin", "admin")) {
-        try (var databaseDocumentTx = youTrackDb.open(
+        try (var databaseDocumentTx = (DatabaseSessionEmbedded) youTrackDb.open(
             StorageBackupMTStateTest.class.getSimpleName(), "admin", "admin")) {
 
           final var compare =
@@ -219,7 +219,7 @@ public class StorageBackupMTStateTest {
     public Void call() throws Exception {
       while (!stop) {
         while (true) {
-          var db = pool.acquire();
+          var db = (DatabaseSessionEmbedded) pool.acquire();
           try {
             flowLock.acquireReadLock();
             try {
@@ -262,7 +262,7 @@ public class StorageBackupMTStateTest {
 
       while (!stop) {
         while (true) {
-          try (var db = pool.acquire()) {
+          try (var db = (DatabaseSessionEmbedded) pool.acquire()) {
             flowLock.acquireReadLock();
             try {
               db.begin();
@@ -422,7 +422,7 @@ public class StorageBackupMTStateTest {
       var counter = 0;
       while (!stop) {
         while (true) {
-          try (var databaseDocumentTx = pool.acquire()) {
+          try (var databaseDocumentTx = (DatabaseSessionEmbedded) pool.acquire()) {
             flowLock.acquireReadLock();
             try {
               final var classes = classCounter.get();
