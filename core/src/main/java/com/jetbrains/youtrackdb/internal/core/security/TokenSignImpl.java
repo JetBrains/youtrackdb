@@ -83,9 +83,9 @@ public class TokenSignImpl implements TokenSign {
 
   @Override
   public boolean verifyTokenSign(ParsedToken parsed) {
-    var token = parsed.getToken();
-    var tokenBytes = parsed.getTokenBytes();
-    var signature = parsed.getSignature();
+    var token = parsed.token();
+    var tokenBytes = parsed.tokenBytes();
+    var signature = parsed.signature();
     final var mac = getLocalMac();
 
     try {

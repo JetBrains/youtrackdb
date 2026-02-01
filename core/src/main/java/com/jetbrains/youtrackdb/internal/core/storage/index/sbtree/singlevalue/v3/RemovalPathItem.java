@@ -1,26 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
-final class RemovalPathItem {
+record RemovalPathItem(long pageIndex, int indexInsidePage, boolean leftChild) {
 
-  private final long pageIndex;
-  private final int indexInsidePage;
-  private final boolean leftChild;
-
-  public RemovalPathItem(long pageIndex, int indexInsidePage, boolean leftChild) {
-    this.pageIndex = pageIndex;
-    this.indexInsidePage = indexInsidePage;
-    this.leftChild = leftChild;
-  }
-
-  public long getPageIndex() {
-    return pageIndex;
-  }
-
-  public int getIndexInsidePage() {
-    return indexInsidePage;
-  }
-
-  public boolean isLeftChild() {
-    return leftChild;
-  }
 }

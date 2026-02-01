@@ -3,20 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security.auth;
 import com.jetbrains.youtrackdb.internal.core.security.ParsedToken;
 import java.util.Optional;
 
-public class TokenAuthInfo implements AuthenticationInfo {
-
-  private final ParsedToken token;
-
-  public TokenAuthInfo(ParsedToken iToken) {
-    this.token = iToken;
-  }
+public record TokenAuthInfo(ParsedToken token) implements AuthenticationInfo {
 
   @Override
   public Optional<String> getDatabase() {
-    return Optional.ofNullable(token.getToken().getDatabaseName());
-  }
-
-  public ParsedToken getToken() {
-    return token;
+    return Optional.ofNullable(token.token().getDatabaseName());
   }
 }

@@ -66,6 +66,7 @@ public class DefaultQueryOperatorFactory implements QueryOperatorFactory {
   /**
    * {@inheritDoc}
    */
+  @Override
   public Set<QueryOperator> getOperators() {
     return OPERATORS;
   }

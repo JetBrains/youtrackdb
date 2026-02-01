@@ -41,6 +41,7 @@ public class SQLFunctionThrowCME extends SQLFunctionAbstract {
     super(NAME, 4, 4);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -55,6 +56,7 @@ public class SQLFunctionThrowCME extends SQLFunctionAbstract {
     return false;
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "throwCME(RID, DatabaseVersion, RecordVersion, RecordOperation)";
   }

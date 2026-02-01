@@ -80,7 +80,7 @@ public class DbImportExportLinkBagTest extends BaseDBTest implements CommandOutp
       youTrackDb.create(DbImportExportLinkBagTest.class.getSimpleName(),
           databaseType, "admin", "admin", "admin");
 
-      try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
+      try (var importSession = youTrackDb.open(
           DbImportExportLinkBagTest.class.getSimpleName() + "Import", "admin", "admin")) {
         var dbImport = new DatabaseImport(importSession, testPath + "/" + exportFilePath, this);
         dbImport.setMaxRidbagStringSizeBeforeLazyImport(50);
@@ -102,7 +102,7 @@ public class DbImportExportLinkBagTest extends BaseDBTest implements CommandOutp
 
     var first = acquireSession();
     try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(getStorageType() + ":" + testPath)) {
-      try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
+      try (var importSession = youTrackDb.open(
           DbImportExportLinkBagTest.class.getSimpleName() + "Import", "admin", "admin")) {
 
         final var databaseCompare = new DatabaseCompare(first, importSession, this);

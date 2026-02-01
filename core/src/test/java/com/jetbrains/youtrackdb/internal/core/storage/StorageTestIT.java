@@ -95,7 +95,7 @@ public class StorageTestIT {
     file.write(bt + 1);
     file.close();
 
-    session = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    session = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     try {
       session.query("select from PageBreak").close();
@@ -158,7 +158,7 @@ public class StorageTestIT {
     file.write(1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     try {
       db.query("select from PageBreak").toEntityList();
@@ -222,7 +222,7 @@ public class StorageTestIT {
     file.write(1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     db.executeInTx(transaction -> {
       transaction.query("select from PageBreak").close();
@@ -291,7 +291,7 @@ public class StorageTestIT {
     file.write(bt + 1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
     db.executeInTx(transaction -> {
       transaction.query("select from PageBreak").close();

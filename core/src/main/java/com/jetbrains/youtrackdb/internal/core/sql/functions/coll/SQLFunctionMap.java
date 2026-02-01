@@ -37,6 +37,7 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
     super(NAME, 1, -1);
   }
 
+  @Override
   @Nullable
   @SuppressWarnings("unchecked")
   public Object execute(
@@ -93,6 +94,7 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
     return prepareResult(context);
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "map(<map>|[<key>,<value>]*)";
   }

@@ -507,26 +507,21 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
     }
   }
 
-  private static final class MemoryStatPrinter implements Runnable {
-
-    private final Set<ConsumptionMapEvictionIndicator> consumptionMaps;
-
-    private MemoryStatPrinter(Set<ConsumptionMapEvictionIndicator> consumptionMaps) {
-      this.consumptionMaps = consumptionMaps;
-    }
+  private record MemoryStatPrinter(Set<ConsumptionMapEvictionIndicator> consumptionMaps) implements
+      Runnable {
 
     @Override
-    public void run() {
-      final var accumulator = new EnumMap<Intention, ModifiableLong>(Intention.class);
+      public void run() {
+        final var accumulator = new EnumMap<Intention, ModifiableLong>(Intention.class);
 
-      for (final var consumptionMap : consumptionMaps) {
-        accumulateConsumptionStatistics(accumulator, consumptionMap);
+        for (final var consumptionMap : consumptionMaps) {
+          accumulateConsumptionStatistics(accumulator, consumptionMap);
+        }
+
+        final var memoryStat = printMemoryStatistics(accumulator);
+        LogManager.instance().info(this, memoryStat);
       }
-
-      final var memoryStat = printMemoryStatistics(accumulator);
-      LogManager.instance().info(this, memoryStat);
     }
-  }
 
   private static void accumulateConsumptionStatistics(
       EnumMap<Intention, ModifiableLong> accumulator,
