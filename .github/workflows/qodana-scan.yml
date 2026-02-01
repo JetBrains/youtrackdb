@@ -1,6 +1,12 @@
 name: Qodana
 on:
   workflow_dispatch:
+    inputs:
+      cleanup:
+        description: 'Apply Qodana cleanup fixes'
+        required: false
+        type: boolean
+        default: false
   pull_request:
   push:
     branches:
@@ -8,20 +14,96 @@ on:
 jobs:
   qodana:
     runs-on: ubuntu-latest
+    # Skip if this is a PR created by qodana-bot to avoid infinite loops
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'qodana-bot[bot]'
     permissions:
       contents: write
       pull-requests: write
       checks: write
+    env:
+      RUN_CLEANUP: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup == true }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
           lfs: true
+
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
         with:
-          args: --linter, jetbrains/qodana-jvm:2025.3, --baseline, .github/workflows/qodana.sarif.json
+          args: --linter, jetbrains/qodana-jvm:2025.3, --baseline, .github/workflows/qodana.sarif.json${{ env.RUN_CLEANUP == 'true' && ', --cleanup' || '' }}
           pr-mode: 'true'
+          push-fixes: none
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+      - name: Extract issue number from branch name
+        if: env.RUN_CLEANUP == 'true'
+        id: extract-issue
+        run: |
+          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+          BRANCH_NAME_LOWER="${BRANCH_NAME,,}"
+
+          # Pattern: ytdb + optional non-alphanumeric + digits (case-insensitive)
+          if [[ $BRANCH_NAME_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
+            ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
+            echo "issue_prefix=${ISSUE_PREFIX}" >> $GITHUB_OUTPUT
+            echo "has_issue=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_issue=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push cleanup fixes branch
+        if: env.RUN_CLEANUP == 'true'
+        id: push-fixes
+        run: |
+          # Check if there are changes to commit
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_fixes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          git config user.name "qodana-bot[bot]"
+          git config user.email "qodana-bot[bot]@users.noreply.github.com"
+
+          SOURCE_BRANCH="${{ github.head_ref || github.ref_name }}"
+
+          # Build branch name with issue prefix if available
+          if [ "${{ steps.extract-issue.outputs.has_issue }}" == "true" ]; then
+            CLEANUP_BRANCH="${{ steps.extract-issue.outputs.issue_prefix }}-qodana-fixes"
+            COMMIT_MSG="${{ steps.extract-issue.outputs.issue_prefix }}: Apply Qodana cleanup fixes"
+          else
+            CLEANUP_BRANCH="qodana-fixes-${SOURCE_BRANCH}"
+            COMMIT_MSG="Apply Qodana cleanup fixes"
+          fi
+
+          git checkout -b "$CLEANUP_BRANCH"
+          git add -A
+          git commit -m "$COMMIT_MSG"
+          git push -u origin "$CLEANUP_BRANCH" --force
+
+          echo "cleanup_branch=$CLEANUP_BRANCH" >> $GITHUB_OUTPUT
+          echo "source_branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
+          echo "has_fixes=true" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR with fixes info
+        if: env.RUN_CLEANUP == 'true' && github.event_name == 'workflow_dispatch' && steps.push-fixes.outputs.has_fixes == 'true'
+        run: |
+          CLEANUP_BRANCH="${{ steps.push-fixes.outputs.cleanup_branch }}"
+          SOURCE_BRANCH="${{ steps.push-fixes.outputs.source_branch }}"
+
+          COMPARE_URL="https://github.com/${{ github.repository }}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}"
+          PR_CREATE_URL="https://github.com/${{ github.repository }}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}?expand=1"
+
+          echo "## 🤖 Qodana Cleanup Fixes Available"
+          echo ""
+          echo "**Branch with fixes:** [\`$CLEANUP_BRANCH\`]($COMPARE_URL)"
+          echo ""
+          echo "**Options:**"
+          echo "1. [Create a PR]($PR_CREATE_URL) to merge fixes into \`$SOURCE_BRANCH\`"
+          echo "2. Cherry-pick commits: \`git cherry-pick origin/$CLEANUP_BRANCH\`"
+          echo "3. Rebase locally: \`git rebase origin/$CLEANUP_BRANCH\`"
+          echo ""
+          echo "⚠️ Please review the changes before merging - automated fixes may not always be correct."
