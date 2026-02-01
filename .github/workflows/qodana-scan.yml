@@ -20,6 +20,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           lfs: true
+          # Use PAT to allow pushing branches and creating PRs
+          token: ${{ secrets.QODANA_PUSH_TOKEN }}
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
@@ -82,4 +84,4 @@ jobs:
           )" \
             --base "${{ steps.base-branch.outputs.base }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.QODANA_PUSH_TOKEN }}
