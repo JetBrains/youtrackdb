@@ -3,6 +3,11 @@ projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
 
+exclude:
+  - name: All
+    paths:
+      - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser
+
 failureConditions:
   severityThresholds:
     critical: 0
