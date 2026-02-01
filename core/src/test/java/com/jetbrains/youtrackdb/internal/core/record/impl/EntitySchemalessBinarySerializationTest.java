@@ -514,7 +514,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
       ytdb.create("test", DatabaseType.MEMORY,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
-      try (var session = (DatabaseSessionEmbedded) ytdb.open("test", "admin", "adminpwd")) {
+      try (var session = ytdb.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
 
@@ -540,7 +540,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
       ytdb.create("test", DatabaseType.MEMORY,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
-      try (var session = (DatabaseSessionEmbedded) ytdb.open("test", "admin", "adminpwd")) {
+      try (var session = ytdb.open("test", "admin", "adminpwd")) {
         session.createClass("TestClass");
 
         session.begin();

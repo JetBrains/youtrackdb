@@ -13,20 +13,11 @@ import java.util.Map;
 
 public class SQLAlterRoleStatement extends SQLSimpleExecStatement {
 
-  static class Op {
+  record Op(int type, SQLSecurityResourceSegment resource, SQLIdentifier policyName) {
 
-    protected static int TYPE_ADD = 0;
-    protected static int TYPE_REMOVE = 1;
+      protected static int TYPE_ADD = 0;
+      protected static int TYPE_REMOVE = 1;
 
-    Op(int type, SQLSecurityResourceSegment resource, SQLIdentifier policyName) {
-      this.type = type;
-      this.resource = resource;
-      this.policyName = policyName;
-    }
-
-    protected final int type;
-    protected final SQLSecurityResourceSegment resource;
-    protected final SQLIdentifier policyName;
   }
 
   protected SQLIdentifier name;

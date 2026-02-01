@@ -10,7 +10,7 @@ import javax.annotation.Nonnull;
 
 public final class SQLScAndOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
-  private QueryOperator lowLevelOperator = null;
+  private final QueryOperator lowLevelOperator = null;
 
   public SQLScAndOperator(int id) {
     super(id);

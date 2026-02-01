@@ -40,6 +40,7 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
     super(NAME, 1, -1);
   }
 
+  @Override
   @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
   public Object execute(
@@ -100,12 +101,14 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
     return min;
   }
 
+  @Override
   public boolean aggregateResults() {
     // LET definitions (contain $current) does not require results aggregation
     return ((configuredParameters.length == 1)
         && !configuredParameters[0].toString().contains("$current"));
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "min(<field> [,<field>*])";
   }

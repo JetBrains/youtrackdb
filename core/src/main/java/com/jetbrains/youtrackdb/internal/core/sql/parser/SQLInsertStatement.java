@@ -31,6 +31,7 @@ public class SQLInsertStatement extends SQLStatement {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("INSERT INTO ");
     if (targetClass != null) {
@@ -65,6 +66,7 @@ public class SQLInsertStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("INSERT INTO ");
     if (targetClass != null) {

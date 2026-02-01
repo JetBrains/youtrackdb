@@ -82,6 +82,7 @@ public class SQLCreateVertexStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     builder.append("CREATE VERTEX ");
@@ -100,6 +101,7 @@ public class SQLCreateVertexStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     builder.append("CREATE VERTEX ");

@@ -418,7 +418,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     // Add the starting vertices, in the correct order, to an ordered set.
     Set<String> remainingStarts = new LinkedHashSet<String>();
     for (var item : rootWeights) {
-      remainingStarts.add(item.getValue());
+      remainingStarts.add(item.value());
     }
     // Add all the remaining aliases after all the suggested start points.
     remainingStarts.addAll(pattern.aliasToNode.keySet());

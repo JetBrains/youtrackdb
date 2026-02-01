@@ -34,24 +34,28 @@ public class ServerConfigAuthenticator extends SecurityAuthenticatorAbstract {
 
   // SecurityComponent
   // Called once the Server is running.
+  @Override
   public void active() {
     LogManager.instance().debug(this, "ServerConfigAuthenticator is active", logger);
   }
 
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
+  @Override
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
     return getSecurity().authenticateServerUser(session, username, password);
   }
 
   // SecurityAuthenticator
+  @Override
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     return getSecurity().getServerUser(session, username);
   }
 
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
+  @Override
   public boolean isAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
     return getSecurity().isServerUserAuthorized(session, username, resource);
