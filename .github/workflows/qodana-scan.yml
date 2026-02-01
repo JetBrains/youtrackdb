@@ -8,22 +8,18 @@ on:
 jobs:
   qodana:
     runs-on: ubuntu-latest
+    # Skip if this is a PR created by qodana-bot to avoid infinite loops
     if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'qodana-bot[bot]'
     permissions:
       contents: write
       pull-requests: write
       checks: write
-    env:
-      SHOULD_COMMIT: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           lfs: true
-          # Use PAT to allow pushed commits to trigger other workflows
-          # GITHUB_TOKEN doesn't trigger workflows (security feature to prevent loops)
-          token: ${{ secrets.QODANA_PUSH_TOKEN }}
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
@@ -34,24 +30,24 @@ jobs:
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
 
-      - name: Extract issue number from branch name
-        if: env.SHOULD_COMMIT == 'true' && github.event_name == 'pull_request'
-        id: extract-issue
+      - name: Determine base branch
+        id: base-branch
         run: |
-          BRANCH_NAME="${{ github.head_ref }}"
-          BRANCH_NAME_LOWER="${BRANCH_NAME,,}"
-
-          # Pattern: ytdb + optional non-alphanumeric + digits (case-insensitive)
-          if [[ $BRANCH_NAME_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
-            ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
-            echo "issue_prefix=${ISSUE_PREFIX}" >> $GITHUB_OUTPUT
-            echo "has_issue=true" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # For PRs, use the PR's head branch as base
+            echo "base=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+            echo "context=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+            # For push to develop, use develop as base
+            echo "base=develop" >> $GITHUB_OUTPUT
+            echo "context=develop" >> $GITHUB_OUTPUT
           else
-            echo "has_issue=false" >> $GITHUB_OUTPUT
+            # For workflow_dispatch or other cases, use the current ref
+            echo "base=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "context=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Commit cleanup changes (PR)
-        if: env.SHOULD_COMMIT == 'true' && github.event_name == 'pull_request'
+      - name: Create cleanup PR
         run: |
           # Check if there are changes to commit
           if git diff --quiet && git diff --staged --quiet; then
@@ -62,35 +58,8 @@ jobs:
           git config user.name "qodana-bot[bot]"
           git config user.email "qodana-bot[bot]@users.noreply.github.com"
 
-          # Checkout the branch to allow pushing
-          git checkout ${{ github.head_ref }}
-
-          git add -A
-
-          # Build commit message with issue prefix if available
-          if [ "${{ steps.extract-issue.outputs.has_issue }}" == "true" ]; then
-            COMMIT_MSG="${{ steps.extract-issue.outputs.issue_prefix }}: Apply Qodana cleanup fixes"
-          else
-            COMMIT_MSG="Apply Qodana cleanup fixes"
-          fi
-
-          git commit -m "$COMMIT_MSG"
-          git push
-
-      - name: Create cleanup PR (develop branch)
-        if: env.SHOULD_COMMIT == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/develop'
-        run: |
-          # Check if there are changes
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-
-          git config user.name "qodana-bot[bot]"
-          git config user.email "qodana-bot[bot]@users.noreply.github.com"
-
           # Create a new branch for the cleanup
-          CLEANUP_BRANCH="qodana-cleanup-$(date +%Y%m%d-%H%M%S)"
+          CLEANUP_BRANCH="qodana-cleanup-${{ steps.base-branch.outputs.context }}-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$CLEANUP_BRANCH"
 
           git add -A
@@ -99,7 +68,7 @@ jobs:
 
           # Create PR using GitHub CLI
           gh pr create \
-            --title "Apply Qodana cleanup fixes" \
+            --title "Apply Qodana cleanup fixes for ${{ steps.base-branch.outputs.base }}" \
             --body "$(cat <<'EOF'
           ## Summary
           - Automated PR to apply Qodana cleanup fixes to the codebase
@@ -111,6 +80,6 @@ jobs:
           🤖 Generated automatically by Qodana workflow
           EOF
           )" \
-            --base develop
+            --base "${{ steps.base-branch.outputs.base }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
