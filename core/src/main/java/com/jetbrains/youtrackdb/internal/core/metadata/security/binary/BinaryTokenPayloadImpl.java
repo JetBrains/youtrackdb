@@ -33,6 +33,7 @@ public class BinaryTokenPayloadImpl implements BinaryTokenPayload {
     return expiry;
   }
 
+  @Override
   public void setExpiry(long expiry) {
     this.expiry = expiry;
   }

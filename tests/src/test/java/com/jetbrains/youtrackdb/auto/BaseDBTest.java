@@ -52,7 +52,7 @@ public abstract class BaseDBTest extends BaseTest {
   @Override
   protected DatabaseSessionEmbedded createSessionInstance(
       YouTrackDBImpl youTrackDB, String dbName, String user, String password) {
-    return (DatabaseSessionEmbedded) youTrackDB.open(dbName, user, password);
+    return youTrackDB.open(dbName, user, password);
   }
 
   protected List<Result> executeQuery(String sql, DatabaseSessionInternal db,

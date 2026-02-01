@@ -53,10 +53,12 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
   }
 
   // SecurityComponent
+  @Override
   public void active() {
   }
 
   // SecurityComponent
+  @Override
   public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     this.security = security;
@@ -80,16 +82,19 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
   }
 
   // SecurityComponent
+  @Override
   public void dispose() {
   }
 
   // SecurityComponent
+  @Override
   public boolean isEnabled() {
     return enabled;
   }
 
   // SecurityAuthenticator
   // databaseName may be null.
+  @Override
   public String getAuthenticationHeader(String databaseName) {
     String header;
 
@@ -103,21 +108,25 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return header;
   }
 
+  @Override
   @Nullable
   public Subject getClientSubject() {
     return null;
   }
 
   // Returns the name of this SecurityAuthenticator.
+  @Override
   public String getName() {
     return name;
   }
 
+  @Override
   @Nullable
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     return null;
   }
 
+  @Override
   public boolean isAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
     return false;
@@ -131,6 +140,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return null;
   }
 
+  @Override
   public boolean isSingleSignOnSupported() {
     return false;
   }

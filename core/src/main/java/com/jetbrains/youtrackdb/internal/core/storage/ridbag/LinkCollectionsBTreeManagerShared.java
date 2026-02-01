@@ -69,8 +69,9 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
         fileIdBTreeMap.put(AbstractWriteCache.extractFileId(entry.getValue()), bTree);
         final var edgeKey = bTree.firstKey();
 
-        if (edgeKey != null && edgeKey.ridBagId < 0 && ridBagIdCounter.get() < -edgeKey.ridBagId) {
-          ridBagIdCounter.set(-edgeKey.ridBagId);
+        if (edgeKey != null && edgeKey.ridBagId()
+            < 0 && ridBagIdCounter.get() < -edgeKey.ridBagId()) {
+          ridBagIdCounter.set(-edgeKey.ridBagId());
         }
       }
     }
@@ -168,7 +169,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
-      stream.forEach(pair -> bTree.remove(atomicOperation, pair.first));
+      stream.forEach(pair -> bTree.remove(atomicOperation, pair.first()));
     }
 
     return true;

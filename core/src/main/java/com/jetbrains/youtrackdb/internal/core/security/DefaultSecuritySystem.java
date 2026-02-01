@@ -195,6 +195,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     setAuthenticatorList(authenticators);
   }
 
+  @Override
   public void shutdown() {
     close();
   }

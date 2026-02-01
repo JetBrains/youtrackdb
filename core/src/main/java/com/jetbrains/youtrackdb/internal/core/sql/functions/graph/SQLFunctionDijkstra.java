@@ -46,6 +46,7 @@ public class SQLFunctionDijkstra extends SQLFunctionPathFinder {
     super(NAME, 3, 4);
   }
 
+  @Override
   public LinkedList<Vertex> execute(
       final Object iThis,
       final Result iCurrentRecord,
@@ -74,10 +75,12 @@ public class SQLFunctionDijkstra extends SQLFunctionPathFinder {
     return super.execute(iContext);
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, [<direction>])";
   }
 
+  @Override
   protected float getDistance(final Vertex node, final Vertex target) {
     return -1; // not used anymore
   }
