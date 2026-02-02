@@ -532,10 +532,10 @@ public abstract class SchemaShared implements CloseableInStorage {
         SchemaClassImpl cls;
         if (classes.containsKey(name.toLowerCase(Locale.ENGLISH))) {
           cls = classes.get(name.toLowerCase(Locale.ENGLISH));
-          cls.fromStream(session, c);
+          cls.fromStream(c);
         } else {
           cls = createClassInstance(name);
-          cls.fromStream(session, c);
+          cls.fromStream(c);
         }
 
         newClasses.put(cls.getName().toLowerCase(Locale.ENGLISH), cls);

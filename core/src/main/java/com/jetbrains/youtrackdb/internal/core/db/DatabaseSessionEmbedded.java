@@ -1973,37 +1973,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return this;
   }
 
-  @SuppressWarnings("unused")
-  public long getCollectionRecordSizeByName(final String collectionName) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    try {
-      return storage.getCollectionRecordsSizeByName(collectionName);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on reading records size for collection '" + collectionName + "'"),
-          e, getDatabaseName());
-    }
-  }
-
-  public long getCollectionRecordSizeById(final int collectionId) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    try {
-      return storage.getCollectionRecordsSizeById(collectionId);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on reading records size for collection with id '" + collectionId + "'"),
-          e, getDatabaseName());
-    }
-  }
-
   /**
    * {@inheritDoc}
    */
@@ -2125,14 +2094,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     return storage.dropCollection(this, collectionId);
-  }
-
-  public long getSize() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    return storage.getSize(this);
   }
 
   public DatabaseStats getStats() {

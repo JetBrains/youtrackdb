@@ -120,13 +120,14 @@ public class LongSerializer implements BinarySerializer<Long> {
     return CONVERTER.getLong(stream, startPosition, ByteOrder.nativeOrder());
   }
 
-  public void serializeNative(final long object, final byte[] stream, final int startPosition) {
+  public static void serializeNative(final long object, final byte[] stream,
+      final int startPosition) {
     checkBoundaries(stream, startPosition);
 
     CONVERTER.putLong(stream, startPosition, object, ByteOrder.nativeOrder());
   }
 
-  public long deserializeNative(final byte[] stream, final int startPosition) {
+  public static long deserializeNative(final byte[] stream, final int startPosition) {
     checkBoundaries(stream, startPosition);
 
     return CONVERTER.getLong(stream, startPosition, ByteOrder.nativeOrder());

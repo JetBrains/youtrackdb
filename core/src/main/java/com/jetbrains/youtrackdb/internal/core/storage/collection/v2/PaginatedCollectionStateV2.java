@@ -24,34 +24,13 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
-/**
- * @since 20.08.13
- */
 public final class PaginatedCollectionStateV2 extends DurablePage {
-
   private static final int RECORDS_SIZE_OFFSET = NEXT_FREE_POSITION;
   private static final int SIZE_OFFSET = RECORDS_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
   private static final int FILE_SIZE_OFFSET = SIZE_OFFSET + IntegerSerializer.INT_SIZE;
-  private static final int FREE_LIST_OFFSET = FILE_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
 
   public PaginatedCollectionStateV2(CacheEntry cacheEntry) {
     super(cacheEntry);
-  }
-
-  public void setSize(int size) {
-    setIntValue(SIZE_OFFSET, size);
-  }
-
-  public int getSize() {
-    return getIntValue(SIZE_OFFSET);
-  }
-
-  public void setRecordsSize(int recordsSize) {
-    setIntValue(RECORDS_SIZE_OFFSET, recordsSize);
-  }
-
-  public int getRecordsSize() {
-    return getIntValue(RECORDS_SIZE_OFFSET);
   }
 
   public void setFileSize(int size) {
@@ -60,14 +39,5 @@ public final class PaginatedCollectionStateV2 extends DurablePage {
 
   public int getFileSize() {
     return getIntValue(FILE_SIZE_OFFSET);
-  }
-
-  public void setFreeListPage(int index, int pageIndex) {
-    final var pageOffset = FREE_LIST_OFFSET + index * IntegerSerializer.INT_SIZE;
-    setIntValue(pageOffset, pageIndex);
-  }
-
-  public int getFreeListPage(int index) {
-    return getIntValue(FREE_LIST_OFFSET + index * IntegerSerializer.INT_SIZE);
   }
 }

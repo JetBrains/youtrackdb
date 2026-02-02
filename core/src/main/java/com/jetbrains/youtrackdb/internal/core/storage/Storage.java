@@ -125,10 +125,6 @@ public interface Storage extends StorageInfo {
 
   String getCollectionNameById(final int collectionId);
 
-  long getCollectionRecordsSizeById(final int collectionId);
-
-  long getCollectionRecordsSizeByName(final String collectionName);
-
   String getCollectionRecordConflictStrategy(final int collectionId);
 
   boolean isSystemCollection(final int collectionId);
@@ -140,11 +136,6 @@ public interface Storage extends StorageInfo {
   long count(DatabaseSessionEmbedded session, int[] iCollectionIds);
 
   long count(DatabaseSessionEmbedded session, int[] iCollectionIds, boolean countTombstones);
-
-  /**
-   * Returns the size of the database.
-   */
-  long getSize(DatabaseSessionEmbedded session);
 
   AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session, RecordIdInternal identity,
       String fieldName, RID rid);

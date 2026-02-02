@@ -102,7 +102,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     strictMode = oClass.isStrictMode();
     this.schema = schema;
 
-    superClassesNames = oClass.getSuperClassesNames(session);
+    superClassesNames = oClass.getSuperClassesNames();
     superClasses = new ArrayList<>(superClassesNames.size());
 
     name = oClass.getName();

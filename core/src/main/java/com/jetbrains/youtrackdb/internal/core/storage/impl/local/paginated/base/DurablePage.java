@@ -63,7 +63,7 @@ public class DurablePage {
   public static final int WAL_POSITION_OFFSET = WAL_SEGMENT_OFFSET + LongSerializer.LONG_SIZE;
 
   public static final int MAX_PAGE_SIZE_BYTES =
-      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
 
   public static final int NEXT_FREE_POSITION = WAL_POSITION_OFFSET + LongSerializer.LONG_SIZE;
 
@@ -144,7 +144,7 @@ public class DurablePage {
   @SuppressWarnings("unused")
   public static LogSequenceNumber getLogSequenceNumber(final int offset, final byte[] data) {
     final var segment =
-        LongSerializer.INSTANCE.deserializeNative(data, offset + WAL_SEGMENT_OFFSET);
+        LongSerializer.deserializeNative(data, offset + WAL_SEGMENT_OFFSET);
     final var position =
         IntegerSerializer.deserializeNative(data, offset + WAL_POSITION_OFFSET);
 

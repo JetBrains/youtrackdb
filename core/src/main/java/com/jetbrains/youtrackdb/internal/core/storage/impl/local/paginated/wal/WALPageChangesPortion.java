@@ -14,7 +14,7 @@ import java.nio.ByteBuffer;
 public final class WALPageChangesPortion implements WALChanges {
 
   private static final int PAGE_SIZE =
-      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
 
   private static final int CHUNK_SIZE = 32;
   private static final int PORTION_SIZE = 32;
@@ -40,7 +40,7 @@ public final class WALPageChangesPortion implements WALChanges {
   @Override
   public void setLongValue(ByteBuffer pointer, long value, int offset) {
     var data = new byte[LongSerializer.LONG_SIZE];
-    LongSerializer.INSTANCE.serializeNative(value, data, 0);
+    LongSerializer.serializeNative(value, data, 0);
 
     updateData(pointer, offset, data);
   }
@@ -86,7 +86,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
     readData(pointer, offset, data);
 
-    return LongSerializer.INSTANCE.deserializeNative(data, 0);
+    return LongSerializer.deserializeNative(data, 0);
   }
 
   @Override
