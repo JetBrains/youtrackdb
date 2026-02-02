@@ -239,8 +239,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         var tx = tx();
         if (!tx.isOpen()) {
           tx.readWrite();
-        } else {
-          throw new IllegalStateException("There already is an active transaction");
         }
         return;
       }

@@ -83,8 +83,7 @@ public class GqlStructureTest {
   private static Stream<Path> getFilesFromPath(String pathStr) throws IOException {
     var path = Paths.get(pathStr).toAbsolutePath();
     if (!Files.exists(path)) {
-      System.err.println("WARNING: Directory does not exist: " + path);
-      return Stream.empty();
+      throw new NoSuchFileException("Test data directory not found: " + path);
     }
 
     try (var walkStream = Files.walk(path)) {

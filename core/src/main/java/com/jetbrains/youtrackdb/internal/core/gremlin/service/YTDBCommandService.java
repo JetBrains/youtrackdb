@@ -76,6 +76,11 @@ public class YTDBCommandService implements Service<Object, Object> {
         if (argsList.getFirst() instanceof String cmd) {
           finalCommand = cmd;
           if (argsList.size() > 1) {
+            var rest = argsList.size() - 1;
+            if (rest % 2 != 0) {
+              throw new IllegalArgumentException(
+                  "Arguments must be provided in key-value pairs; got " + rest + " value(s) after the command");
+            }
             var map = new java.util.LinkedHashMap<>();
             for (var i = 1; i + 1 < argsList.size(); i += 2) {
               map.put(argsList.get(i), argsList.get(i + 1));
