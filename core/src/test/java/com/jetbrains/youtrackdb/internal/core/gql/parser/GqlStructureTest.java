@@ -11,6 +11,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.file.*;
 import java.util.stream.Stream;
 
@@ -73,25 +75,32 @@ public class GqlStructureTest {
   }
 
   static Stream<Path> getPositiveGqlFiles() throws IOException {
-    return getFilesFromPath("src/test/resources/gql-tests/positive");
+    return getFilesFromResource("/gql-tests/positive");
   }
 
   static Stream<Path> getNegativeGqlFiles() throws IOException {
-    return getFilesFromPath("src/test/resources/gql-tests/negative");
+    return getFilesFromResource("/gql-tests/negative");
   }
 
-  private static Stream<Path> getFilesFromPath(String pathStr) throws IOException {
-    var path = Paths.get(pathStr).toAbsolutePath();
-    if (!Files.exists(path)) {
-      throw new NoSuchFileException("Test data directory not found: " + path);
+  private static Stream<Path> getFilesFromResource(String resourcePath) throws IOException {
+    URL resource = GqlStructureTest.class.getResource(resourcePath);
+    if (resource == null) {
+      throw new NoSuchFileException("Test data directory not found on classpath: " + resourcePath);
     }
-
-    try (var walkStream = Files.walk(path)) {
-      return walkStream
-          .filter(Files::isRegularFile)
-          .filter(p -> p.getFileName().toString().endsWith(".gql"))
-          .toList()
-          .stream();
+    try {
+      var path = Paths.get(resource.toURI());
+      if (!Files.exists(path) || !Files.isDirectory(path)) {
+        throw new NoSuchFileException("Test data directory not found: " + path);
+      }
+      try (var walkStream = Files.walk(path)) {
+        return walkStream
+            .filter(Files::isRegularFile)
+            .filter(p -> p.getFileName().toString().endsWith(".gql"))
+            .toList()
+            .stream();
+      }
+    } catch (URISyntaxException e) {
+      throw new IOException("Invalid resource URI: " + resource, e);
     }
   }
 

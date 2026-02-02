@@ -15,7 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
