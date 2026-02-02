@@ -9,14 +9,13 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import java.io.File;
-import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicLong;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class BaseServerMemoryDatabase {
+
   protected YTDBGraphTraversalSource traversal;
   protected YouTrackDB youTrackDB;
 

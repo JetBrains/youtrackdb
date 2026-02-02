@@ -24,7 +24,6 @@ import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData;
 import org.apache.tinkerpop.gremlin.driver.AuthProperties;
 import org.apache.tinkerpop.gremlin.driver.AuthProperties.Property;
-import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.remote.DriverRemoteConnection;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
@@ -95,10 +94,9 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
   protected final Map<String, RemoteGraph> remoteCache = new HashMap<>();
 
   protected Cluster cluster;
-  protected Client client;
 
   public YouTrackDBServer ytdbServer;
-  public HashMap<String, SessionPool> graphGetterSessionPools = new HashMap<>();
+  public final HashMap<String, SessionPool> graphGetterSessionPools = new HashMap<>();
 
   public YTDBGraphBinaryRemoteGraphProvider() {
   }
@@ -142,7 +140,7 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     try {
       cluster.close();
     } catch (Exception ex) {
@@ -249,8 +247,6 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
   }
 
   public void startServer() throws Exception {
-    final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
-        .toAbsolutePath();
     ytdbServer = new YouTrackDBServer();
     try {
       ytdbServer.setServerRootDirectory(DbTestBase.getBaseDirectoryPathStr(getClass()));
@@ -265,8 +261,6 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
 
     cluster = createClusterBuilder(createSerializer()).authProperties(new AuthProperties().with(
         Property.USERNAME, "root").with(Property.PASSWORD, "root")).create();
-    client = this.cluster.connect();
-
     reloadAllTestGraphs();
   }
 

@@ -1,8 +1,6 @@
 package org.apache.tinkerpop.gremlin.server;
 
-import java.net.URI;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
-import org.apache.tinkerpop.gremlin.driver.simple.WebSocketClient;
 
 public final class TestClientFactory {
   public static Cluster.Builder build(int port) {
