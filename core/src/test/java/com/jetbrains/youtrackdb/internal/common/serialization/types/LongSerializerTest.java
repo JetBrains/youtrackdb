@@ -56,14 +56,14 @@ public class LongSerializerTest {
 
   @Test
   public void testSerializeNative() {
-    longSerializer.serializeNative(OBJECT, stream, 0);
+    LongSerializer.serializeNative(OBJECT, stream, 0);
     Assert.assertEquals(OBJECT,
         longSerializer.deserializeNativeObject(serializerFactory, stream, 0));
   }
 
   @Test
   public void testNativeDirectMemoryCompatibility() {
-    longSerializer.serializeNative(OBJECT, stream, 0);
+    LongSerializer.serializeNative(OBJECT, stream, 0);
 
     var buffer = ByteBuffer.allocateDirect(stream.length).order(ByteOrder.nativeOrder());
     buffer.put(stream);
@@ -129,7 +129,7 @@ public class LongSerializerTest {
         ByteBuffer.allocateDirect(
             FIELD_SIZE + serializationOffset + WALPageChangesPortion.PORTION_BYTES);
     final var data = new byte[FIELD_SIZE];
-    longSerializer.serializeNative(OBJECT, data, 0);
+    LongSerializer.serializeNative(OBJECT, data, 0);
 
     WALChanges walChanges = new WALPageChangesPortion();
     walChanges.setBinaryValue(buffer, data, serializationOffset);

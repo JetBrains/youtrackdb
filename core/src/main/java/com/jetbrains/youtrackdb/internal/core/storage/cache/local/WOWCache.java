@@ -1659,7 +1659,7 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         final var magicNumber =
-            LongSerializer.INSTANCE.deserializeNative(data, MAGIC_NUMBER_OFFSET);
+            LongSerializer.deserializeNative(data, MAGIC_NUMBER_OFFSET);
 
         if (magicNumber != MAGIC_NUMBER_WITH_CHECKSUM
             && magicNumber != MAGIC_NUMBER_WITHOUT_CHECKSUM

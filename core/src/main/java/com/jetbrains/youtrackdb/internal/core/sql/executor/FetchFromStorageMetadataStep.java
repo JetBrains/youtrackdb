@@ -46,7 +46,6 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
             ? null
             : storage.getRecordConflictStrategy().getName());
     result.setProperty("name", storage.getName());
-    result.setProperty("size", storage.getSize(ctx.getDatabaseSession()));
     result.setProperty("type", storage.getType());
     result.setProperty("version", storage.getVersion());
     result.setProperty("createdAtVersion", storage.getCreatedAtVersion());

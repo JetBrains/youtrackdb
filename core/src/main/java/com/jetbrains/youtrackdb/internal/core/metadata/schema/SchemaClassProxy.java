@@ -230,7 +230,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public List<String> getSuperClassesNames() {
     assert session.assertIfNotActive();
-    return delegate.getSuperClassesNames(session);
+    return delegate.getSuperClassesNames();
   }
 
   @Override

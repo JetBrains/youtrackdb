@@ -1406,7 +1406,7 @@ public class DiskStorage extends AbstractStorage {
           if (changeLsn == null || pageLsn.compareTo(changeLsn) > 0) {
 
             final var data = new byte[pageSize + LongSerializer.LONG_SIZE];
-            LongSerializer.INSTANCE.serializeNative(pageIndex, data, 0);
+            LongSerializer.serializeNative(pageIndex, data, 0);
             DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE,
                 pageSize);
 
@@ -1783,7 +1783,7 @@ public class DiskStorage extends AbstractStorage {
           rb += b;
         }
 
-        final var pageIndex = LongSerializer.INSTANCE.deserializeNative(data, 0);
+        final var pageIndex = LongSerializer.deserializeNative(data, 0);
 
         if (aesKey != null) {
           doEncryptionDecryption(
