@@ -47,6 +47,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@SuppressWarnings("resource")
 public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consumer<Status> {
 
   public static void registerOptimizationStrategies(Class<? extends YTDBGraphImplAbstract> cls) {

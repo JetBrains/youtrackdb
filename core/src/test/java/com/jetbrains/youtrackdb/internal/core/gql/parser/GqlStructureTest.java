@@ -83,7 +83,7 @@ public class GqlStructureTest {
   }
 
   private static Stream<Path> getFilesFromResource(String resourcePath) throws IOException {
-    URL resource = GqlStructureTest.class.getResource(resourcePath);
+    var resource = GqlStructureTest.class.getResource(resourcePath);
     if (resource == null) {
       throw new NoSuchFileException("Test data directory not found on classpath: " + resourcePath);
     }
