@@ -14,11 +14,6 @@ permissions:
   pull-requests: write
   actions: read
 
-env:
-  # Branches that should receive Zulip notifications on build failure/fix
-  # To add more branches, modify this JSON array (e.g., '["develop", "main", "release"]')
-  NOTIFICATION_BRANCHES: '["develop"]'
-
 jobs:
   test:
     name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
@@ -146,7 +141,7 @@ jobs:
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test, deploy, deploy-docker ]
-    if: failure() && github.event_name == 'push' && contains(fromJSON(env.NOTIFICATION_BRANCHES), github.ref_name)
+    if: failure() && github.event_name == 'push' && contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
       - name: Determine Branch Name
@@ -173,7 +168,7 @@ jobs:
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
       github.event_name == 'push' &&
-      contains(fromJSON(env.NOTIFICATION_BRANCHES), github.ref_name)
+      contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
