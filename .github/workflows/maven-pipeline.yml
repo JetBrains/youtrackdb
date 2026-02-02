@@ -141,17 +141,12 @@ jobs:
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test, deploy, deploy-docker ]
-    if: failure()
+    if: failure() && github.event_name == 'push' && contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
       - name: Determine Branch Name
         id: branch_name
-        run: |
-          if [[ "${{ github.event_name }}" == "merge_group" ]]; then
-            echo "branch=${{ github.event.merge_group.head_ref }}" >> $GITHUB_OUTPUT
-          else
-            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
+        run: echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
       - name: Send Zulip notification
         uses: zulip/github-actions-zulip/send-message@v1
         with:
@@ -168,7 +163,12 @@ jobs:
   notify-fixed:
     name: Notify build fixed on Zulip
     needs: [ test, deploy, deploy-docker ]
-    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    if: >-
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
+      github.event_name == 'push' &&
+      contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -176,12 +176,7 @@ jobs:
 
       - name: Determine Branch Name
         id: branch_name
-        run: |
-          if [[ "${{ github.event_name }}" == "merge_group" ]]; then
-            echo "branch=${{ github.event.merge_group.head_ref }}" >> $GITHUB_OUTPUT
-          else
-            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
+        run: echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
       - name: Get Previous Run Status
         id: previous_run
