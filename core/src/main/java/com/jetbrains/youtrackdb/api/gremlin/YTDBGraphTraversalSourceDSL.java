@@ -137,7 +137,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @return The name of the backup file.
   public String fullBackup(final Path path) {
     var clone = (YTDBGraphTraversalSource) this.clone();
-    var params = Map.of(YTDBFullBackupService.NAME, path.toString());
+    var params = Map.of(YTDBFullBackupService.PATH, path.toString());
     clone.getBytecode().addStep("call", YTDBFullBackupService.NAME, params);
 
     try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {

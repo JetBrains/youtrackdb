@@ -687,6 +687,46 @@ public class StorageBackupTest {
     FileUtils.deleteDirectory(backupDir);
   }
 
+  @Test
+  public void testFullBackupViaTraversalSource() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
+    final var dbName = StorageBackupTest.class.getSimpleName();
+
+    final var backupDir = new File(testDirectory, "fullBackupDir");
+    FileUtils.deleteDirectory(backupDir);
+    Assert.assertTrue(backupDir.mkdirs());
+
+    final var random = new Random();
+
+    try (var youTrackDB = YourTracks.instance(testDirectory)) {
+      youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
+
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
+
+        String backupFileName = traversal.fullBackup(backupDir.toPath());
+
+        Assert.assertNotNull("Backup file name should not be null", backupFileName);
+        Assert.assertTrue("Backup file should exist",
+            Files.exists(backupDir.toPath().resolve(backupFileName)));
+      }
+    }
+
+    // Verify restore works
+    final var backupDbName = StorageBackupTest.class.getSimpleName() + "FullBackUp";
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath());
+
+      final var compare =
+          new DatabaseCompare(
+              youTrackDB.open(dbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
+              System.out::println);
+
+      Assert.assertTrue(compare.compare());
+    }
+  }
+
   private static void generateChunkOfData(YTDBGraphTraversalSource traversalSource, Random random) {
     for (var i = 0; i < 1000; i++) {
       traversalSource.executeInTx(g -> {
