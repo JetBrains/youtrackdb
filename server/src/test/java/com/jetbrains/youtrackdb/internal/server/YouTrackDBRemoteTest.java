@@ -8,6 +8,8 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedSystemRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import java.io.File;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 import org.apache.commons.lang3.function.FailableConsumer;
@@ -138,6 +140,36 @@ public class YouTrackDBRemoteTest {
     Assert.assertFalse(youTrackDB.exists("test"));
   }
 
+  @Test
+  public void backupAndRestoreRemoteDatabase() {
+    var dbName = "testBackupRestore";
+    var backupDir = new File(DbTestBase.getBaseDirectoryPathStr(YouTrackDBRemoteTest.class),
+        "backupDir");
+    FileUtils.deleteRecursively(backupDir);
+    Assert.assertTrue(backupDir.mkdirs());
+
+    youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
+
+    try (var g = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+      g.addV("Person").property("name", "Alice").iterate();
+      g.addV("Person").property("name", "Bob").iterate();
+      g.backup(backupDir.toPath());
+    }
+
+    youTrackDB.drop(dbName);
+    Assert.assertFalse(youTrackDB.exists(dbName));
+
+    youTrackDB.restore(dbName, backupDir.getAbsolutePath());
+
+    Assert.assertTrue(youTrackDB.exists(dbName));
+    try (var g = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+      var count = g.V().hasLabel("Person").count().next();
+      Assert.assertEquals(2L, count.longValue());
+    }
+
+    youTrackDB.drop(dbName);
+    FileUtils.deleteRecursively(backupDir);
+  }
 
   @Test
   public void testMultiThread() {
