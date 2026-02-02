@@ -725,6 +725,7 @@ public class StorageBackupTest {
 
       Assert.assertTrue(compare.compare());
     }
+    FileUtils.deleteDirectory(backupDir);
   }
 
   private static void generateChunkOfData(YTDBGraphTraversalSource traversalSource, Random random) {
