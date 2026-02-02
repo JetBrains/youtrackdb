@@ -79,7 +79,7 @@ public class YTDBCommandService implements Service<Object, Object> {
             var rest = argsList.size() - 1;
             if (rest % 2 != 0) {
               throw new IllegalArgumentException(
-                  "Arguments must be provided in key-value pairs; got " + rest + " value(s) after the command");
+                  "Arguments must be provided in key-value pairs");
             }
             var map = new java.util.LinkedHashMap<>();
             for (var i = 1; i + 1 < argsList.size(); i += 2) {
