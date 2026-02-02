@@ -364,6 +364,19 @@ public abstract class AbstractStorage
     lastCloseTime = System.currentTimeMillis();
   }
 
+  private void closeIfPossible() {
+    while (true) {
+      var sessions = sessionCount.get();
+      if (sessions < 0) {
+        return;
+      }
+      if (sessionCount.compareAndSet(sessions, sessions - 1)) {
+        lastCloseTime = System.currentTimeMillis();
+        return;
+      }
+    }
+  }
+
   public long getSessionsCount() {
     return sessionCount.get();
   }
@@ -784,10 +797,10 @@ public abstract class AbstractStorage
         throw BaseException.wrapException(
             new StorageException(name, "Storage creation was interrupted"), e, name);
       } catch (final StorageException e) {
-        close(null);
+        closeIfPossible();
         throw e;
       } catch (final IOException e) {
-        close(null);
+        closeIfPossible();
         throw BaseException.wrapException(
             new StorageException(name, "Error on creation of storage '" + name + "'"), e, name);
       } finally {
@@ -1230,61 +1243,6 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public long getCollectionRecordsSizeById(int collectionId) {
-    try {
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        checkCollectionId(collectionId);
-        final var collection = collections.get(collectionId);
-        if (collection == null) {
-          throwCollectionDoesNotExist(collectionId);
-        }
-
-        return collection.getRecordsSize();
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  @Override
-  public long getCollectionRecordsSizeByName(String collectionName) {
-    Objects.requireNonNull(collectionName);
-
-    try {
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        final var collection = collectionMap.get(collectionName.toLowerCase());
-        if (collection == null) {
-          throwCollectionDoesNotExist(collectionName);
-        }
-
-        return collection.getRecordsSize();
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  @Override
   public String getCollectionRecordConflictStrategy(int collectionId) {
     try {
       stateLock.readLock().lock();
@@ -1343,11 +1301,6 @@ public abstract class AbstractStorage
   private void throwCollectionDoesNotExist(int collectionId) {
     throw new CollectionDoesNotExistException(name,
         "Collection with id " + collectionId + " does not exist inside of storage " + name);
-  }
-
-  private void throwCollectionDoesNotExist(String collectionName) {
-    throw new CollectionDoesNotExistException(name,
-        "Collection with name `" + collectionName + "` does not exist inside of storage " + name);
   }
 
   @Override
@@ -3254,41 +3207,6 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(t, false);
     } finally {
       stateLock.readLock().unlock();
-    }
-  }
-
-  @Override
-  public final long getSize(DatabaseSessionEmbedded session) {
-    try {
-      try {
-        long size = 0;
-
-        stateLock.readLock().lock();
-        try {
-
-          checkOpennessAndMigration();
-
-          for (final var c : collections) {
-            if (c != null) {
-              size += c.getRecordsSize();
-            }
-          }
-        } finally {
-          stateLock.readLock().unlock();
-        }
-
-        return size;
-      } catch (final IOException ioe) {
-        throw BaseException.wrapException(
-            new StorageException(name, "Cannot calculate records size"),
-            ioe, name);
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
     }
   }
 

@@ -324,16 +324,6 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public long getCollectionRecordsSizeById(int collectionId) {
-          return 0;
-        }
-
-        @Override
-        public long getCollectionRecordsSizeByName(String collectionName) {
-          return 0;
-        }
-
-        @Override
         public String getCollectionRecordConflictStrategy(int collectionId) {
           return null;
         }

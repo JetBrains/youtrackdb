@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -125,6 +124,10 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
   @Test
   public void testSimpleSerialization() {
     session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    session.commit();
+
+    session.begin();
     var document = (EntityImpl) session.newEntity(simple);
 
     document.setProperty(STRING_FIELD, NAME);
@@ -136,7 +139,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     document.setProperty(BYTE_FIELD, (byte) 'C');
     document.setProperty(BOOLEAN_FIELD, true);
     document.setProperty(DATE_FIELD, new Date());
-    document.setProperty(RECORDID_FIELD, new RecordId(10, 0));
+    document.setProperty(RECORDID_FIELD, entity.getIdentity());
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) session.newEntity();
@@ -152,7 +155,8 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     assertEquals(extr.<Object>getProperty(BYTE_FIELD), document.getProperty(BYTE_FIELD));
     assertEquals(extr.<Object>getProperty(BOOLEAN_FIELD), document.getProperty(BOOLEAN_FIELD));
     assertEquals(extr.<Object>getProperty(DATE_FIELD), document.getProperty(DATE_FIELD));
-    assertEquals(extr.getProperty(RECORDID_FIELD), document.getProperty(RECORDID_FIELD));
+    assertEquals(extr.<EntityImpl>getProperty(RECORDID_FIELD),
+        document.getProperty(RECORDID_FIELD));
     session.rollback();
   }
 

@@ -128,11 +128,6 @@ public interface StorageCollection {
 
   String getName();
 
-  /**
-   * Returns the size of the records contained in the collection in bytes.
-   */
-  long getRecordsSize() throws IOException;
-
   String compression();
 
   boolean isSystemCollection();

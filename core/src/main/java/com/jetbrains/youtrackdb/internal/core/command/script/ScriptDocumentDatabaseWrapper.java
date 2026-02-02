@@ -43,6 +43,7 @@ import java.util.Map.Entry;
 /**
  * Document Database wrapper class to use from scripts.
  */
+@SuppressWarnings("unused")
 @Deprecated
 public class ScriptDocumentDatabaseWrapper {
 
@@ -65,6 +66,7 @@ public class ScriptDocumentDatabaseWrapper {
   /**
    * To maintain the compatibility with JS API.
    */
+  @SuppressWarnings("unused")
   public Object executeCommand(final String iText) {
     return command(iText, (Object[]) null);
   }
@@ -237,10 +239,6 @@ public class ScriptDocumentDatabaseWrapper {
 
   public DatabaseSessionEmbedded setRetainRecords(boolean iValue) {
     return session.setRetainRecords(iValue);
-  }
-
-  public long getSize() {
-    return session.getSize();
   }
 
   public void delete(EntityImpl iRecord) {

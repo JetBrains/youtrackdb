@@ -77,26 +77,26 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
       final int startPosition,
       final Object... hints) {
     var pos = startPosition;
-    LongSerializer.INSTANCE.serializeNative(object.id, stream, pos);
+    LongSerializer.serializeNative(object.id, stream, pos);
     pos += LongSerializer.LONG_SIZE;
 
     ShortSerializer.INSTANCE.serializeNative((short) object.collectionId, stream, pos);
     pos += ShortSerializer.SHORT_SIZE;
 
-    LongSerializer.INSTANCE.serializeNative(object.collectionPosition, stream, pos);
+    LongSerializer.serializeNative(object.collectionPosition, stream, pos);
   }
 
   @Override
   public MultiValueEntry deserializeNativeObject(BinarySerializerFactory serializerFactory,
       final byte[] stream, final int startPosition) {
     var pos = startPosition;
-    final var id = LongSerializer.INSTANCE.deserializeNative(stream, pos);
+    final var id = LongSerializer.deserializeNative(stream, pos);
     pos += LongSerializer.LONG_SIZE;
 
     final int collectionId = ShortSerializer.INSTANCE.deserializeNative(stream, pos);
     pos += ShortSerializer.SHORT_SIZE;
 
-    final var collectionPosition = LongSerializer.INSTANCE.deserializeNative(stream, pos);
+    final var collectionPosition = LongSerializer.deserializeNative(stream, pos);
     return new MultiValueEntry(id, collectionId, collectionPosition);
   }
 

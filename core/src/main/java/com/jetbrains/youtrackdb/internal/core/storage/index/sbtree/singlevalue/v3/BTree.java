@@ -293,7 +293,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               } else {
                 final int collectionId = ShortSerializer.INSTANCE.deserializeNative(oldRawValue, 0);
                 final var collectionPosition =
-                    LongSerializer.INSTANCE.deserializeNative(
+                    LongSerializer.deserializeNative(
                         oldRawValue, ShortSerializer.SHORT_SIZE);
                 oldValue = new RecordId(collectionId, collectionPosition);
               }
@@ -324,7 +324,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                   new byte[ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE];
               ShortSerializer.INSTANCE.serializeNative(
                   (short) value.getCollectionId(), serializedValue, 0);
-              LongSerializer.INSTANCE.serializeNative(
+              LongSerializer.serializeNative(
                   value.getCollectionPosition(), serializedValue, ShortSerializer.SHORT_SIZE);
 
               int insertionIndex;
@@ -515,7 +515,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
                   final int collectionId = ShortSerializer.INSTANCE.deserializeNative(rawValue, 0);
                   final var collectionPosition =
-                      LongSerializer.INSTANCE.deserializeNative(
+                      LongSerializer.deserializeNative(
                           rawValue, ShortSerializer.SHORT_SIZE);
 
                   removedValue = new RecordId(collectionId, collectionPosition);

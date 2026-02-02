@@ -248,7 +248,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public List<String> getSuperClassesNames(DatabaseSessionEmbedded session) {
+  public List<String> getSuperClassesNames() {
     acquireSchemaReadLock();
     try {
       List<String> superClassesNames = new ArrayList<>(superClasses.size());
@@ -282,19 +282,6 @@ public abstract class SchemaClassImpl {
       final List<SchemaClassImpl> classes,
       boolean validateIndexes);
 
-  public long getSize(DatabaseSessionEmbedded session) {
-    acquireSchemaReadLock();
-    try {
-      long size = 0;
-      for (var collectionId : collectionIds) {
-        size += session.getCollectionRecordSizeById(collectionId);
-      }
-
-      return size;
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
 
 
   public String getDescription() {
@@ -365,32 +352,6 @@ public abstract class SchemaClassImpl {
     properties.addAll(this.properties.values());
     for (var superClass : superClasses) {
       superClass.properties(properties);
-    }
-  }
-
-  public void getIndexedProperties(DatabaseSessionEmbedded session,
-      Collection<SchemaPropertyImpl> indexedProperties) {
-    for (var p : properties.values()) {
-      if (areIndexed(session, p.getName())) {
-        indexedProperties.add(p);
-      }
-    }
-    for (var superClass : superClasses) {
-      superClass.getIndexedProperties(session, indexedProperties);
-    }
-  }
-
-  public Collection<SchemaPropertyImpl> getIndexedProperties(DatabaseSessionEmbedded session) {
-    session.checkSecurity(Rule.ResourceGeneric.SCHEMA,
-        Role.PERMISSION_READ);
-
-    acquireSchemaReadLock();
-    try {
-      Collection<SchemaPropertyImpl> indexedProps = new HashSet<>();
-      getIndexedProperties(session, indexedProps);
-      return indexedProps;
-    } finally {
-      releaseSchemaReadLock();
     }
   }
 
@@ -536,7 +497,7 @@ public abstract class SchemaClassImpl {
   public abstract void removeSuperClass(DatabaseSessionEmbedded session,
       SchemaClassImpl superClass);
 
-  public void fromStream(DatabaseSessionEmbedded session, EntityImpl entity) {
+  public void fromStream(EntityImpl entity) {
     subclasses = null;
     superClasses.clear();
 
@@ -682,11 +643,6 @@ public abstract class SchemaClassImpl {
     if (p != null) {
       properties.put(iNewName, p);
     }
-  }
-
-  protected static void truncateCollectionInternal(
-      final String collectionName, final DatabaseSessionEmbedded database) {
-    database.truncateCollection(collectionName);
   }
 
   public Collection<SchemaClassImpl> getSubclasses() {
