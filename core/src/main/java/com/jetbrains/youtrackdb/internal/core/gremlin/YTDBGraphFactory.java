@@ -157,10 +157,10 @@ public class YTDBGraphFactory {
     try {
       path = path.toRealPath();
     } catch (IOException e) {
-      logger.error("Can not retrieve real path for {}", path, e);
       path = path.toAbsolutePath().normalize();
     }
 
+    //noinspection resource
     storagePathYTDBMap.compute(path, (p, ytdb) -> {
       if (ytdb == youTrackDB) {
         if (onCloseCallback != null) {
