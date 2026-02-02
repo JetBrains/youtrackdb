@@ -239,6 +239,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         var tx = tx();
         if (!tx.isOpen()) {
           tx.readWrite();
+        } else {
+          throw new IllegalStateException("There already is an active transaction");
         }
         return;
       }
@@ -255,6 +257,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         var tx = tx();
         if (tx.isOpen()) {
           tx.rollback();
+        } else {
+          throw new IllegalStateException("No active transaction to rollback");
         }
         return;
       }
