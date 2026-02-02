@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;

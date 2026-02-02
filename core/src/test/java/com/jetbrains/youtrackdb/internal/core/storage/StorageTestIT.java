@@ -25,6 +25,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 public class StorageTestIT {
+
   private YouTrackDBImpl youTrackDB;
 
   @Test
@@ -57,7 +58,7 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) session.getStorage();
     var wowCache = storage.getWriteCache();
-     session.close();
+    session.close();
 
     final var storagePath = storage.getStoragePath();
 
@@ -85,9 +86,7 @@ public class StorageTestIT {
       }
     });
     try {
-      session.executeInTx(transaction -> {
-        transaction.newEntity("PageBreak");
-      });
+      session.executeInTx(transaction -> transaction.newEntity("PageBreak"));
       Assert.fail();
     } catch (StorageException e) {
       //ignore
@@ -150,9 +149,7 @@ public class StorageTestIT {
     });
 
     try {
-      db.executeInTx(transaction -> {
-        transaction.newEntity("PageBreak");
-      });
+      db.executeInTx(transaction -> transaction.newEntity("PageBreak"));
       Assert.fail();
     } catch (StorageException e) {
       //ignore
@@ -210,9 +207,7 @@ public class StorageTestIT {
         config);
     db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.executeInTx(transaction -> {
-      transaction.query("select from PageBreak").close();
-    });
+    db.executeInTx(transaction -> transaction.query("select from PageBreak").close());
 
     Thread.sleep(100); // lets wait till event will be propagated
 
@@ -279,9 +274,7 @@ public class StorageTestIT {
         config);
     db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.executeInTx(transaction -> {
-      transaction.query("select from PageBreak").close();
-    });
+    db.executeInTx(transaction -> transaction.query("select from PageBreak").close());
 
     Thread.sleep(100); // lets wait till event will be propagated
 
