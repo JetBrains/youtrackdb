@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Spliterator;
 import java.util.TreeMap;
 import java.util.function.Consumer;
@@ -59,35 +60,30 @@ public class TreeBasedBagChangesContainer implements BagChangesContainer {
     return changes.isEmpty();
   }
 
-  private static final class TransformingSpliterator implements Spliterator<RawPair<RID, Change>> {
-
-    private final Spliterator<Map.Entry<RID, Change>> spliterator;
-
-    private TransformingSpliterator(Spliterator<Map.Entry<RID, Change>> spliterator) {
-      this.spliterator = spliterator;
-    }
+  private record TransformingSpliterator(Spliterator<Entry<RID, Change>> spliterator) implements
+      Spliterator<RawPair<RID, Change>> {
 
     @Override
-    public boolean tryAdvance(Consumer<? super RawPair<RID, Change>> action) {
-      return spliterator.tryAdvance(
-          entry -> action.accept(new RawPair<>(entry.getKey(), entry.getValue())));
-    }
+      public boolean tryAdvance(Consumer<? super RawPair<RID, Change>> action) {
+        return spliterator.tryAdvance(
+            entry -> action.accept(new RawPair<>(entry.getKey(), entry.getValue())));
+      }
 
-    @Override
-    @Nullable
-    public Spliterator<RawPair<RID, Change>> trySplit() {
-      var split = spliterator.trySplit();
-      return split != null ? new TransformingSpliterator(split) : null;
-    }
+      @Override
+      @Nullable
+      public Spliterator<RawPair<RID, Change>> trySplit() {
+        var split = spliterator.trySplit();
+        return split != null ? new TransformingSpliterator(split) : null;
+      }
 
-    @Override
-    public long estimateSize() {
-      return spliterator.estimateSize();
-    }
+      @Override
+      public long estimateSize() {
+        return spliterator.estimateSize();
+      }
 
-    @Override
-    public int characteristics() {
-      return spliterator.characteristics();
+      @Override
+      public int characteristics() {
+        return spliterator.characteristics();
+      }
     }
-  }
 }

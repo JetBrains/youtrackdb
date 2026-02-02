@@ -43,6 +43,7 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
     super(NAME, 2, 2);
   }
 
+  @Override
   @Nullable
   public Object execute(
       Object iThis,

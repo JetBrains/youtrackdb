@@ -92,7 +92,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
         YouTrackDBConfig.defaultConfig(), "admin",
         "admin", "asdmin");
 
-    baseDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+    baseDocumentTx = youTrackDB.open(
         "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin");
     createSchema(baseDocumentTx);
   }
@@ -127,7 +127,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     storage.close(baseDocumentTx);
 
     testDocumentTx =
-        (DatabaseSessionEmbedded) youTrackDB.open(
+        youTrackDB.open(
             "testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin");
     testDocumentTx.close();
 
@@ -273,12 +273,11 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     public DataPropagationTask(long seed, YouTrackDBImpl youTrackDB) {
       this.seed = seed;
 
-      baseDB = (DatabaseSessionEmbedded)
-          youTrackDB.open("baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
-              "admin", "admin");
+      baseDB = youTrackDB.open("baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
+          "admin", "admin");
 
       if (testDocumentTx != null) {
-        testDB = (DatabaseSessionEmbedded) youTrackDB.open(testDocumentTx.getDatabaseName(),
+        testDB = youTrackDB.open(testDocumentTx.getDatabaseName(),
             "admin", "admin");
       }
     }

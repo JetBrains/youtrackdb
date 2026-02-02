@@ -47,11 +47,13 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityComponent
   // Called once the Server is running.
+  @Override
   public void active() {
     LogManager.instance().debug(this, "DefaultPasswordAuthenticator is active", logger);
   }
 
   // SecurityComponent
+  @Override
   public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     super.config(session, jsonConfig, security);
@@ -103,6 +105,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityComponent
   // Called on removal of the authenticator.
+  @Override
   public void dispose() {
     synchronized (usersMap) {
       usersMap.clear();
@@ -112,6 +115,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
+  @Override
   @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
@@ -132,6 +136,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
+  @Override
   public boolean isAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
     if (username == null || resource == null) {
@@ -160,6 +165,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   }
 
   // SecurityAuthenticator
+  @Override
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     SecurityUser userCfg = null;
 

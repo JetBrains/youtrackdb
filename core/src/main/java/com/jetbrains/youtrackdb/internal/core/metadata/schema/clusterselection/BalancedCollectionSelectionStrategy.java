@@ -30,11 +30,13 @@ public class BalancedCollectionSelectionStrategy implements CollectionSelectionS
   protected long lastCount = -1;
   protected int smallerCollectionId = -1;
 
+  @Override
   public int getCollection(DatabaseSession session, final SchemaClass iClass,
       final EntityImpl entity) {
     return getCollection(session, iClass, iClass.getCollectionIds(), entity);
   }
 
+  @Override
   public int getCollection(DatabaseSession session, final SchemaClass iClass, final int[] collections,
       final EntityImpl entity) {
     if (collections.length == 1)

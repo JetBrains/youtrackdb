@@ -1,16 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
-public final class EdgeKey implements Comparable<EdgeKey> {
-
-  public final long ridBagId;
-  public final int targetCollection;
-  public final long targetPosition;
-
-  public EdgeKey(long ridBagId, int targetCollection, long targetPosition) {
-    this.ridBagId = ridBagId;
-    this.targetCollection = targetCollection;
-    this.targetPosition = targetPosition;
-  }
+public record EdgeKey(long ridBagId, int targetCollection, long targetPosition) implements
+    Comparable<EdgeKey> {
 
   @Override
   public String toString() {

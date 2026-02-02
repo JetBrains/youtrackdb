@@ -41,6 +41,7 @@ public class SQLFunctionUUID extends SQLFunctionAbstract {
     super(NAME, 0, 0);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -54,6 +55,7 @@ public class SQLFunctionUUID extends SQLFunctionAbstract {
     return false;
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "uuid()";
   }

@@ -25,29 +25,7 @@ import java.util.Objects;
 /**
  * @since 9/27/13
  */
-public class SBTreeValue<V> {
-
-  private final boolean isLink;
-  private final long link;
-  private final V value;
-
-  public SBTreeValue(boolean isLink, long link, V value) {
-    this.isLink = isLink;
-    this.link = link;
-    this.value = value;
-  }
-
-  public boolean isLink() {
-    return isLink;
-  }
-
-  public long getLink() {
-    return link;
-  }
-
-  public V getValue() {
-    return value;
-  }
+public record SBTreeValue<V>(boolean isLink, long link, V value) {
 
   @Override
   public boolean equals(Object o) {

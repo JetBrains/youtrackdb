@@ -31,15 +31,18 @@ public class EmptyIterator<T> implements Iterator<T> {
   public static final EmptyIterator<Object> ANY_INSTANCE = new EmptyIterator<>();
   public static final EmptyIterator<RID> IDENTIFIABLE_INSTANCE = new EmptyIterator<>();
 
+  @Override
   public boolean hasNext() {
     return false;
   }
 
+  @Override
   @Nullable
   public T next() {
     return null;
   }
 
+  @Override
   public void remove() {
   }
 }

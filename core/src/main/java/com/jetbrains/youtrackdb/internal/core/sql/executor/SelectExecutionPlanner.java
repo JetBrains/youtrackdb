@@ -2000,8 +2000,8 @@ public class SelectExecutionPlanner {
     } else {
       descriptors =
           sortedDescriptors.stream()
-              .filter(x -> x.key == sortedDescriptors.getFirst().key)
-              .map(x -> x.value)
+              .filter(x -> x.key() == sortedDescriptors.getFirst().key())
+              .map(x -> x.value())
               .collect(Collectors.toList());
     }
 

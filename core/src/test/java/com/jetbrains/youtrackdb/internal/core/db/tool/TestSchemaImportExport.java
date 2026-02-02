@@ -24,8 +24,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin");
     var output = new ByteArrayOutputStream();
     try (var db =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
+        youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("some", PropertyType.STRING);
       clazz.setCustom("testcustom", "test");
@@ -68,8 +67,7 @@ public class TestSchemaImportExport extends DbTestBase {
     var output = new ByteArrayOutputStream();
 
     try (var db =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
+        youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("bla", PropertyType.STRING).setDefaultValue("something");
       var exp = new DatabaseExport(db, output, new MockOutputListener());
@@ -85,8 +83,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin",
         "admin");
     try (var sessionOne =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
+        youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var imp =
           new DatabaseImport(
               sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());
@@ -112,8 +109,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin");
     var output = new ByteArrayOutputStream();
     try (var db =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
+        youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.addSuperClass(db.getMetadata().getSchema().getClass("O"));
       clazz.addSuperClass(db.getMetadata().getSchema().getClass("OIdentity"));
@@ -131,9 +127,8 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin",
         "admin");
     try (var sessionOne =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(),
-                "admin", "admin")) {
+        youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(),
+            "admin", "admin")) {
       var imp =
           new DatabaseImport(
               sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());

@@ -38,18 +38,21 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
 
   // SecurityComponent
   // Called once the Server is running.
+  @Override
   public void active() {
     LogManager.instance().debug(this, "SystemUserAuthenticator is active", logger);
   }
 
   // SecurityComponent
   // Called on removal of the authenticator.
+  @Override
   public void dispose() {
   }
 
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
   // This will authenticate username using the system database.
+  @Override
   @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
@@ -75,6 +78,7 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
   // Checks to see if a
+  @Override
   public boolean isAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
     if (username == null || resource == null) {
@@ -111,6 +115,7 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   }
 
   // SecurityAuthenticator
+  @Override
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     SecurityUser userCfg = null;
 
