@@ -13,7 +13,14 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Iterator;
@@ -220,7 +227,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   public void executeCommand(String command, Map<?, ?> params) {
     var normalized = command == null ? "" : command.trim().toUpperCase();
 
-    if (isSchemaCommand(normalized)) {
+    if (isSchemaCommand(command == null ? "" : command.trim())) {
       try (var session = acquireSession()) {
         session.command(command, params);
       }
@@ -257,14 +264,18 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     session.command(command, params);
   }
 
-  private static boolean isSchemaCommand(String normalized) {
-    return normalized.startsWith("CREATE CLASS")
-        || normalized.startsWith("DROP CLASS")
-        || normalized.startsWith("ALTER CLASS")
-        || normalized.startsWith("CREATE PROPERTY")
-        || normalized.startsWith("DROP PROPERTY")
-        || normalized.startsWith("CREATE INDEX")
-        || normalized.startsWith("DROP INDEX");
+  private static boolean isSchemaCommand(String command) {
+    if (command == null || command.isBlank()) {
+      return false;
+    }
+    try {
+      var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
+      var parser = new YouTrackDBSql(is);
+      var statement = parser.parse();
+      return statement instanceof DDLStatement;
+    } catch (ParseException | TokenMgrError e) {
+      return false;
+    }
   }
 
   @Override
