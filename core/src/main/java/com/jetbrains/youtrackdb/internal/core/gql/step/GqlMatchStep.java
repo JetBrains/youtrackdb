@@ -1,38 +1,61 @@
 package com.jetbrains.youtrackdb.internal.core.gql.step;
 
-import java.util.Collections;
-import java.util.Iterator;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
-import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
-/// Step that executes a GQL MATCH clause.
+/// TinkerPop step that executes a GQL MATCH clause.
+///
+/// Follows AbstractStep#processNextStart pattern: holds an iterator over results,
+/// each call to processNextStart returns a traverser generated from iterator.next().
 ///
 /// For `MATCH (a:Label)`:
-/// - Reads all vertices of class "Label"
-/// - Binds each vertex to variable "a"
-/// - Emits Map<String, Object> with {"a": vertex}
+/// - Uses GqlExecutionPlan with GqlFetchFromClassStep
+/// - Each result is a Map<String, Object> with {"a": vertex}
 public class GqlMatchStep extends AbstractStep<Map<String, Object>, Map<String, Object>> {
 
+  private final GqlExecutionPlan executionPlan;
   private final String alias;
   private final String label;
 
-  private Iterator<Map<String, Object>> results = Collections.emptyIterator();
-  private boolean initialized = false;
+  /// Iterator over GQL result maps. Lazy-initialized in processNextStart.
+  private CloseableIterator<Map<String, Object>> iterator = CloseableIterator.empty();
+  private boolean started = false;
 
-  public GqlMatchStep(Traversal.Admin<?, ?> traversal, String alias, String label) {
+  public GqlMatchStep(
+      Traversal.Admin<?, ?> traversal,
+      GqlExecutionPlan executionPlan,
+      String alias,
+      String label) {
     super(traversal);
+    this.executionPlan = executionPlan;
     this.alias = alias;
     this.label = label;
   }
 
-  private Iterator<Map<String, Object>> executeMatch() {
-    // TODO: Implement actual query execution
-    // For now, return one empty map
-    return Collections.singletonList(Map.<String, Object>of()).iterator();
+  private CloseableIterator<Map<String, Object>> startExecution() {
+    var graph = (YTDBGraphInternal) this.traversal.getGraph().orElseThrow();
+    var graphTx = graph.tx();
+    graphTx.readWrite();
+
+    var session = graphTx.getDatabaseSession();
+    var ctx = new GqlExecutionContext(graph, session);
+
+    GqlExecutionStream stream = executionPlan.start(ctx);
+    return stream;
+  }
+
+  public GqlExecutionPlan getExecutionPlan() {
+    return executionPlan;
   }
 
   public String getAlias() {
@@ -45,16 +68,33 @@ public class GqlMatchStep extends AbstractStep<Map<String, Object>, Map<String, 
 
   @Override
   protected Admin<Map<String, Object>> processNextStart() throws NoSuchElementException {
-    if (!initialized) {
-      initialized = true;
-      results = executeMatch();
+    if (!started) {
+      started = true;
+      iterator = startExecution();
     }
 
-    if (results.hasNext()) {
-      var result = results.next();
-      return this.getTraversal().getTraverserGenerator().generate(result, this, 1L);
+    if (iterator.hasNext()) {
+      return this.getTraversal().getTraverserGenerator()
+          .generate(this.iterator.next(), (Step<Map<String, Object>, Map<String, Object>>) this, 1L);
     }
 
-    throw new NoSuchElementException();
+    throw FastNoSuchElementException.instance();
+  }
+
+  @Override
+  public GqlMatchStep clone() {
+    var clone = (GqlMatchStep) super.clone();
+    clone.iterator = CloseableIterator.empty();
+    clone.started = false;
+    return clone;
+  }
+
+  @Override
+  public void reset() {
+    super.reset();
+    CloseableIterator.closeIterator(iterator);
+    iterator = CloseableIterator.empty();
+    started = false;
+    executionPlan.reset();
   }
 }
