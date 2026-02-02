@@ -203,12 +203,12 @@ journalctl -u github-hetzner-runners --since "10 minutes ago"
 
 ## Scaling Behavior
 
-| Scenario             | Behavior                           |
-|----------------------|------------------------------------|
-| No jobs queued       | No servers running (zero cost)     |
-| 1 x64 job queued     | 1 cpx42 server created             |
-| 2 x64 + 2 arm64 jobs | 2 cpx42 + 2 cax31 servers (max 4)  |
-| Jobs > max runners   | Jobs queue until runners available |
+| Scenario             | Behavior                       |
+|----------------------|--------------------------------|
+| No jobs queued       | No servers running (zero cost) |
+| 1 x64 job queued     | 1 cpx42 server created         |
+| 2 x64 + 2 arm64 jobs | 2 cpx42 + 2 cax31 servers      |
+| Jobs > runners       | Jobs queue until available     |
 
 ## Troubleshooting
 

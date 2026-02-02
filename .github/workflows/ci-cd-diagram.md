@@ -10,9 +10,23 @@ flowchart TB
         manual["Manual Dispatch"]
     end
 
+    subgraph pr_checks["PR Validation Workflows"]
+        direction TB
+        block_merge["block-merge-commits.yml<br/>Reject merge commits"]
+        check_prefix["check-commit-prefix.yml<br/>Verify YTDB-* prefix in commits"]
+        pr_title["pr-title-prefix.yml<br/>Auto-add YTDB-* prefix to PR title"]
+    end
+
+    subgraph qodana_pipeline["qodana-scan.yml"]
+        direction TB
+        qodana_scan["Qodana Code Analysis<br/>JetBrains static analysis"]
+        qodana_cleanup["Optional: Push cleanup fixes"]
+        qodana_scan --> qodana_cleanup
+    end
+
     subgraph maven_pipeline["maven-pipeline.yml<br/>(develop branch)"]
         direction TB
-        mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>ubuntu-x64, ubuntu-arm64, windows"]
+        mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>ubuntu-latest, ubuntu-24.04-arm, windows-latest"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
@@ -28,10 +42,10 @@ flowchart TB
         it_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         it_merge["Merge develop → main<br/>(fast-forward only)<br/><i>skipped on manual dispatch</i>"]
         it_notify["Zulip Notifications<br/><i>skipped on manual dispatch</i>"]
-      it_check --> it_test_linux
-      it_check --> it_test_windows
-      it_test_linux -->|" schedule only "| it_merge
-      it_test_windows -->|" schedule only "| it_merge
+        it_check --> it_test_linux
+        it_check --> it_test_windows
+        it_test_linux -->|" schedule only "| it_merge
+        it_test_windows -->|" schedule only "| it_merge
         it_merge --> it_notify
     end
 
@@ -39,7 +53,7 @@ flowchart TB
         direction TB
         main_deploy["Deploy Maven Artifacts"]
         main_annotate["Annotate Versions"]
-        main_docker["Deploy Docker Images<br/>ubuntu-x64, ubuntu-arm64"]
+        main_docker["Deploy Docker Images<br/>ubuntu-latest, ubuntu-24.04-arm"]
         main_notify["Zulip Notifications"]
         main_deploy --> main_annotate
         main_deploy --> main_notify
@@ -53,12 +67,17 @@ flowchart TB
         docker["Docker Hub<br/>youtrackdb/console<br/>youtrackdb/server"]
     end
 
-%% Trigger connections
+%% PR validation triggers
+    pr_develop --> pr_checks
+    pr_develop --> qodana_pipeline
+%% Main pipeline triggers
     push_develop --> maven_pipeline
+    push_develop --> qodana_pipeline
     pr_develop --> maven_pipeline
     manual --> maven_pipeline
     manual --> integration_pipeline
     manual --> main_pipeline
+    manual --> qodana_pipeline
     schedule --> integration_pipeline
     push_main --> main_pipeline
 %% Pipeline to artifacts
@@ -68,31 +87,62 @@ flowchart TB
 %% Integration triggers main
     it_merge -->|" triggers "| push_main
 %% Styling
-  classDef trigger fill: #fff, stroke: #1565c0, stroke-width: 2px
-  classDef pipeline fill: #fff3e0, stroke: #e65100
-  classDef artifact fill: #fff, stroke: #2e7d32, stroke-width: 2px
-  class push_develop trigger
-  class pr_develop trigger
-  class schedule trigger
-  class push_main trigger
-  class manual trigger
-  class maven_pipeline pipeline
-  class integration_pipeline pipeline
-  class main_pipeline pipeline
-  class maven_dev artifact
-  class maven_release artifact
-  class docker artifact
+    classDef trigger fill: #fff, stroke: #1565c0, stroke-width: 2px
+    classDef pipeline fill: #fff3e0, stroke: #e65100
+    classDef artifact fill: #fff, stroke: #2e7d32, stroke-width: 2px
+    classDef validation fill: #e3f2fd, stroke: #1565c0
+    class push_develop trigger
+    class pr_develop trigger
+    class schedule trigger
+    class push_main trigger
+    class manual trigger
+    class maven_pipeline pipeline
+    class integration_pipeline pipeline
+    class main_pipeline pipeline
+    class qodana_pipeline pipeline
+    class pr_checks validation
+    class maven_dev artifact
+    class maven_release artifact
+    class docker artifact
 ```
 
 ## Workflow Descriptions
 
+### PR Validation Workflows
+
+These workflows run on pull requests to ensure code quality and consistency:
+
+#### block-merge-commits.yml
+
+Rejects PRs that contain merge commits to enforce a linear commit history. Runs on PR open,
+synchronize, and reopen events. If merge commits are detected, the check fails and prompts the
+developer to rebase their branch.
+
+#### check-commit-prefix.yml
+
+Verifies that all commits in a PR contain the issue prefix from the PR title (e.g., `YTDB-123`).
+This ensures traceability between commits and issues. Skips merge commits and provides instructions
+for fixing commit messages if the check fails.
+
+#### pr-title-prefix.yml
+
+Automatically adds the issue prefix to the PR title based on the branch name. If the branch is named
+`ytdb-123-feature-name` or `YTDB/123/feature`, the workflow extracts `YTDB-123` and prepends it to
+the PR title if not already present.
+
+### qodana-scan.yml
+
+Runs JetBrains Qodana static code analysis on every push to `develop` and on pull requests. Uses a
+baseline file to track known issues and can optionally apply automatic cleanup fixes when triggered
+manually with the `cleanup` input set to true. Cleanup fixes are pushed to a separate branch for
+review.
+
 ### maven-pipeline.yml (Develop Branch)
 
-This is the primary CI pipeline triggered on every push or pull request to the `develop` branch. It
-runs the full test matrix across multiple JDK versions (21, 25), distributions (temurin, corretto,
-oracle, zulu, microsoft), and platforms (ubuntu-x64, ubuntu-arm64, windows). On successful push (not
-PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven Central. Each deployment
-is annotated with the exact version for traceability.
+This is the primary CI pipeline triggered on every push or pull request to the `develop` branch. It runs the full test matrix across multiple JDK versions (21, 25), distributions
+(temurin, corretto, oracle, zulu, microsoft), and platforms (ubuntu-latest, ubuntu-24.04-arm,
+windows-latest). On successful push (not PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT`
+suffix to Maven Central. Each deployment is annotated with the exact version for traceability.
 
 ### maven-integration-tests-pipeline.yml (Nightly / Manual)
 
@@ -110,7 +160,6 @@ first checks if there are new changes since the last successful run to avoid red
 - Managed by external [TestFlows GitHub Hetzner Runners](https://github.com/testflows/testflows-github-hetzner-runners) service
 - Runners created on-demand when jobs queue (~1-2 min startup)
 - Zero cost when no jobs running (no idle servers)
-- Max 4 concurrent servers (2 x64 + 2 arm64)
 - Uses base Ubuntu images with setup scripts (Docker, Git, Node.js, firewall, Maven cache)
 - APT, Maven, and npm caches persisted via Hetzner volume mounts (`volume-cache` label)
 - See [testflows-runner-setup.md](testflows-runner-setup.md) for deployment details
@@ -149,12 +198,16 @@ For complete setup and configuration instructions, see [testflows-runner-setup.m
 
 ## Workflow Summary
 
-| Workflow                                 | Trigger                   | Purpose                                      | Infrastructure                                      | Artifacts                                                       |
-|------------------------------------------|---------------------------|----------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------|
-| **maven-pipeline.yml**                   | Push/PR to `develop`      | Run tests, deploy dev artifacts              | GitHub-hosted runners                               | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
-| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC) | Run integration tests, merge to main         | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
-| **maven-integration-tests-pipeline.yml** | Manual dispatch           | Run integration tests only (no merge/notify) | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
-| **maven-main-deploy-pipeline.yml**       | Push to `main`            | Deploy release artifacts & Docker            | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+| Workflow                                 | Trigger                      | Purpose                                      | Infrastructure                                      | Artifacts                                                       |
+|------------------------------------------|------------------------------|----------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------|
+| **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                  | GitHub-hosted runners                               | N/A                                                             |
+| **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix             | GitHub-hosted runners                               | N/A                                                             |
+| **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title            | GitHub-hosted runners                               | N/A                                                             |
+| **qodana-scan.yml**                      | Push/PR to `develop`, Manual | Static code analysis                         | GitHub-hosted runners                               | N/A (optional cleanup branch)                                   |
+| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Run tests, deploy dev artifacts              | GitHub-hosted runners                               | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
+| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main         | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
+| **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify) | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
+| **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker            | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
 
 ## Version Format
 
