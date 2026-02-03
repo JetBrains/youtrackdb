@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
-import java.util.Map;
 import java.util.NoSuchElementException;
 
 /// Empty stream implementation that returns no results.
@@ -16,7 +15,7 @@ public final class EmptyGqlExecutionStream implements GqlExecutionStream {
   }
 
   @Override
-  public Map<String, Object> next() {
+  public Object next() {
     throw new NoSuchElementException();
   }
 

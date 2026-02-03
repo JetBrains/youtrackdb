@@ -38,10 +38,12 @@ public class GqlMatchPlanner {
     // For now, support single node pattern: MATCH (a:Label)
     // Future: support multiple patterns, relationships, etc.
     var pattern = patterns.getFirst();
-    var alias = effectiveAlias(pattern.alias(), 0);
+    var rawAlias = pattern.alias();
+    var hasAlias = rawAlias != null && !rawAlias.isBlank();
+    var alias = effectiveAlias(rawAlias, 0);
     var label = effectiveLabel(pattern.label());
 
-    var fetchStep = new GqlFetchFromClassStep(alias, label, true);
+    var fetchStep = new GqlFetchFromClassStep(alias, label, true, hasAlias);
     plan.chain(fetchStep);
 
     return plan;
