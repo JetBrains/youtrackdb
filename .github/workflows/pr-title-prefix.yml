@@ -3,7 +3,6 @@ name: PR Title Issue Prefix
 on:
   pull_request:
     types: [opened, edited, synchronize]
-    branches: [develop]
 
 permissions:
   contents: read
