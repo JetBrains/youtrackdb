@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
-
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import com.jetbrains.youtrackdb.internal.core.gql.step.GqlMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -12,6 +14,9 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /// TinkerPop service for executing GQL (Graph Query Language) queries.
 ///
+/// Executes GQL queries directly using GqlExecutionPlan, supporting all query types
+/// (MATCH, RETURN, etc.) that the planner can handle.
+///
 /// Supports both Start and Streaming execution modes to allow chaining.
 public class GqlService implements Service<Object, Map<String, Object>> {
 
@@ -20,10 +25,12 @@ public class GqlService implements Service<Object, Map<String, Object>> {
   public static final String ARGUMENTS = "args";
 
   private final String query;
+  private final Map<?, ?> arguments;
   private final Type type;
 
   public GqlService(String query, Map<?, ?> arguments, Type type) {
     this.query = query;
+    this.arguments = arguments;
     this.type = type;
   }
 
@@ -73,39 +80,53 @@ public class GqlService implements Service<Object, Map<String, Object>> {
       return CloseableIterator.empty();
     }
 
-    // 1. Get traversal from context
+    // 1. Get graph and session from traversal context
     var traversal = (Traversal.Admin<?, ?>) ctx.getTraversal();
+    var graph = (YTDBGraphInternal) traversal.getGraph().orElseThrow();
+    var graphTx = graph.tx();
+    graphTx.readWrite();
+    var session = graphTx.getDatabaseSession();
 
-    // 2. Plan the query
-    var matchStep = GqlPlanner.plan(query, traversal);
+    // 2. Parse the query into a statement
+    var statement = GqlPlanner.parse(query);
 
-    // 3. Return streaming iterator (lazy evaluation, low memory footprint)
-    return new GqlResultIterator(matchStep);
+    // 3. Create execution context
+    var executionCtx = new GqlExecutionContext(graph, session);
+
+    // 4. Create execution plan from statement
+    var executionPlan = statement.createExecutionPlan(executionCtx);
+
+    // 5. Execute and return streaming result
+    var stream = executionPlan.start(executionCtx);
+    return new GqlResultIterator(stream, executionPlan);
   }
 
-  /// Streaming iterator that wraps GqlMatchStep for lazy result consumption.
-  /// Avoids collecting all results into memory, preventing OutOfMemoryError for large datasets.
+  /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption.
+  /// Handles any query type, not just MATCH.
   private static class GqlResultIterator implements CloseableIterator<Map<String, Object>> {
 
-    private final GqlMatchStep matchStep;
+    private final GqlExecutionStream stream;
+    private final GqlExecutionPlan plan;
 
-    GqlResultIterator(GqlMatchStep matchStep) {
-      this.matchStep = matchStep;
+    GqlResultIterator(GqlExecutionStream stream, GqlExecutionPlan plan) {
+      this.stream = stream;
+      this.plan = plan;
     }
 
     @Override
     public boolean hasNext() {
-      return matchStep.hasNext();
+      return stream.hasNext();
     }
 
     @Override
     public Map<String, Object> next() {
-      return matchStep.next().get();
+      return stream.next();
     }
 
     @Override
     public void close() {
-      matchStep.close();
+      stream.close();
+      plan.close();
     }
   }
 
