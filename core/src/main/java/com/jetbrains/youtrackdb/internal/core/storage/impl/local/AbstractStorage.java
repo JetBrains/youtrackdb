@@ -1954,7 +1954,7 @@ public abstract class AbstractStorage
             } else {
               endStorageTx();
             }
-            this.transaction.set(null);
+            this.transaction.remove();
           }
         } finally {
           atomicOperationsManager.ensureThatComponentsUnlocked();
@@ -1969,7 +1969,7 @@ public abstract class AbstractStorage
             .debug(
                 this,
                 "%d Committed transaction %d on database '%s' (result=%s)",
-                logger, Thread.currentThread().getId(),
+                logger, Thread.currentThread().threadId(),
                 frontendTransaction.getId(),
                 session.getDatabaseName(),
                 result);
@@ -2442,45 +2442,6 @@ public abstract class AbstractStorage
     }
   }
 
-  public Object getIndexValue(DatabaseSessionEmbedded db, int indexId, final Object key)
-      throws InvalidIndexEngineIdException {
-    indexId = extractInternalId(indexId);
-    try {
-      if (transaction.get() != null) {
-        return doGetIndexValue(db, indexId, key);
-      }
-      stateLock.readLock().lock();
-      try {
-        checkOpennessAndMigration();
-        return doGetIndexValue(db, indexId, key);
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  private Object doGetIndexValue(DatabaseSessionEmbedded db, final int indexId,
-      final Object key)
-      throws InvalidIndexEngineIdException {
-    final var engineAPIVersion = extractEngineAPIVersion(indexId);
-    if (engineAPIVersion != 0) {
-      throw new IllegalStateException(
-          "Unsupported version of index engine API. Required 0 but found " + engineAPIVersion);
-    }
-    checkIndexId(indexId);
-    final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
-    return ((IndexEngine) engine).get(db, key);
-  }
-
   public Stream<RID> getIndexValues(int indexId, final Object key)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
@@ -2554,8 +2515,7 @@ public abstract class AbstractStorage
     }
   }
 
-  @Nullable
-  public <T> T callIndexEngine(
+  public <T> void callIndexEngine(
       final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
@@ -2570,7 +2530,7 @@ public abstract class AbstractStorage
           makeStorageDirty();
         }
 
-        return doCallIndexEngine(indexId, callback);
+        doCallIndexEngine(indexId, callback);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2585,13 +2545,13 @@ public abstract class AbstractStorage
     }
   }
 
-  private <T> T doCallIndexEngine(final int indexId, final IndexEngineCallback<T> callback)
+  private <T> void doCallIndexEngine(final int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
 
-    return callback.callEngine(engine);
+    callback.callEngine(engine);
   }
 
   public void putRidIndexEntry(int indexId, final Object key, final RID value)
@@ -3914,7 +3874,7 @@ public abstract class AbstractStorage
     try {
       atomicOperationsManager.startAtomicOperation();
     } catch (final RuntimeException e) {
-      transaction.set(null);
+      transaction.remove();
       throw e;
     }
   }
@@ -3973,7 +3933,7 @@ public abstract class AbstractStorage
     collection.meters().create().record();
     PhysicalPosition ppos;
     try {
-      ppos = collection.createRecord(content, recordVersion, recordType, allocated, atomicOperation);
+      ppos = collection.createRecord(content, recordType, allocated, atomicOperation);
       if (rid instanceof ChangeableRecordId changeableRecordId) {
         changeableRecordId.setCollectionPosition(ppos.collectionPosition);
       } else {
@@ -4019,7 +3979,7 @@ public abstract class AbstractStorage
       ppos.recordVersion = newRecordVersion;
       if (updateContent) {
         collection.updateRecord(
-            rid.getCollectionPosition(), content, newRecordVersion, recordType, atomicOperation);
+            rid.getCollectionPosition(), content, recordType, atomicOperation);
       } else {
         collection.updateRecordVersion(
             rid.getCollectionPosition(), newRecordVersion, atomicOperation);
@@ -4617,10 +4577,6 @@ public abstract class AbstractStorage
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       final Consumer<String> ibuFileRemover);
-
-  public void restoreFromBackup(final Path backupDirectory) {
-    restoreFromBackup(backupDirectory, null);
-  }
 
   public abstract void restoreFromBackup(final Path backupDirectory, String expectedUUID);
 
@@ -5500,17 +5456,13 @@ public abstract class AbstractStorage
     transactionsTracker.remove(transactionId);
   }
 
-  public List<FrontendTransaction> getActiveTransactions() {
-    return List.copyOf(transactionsTracker.values());
-  }
-
   public int getActiveTransactionsCount() {
     return transactionsTracker.size();
   }
 
   // TODO: How to test?
   public void cleanUnreachableRecordVersions() {
-    Long min = transactionsTracker.values().stream().
+    var min = transactionsTracker.values().stream().
         mapToLong(t ->
             ((FrontendTransactionImpl) t).getAtomicOperationTableState().maxPersistedOperationId()).
         min().orElse(Long.MAX_VALUE);
