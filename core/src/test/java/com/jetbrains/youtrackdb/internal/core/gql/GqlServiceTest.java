@@ -39,6 +39,44 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
+  public void testGqlMatchWithoutAliasUsesDefaultAlias() {
+    var g = graph.traversal();
+
+    // Setup
+    g.addV("Person").property("name", "Alice").iterate();
+    g.tx().commit();
+
+    // MATCH (:Person) without alias should use default alias "_0"
+    var results = g.gql("MATCH (:Person)").toList();
+
+    assertEquals("Should find 1 person", 1, results.size());
+    assertTrue("Result should contain default '_0' binding", results.getFirst()
+        .containsKey("_0"));
+    assertTrue("Binding '_0' should be a Vertex", results.getFirst()
+        .get("_0") instanceof Vertex);
+  }
+
+  @Test
+  public void testGqlMatchWithoutLabelMatchesAllVertices() {
+    var g = graph.traversal();
+
+    // Setup: create vertices of different classes
+    g.addV("Person").property("name", "Alice").iterate();
+    g.addV("Work").property("title", "Engineer").iterate();
+    g.addV("Location").property("city", "NYC").iterate();
+    g.tx().commit();
+
+    // MATCH (a) without label should match all vertices (base class V)
+    var results = g.gql("MATCH (a)").toList();
+
+    assertEquals("Should find all 3 vertices", 3, results.size());
+    for (var result : results) {
+      assertTrue("Result should contain 'a' binding", result.containsKey("a"));
+      assertTrue("Binding 'a' should be a Vertex", result.get("a") instanceof Vertex);
+    }
+  }
+
+  @Test
   public void testGqlMatchReturnsEmptyWhenClassExistsButEmpty() {
     var g = graph.traversal();
 

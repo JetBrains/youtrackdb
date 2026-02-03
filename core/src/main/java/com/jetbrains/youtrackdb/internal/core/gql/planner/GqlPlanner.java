@@ -39,11 +39,17 @@ public class GqlPlanner {
     var alias = visitor.getAlias();
     var label = visitor.getLabel();
 
-    // 3. Build execution plan
-    var executionPlan = createExecutionPlan(alias, label);
+    // 3. Normalize alias and label
+    // GQL allows MATCH (:Label) without alias - generate default "_0"
+    var effectiveAlias = (alias == null || alias.isBlank()) ? "_0" : alias;
+    // GQL allows MATCH (a) without label - means all vertices (base class "V")
+    var effectiveLabel = (label == null || label.isBlank()) ? "V" : label;
 
-    // 4. Wrap step
-    return new GqlMatchStep(traversal, executionPlan, alias, label);
+    // 4. Build execution plan
+    var executionPlan = createExecutionPlan(effectiveAlias, effectiveLabel);
+
+    // 5. Wrap in TinkerPop step
+    return new GqlMatchStep(traversal, executionPlan, effectiveAlias, effectiveLabel);
   }
 
   /// Create an execution plan for a simple MATCH query.
