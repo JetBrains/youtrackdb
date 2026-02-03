@@ -1,23 +1,30 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
-import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /// Stream of GQL execution results.
 ///
 /// Extends TinkerPop's CloseableIterator for compatibility with the TinkerPop ecosystem.
-/// Each result is a Map<String, Object> containing variable bindings.
-/// For example, for `MATCH (a:Person)`, each result contains {"a": vertex}.
-public interface GqlExecutionStream extends CloseableIterator<Map<String, Object>> {
+///
+/// Result type depends on query:
+/// - With alias (MATCH (a:Person)): Map<String, Object> with bindings {"a": vertex}
+/// - Without alias (MATCH (:Person)): just the Vertex (no side effects)
+public interface GqlExecutionStream extends CloseableIterator<Object> {
 
   /// Create an empty stream.
   static GqlExecutionStream empty() {
     return EmptyGqlExecutionStream.INSTANCE;
   }
 
-  /// Create a stream from an iterator of maps.
-  static GqlExecutionStream fromIterator(Iterator<Map<String, Object>> iterator) {
-    return new IteratorGqlExecutionStream(iterator);
+  /// Create a stream from an iterator (no mapping).
+  static GqlExecutionStream fromIterator(Iterator<?> iterator) {
+    return new IteratorGqlExecutionStream<>(iterator);
+  }
+
+  /// Create a stream from an iterator with mapping function.
+  static <T> GqlExecutionStream fromIterator(Iterator<T> iterator,
+      java.util.function.Function<T, ?> mapper) {
+    return new IteratorGqlExecutionStream<>(iterator, mapper);
   }
 }

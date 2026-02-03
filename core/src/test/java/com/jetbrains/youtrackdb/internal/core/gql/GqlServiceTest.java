@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gql;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -39,24 +40,23 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
-  public void testGqlMatchWithoutAliasUsesDefaultAlias() {
+  public void testGqlMatchWithoutAliasReturnsVertexDirectly() {
     var g = graph.traversal();
 
     // Setup
     g.addV("Person").property("name", "Alice").iterate();
     g.tx().commit();
 
-    // MATCH (:Person) without alias should use default alias "_0"
+    // MATCH (:Person) without alias returns vertex directly (no side effects/bindings)
     var results = g.gql("MATCH (:Person)").toList();
 
     assertEquals("Should find 1 person", 1, results.size());
-    assertTrue("Result should contain default '_0' binding", results.getFirst()
-        .containsKey("_0"));
-    assertTrue("Binding '_0' should be a Vertex", results.getFirst()
-        .get("_0") instanceof Vertex);
+    assertTrue("Result should be a Vertex directly (no Map wrapper)",
+        results.getFirst() instanceof Vertex);
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testGqlMatchWithoutLabelMatchesAllVertices() {
     var g = graph.traversal();
 
@@ -67,12 +67,14 @@ public class GqlServiceTest extends GraphBaseTest {
     g.tx().commit();
 
     // MATCH (a) without label should match all vertices (base class V)
+    // With alias - returns Map with bindings
     var results = g.gql("MATCH (a)").toList();
 
     assertEquals("Should find all 3 vertices", 3, results.size());
     for (var result : results) {
-      assertTrue("Result should contain 'a' binding", result.containsKey("a"));
-      assertTrue("Binding 'a' should be a Vertex", result.get("a") instanceof Vertex);
+      var map = (Map<String, Object>) result;
+      assertTrue("Result should contain 'a' binding", map.containsKey("a"));
+      assertTrue("Binding 'a' should be a Vertex", map.get("a") instanceof Vertex);
     }
   }
 
@@ -103,6 +105,7 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testMatchSingleNode() {
     var g = graph.traversal();
 
@@ -113,12 +116,13 @@ public class GqlServiceTest extends GraphBaseTest {
     var results = g.gql("MATCH (a:Person)").toList();
 
     assertEquals("Should find 1 person", 1, results.size());
-    assertTrue("Result should contain 'a' binding", results.getFirst().containsKey("a"));
-    assertTrue("Binding 'a' should be a Vertex",
-        results.getFirst().get("a") instanceof Vertex);
+    var map = (Map<String, Object>) results.getFirst();
+    assertTrue("Result should contain 'a' binding", map.containsKey("a"));
+    assertTrue("Binding 'a' should be a Vertex", map.get("a") instanceof Vertex);
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testMatchMultipleNodes() {
     var g = graph.traversal();
 
@@ -132,8 +136,9 @@ public class GqlServiceTest extends GraphBaseTest {
 
     assertEquals("Should find 3 persons", 3, results.size());
     for (var result : results) {
-      assertTrue("Each result should contain 'a' binding", result.containsKey("a"));
-      assertTrue("Binding 'a' should be a Vertex", result.get("a") instanceof Vertex);
+      var map = (Map<String, Object>) result;
+      assertTrue("Each result should contain 'a' binding", map.containsKey("a"));
+      assertTrue("Binding 'a' should be a Vertex", map.get("a") instanceof Vertex);
     }
   }
 
@@ -167,6 +172,7 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testMatchDifferentAlias() {
     var g = graph.traversal();
 
@@ -177,7 +183,7 @@ public class GqlServiceTest extends GraphBaseTest {
     var results = g.gql("MATCH (person:Person)").toList();
 
     assertEquals("Should find 1 person", 1, results.size());
-    assertTrue("Result should contain 'person' binding",
-        results.getFirst().containsKey("person"));
+    var map = (Map<String, Object>) results.getFirst();
+    assertTrue("Result should contain 'person' binding", map.containsKey("person"));
   }
 }
