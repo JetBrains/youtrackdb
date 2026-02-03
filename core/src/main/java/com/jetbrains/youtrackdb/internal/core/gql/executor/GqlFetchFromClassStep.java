@@ -22,10 +22,10 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   /// Create a step that fetches vertices from a class.
   ///
-  /// @param alias       The variable name to bind vertices to (e.g., "a"), or null if not provided
+  /// @param alias       The variable name to bind vertices to (e.g., "a"), or null if no alias in query
   /// @param className   The class/label to fetch from (e.g., "Person")
   /// @param polymorphic Whether to include subclasses
-  /// @param hasAlias    Whether alias was explicitly provided in query
+  /// @param hasAlias    Whether alias was explicitly provided (if false, returns Vertex directly)
   public GqlFetchFromClassStep(String alias, String className, boolean polymorphic, boolean hasAlias) {
     this.alias = alias;
     this.className = className;
@@ -77,8 +77,9 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
+    var aliasDisplay = alias != null ? alias : "_";
     return "  ".repeat(depth * indent) +
-        "GqlFetchFromClassStep(" + alias + ":" + className +
+        "GqlFetchFromClassStep(" + aliasDisplay + ":" + className +
         ", polymorphic=" + polymorphic + ")";
   }
 }

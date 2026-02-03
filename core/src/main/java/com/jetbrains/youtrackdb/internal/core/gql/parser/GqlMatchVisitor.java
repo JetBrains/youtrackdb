@@ -9,15 +9,23 @@ import java.util.List;
 ///
 /// For `MATCH (a:Person)`:
 /// - Collects NodePattern(alias="a", label="Person")
+/// - Result: Map with binding {"a": vertex}
+///
+/// For `MATCH (:Person)`:
+/// - Collects NodePattern(alias=null, label="Person")
+/// - Result: just the Vertex directly (no Map wrapper)
 ///
 /// For `MATCH (a:Person), (b:Work)`:
 /// - Collects [NodePattern("a", "Person"), NodePattern("b", "Work")]
 ///
-/// Returns raw parsed values - default values are applied by the planner.
+/// Returns raw parsed values - default handling is applied by the planner.
 public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
   /// Represents a node pattern like (a:Person) in MATCH clause.
   /// Contains raw parsed values (may be null if not specified in query).
+  ///
+  /// If alias is null/blank, the execution returns Vertex directly.
+  /// If alias is provided, the execution returns Map<String, Object> with the binding.
   public record NodePattern(String alias, String label) {
   }
 
