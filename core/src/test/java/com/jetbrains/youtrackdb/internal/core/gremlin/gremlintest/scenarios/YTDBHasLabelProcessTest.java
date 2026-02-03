@@ -16,6 +16,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.assertj.core.api.ListAssert;
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -272,12 +273,11 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
 
   @Test
   public void testPolymorphicMultipleLabels() {
-
-    g().command("CREATE CLASS animal EXTENDS V");
-    g().command("CREATE CLASS mammal EXTENDS animal");
-    g().command("CREATE CLASS dolphin EXTENDS mammal");
-    g().command("CREATE CLASS human EXTENDS mammal");
-    g().command("CREATE CLASS fish EXTENDS animal");
+    g().command("CREATE CLASS animal IF NOT EXISTS EXTENDS V");
+    g().command("CREATE CLASS mammal IF NOT EXISTS  EXTENDS animal");
+    g().command("CREATE CLASS dolphin IF NOT EXISTS EXTENDS mammal");
+    g().command("CREATE CLASS human IF NOT EXISTS EXTENDS mammal");
+    g().command("CREATE CLASS fish IF NOT EXISTS EXTENDS animal");
 
     g().addV("animal").property("name", "someAnimal").iterate();
     g().addV("mammal").property("name", "someMammal").iterate();
@@ -510,6 +510,13 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
       assertEquals(1, result.size());
       assertEquals("child2", result.getFirst().value("name"));
     }
+  }
+
+
+  @After
+  @Override
+  public void tearDown() {
+    g().V().drop().iterate();
   }
 
   private ListAssert<String> assertThatNames(String clazz, boolean polymorphic) {

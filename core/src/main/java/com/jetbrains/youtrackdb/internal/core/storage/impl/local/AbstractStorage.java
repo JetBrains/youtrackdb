@@ -3686,8 +3686,6 @@ public abstract class AbstractStorage
    * Checks if the storage is open. If it's closed an exception is raised.
    */
   protected final void checkOpennessAndMigration() {
-    checkErrorState();
-
     final var status = this.status;
 
     if (status == STATUS.MIGRATION) {
@@ -4461,9 +4459,7 @@ public abstract class AbstractStorage
         LogManager.instance().error(this, "Error during closing of write ahead log", e);
       }
 
-      if (!isInError()) {
-        postCloseSteps(false, isInError(), idGen.getLastId());
-      }
+      postCloseSteps(false, isInError(), idGen.getLastId());
 
       transaction = null;
       migration = new CountDownLatch(1);

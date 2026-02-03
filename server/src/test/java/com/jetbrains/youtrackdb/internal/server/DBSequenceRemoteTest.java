@@ -15,7 +15,8 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
   public void setup() throws Exception {
     super.setup();
 
-    youTrackDB = YourTracks.instance("localhost", "root", "root");
+    youTrackDB = YourTracks.instance("localhost", server.getGremlinServer().getPort(), "root",
+        "root");
     traversal = youTrackDB.openTraversal(name.getMethodName(), "admin", "admin");
   }
 

@@ -86,9 +86,11 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v6
 
-      - name: Set Short SHA
+      - name: Set Short SHA and Timestamp
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +'%Y%m%d.%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 21 settings
         uses: actions/setup-java@v5
@@ -98,49 +100,31 @@ jobs:
           cache: 'maven'
           overwrite-settings: false
       - name: Maven deploy
-        #1. Deploy to Maven Central as SNAPSHOT
-        #2. Deploy to Maven Central with as SNAPSHOT SHA suffix
+        #1. Deploy to Maven Central as -dev-SNAPSHOT
+        #2. Deploy to Maven Central with -TIMESTAMP-SHA-dev-SNAPSHOT suffix (sortable by date)
         run: |
-          mvn -s .github/workflows/settings.xml clean deploy -DskipTests -B
-          mvn -s .github/workflows/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -DskipTests -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
         env:
           # Credentials mapped to environment variables
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
-  deploy-docker:
-    needs: test
-    runs-on: ${{ matrix.platform.os }}
-    strategy:
-      matrix:
-        platform:
-          - os: ubuntu-latest
-            arch: x64
-          - os: ubuntu-24.04-arm
-            arch: arm64
-    if: github.event_name == 'push' # Only deploy on push, not PRs
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v6
-      - name: Set up JDK 21 settings
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-          overwrite-settings: false
-      - name: Docker deploy
-        #Deploy REPL console and server docker images to Docker Hub
+
+      - name: Annotate deployed versions
         run: |
-          mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb -DskipTests=true \
-          -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -P docker-images -B
+          VERSION_SNAPSHOT=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -q -DforceStdout)
+          VERSION_SHA=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -q -DforceStdout)
+          echo "::notice title=Maven Artifact Deployed::${VERSION_SNAPSHOT}"
+          echo "::notice title=Maven Artifact Deployed::${VERSION_SHA}"
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ test, deploy, deploy-docker ]
+    needs: [ test, deploy ]
     if: failure() && github.event_name == 'push' && contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
@@ -162,7 +146,7 @@ jobs:
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ test, deploy, deploy-docker ]
+    needs: [ test, deploy ]
     if: >-
       always() &&
       !contains(needs.*.result, 'failure') &&

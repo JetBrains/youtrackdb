@@ -1,12 +1,18 @@
 #!/bin/bash
 #
 # Git hook to automatically add issue prefix to commit messages
-# based on the branch name pattern: ytdb/YTDB + optional non-letter + numbers (case-insensitive)
+# based on the branch name or directory name pattern: ytdb/YTDB + optional non-letter + numbers (case-insensitive)
 # Examples: ytdb-509-feature -> "YTDB-509: <message>"
 #           YTDB509-feature  -> "YTDB-509: <message>"
+#           directory: it-tests-fix with no branch match -> tries "ytdb-278-it-tests-fix" directory pattern
+#
+# Priority: branch name first, then directory name as fallback
 #
 # This hook only runs for JetBrains/youtrackdb repository.
 # Can be installed globally: git config --global core.hooksPath <path-to-hooks-dir>
+
+# Enable case-insensitive pattern matching
+shopt -s nocasematch
 
 # Check if this is the JetBrains/youtrackdb repository
 REMOTE_URL=$(git remote get-url origin 2>/dev/null)
@@ -23,47 +29,34 @@ if [ "$COMMIT_SOURCE" = "merge" ] || [ "$COMMIT_SOURCE" = "squash" ] || [ "$COMM
     exit 0
 fi
 
-# Get current branch name, checking symbolic reference chain for issue prefix
-# This handles cases like: HEAD -> refs/heads/ytdb-123-alias -> refs/heads/my-feature
-# We check each ref in the chain and use the first one containing the issue prefix
-REF="HEAD"
-BRANCH_NAME=""
+# Get current branch name
+BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null)
 ISSUE_PREFIX=""
 
-while true; do
-    TARGET=$(git symbolic-ref "$REF" 2>/dev/null) || break
-    CURRENT_BRANCH="${TARGET#refs/heads/}"
-    CURRENT_BRANCH_LOWER=${CURRENT_BRANCH,,}
-
-    # Check if this ref has the issue prefix pattern
-    if [[ $CURRENT_BRANCH_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
-        BRANCH_NAME="$CURRENT_BRANCH"
+# Try to extract issue prefix from branch name
+if [ -n "$BRANCH_NAME" ]; then
+    if [[ $BRANCH_NAME =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
         ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
-        break
     fi
-
-    # Keep track of the last valid branch name in case none have the prefix
-    BRANCH_NAME="$CURRENT_BRANCH"
-    REF="$TARGET"
-done
-
-# Exit if not on a branch (detached HEAD or couldn't resolve)
-if [ -z "$BRANCH_NAME" ]; then
-    exit 0
 fi
 
-# Check if we found an issue prefix in the chain
+# If not found in branch name, try to extract from directory name
+if [ -z "$ISSUE_PREFIX" ]; then
+    DIR_NAME=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+    if [[ $DIR_NAME =~ (ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
+        ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
+    fi
+fi
+
+# Check if we found an issue prefix
 if [ -n "$ISSUE_PREFIX" ]; then
     FULL_PREFIX="$ISSUE_PREFIX: "
 
     # Read current commit message
     COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
-    # Check if the issue number already exists anywhere in the message (case-insensitive)
-    ISSUE_PREFIX_LOWER=$(echo "$ISSUE_PREFIX" | tr '[:upper:]' '[:lower:]')
-    COMMIT_MSG_LOWER=$(echo "$COMMIT_MSG" | tr '[:upper:]' '[:lower:]')
-
-    if [[ ! "$COMMIT_MSG_LOWER" =~ $ISSUE_PREFIX_LOWER ]]; then
+    # Check if the issue number already exists anywhere in the message (case-insensitive due to nocasematch)
+    if [[ ! "$COMMIT_MSG" =~ $ISSUE_PREFIX ]]; then
         # Prepend the issue prefix to the commit message
         echo -n "$FULL_PREFIX" > "$COMMIT_MSG_FILE"
         echo "$COMMIT_MSG" >> "$COMMIT_MSG_FILE"

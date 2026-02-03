@@ -14,7 +14,7 @@ import org.junit.rules.TestName;
 public class AbstractRemoteTest {
   protected static final String SERVER_DIRECTORY = "./target/remotetest";
 
-  private YouTrackDBServer server;
+  YouTrackDBServer server;
 
   @Rule
   public TestName name = new TestName();

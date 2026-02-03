@@ -17,7 +17,7 @@
 
 includes: ["classpath:com/jetbrains/youtrackdb/server/conf/youtrackdb-server.yaml"]
 host: localhost
-port: 45940
+port: 0
 evaluationTimeout: 300000000
 users:
   - { name: "root", password: "root", resources: "*" }

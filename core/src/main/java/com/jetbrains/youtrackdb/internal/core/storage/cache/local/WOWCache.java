@@ -2493,7 +2493,7 @@ public final class WOWCache extends AbstractWriteCache
 
   private void assertPageIsBroken(long pageIndex, long fileId, Pointer pointer) {
     final var message =
-        "Magic number verification failed for page `"
+        "Magic number or check sum verification failed for page `"
             + pageIndex
             + "` of `"
             + fileNameById(fileId)

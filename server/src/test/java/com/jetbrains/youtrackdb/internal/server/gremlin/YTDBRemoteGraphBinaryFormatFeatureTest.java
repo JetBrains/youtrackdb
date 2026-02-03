@@ -66,7 +66,7 @@ public class YTDBRemoteGraphBinaryFormatFeatureTest {
   @SuppressWarnings("NewClassNamingConvention")
   public static class YTDBGraphWorld implements World {
 
-    public static final YTDBAbstractRemoteGraphProvider provider = new YTDBGraphBinaryRemoteGraphProvider();
+    public static final YTDBGraphBinaryRemoteGraphProvider provider = new YTDBGraphBinaryRemoteGraphProvider();
 
     @Override
     public GraphTraversalSource getGraphTraversalSource(GraphData graphData) {

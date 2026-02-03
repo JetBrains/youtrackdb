@@ -10,48 +10,33 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
-import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class StorageTestIT {
 
   private YouTrackDBImpl youTrackDB;
 
-  private static Path buildPath;
-
-  @BeforeClass
-  public static void beforeClass() throws IOException {
-    var buildDirectory = System.getProperty("buildDirectory", ".");
-    buildPath = Paths.get(buildDirectory).resolve("databases")
-        .resolve(StorageTestIT.class.getSimpleName());
-    Files.createDirectories(buildPath);
-  }
-
   @Test
   public void testCheckSumFailureReadOnly() throws Exception {
-
     var config = new BaseConfiguration();
     config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
         ChecksumMode.StoreAndSwitchReadOnlyMode.name());
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(getClass()),
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
@@ -73,18 +58,15 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) session.getStorage();
     var wowCache = storage.getWriteCache();
-    var ctx = session.getSharedContext();
     session.close();
 
     final var storagePath = storage.getStoragePath();
 
     var fileId = wowCache.fileIdByName("pagebreak.pcl");
     var nativeFileName = wowCache.nativeFileNameById(fileId);
+    youTrackDB.close();
 
-    storage.shutdown();
-    ctx.close();
-
-    var position = 3 * 1024;
+    var position = 3 << 10;
 
     var file =
         new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
@@ -95,17 +77,19 @@ public class StorageTestIT {
     file.write(bt + 1);
     file.close();
 
-    session = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    session = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
+    session.executeInTx(transaction -> {
+      try (var result = transaction.query("select from PageBreak")) {
+        result.toEntityList();
+      }
+    });
     try {
-      session.query("select from PageBreak").close();
+      session.executeInTx(transaction -> transaction.newEntity("PageBreak"));
       Assert.fail();
     } catch (StorageException e) {
-      youTrackDB.close();
-      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-          DbTestBase.getBaseDirectoryPathStr(getClass()),
-          config);
-      youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
+      //ignore
     }
   }
 
@@ -116,8 +100,8 @@ public class StorageTestIT {
         ChecksumMode.StoreAndSwitchReadOnlyMode.name());
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(getClass()),
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
@@ -139,16 +123,12 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
-    var ctx = db.getSharedContext();
     db.close();
-
     final var storagePath = storage.getStoragePath();
 
     var fileId = wowCache.fileIdByName("pagebreak.pcl");
     var nativeFileName = wowCache.nativeFileNameById(fileId);
-
-    storage.shutdown();
-    ctx.close();
+    youTrackDB.close();
 
     var position = File.HEADER_SIZE + DurablePage.MAGIC_NUMBER_OFFSET;
 
@@ -158,17 +138,21 @@ public class StorageTestIT {
     file.write(1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
+        config);
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
+    db.executeInTx(transaction -> {
+      try (var selectFromPageBreak = transaction.query("select from PageBreak")) {
+        selectFromPageBreak.toEntityList();
+      }
+    });
+
     try {
-      db.query("select from PageBreak").toEntityList();
+      db.executeInTx(transaction -> transaction.newEntity("PageBreak"));
       Assert.fail();
     } catch (StorageException e) {
-      youTrackDB.close();
-      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-          DbTestBase.getBaseDirectoryPathStr(getClass()),
-          config);
-      youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
+      //ignore
     }
   }
 
@@ -179,8 +163,8 @@ public class StorageTestIT {
     config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
         ChecksumMode.StoreAndVerify.name());
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(getClass()),
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
@@ -203,7 +187,6 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
-    var ctx = db.getSharedContext();
     db.close();
 
     final var storagePath = storage.getStoragePath();
@@ -211,9 +194,7 @@ public class StorageTestIT {
     var fileId = wowCache.fileIdByName("pagebreak.pcl");
     var nativeFileName = wowCache.nativeFileNameById(fileId);
 
-    storage.shutdown();
-    ctx.close();
-
+    youTrackDB.close();
     var position = File.HEADER_SIZE + DurablePage.MAGIC_NUMBER_OFFSET;
 
     var file =
@@ -222,11 +203,11 @@ public class StorageTestIT {
     file.write(1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
+        config);
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.executeInTx(transaction -> {
-      transaction.query("select from PageBreak").close();
-    });
+    db.executeInTx(transaction -> transaction.query("select from PageBreak").close());
 
     Thread.sleep(100); // lets wait till event will be propagated
 
@@ -246,8 +227,8 @@ public class StorageTestIT {
         ChecksumMode.StoreAndVerify);
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
-        DbTestBase.getBaseDirectoryPathStr(getClass()),
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
@@ -269,7 +250,6 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
-    var ctx = db.getSharedContext();
     db.close();
 
     final var storagePath = storage.getStoragePath();
@@ -277,10 +257,9 @@ public class StorageTestIT {
     var fileId = wowCache.fileIdByName("pagebreak.pcl");
     var nativeFileName = wowCache.nativeFileNameById(fileId);
 
-    storage.shutdown();
-    ctx.close();
+    youTrackDB.close();
 
-    var position = 3 * 1024;
+    var position = 3 << 10;
 
     var file =
         new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
@@ -291,11 +270,11 @@ public class StorageTestIT {
     file.write(bt + 1);
     file.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
+        config);
+    db = youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.executeInTx(transaction -> {
-      transaction.query("select from PageBreak").close();
-    });
+    db.executeInTx(transaction -> transaction.query("select from PageBreak").close());
 
     Thread.sleep(100); // lets wait till event will be propagated
 
@@ -309,8 +288,9 @@ public class StorageTestIT {
 
   @Test
   public void testCreatedVersionIsStored() {
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB =
-        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()));
+        (YouTrackDBImpl) YourTracks.instance(directoryPath);
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
@@ -330,7 +310,8 @@ public class StorageTestIT {
   public void after() throws Exception {
     youTrackDB.close();
 
-    var dbPath = DbTestBase.getBaseDirectoryPath(getClass());
-    FileUtils.deleteDirectory(dbPath.toFile());
+    var internal = YouTrackDBInternal.extract(youTrackDB);
+    var dbPath = internal.getBasePath();
+    FileUtils.deleteDirectory(new java.io.File(dbPath));
   }
 }

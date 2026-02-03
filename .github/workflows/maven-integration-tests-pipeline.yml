@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '0 2 * * *'
 permissions:
-  contents: read
+  contents: write
   packages: write
   actions: write
   checks: write
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v6
         with:
-          ref: 'develop'
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
           # We only need the tip (depth 1) to get the current SHA. Very fast.
           fetch-depth: 1
       - name: Check against last successful run
@@ -34,10 +34,10 @@ jobs:
             echo "should_run=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           # 2. Get the current commit SHA (on develop)
           CURRENT_SHA=$(git rev-parse HEAD)
-          
+
           # 3. Get the SHA of the LAST SUCCESSFUL run of THIS specific workflow on 'develop'
           # We use the GitHub CLI (gh) to look up workflow history
           LAST_SUCCESS_SHA=$(gh run list --branch develop \
@@ -46,10 +46,10 @@ jobs:
             --limit 1 \
             --json headSha \
             -q '.[0].headSha')
-          
+
           echo "Current SHA: $CURRENT_SHA"
           echo "Last Success SHA: $LAST_SUCCESS_SHA"
-          
+
           # 4. Compare
           if [ "$CURRENT_SHA" == "$LAST_SUCCESS_SHA" ]; then
             echo "The current commit has already been successfully tested."
@@ -59,50 +59,52 @@ jobs:
             echo "New code detected (or no previous success found). Proceeding."
             echo "should_run=true" >> $GITHUB_OUTPUT
           fi
-  test:
-    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+
+  test-linux:
+    name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: ${{ matrix.platform.os }}
+    runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
+               'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
+               volume-cache ]
     strategy:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
-        platform:
-          - os: ubuntu-latest
-            arch: x64
+        distribution: [ 'temurin', 'oracle' ]
+        arch: [ 'x86', 'arm' ]
+        include:
+          - arch: x86
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
-          - os: ubuntu-24.04-arm
-            arch: arm64
+            java_arch: x64
+          - arch: arm
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
-          - os: windows-latest
-            arch: x64
-            mvn_opts: '`-Dmaven.test.failure.ignore=true `-Dyoutrackdb.test.env=ci -P ci-integration-tests'
+            java_arch: aarch64
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
         with:
-          ref: 'develop'
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
           fetch-depth: 0
+
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
         with:
           java-version: ${{ matrix.java }}
           distribution: ${{ matrix.distribution }}
-          architecture: ${{ matrix.platform.arch }}
-          cache: 'maven'
+          architecture: ${{ matrix.java_arch }}
           overwrite-settings: false
+
       - name: Run Maven Test
         id: tests
-        continue-on-error: true
-        run: mvn -s .github/workflows/settings.xml clean verify -B ${{ matrix.platform.mvn_opts }}
+        run: ./mvnw -s .github/workflows/settings.xml clean verify -B ${{ matrix.mvn_opts }}
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
           MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always() && runner.os == 'Linux'
+        if: always()
         with:
           files: |
             **/target/surefire-reports/TEST-*.xml
@@ -110,10 +112,45 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
-      - name: Publish Test Results (Windows)
+          check_name: Integration Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+
+  test-windows:
+    name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        distribution: [ 'temurin', 'oracle' ]
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: ${{ matrix.distribution }}
+          architecture: x64
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Run Maven Test
+        id: tests
+        shell: bash
+        run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci
+        env:
+          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
+          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+
+      - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
-        if: always() && runner.os == 'Windows'
+        if: always()
         with:
           files: |
             **/target/surefire-reports/TEST-*.xml
@@ -121,12 +158,51 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Integration Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+          check_name: Integration Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+
+  merge-to-main:
+    name: Merge develop into main
+    needs: [ test-linux, test-windows ]
+    if: success() && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: 'main'
+          fetch-depth: 0
+          token: ${{ secrets.MAIN_UPDATE_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Verify branches are aligned for fast-forward
+        run: |
+          git fetch origin develop
+
+          # Check if main is an ancestor of develop (required for fast-forward)
+          if ! git merge-base --is-ancestor origin/main origin/develop; then
+            echo "ERROR: main branch contains commits not present in develop."
+            echo "Fast-forward merge is not possible. Branches have diverged."
+            echo ""
+            echo "Commits in main not in develop:"
+            git log origin/develop..origin/main --oneline
+            exit 1
+          fi
+
+          echo "Verification passed: main is an ancestor of develop, fast-forward is possible."
+
+      - name: Merge develop into main (fast-forward only)
+        run: |
+          git merge origin/develop --ff-only
+          git push origin main
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: test
-    if: failure()
+    needs: [ test-linux, test-windows, merge-to-main ]
+    if: always() && github.event_name != 'workflow_dispatch' && (needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure' || needs.merge-to-main.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Send Zulip Notification
@@ -140,12 +216,13 @@ jobs:
           topic: 'ci status'
           content: |
             **BUILD FAILED** :rotating_light:
-            Integration tests failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
+            Integration tests or merge failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: test
-    if: success()
+    needs: [ test-linux, test-windows, merge-to-main ]
+    if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
