@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.junit.After;
 import org.junit.Assert;
@@ -272,6 +273,21 @@ public class YouTrackDBRemoteTest {
     youTrackDB.drop(dbName);
   }
 
+
+  @Test
+  public void testCreateDatabaseWithMultipleConfigKeys() {
+    var dbName = "testConfigKeys";
+    var config = new BaseConfiguration();
+    config.setProperty("key1", "value1");
+    config.setProperty("key2", "value2");
+    config.setProperty("key3", "value3");
+
+    youTrackDB.create(dbName, DatabaseType.MEMORY, config, "admin", "admin", "admin");
+
+    Assert.assertTrue(youTrackDB.exists(dbName));
+
+    youTrackDB.drop(dbName);
+  }
 
   @After
   public void after() {

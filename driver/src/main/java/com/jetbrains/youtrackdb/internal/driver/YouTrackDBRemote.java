@@ -318,7 +318,8 @@ public class YouTrackDBRemote implements YouTrackDB {
     var keys = configuration.getKeys();
 
     while (keys.hasNext()) {
-      map.put(keys.next(), configuration.getProperty(keys.next()));
+      var key = keys.next();
+      map.put(key, configuration.getProperty(key));
     }
 
     return map;
