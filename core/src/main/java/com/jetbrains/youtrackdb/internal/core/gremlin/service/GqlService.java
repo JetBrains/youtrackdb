@@ -20,12 +20,10 @@ public class GqlService implements Service<Object, Map<String, Object>> {
   public static final String ARGUMENTS = "args";
 
   private final String query;
-  private final Map<?, ?> arguments;
   private final Type type;
 
   public GqlService(String query, Map<?, ?> arguments, Type type) {
     this.query = query;
-    this.arguments = arguments;
     this.type = type;
   }
 
@@ -45,7 +43,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
     @Override
     public Service<Object, Map<String, Object>> createService(boolean isStart, Map params) {
       final Map<?, ?> safeParams = (params == null) ? Map.of() : params;
-      String queryString = "";
+      var queryString = "";
       Map<?, ?> queryArgs = Map.of();
 
       if (safeParams.get(QUERY) instanceof String q) {
@@ -78,9 +76,8 @@ public class GqlService implements Service<Object, Map<String, Object>> {
     // 1. Get traversal from context
     var traversal = (Traversal.Admin<?, ?>) ctx.getTraversal();
 
-    // 2. Plan the query (parse + create step)
-    var planner = new GqlPlanner();
-    var matchStep = planner.plan(query, traversal);
+    // 2. Plan the query
+    var matchStep = GqlPlanner.plan(query, traversal);
 
     // 3. Collect results from the step
     var results = new ArrayList<Map<String, Object>>();
