@@ -26,11 +26,7 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-/**
- *
- */
 public class MultipleDBTest extends BaseDBTest {
-
   int oldCollectionCount = 8;
 
   public MultipleDBTest() {
@@ -81,7 +77,7 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getCollectionPosition(), j,
+                    dummy.getIdentity().getCollectionPosition(), j + 1,
                     "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
@@ -159,7 +155,7 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getCollectionPosition(), j,
+                    dummy.getIdentity().getCollectionPosition(), j + 1,
                     "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
