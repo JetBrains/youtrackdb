@@ -400,7 +400,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
             write(buffer, paginatedCollectionConfiguration.conflictStrategy);
           }
 
-          if (iNetworkVersion >= Integer.MAX_VALUE) {
+          if (iNetworkVersion == Integer.MAX_VALUE) {
             write(buffer, paginatedCollectionConfiguration.getBinaryVersion());
           }
         }
@@ -461,7 +461,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         write(buffer, engineData.getKeySerializedId());
 
         write(buffer, engineData.isAutomatic());
-        write(buffer, engineData.getDurableInNonTxMode());
+        //Index is durable in a TX mode flag, kept for backward compatibility
+        write(buffer, true);
 
         write(buffer, engineData.getVersion());
         write(buffer, engineData.isNullValuesSupport());
@@ -489,7 +490,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           }
         }
 
-        write(buffer, engineData.getApiVersion());
+        //index engine api version
+        write(buffer, 1);
         write(buffer, engineData.isMultivalue());
       }
 
@@ -1153,7 +1155,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       if (localeLanguage == null || localeCountry == null) {
         locale = Locale.getDefault();
       } else {
-        locale = new Locale(getLocaleLanguage(), getLocaleCountry());
+        locale = Locale.of(getLocaleLanguage(), getLocaleCountry());
       }
     } catch (final RuntimeException e) {
       locale = Locale.getDefault();
@@ -1426,8 +1428,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       IntegerSerializer.serializeNative(
           indexEngineData.getVersion(), numericProperties, pos);
       pos += IntegerSerializer.INT_SIZE;
+      //index engine api version, kept for compatibility
       IntegerSerializer.serializeNative(
-          indexEngineData.getApiVersion(), numericProperties, pos);
+          1, numericProperties, pos);
       pos += IntegerSerializer.INT_SIZE;
 
       numericProperties[pos] = indexEngineData.getValueSerializerId();
@@ -1761,11 +1764,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     if (identity == null) {
       final var position =
-          collection.createRecord(property, 0, (byte) 0, null, atomicOperation);
+          collection.createRecord(property, (byte) 0, null, atomicOperation);
       identity = new RecordId(propertyBinaryVersion, position.collectionPosition);
       btree.put(atomicOperation, name, identity);
     } else {
-      collection.updateRecord(identity.getCollectionPosition(), property, -1, (byte) 0, atomicOperation);
+      collection.updateRecord(identity.getCollectionPosition(), property, (byte) 0,
+          atomicOperation);
     }
 
     final var pausedNotificationsState = pauseNotifications.get();
