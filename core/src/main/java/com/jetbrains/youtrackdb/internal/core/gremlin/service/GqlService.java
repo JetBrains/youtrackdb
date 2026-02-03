@@ -17,6 +17,10 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 /// Executes GQL queries directly using GqlExecutionPlan, supporting all query types
 /// (MATCH, RETURN, etc.) that the planner can handle.
 ///
+/// Result type depends on query:
+/// - `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
+/// - `MATCH (:Person)` → returns Vertex directly (no alias binding)
+///
 /// Supports both Start and Streaming execution modes to allow chaining.
 public class GqlService implements Service<Object, Object> {
 
