@@ -26,7 +26,7 @@ public class GqlPlanner {
   /// @param query     The GQL query string
   /// @param traversal The traversal to add steps to
   /// @return The created GqlMatchStep wrapping the execution plan
-  public GqlMatchStep plan(String query, Traversal.Admin<?, ?> traversal) {
+  public static GqlMatchStep plan(String query, Traversal.Admin<?, ?> traversal) {
     // 1. Parse
     var lexer = new GQLLexer(CharStreams.fromString(query));
     var tokens = new CommonTokenStream(lexer);
@@ -42,7 +42,7 @@ public class GqlPlanner {
     // 3. Build execution plan
     var executionPlan = createExecutionPlan(alias, label);
 
-    // 4. Wrap in TinkerPop step
+    // 4. Wrap step
     return new GqlMatchStep(traversal, executionPlan, alias, label);
   }
 
@@ -51,10 +51,9 @@ public class GqlPlanner {
   /// @param alias The variable name (e.g., "a")
   /// @param label The class/label name (e.g., "Person")
   /// @return The execution plan
-  public GqlExecutionPlan createExecutionPlan(String alias, String label) {
+  public static GqlExecutionPlan createExecutionPlan(String alias, String label) {
     var plan = new GqlExecutionPlan();
 
-    // Add fetch step
     var fetchStep = new GqlFetchFromClassStep(alias, label, true);
     plan.chain(fetchStep);
 

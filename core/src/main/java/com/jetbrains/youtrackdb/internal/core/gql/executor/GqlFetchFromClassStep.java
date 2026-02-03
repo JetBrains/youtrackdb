@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.Map;
@@ -32,24 +33,21 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   @Override
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
-    // Close previous step if any
     if (prev != null) {
-      prev.start(ctx).close();
+      throw new IllegalStateException("match can be only start for now");
     }
 
     var session = ctx.getSession();
     var graph = ctx.getGraph();
 
-    // Check if the class exists
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema.getClass(className) == null) {
-      return GqlExecutionStream.empty();
+      throw new CommandExecutionException(session.getDatabaseName(),
+          "Class '" + className + "' not found");
     }
 
-    // Browse all vertices of the class
     var entityIterator = session.browseClass(className, polymorphic);
 
-    // Convert entities to vertices and wrap in result maps
     var resultIterator = IteratorUtils.map(
         entityIterator,
         entity -> {
