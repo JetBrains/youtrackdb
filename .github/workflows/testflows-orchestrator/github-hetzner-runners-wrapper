@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+source /etc/github-hetzner-runners/env
+exec /usr/local/bin/github-hetzner-runners \
+     --github-token "${GITHUB_TOKEN}" \
+     --github-repository "${GITHUB_REPOSITORY}" \
+     --hetzner-token "${HCLOUD_TOKEN}" \
+     --scripts /etc/github-hetzner-runners/scripts
+

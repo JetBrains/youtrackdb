@@ -19,7 +19,8 @@ public class RemoteBasicSecurityTest {
   public void before() throws Exception {
     server = YouTrackDBServer.startFromFileConfig(
         "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
-    var youTrackDB = YourTracks.instance("localhost", "root", "root");
+    var youTrackDB = YourTracks.instance("localhost", server.getGremlinServer().getPort(), "root",
+        "root");
     youTrackDB.create("test", DatabaseType.MEMORY,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN),
         new LocalUserCredential("reader", "reader", PredefinedLocalRole.READER),

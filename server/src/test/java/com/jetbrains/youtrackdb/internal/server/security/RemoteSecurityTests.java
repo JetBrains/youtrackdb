@@ -25,7 +25,8 @@ public class RemoteSecurityTests {
       throws ClassNotFoundException, InstantiationException, IllegalAccessException, IOException {
     server = YouTrackDBServer.startFromFileConfig(
         "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
-    youTrackDB = YourTracks.instance("localhost", "root", "root");
+    youTrackDB = YourTracks.instance("localhost", server.getGremlinServer().getPort(),
+        "root", "root");
     youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN),
         new LocalUserCredential("writer", "writer", PredefinedLocalRole.WRITER),

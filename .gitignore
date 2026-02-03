@@ -237,3 +237,9 @@ local.properties
 /.githooks/post-commit
 /.githooks/post-merge
 /.githooks/pre-push
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup

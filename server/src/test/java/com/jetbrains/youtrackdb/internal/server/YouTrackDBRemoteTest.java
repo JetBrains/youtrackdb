@@ -23,12 +23,13 @@ public class YouTrackDBRemoteTest {
   @Before
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
-    server.setServerRootDirectory(DbTestBase.getBaseDirectoryPathStr(YouTrackDBRemoteTest.class));
+    server.setServerRootDirectory(DbTestBase.getBaseDirectoryPathStr(getClass()));
     server.startup(
         "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
     server.activate();
 
-    youTrackDB = YourTracks.instance("localhost", 45940, "root", "root");
+    youTrackDB = YourTracks.instance("localhost", server.getGremlinServer().getPort(), "root",
+        "root");
   }
 
   @Test
@@ -199,7 +200,8 @@ public class YouTrackDBRemoteTest {
         //expected
       }
 
-      try (var scopedYtdb = YourTracks.instance("localhost", 45940, "systemUser", "spwd")) {
+      try (var scopedYtdb = YourTracks.instance("localhost",
+          server.getGremlinServer().getPort(), "systemUser", "spwd")) {
         Assert.assertTrue(scopedYtdb.listDatabases().contains("test"));
         Assert.assertTrue(scopedYtdb.exists("test"));
       }

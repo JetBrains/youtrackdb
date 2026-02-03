@@ -27,7 +27,7 @@ public class DbTestBase {
   public static final String ADMIN_PASSWORD = "adminpwd";
   public static final String READER_PASSWORD = "readerpwd";
 
-  private static final AtomicLong counter = new AtomicLong();
+  private static final AtomicLong counter = new AtomicLong(System.nanoTime());
   private static final ConcurrentHashMap<Class<?>, Long> ids = new ConcurrentHashMap<>();
 
   protected DatabaseSessionEmbedded session;

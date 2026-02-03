@@ -195,6 +195,8 @@ public class WOWCacheTestIT {
       assert buffer != null;
 
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
+      DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(0, 0));
+
       cachePointer.releaseExclusiveLock();
 
       wowCache.store(fileId, i, cachePointer);
@@ -921,14 +923,11 @@ public class WOWCacheTestIT {
     var magicNumber = LongSerializer.INSTANCE.deserializeNative(content, 0);
     Assert.assertEquals(WOWCache.MAGIC_NUMBER_WITH_CHECKSUM, magicNumber);
 
-    var segment =
-        LongSerializer.INSTANCE.deserializeNative(content, DurablePage.WAL_SEGMENT_OFFSET);
-    var position =
-        IntegerSerializer.deserializeNative(content, DurablePage.WAL_POSITION_OFFSET);
+    var readLsn =
+        DurablePage.getLogSequenceNumberFromPage(
+            ByteBuffer.wrap(content).order(ByteOrder.nativeOrder()));
 
-    var readLsn = new LogSequenceNumber(segment, position);
-
-    Assert.assertEquals(readLsn, lsn);
+    Assert.assertEquals(lsn, readLsn);
 
     fileClassic.close();
   }

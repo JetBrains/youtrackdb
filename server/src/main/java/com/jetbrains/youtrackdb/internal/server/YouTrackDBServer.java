@@ -91,7 +91,7 @@ public class YouTrackDBServer {
 
   private final Set<String> dbNamesCache = ConcurrentHashMap.newKeySet();
   private final ReentrantLock dbNamesCacheLock = new ReentrantLock();
-  private GremlinServer gremlinServer;
+  private volatile GremlinServer gremlinServer;
 
   public YouTrackDBServer() {
     this(!YouTrackDBEnginesManager.instance().isInsideWebContainer());

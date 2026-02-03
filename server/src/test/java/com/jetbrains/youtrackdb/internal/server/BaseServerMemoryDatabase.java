@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import java.io.File;
 import org.junit.After;
@@ -25,6 +26,7 @@ public class BaseServerMemoryDatabase {
   @Before
   public void beforeTest() {
     server = new YouTrackDBServer(false);
+    server.setServerRootDirectory(DbTestBase.getBaseDirectoryPathStr(getClass()));
     try {
       server.startup(
           "classpath:com/jetbrains/youtrackdb/internal/server/youtrackdb-server-integration.yaml");
@@ -33,7 +35,8 @@ public class BaseServerMemoryDatabase {
       throw new RuntimeException(e);
     }
 
-    youTrackDB = YourTracks.instance("localhost", 45940, "root", "root");
+    youTrackDB = YourTracks.instance("localhost", server.getGremlinServer().getPort(),
+        "root", "root");
     youTrackDB.create(name.getMethodName(), DatabaseType.MEMORY,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
     traversal = youTrackDB.openTraversal(name.getMethodName(), "admin", "admin");
