@@ -18,7 +18,7 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 /// (MATCH, RETURN, etc.) that the planner can handle.
 ///
 /// Supports both Start and Streaming execution modes to allow chaining.
-public class GqlService implements Service<Object, Map<String, Object>> {
+public class GqlService implements Service<Object, Object> {
 
   public static final String NAME = "gql";
   public static final String QUERY = "query";
@@ -34,7 +34,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
     this.type = type;
   }
 
-  public static class Factory implements ServiceFactory<Object, Map<String, Object>> {
+  public static class Factory implements ServiceFactory<Object, Object> {
 
     @Override
     public String getName() {
@@ -48,7 +48,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
     }
 
     @Override
-    public Service<Object, Map<String, Object>> createService(boolean isStart, Map params) {
+    public Service<Object, Object> createService(boolean isStart, Map params) {
       final Map<?, ?> safeParams = (params == null) ? Map.of() : params;
       var queryString = "";
       Map<?, ?> queryArgs = Map.of();
@@ -75,7 +75,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
   }
 
   @Override
-  public CloseableIterator<Map<String, Object>> execute(ServiceCallContext ctx, Map params) {
+  public CloseableIterator<Object> execute(ServiceCallContext ctx, Map params) {
     if (query.isEmpty()) {
       return CloseableIterator.empty();
     }
@@ -103,7 +103,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
 
   /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption.
   /// Handles any query type, not just MATCH.
-  private static class GqlResultIterator implements CloseableIterator<Map<String, Object>> {
+  private static class GqlResultIterator implements CloseableIterator<Object> {
 
     private final GqlExecutionStream stream;
     private final GqlExecutionPlan plan;
@@ -119,7 +119,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
     }
 
     @Override
-    public Map<String, Object> next() {
+    public Object next() {
       return stream.next();
     }
 
@@ -131,7 +131,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
   }
 
   @Override
-  public CloseableIterator<Map<String, Object>> execute(
+  public CloseableIterator<Object> execute(
       ServiceCallContext ctx,
       Traverser.Admin<Object> in,
       Map params) {

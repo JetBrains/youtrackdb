@@ -4,31 +4,33 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.Map;
-import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 /// Execution step that fetches all vertices of a class.
 ///
 /// Similar to SQL's FetchFromClassExecutionStep, but returns vertices
 /// wrapped in variable binding maps for GQL.
 ///
-/// For `MATCH (a:Person)`, this step:
-/// - Browses all vertices of class "Person"
-/// - Creates Map<String, Object> with {"a": vertex} for each vertex
+/// Result type depends on whether alias was provided:
+/// - With alias (MATCH (a:Person)): Map<String, Object> with {"a": vertex}
+/// - Without alias (MATCH (:Person)): just the Vertex (no side effects)
 public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   private final String alias;
   private final String className;
   private final boolean polymorphic;
+  private final boolean hasAlias;
 
   /// Create a step that fetches vertices from a class.
   ///
-  /// @param alias       The variable name to bind vertices to (e.g., "a")
+  /// @param alias       The variable name to bind vertices to (e.g., "a"), or null if not provided
   /// @param className   The class/label to fetch from (e.g., "Person")
   /// @param polymorphic Whether to include subclasses
-  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic) {
+  /// @param hasAlias    Whether alias was explicitly provided in query
+  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic, boolean hasAlias) {
     this.alias = alias;
     this.className = className;
     this.polymorphic = polymorphic;
+    this.hasAlias = hasAlias;
   }
 
   @Override
@@ -48,15 +50,17 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
     var entityIterator = session.browseClass(className, polymorphic);
 
-    var resultIterator = IteratorUtils.map(
-        entityIterator,
-        entity -> {
-          var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-          return Map.<String, Object>of(alias, vertex);
-        }
-    );
-
-    return GqlExecutionStream.fromIterator(resultIterator);
+    if (hasAlias) {
+      // With alias: return Map with binding (side effect)
+      return GqlExecutionStream.fromIterator(entityIterator, entity -> {
+        var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+        return Map.<String, Object>of(alias, vertex);
+      });
+    } else {
+      // Without alias: return just the vertex (no side effects)
+      return GqlExecutionStream.fromIterator(entityIterator,
+          entity -> new YTDBVertexImpl(graph, entity.asVertex()));
+    }
   }
 
   public String getAlias() {
