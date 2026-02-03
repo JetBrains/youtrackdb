@@ -20,16 +20,18 @@
 
 package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
-import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence.SEQUENCE_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -123,14 +125,22 @@ public class SequenceLibraryImpl {
     try {
       final var seq = getSequence(session, iName);
       if (seq != null) {
-        try {
           var entity = session.loadEntity(seq.entityRid);
           session.delete(entity);
-          sequences.remove(normalizeName(iName));
-        } catch (NeedRetryException e) {
-          var rec = session.load(seq.entityRid);
-          rec.delete();
-        }
+
+        session.registerListener(new SessionListener() {
+          @Override
+          public void onAfterTxCommit(Transaction transaction,
+              @Nullable Map<RID, RID> ridMapping) {
+            sequences.remove(normalizeName(iName));
+            session.unregisterListener(this);
+          }
+
+          @Override
+          public void onAfterTxRollback(Transaction transaction) {
+            session.unregisterListener(this);
+          }
+        });
       }
     } finally {
       lock.unlock();
