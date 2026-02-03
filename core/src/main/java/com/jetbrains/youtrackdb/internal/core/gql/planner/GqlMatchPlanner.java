@@ -8,12 +8,11 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 ///
 /// Converts a GqlMatchStatement into an execution plan with appropriate steps.
 ///
-/// For `MATCH (a:Person)`:
-/// - Creates GqlFetchFromClassStep to iterate over all Person vertices
-/// - Binds each vertex to alias "a"
+/// Result type depends on whether alias was provided:
+/// - With alias `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
+/// - Without alias `MATCH (:Person)` → returns just the Vertex directly (alias=null)
 ///
-/// Applies default values:
-/// - Missing alias → "_0", "_1", etc.
+/// Default values:
 /// - Missing label → "V" (all vertices)
 public class GqlMatchPlanner {
 
@@ -40,18 +39,13 @@ public class GqlMatchPlanner {
     var pattern = patterns.getFirst();
     var rawAlias = pattern.alias();
     var hasAlias = rawAlias != null && !rawAlias.isBlank();
-    var alias = effectiveAlias(rawAlias, 0);
+    var alias = hasAlias ? rawAlias : null;
     var label = effectiveLabel(pattern.label());
 
     var fetchStep = new GqlFetchFromClassStep(alias, label, true, hasAlias);
     plan.chain(fetchStep);
 
     return plan;
-  }
-
-  /// Returns effective alias, generating default "_N" if not provided.
-  private static String effectiveAlias(String alias, int index) {
-    return (alias == null || alias.isBlank()) ? "_" + index : alias;
   }
 
   /// Returns effective label, defaulting to "V" (all vertices) if not provided.

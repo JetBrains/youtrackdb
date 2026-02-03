@@ -7,7 +7,9 @@ import java.util.List;
 
 /// Represents a GQL MATCH statement.
 ///
-/// Example: MATCH (a:Person)
+/// Examples:
+/// - `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
+/// - `MATCH (:Person)` → returns Vertex directly (no alias binding)
 ///
 /// Contains the parsed node patterns from the MATCH clause.
 public class GqlMatchStatement implements GqlStatement {
