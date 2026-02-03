@@ -2,11 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gql.step;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
@@ -50,8 +48,7 @@ public class GqlMatchStep extends AbstractStep<Map<String, Object>, Map<String, 
     var session = graphTx.getDatabaseSession();
     var ctx = new GqlExecutionContext(graph, session);
 
-    GqlExecutionStream stream = executionPlan.start(ctx);
-    return stream;
+    return executionPlan.start(ctx);
   }
 
   public GqlExecutionPlan getExecutionPlan() {
@@ -75,7 +72,7 @@ public class GqlMatchStep extends AbstractStep<Map<String, Object>, Map<String, 
 
     if (iterator.hasNext()) {
       return this.getTraversal().getTraverserGenerator()
-          .generate(this.iterator.next(), (Step<Map<String, Object>, Map<String, Object>>) this, 1L);
+          .generate(this.iterator.next(), this, 1L);
     }
 
     throw FastNoSuchElementException.instance();
