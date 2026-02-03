@@ -69,7 +69,6 @@ public interface StorageCollection {
    * Creates a new record in the collection.
    *
    * @param content           the content of the record.
-   * @param recordVersion     the current version
    * @param recordType        the type of the record
    * @param allocatedPosition the eventual allocated position or null if there is no allocated
    *                          position.
@@ -77,7 +76,6 @@ public interface StorageCollection {
    */
   PhysicalPosition createRecord(
       byte[] content,
-      long recordVersion,
       byte recordType,
       PhysicalPosition allocatedPosition,
       AtomicOperation atomicOperation);
@@ -87,7 +85,6 @@ public interface StorageCollection {
   void updateRecord(
       long collectionPosition,
       byte[] content,
-      long recordVersion,
       byte recordType,
       AtomicOperation atomicOperation);
 
@@ -118,8 +115,6 @@ public interface StorageCollection {
 
   long getLastPosition() throws IOException;
 
-  long getNextFreePosition() throws IOException;
-
   String getFileName();
 
   int getId();
@@ -127,8 +122,6 @@ public interface StorageCollection {
   void synch() throws IOException;
 
   String getName();
-
-  String compression();
 
   boolean isSystemCollection();
 
@@ -149,8 +142,6 @@ public interface StorageCollection {
   void acquireAtomicExclusiveLock();
 
   CollectionBrowsePage nextPage(long lastPosition, boolean forward) throws IOException;
-
-  int getBinaryVersion();
 
   default Meters meters() {
     return Meters.NOOP;
