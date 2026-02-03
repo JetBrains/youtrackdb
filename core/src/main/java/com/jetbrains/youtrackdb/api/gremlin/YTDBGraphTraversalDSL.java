@@ -214,32 +214,4 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
     return GraphTraversal.Admin.super.to(toStepLabel);
   }
-
-  /// Execute a GQL (Graph Query Language) query, chaining with previous traversal results.
-  ///
-  /// Each incoming traverser's bindings are merged with the GQL query results,
-  /// enabling Cartesian product when chaining multiple MATCH clauses.
-  ///
-  /// @param query The GQL query to execute.
-  /// @return A traversal of result maps.
-  @SkipAsAnonymousMethod
-  default GraphTraversal<S, Map<String, Object>> gql(@Nonnull String query) {
-    return gql(query, Map.of());
-  }
-
-  /// Execute a parameterized GQL query, chaining with previous traversal results.
-  ///
-  /// @param query     The GQL query to execute.
-  /// @param arguments The arguments to pass to the query.
-  /// @return A traversal of result maps.
-  @SkipAsAnonymousMethod
-  default GraphTraversal<S, Map<String, Object>> gql(
-      @Nonnull String query, @Nonnull Map<?, ?> arguments) {
-    return call(
-        GqlService.NAME, Map.of(
-            GqlService.QUERY, query,
-            GqlService.ARGUMENTS, arguments
-        )
-    );
-  }
 }
