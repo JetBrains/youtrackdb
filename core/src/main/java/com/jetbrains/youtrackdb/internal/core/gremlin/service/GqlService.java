@@ -105,7 +105,7 @@ public class GqlService implements Service<Object, Map<String, Object>> {
 
     @Override
     public void close() {
-      matchStep.reset();
+      matchStep.close();
     }
   }
 

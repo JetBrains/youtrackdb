@@ -75,7 +75,15 @@ public class GqlMatchStep extends AbstractStep<Map<String, Object>, Map<String, 
           .generate(this.iterator.next(), this, 1L);
     }
 
+    // Close iterator when exhausted to release database resources (cursors, etc.)
+    closeIterator();
     throw FastNoSuchElementException.instance();
+  }
+
+  /// Close the underlying iterator and release resources.
+  private void closeIterator() {
+    CloseableIterator.closeIterator(iterator);
+    iterator = CloseableIterator.empty();
   }
 
   @Override
@@ -89,9 +97,15 @@ public class GqlMatchStep extends AbstractStep<Map<String, Object>, Map<String, 
   @Override
   public void reset() {
     super.reset();
-    CloseableIterator.closeIterator(iterator);
-    iterator = CloseableIterator.empty();
+    closeIterator();
     started = false;
     executionPlan.reset();
+  }
+
+  /// Closes resources when the step is no longer needed.
+  /// Called by TinkerPop when traversal is closed.
+  public void close() {
+    closeIterator();
+    executionPlan.close();
   }
 }
