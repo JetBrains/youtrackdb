@@ -1,17 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
-import java.util.ArrayList;
-import java.util.List;
 import javax.annotation.Nullable;
 
 /// Execution plan for GQL queries.
-///
-/// Contains a chain of execution steps that are executed in order.
-/// The last step produces the final results.
 public class GqlExecutionPlan {
 
-  private final List<GqlExecutionStep> steps = new ArrayList<>();
   @Nullable
   private GqlExecutionStep lastStep = null;
 
@@ -20,7 +14,6 @@ public class GqlExecutionPlan {
     if (lastStep != null) {
       step.setPrevious(lastStep);
     }
-    steps.add(step);
     lastStep = step;
   }
 
@@ -33,6 +26,7 @@ public class GqlExecutionPlan {
   }
 
   /// Close the execution plan and release resources.
+  /// Closing lastStep will cascade to all previous steps.
   public void close() {
     if (lastStep != null) {
       lastStep.close();
@@ -40,27 +34,10 @@ public class GqlExecutionPlan {
   }
 
   /// Reset the execution plan for re-execution.
+  /// Resetting lastStep will cascade to all previous steps.
   public void reset() {
-    for (var step : steps) {
-      step.reset();
+    if (lastStep != null) {
+      lastStep.reset();
     }
-  }
-
-  /// Get all steps in the plan.
-  public List<GqlExecutionStep> getSteps() {
-    return steps;
-  }
-
-  /// Get a human-readable representation of the execution plan.
-  public String prettyPrint() {
-    var sb = new StringBuilder();
-    sb.append("GqlExecutionPlan {\n");
-    for (int i = 0; i < steps.size(); i++) {
-      sb.append("  ").append(i + 1).append(". ");
-      sb.append(steps.get(i).prettyPrint(0, 2));
-      sb.append("\n");
-    }
-    sb.append("}");
-    return sb.toString();
   }
 }
