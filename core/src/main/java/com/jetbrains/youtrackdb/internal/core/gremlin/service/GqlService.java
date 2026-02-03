@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import java.util.ArrayList;
+import com.jetbrains.youtrackdb.internal.core.gql.step.GqlMatchStep;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -79,13 +79,34 @@ public class GqlService implements Service<Object, Map<String, Object>> {
     // 2. Plan the query
     var matchStep = GqlPlanner.plan(query, traversal);
 
-    // 3. Collect results from the step
-    var results = new ArrayList<Map<String, Object>>();
-    while (matchStep.hasNext()) {
-      results.add(matchStep.next().get());
+    // 3. Return streaming iterator (lazy evaluation, low memory footprint)
+    return new GqlResultIterator(matchStep);
+  }
+
+  /// Streaming iterator that wraps GqlMatchStep for lazy result consumption.
+  /// Avoids collecting all results into memory, preventing OutOfMemoryError for large datasets.
+  private static class GqlResultIterator implements CloseableIterator<Map<String, Object>> {
+
+    private final GqlMatchStep matchStep;
+
+    GqlResultIterator(GqlMatchStep matchStep) {
+      this.matchStep = matchStep;
     }
 
-    return CloseableIterator.of(results.iterator());
+    @Override
+    public boolean hasNext() {
+      return matchStep.hasNext();
+    }
+
+    @Override
+    public Map<String, Object> next() {
+      return matchStep.next().get();
+    }
+
+    @Override
+    public void close() {
+      matchStep.reset();
+    }
   }
 
   @Override
