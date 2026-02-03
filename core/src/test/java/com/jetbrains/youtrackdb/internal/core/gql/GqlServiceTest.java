@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql;
 
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -22,13 +23,35 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
-  public void testGqlMatchReturnsEmptyWhenNoVertices() {
+  public void testGqlMatchThrowsWhenClassNotFound() {
     var g = graph.traversal();
 
-    // Execute the full flow - should return no results when class doesn't exist or is empty
+    // When querying a class that doesn't exist, should throw CommandExecutionException
+    try {
+      g.gql("MATCH (a:NonExistentClass)").toList();
+      fail("Should throw exception when class doesn't exist");
+    } catch (CommandExecutionException e) {
+      assertTrue("Exception message should mention class name",
+          e.getMessage().contains("NonExistentClass"));
+      assertTrue("Exception message should mention 'not found'",
+          e.getMessage().contains("not found"));
+    }
+  }
+
+  @Test
+  public void testGqlMatchReturnsEmptyWhenClassExistsButEmpty() {
+    var g = graph.traversal();
+
+    // Create a Person vertex to ensure class exists, then delete it
+    g.addV("Person").property("name", "temp").iterate();
+    g.V().hasLabel("Person").drop().iterate();
+    g.tx().commit();
+
+    // Class exists but has no vertices - should return empty result
     var results = g.gql("MATCH (a:Person)").toList();
 
-    assertEquals("Should return 0 results when no Person vertices exist", 0, results.size());
+    assertEquals("Should return 0 results when Person class is empty", 0,
+        results.size());
   }
 
   @Test
@@ -36,7 +59,8 @@ public class GqlServiceTest extends GraphBaseTest {
     var g = graph.traversal();
 
     // Verify we can call gql() with parameters
-    var traversal = g.gql("MATCH (a:Person) WHERE a.name = $name", java.util.Map.of("name", "John"));
+    var traversal = g.gql(
+        "MATCH (a:Person) WHERE a.name = $name", java.util.Map.of("name", "John"));
     assertNotNull("gql() with parameters should return a traversal", traversal);
   }
 
@@ -48,12 +72,12 @@ public class GqlServiceTest extends GraphBaseTest {
     g.addV("Person").property("name", "Alice").iterate();
     g.tx().commit();
 
-    // Execute GQL query
     var results = g.gql("MATCH (a:Person)").toList();
 
     assertEquals("Should find 1 person", 1, results.size());
-    assertTrue("Result should contain 'a' binding", results.get(0).containsKey("a"));
-    assertTrue("Binding 'a' should be a Vertex", Vertex.class.isInstance(results.get(0).get("a")));
+    assertTrue("Result should contain 'a' binding", results.getFirst().containsKey("a"));
+    assertTrue("Binding 'a' should be a Vertex",
+        results.getFirst().get("a") instanceof Vertex);
   }
 
   @Test
@@ -66,13 +90,12 @@ public class GqlServiceTest extends GraphBaseTest {
     g.addV("Person").property("name", "Charlie").iterate();
     g.tx().commit();
 
-    // Execute GQL query
     var results = g.gql("MATCH (a:Person)").toList();
 
     assertEquals("Should find 3 persons", 3, results.size());
     for (var result : results) {
       assertTrue("Each result should contain 'a' binding", result.containsKey("a"));
-      assertTrue("Binding 'a' should be a Vertex", Vertex.class.isInstance(result.get("a")));
+      assertTrue("Binding 'a' should be a Vertex", result.get("a") instanceof Vertex);
     }
   }
 
@@ -84,11 +107,10 @@ public class GqlServiceTest extends GraphBaseTest {
     g.addV("Person").property("name", "Bob").iterate();
     g.tx().commit();
 
-    // Execute GQL query and select the variable
     var vertices = g.gql("MATCH (a:Person)").select("a").toList();
 
     assertEquals("Should find 1 vertex", 1, vertices.size());
-    assertTrue("Selected value should be a Vertex", Vertex.class.isInstance(vertices.get(0)));
+    assertTrue("Selected value should be a Vertex", vertices.getFirst() instanceof Vertex);
   }
 
   @Test
@@ -99,11 +121,11 @@ public class GqlServiceTest extends GraphBaseTest {
     g.addV("Person").property("name", "Alice").iterate();
     g.tx().commit();
 
-    // Execute GQL query, select the variable, and get its name property
-    var names = g.gql("MATCH (a:Person)").select("a").values("name").toList();
+    var names = g.gql("MATCH (a:Person)").select("a")
+        .values("name").toList();
 
     assertEquals("Should find 1 name", 1, names.size());
-    assertEquals("Name should be Alice", "Alice", names.get(0));
+    assertEquals("Name should be Alice", "Alice", names.getFirst());
   }
 
   @Test
@@ -114,10 +136,10 @@ public class GqlServiceTest extends GraphBaseTest {
     g.addV("Person").property("name", "Test").iterate();
     g.tx().commit();
 
-    // Execute GQL query with different alias
     var results = g.gql("MATCH (person:Person)").toList();
 
     assertEquals("Should find 1 person", 1, results.size());
-    assertTrue("Result should contain 'person' binding", results.get(0).containsKey("person"));
+    assertTrue("Result should contain 'person' binding",
+        results.getFirst().containsKey("person"));
   }
 }
