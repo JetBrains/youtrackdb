@@ -258,10 +258,10 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
     if (statement instanceof DDLStatement) {
       try (var schemaSession = acquireSession()) {
-        schemaSession.execute(statement, params).close();
+        schemaSession.execute(statement, params);
       }
     } else {
-      session.execute(statement, params).close();
+      session.execute(statement, params);
     }
   }
 
