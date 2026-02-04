@@ -13,13 +13,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Iterator;
@@ -225,25 +221,21 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   @Override
   public void executeCommand(String command, Map<?, ?> params) {
-    var normalized = command == null ? "" : command.trim().toUpperCase();
-
-    if (isSchemaCommand(command == null ? "" : command.trim())) {
-      try (var session = acquireSession()) {
-        session.command(command, params);
-      }
-      return;
+    if (command == null || command.isBlank()) {
+      throw new IllegalArgumentException("Command cannot be null or empty");
     }
 
+    var normalized = command.trim().toUpperCase();
+
+    var tx = tx();
     switch (normalized) {
       case "BEGIN" -> {
-        var tx = tx();
         if (!tx.isOpen()) {
           tx.readWrite();
         }
         return;
       }
       case "COMMIT" -> {
-        var tx = tx();
         if (tx.isOpen()) {
           tx.commit();
         } else {
@@ -252,7 +244,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         return;
       }
       case "ROLLBACK" -> {
-        var tx = tx();
         if (tx.isOpen()) {
           tx.rollback();
         } else {
@@ -262,21 +253,15 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       }
     }
 
-    var session = tx().getDatabaseSession();
-    session.command(command, params);
-  }
+    var session = tx.getDatabaseSession();
+    var statement = SQLEngine.parse(command, session);
 
-  private static boolean isSchemaCommand(String command) {
-    if (command == null || command.isBlank()) {
-      return false;
-    }
-    try {
-      var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
-      var parser = new YouTrackDBSql(is);
-      var statement = parser.parse();
-      return statement instanceof DDLStatement;
-    } catch (ParseException | TokenMgrError e) {
-      return false;
+    if (statement instanceof DDLStatement) {
+      try (var schemaSession = acquireSession()) {
+        schemaSession.execute(statement, params).close();
+      }
+    } else {
+      session.execute(statement, params).close();
     }
   }
 

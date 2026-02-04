@@ -1063,6 +1063,23 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   }
 
   /**
+   * Executes a pre-parsed SQL statement. This avoids re-parsing the query string when the
+   * statement has already been parsed (e.g., for type checking). <br>
+   * <br>
+   * The result set has to be closed after usage.
+   *
+   * @param statement the pre-parsed SQL statement
+   * @param args      query arguments
+   * @return the query result set
+   */
+  default ResultSet execute(
+      com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement statement,
+      @SuppressWarnings("rawtypes") Map args)
+      throws CommandExecutionException {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
    * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
    * way as {@link DatabaseSessionInternal#execute(String, Object...)}, but doesn't require closing
    * the result set after usage. <br>

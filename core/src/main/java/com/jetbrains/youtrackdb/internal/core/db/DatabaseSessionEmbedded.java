@@ -732,6 +732,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
+    var statement = SQLEngine.parse(query, this);
+    return execute(statement, args);
+  }
+
+  @Override
+  public ResultSet execute(SQLStatement statement, @SuppressWarnings("rawtypes") Map args) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -746,7 +752,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        var statement = SQLEngine.parse(query, this);
         @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
         LocalResultSetLifecycleDecorator result;
