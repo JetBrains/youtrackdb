@@ -170,13 +170,15 @@ public class YouTrackDBRemote implements YouTrackDB {
   @Override
   public void restore(@NonNull String databaseName, @NonNull String path,
       @Nullable String expectedUUID, @NonNull Configuration config) {
-    executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_RESTORE, Map.of(
-            RemoteProtocolConstants.DATABASE_NAME_PARAMETER, databaseName,
-            RemoteProtocolConstants.BACKUP_PATH_PARAMETER, path,
-            RemoteProtocolConstants.EXPECTED_UUID_PARAMETER, expectedUUID,
-            RemoteProtocolConstants.CONFIGURATION_PARAMETER, convertConfigToMap(config)
-        )
-    );
+    var params = new HashMap<String, Object>();
+    params.put(RemoteProtocolConstants.DATABASE_NAME_PARAMETER, databaseName);
+    params.put(RemoteProtocolConstants.BACKUP_PATH_PARAMETER, path);
+    if (expectedUUID != null) {
+      params.put(RemoteProtocolConstants.EXPECTED_UUID_PARAMETER, expectedUUID);
+    }
+    params.put(RemoteProtocolConstants.CONFIGURATION_PARAMETER, convertConfigToMap(config));
+
+    executeServerRequestNoResult(RemoteProtocolConstants.SERVER_COMMAND_RESTORE, params);
   }
 
   @Override
@@ -316,7 +318,8 @@ public class YouTrackDBRemote implements YouTrackDB {
     var keys = configuration.getKeys();
 
     while (keys.hasNext()) {
-      map.put(keys.next(), configuration.getProperty(keys.next()));
+      var key = keys.next();
+      map.put(key, configuration.getProperty(key));
     }
 
     return map;
