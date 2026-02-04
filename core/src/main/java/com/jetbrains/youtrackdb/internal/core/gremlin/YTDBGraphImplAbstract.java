@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
@@ -15,7 +17,9 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -263,8 +267,12 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
       var parser = new YouTrackDBSql(is);
       statement = parser.parse();
+    } catch (ParseException | TokenMgrError e) {
+      throw new CommandSQLParsingException("Error on parsing command: " + command,
+          String.valueOf(e));
     } catch (Exception e) {
-      statement = SQLEngine.parse(command, getUnderlyingDatabaseSession());
+      throw new CommandExecutionException("Error on executing command: " + command,
+          String.valueOf(e));
     }
 
     if (statement instanceof DDLStatement) {
