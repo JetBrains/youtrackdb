@@ -692,6 +692,24 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet execute(String query, Object... args) {
+    return executeInternal(query, null, args);
+  }
+
+  @Override
+  public ResultSet execute(String query, Map args) {
+    return executeInternal(query, null,(Object) args);
+  }
+
+  @Override
+  public ResultSet execute(SQLStatement statement, Map<?, ?> args) {
+    return executeInternal(null, statement, args);
+  }
+
+  private ResultSet executeInternal(
+      String stringStatemnet,
+      SQLStatement parsedStatement,
+      Object args) {
+
     assert assertIfNotActive();
 
     checkOpenness();
@@ -706,54 +724,21 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        var statement = SQLEngine.parse(query, this);
-        var original = statement.execute(this, args, true);
-        LocalResultSetLifecycleDecorator result;
-        if (!statement.isIdempotent()) {
-          // fetch all, close and detach
-          var prefetched = new InternalResultSet(this);
-          original.forEachRemaining(prefetched::add);
-          original.close();
-          result = new LocalResultSetLifecycleDecorator(prefetched);
-        } else {
-          // stream, keep open and attach to the current DB
-          result = new LocalResultSetLifecycleDecorator(original);
-          queryStarted(result);
-        }
-        return result;
-      } finally {
-        getSharedContext().getYouTrackDB().endCommand();
-      }
-    } catch (Exception e) {
-      rollback();
-      throw e;
-    }
-  }
-
-  @Override
-  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
-    var statement = SQLEngine.parse(query, this);
-    return execute(statement, args);
-  }
-
-  @Override
-  public ResultSet execute(SQLStatement statement, @SuppressWarnings("rawtypes") Map args) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    if (currentTx.isCallBackProcessingInProgress()) {
-      throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
-              +
-              "please move it to the afterCallbackXXX method");
-    }
-    try {
-      currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(null);
-      try {
+        var statement = (parsedStatement != null) ? parsedStatement :
+            SQLEngine.parse(stringStatemnet, this);
         @SuppressWarnings("unchecked")
-        var original = statement.execute(this, args, true);
+        ResultSet original;
+        if (args instanceof Map) {
+          Map<Object, Object> mutableArgs = new HashMap<>((Map<?, ?>) args);
+          original = statement.execute(this, mutableArgs, true);
+        } else if (args instanceof Object[]) {
+          original = statement.execute(this, (Object[]) args, true);
+        } else if (args == null) {
+          original = statement.execute(this, (Object[]) null, true);
+        } else {
+          original = statement.execute(this, new Object[]{args}, true);
+        }
+
         LocalResultSetLifecycleDecorator result;
         if (!statement.isIdempotent()) {
           // fetch all, close and detach
@@ -901,7 +886,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         var result = new LocalResultSet(this, (InternalExecutionPlan) plan);
         var decorator = new LocalResultSetLifecycleDecorator(result);
         queryStarted(decorator);
-
         return decorator;
       } finally {
         getSharedContext().getYouTrackDB().endCommand();

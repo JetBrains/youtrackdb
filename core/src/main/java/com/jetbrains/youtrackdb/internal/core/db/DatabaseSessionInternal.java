@@ -1074,7 +1074,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   default ResultSet execute(
       com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement statement,
-      @SuppressWarnings("rawtypes") Map args)
+      Map<?, ?> args)
       throws CommandExecutionException {
     throw new UnsupportedOperationException();
   }
@@ -1113,6 +1113,20 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   default void command(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     execute(query, args).close();
+  }
+
+  /**
+   * Executes a pre-parsed SQL statement, ignoring the produced result.
+   * The result set is closed automatically.
+   *
+   * @param statement the pre-parsed SQL statement
+   * @param args      query arguments (named parameters)
+   */
+  default void command(
+      com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement statement,
+      Map<?, ?> args)
+        throws CommandSQLParsingException, CommandExecutionException  {
+      execute(statement, args).close();
   }
 
   /**

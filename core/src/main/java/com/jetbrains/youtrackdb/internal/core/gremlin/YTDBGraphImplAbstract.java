@@ -15,9 +15,14 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
@@ -226,8 +231,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     }
 
     var normalized = command.trim().toUpperCase();
-
     var tx = tx();
+
     switch (normalized) {
       case "BEGIN" -> {
         if (!tx.isOpen()) {
@@ -253,15 +258,21 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       }
     }
 
-    var session = tx.getDatabaseSession();
-    var statement = SQLEngine.parse(command, session);
+    SQLStatement statement;
+    try {
+      var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
+      var parser = new YouTrackDBSql(is);
+      statement = parser.parse();
+    } catch (Exception e) {
+      statement = SQLEngine.parse(command, getUnderlyingDatabaseSession());
+    }
 
     if (statement instanceof DDLStatement) {
       try (var schemaSession = acquireSession()) {
-        schemaSession.execute(statement, params);
+        schemaSession.command(statement, params);
       }
     } else {
-      session.execute(statement, params);
+      tx.getDatabaseSession().command(statement, params);
     }
   }
 
