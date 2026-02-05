@@ -62,6 +62,22 @@ public class GqlService implements Service<Object, Object> {
       }
       if (safeParams.get(ARGUMENTS) instanceof Map<?, ?> args) {
         queryArgs = args;
+      } else if (safeParams.get(ARGUMENTS) instanceof java.util.List<?> argsList
+          && !argsList.isEmpty()) {
+        if (argsList.getFirst() instanceof String q) {
+          queryString = q;
+          if (argsList.size() > 1) {
+            var rest = argsList.size() - 1;
+            if (rest % 2 != 0) {
+              throw new IllegalArgumentException("Arguments must be provided in key-value pairs");
+            }
+            var map = new java.util.LinkedHashMap<>();
+            for (var i = 1; i + 1 < argsList.size(); i += 2) {
+              map.put(argsList.get(i), argsList.get(i + 1));
+            }
+            queryArgs = map;
+          }
+        }
       }
 
       return new GqlService(queryString, queryArgs, isStart ? Type.Start : Type.Streaming);
