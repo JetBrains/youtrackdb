@@ -1124,7 +1124,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   default void command(
       com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement statement,
-      Map<?, ?> args) throws CommandSQLParsingException, CommandExecutionException{
+      Map<?, ?> args) throws CommandSQLParsingException, CommandExecutionException {
     execute(statement, args).close();
   }
 

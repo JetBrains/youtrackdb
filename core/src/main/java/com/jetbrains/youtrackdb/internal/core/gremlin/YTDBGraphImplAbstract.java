@@ -260,7 +260,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       }
     }
 
-    SQLStatement statement = getSqlStatement(command);
+    var statement = getSqlStatement(command);
 
     if (statement instanceof DDLStatement) {
       try (var schemaSession = acquireSession()) {
