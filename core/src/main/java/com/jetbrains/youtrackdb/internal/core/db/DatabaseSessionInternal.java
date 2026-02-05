@@ -1063,7 +1063,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   }
 
   /**
-   * Executes a pre-parsed SQL statement. This avoids re-parsing the query string when the
+   * Executes a pre-parsed SQL statement. This avoids reparsing the query string when the
    * statement has already been parsed (e.g., for type checking). <br>
    * <br>
    * The result set has to be closed after usage.
@@ -1124,9 +1124,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   default void command(
       com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement statement,
-      Map<?, ?> args)
-        throws CommandSQLParsingException, CommandExecutionException  {
-      execute(statement, args).close();
+      Map<?, ?> args) throws CommandSQLParsingException, CommandExecutionException{
+    execute(statement, args).close();
   }
 
   /**

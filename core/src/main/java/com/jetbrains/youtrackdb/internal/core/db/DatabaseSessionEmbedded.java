@@ -696,7 +696,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public ResultSet execute(String query, Map args) {
+  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     return executeInternal(query, null, args);
   }
 
@@ -705,8 +705,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return executeInternal(null, statement, args);
   }
 
+  @SuppressWarnings("unchecked")
   private ResultSet executeInternal(
-      String stringStatemnet,
+      String stringStatement,
       SQLStatement parsedStatement,
       Object args) {
 
@@ -725,11 +726,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
         var statement = (parsedStatement != null) ? parsedStatement :
-            SQLEngine.parse(stringStatemnet, this);
+            SQLEngine.parse(stringStatement, this);
         ResultSet original;
         switch (args) {
-          case Map map -> {
-            original = statement.execute(this, map, true);
+          case Map<?, ?> map -> {
+            original = statement.execute(this, (Map<Object, Object>) map, true);
           }
           case Object[] objects -> original = statement.execute(this, objects, true);
           case null -> original = statement.execute(this, (Object[]) null, true);

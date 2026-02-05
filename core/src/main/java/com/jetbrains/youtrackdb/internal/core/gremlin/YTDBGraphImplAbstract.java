@@ -260,6 +260,18 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       }
     }
 
+    SQLStatement statement = getSqlStatement(command);
+
+    if (statement instanceof DDLStatement) {
+      try (var schemaSession = acquireSession()) {
+        schemaSession.command(statement, params);
+      }
+    } else {
+      tx.getDatabaseSession().command(statement, params);
+    }
+  }
+
+  private static SQLStatement getSqlStatement(String command) {
     SQLStatement statement;
     try {
       var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
@@ -272,14 +284,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       throw new CommandExecutionException("Error on executing command: " + command,
           String.valueOf(e));
     }
-
-    if (statement instanceof DDLStatement) {
-      try (var schemaSession = acquireSession()) {
-        schemaSession.command(statement, params);
-      }
-    } else {
-      tx.getDatabaseSession().command(statement, params);
-    }
+    return statement;
   }
 
   @Override
