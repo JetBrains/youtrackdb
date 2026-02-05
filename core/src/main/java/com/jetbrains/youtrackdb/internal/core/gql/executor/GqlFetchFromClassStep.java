@@ -54,7 +54,7 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
       // With alias: return Map with binding (side effect)
       return GqlExecutionStream.fromIterator(entityIterator, entity -> {
         var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-        return Map.<String, Object>of(alias, vertex);
+        return Map.of(alias, vertex);
       });
     } else {
       // Without alias: return just the vertex (no side effects)
