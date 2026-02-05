@@ -697,7 +697,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet execute(String query, Map args) {
-    return executeInternal(query, null,(Object) args);
+    return executeInternal(query, null, args);
   }
 
   @Override
@@ -726,17 +726,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       try {
         var statement = (parsedStatement != null) ? parsedStatement :
             SQLEngine.parse(stringStatemnet, this);
-        @SuppressWarnings("unchecked")
         ResultSet original;
-        if (args instanceof Map) {
-          Map<Object, Object> mutableArgs = new HashMap<>((Map<?, ?>) args);
-          original = statement.execute(this, mutableArgs, true);
-        } else if (args instanceof Object[]) {
-          original = statement.execute(this, (Object[]) args, true);
-        } else if (args == null) {
-          original = statement.execute(this, (Object[]) null, true);
-        } else {
-          original = statement.execute(this, new Object[]{args}, true);
+        switch (args) {
+          case Map map -> {
+            original = statement.execute(this, map, true);
+          }
+          case Object[] objects -> original = statement.execute(this, objects, true);
+          case null -> original = statement.execute(this, (Object[]) null, true);
+          default -> original = statement.execute(this, new Object[]{args}, true);
         }
 
         LocalResultSetLifecycleDecorator result;
