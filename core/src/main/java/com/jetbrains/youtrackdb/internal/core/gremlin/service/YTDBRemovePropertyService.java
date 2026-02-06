@@ -7,6 +7,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
+import org.apache.tinkerpop.gremlin.structure.service.Service.ServiceFactory;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
@@ -39,7 +40,7 @@ public class YTDBRemovePropertyService<E extends YTDBElement> implements Service
     @Override
     public Service<E, E> createService(boolean isStart, Map params) {
       if (isStart) {
-        throw new UnsupportedOperationException(Exceptions.cannotStartTraversal);
+        throw new UnsupportedOperationException(Service.Exceptions.cannotStartTraversal);
       }
 
       if (params.get(PROPERTIES) instanceof Set<?> properties &&

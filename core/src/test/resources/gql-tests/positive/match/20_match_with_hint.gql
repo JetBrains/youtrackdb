@@ -1,0 +1,1 @@
+MATCH @{JOIN_METHOD=APPLY_JOIN}(a:Account)-[e:Transfers]->(oa:Account)

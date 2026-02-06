@@ -1,0 +1,1 @@
+MATCH (person1:Person)-[:knows]->(friend:Person) return *

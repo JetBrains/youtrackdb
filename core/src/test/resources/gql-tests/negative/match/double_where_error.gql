@@ -1,0 +1,1 @@
+MATCH (n) WHERE n.age > 10 WHERE n.city = 'London'
