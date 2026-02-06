@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import javax.annotation.Nullable;
 
@@ -35,7 +36,9 @@ public abstract class GqlAbstractExecutionStep implements GqlExecutionStep {
 
   @Override
   public void reset() {
-    closed = false;
+    if (closed) {
+      throw new IllegalStateException("Cannot reset a closed step");
+    }
     if (prev != null) {
       prev.reset();
     }
