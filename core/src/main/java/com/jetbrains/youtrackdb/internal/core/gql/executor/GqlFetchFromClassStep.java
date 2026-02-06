@@ -35,12 +35,13 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   @Override
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
-    if (prev != null) {
-      throw new IllegalStateException("match can be only start for now");
-    }
 
     var session = ctx.getSession();
     var graph = ctx.getGraph();
+    if (prev != null) {
+      throw new CommandExecutionException(session.getDatabaseName(),
+          "Match can be only start for now");
+    }
 
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema.getClass(className) == null) {
