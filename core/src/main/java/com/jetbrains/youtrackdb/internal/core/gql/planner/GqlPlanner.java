@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.planner;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlQueryVisitor;
@@ -21,6 +22,15 @@ import org.antlr.v4.runtime.CommonTokenStream;
 ///
 /// Similar to SQL's SQLEngine.parse() returning SQLStatement.
 public class GqlPlanner {
+
+  public static GqlStatement getStatement(String query, DatabaseSessionInternal session) {
+    if (session == null) {
+      return parse(query);
+    }
+
+    var cache = session.getSharedContext().getGqlStatementCache();
+    return cache.getCached(query);
+  }
 
   /// Parse a GQL query string into a statement.
   ///
