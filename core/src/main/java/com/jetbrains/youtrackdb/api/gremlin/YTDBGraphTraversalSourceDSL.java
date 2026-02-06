@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupServ
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBGraphUuidService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBIncrementalBackupService;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nonnull;
@@ -21,6 +22,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
+@SuppressWarnings("unused")
 public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
   public YTDBGraphTraversalSourceDSL(Graph graph,
@@ -84,26 +86,77 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
 
-  /// Execute a generic YouTrackDB command. The result of the execution is ignored, so it only makes
-  /// sense to use this method for running non-idempotent commands.
+  /// Execute a generic YouTrackDB command immediately. The command is executed eagerly - no need to
+  /// call .iterate().
   ///
   /// @param command The command to execute.
   public void command(@Nonnull String command) {
-    command(command, Map.of());
+    this.call(
+        YTDBCommandService.NAME, Map.of(
+            YTDBCommandService.COMMAND, command,
+            YTDBCommandService.ARGUMENTS, Map.of()
+        )
+    ).iterate();
   }
 
-  /// Execute a generic parameterized YouTrackDB command. The result of the execution is ignored, so
-  /// it only makes sense to use this method for running non-idempotent commands.
+  /// Execute a generic parameterized YouTrackDB command immediately. The command is executed
+  /// eagerly - no need to call .iterate().
   ///
   /// @param command   The command to execute.
-  /// @param arguments The arguments to pass to the command.
-  public void command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
-    call(
+  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
+  ///                  value2, ...).
+  public void command(@Nonnull String command, @Nonnull Object... keyValues) {
+    var arguments = processKeyValueArguments(keyValues);
+    this.call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments
         )
     ).iterate();
+  }
+
+  /// Execute a generic YouTrackDB SQL command. Returns a lazy traversal that can be chained. Users
+  /// must call .iterate() or another terminal operation to execute the command.
+  ///
+  /// @param command The SQL command to execute.
+  /// @return A traversal that can be chained with other steps.
+  public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command) {
+    return (YTDBGraphTraversal<Object, Object>) call(
+        YTDBCommandService.SQL_COMMAND_NAME, Map.of(
+            YTDBCommandService.COMMAND, command,
+            YTDBCommandService.ARGUMENTS, Map.of()
+        )
+    );
+  }
+
+  /// Execute a generic parameterized YouTrackDB SQL command. Returns a lazy traversal. Users must
+  /// call .iterate() or another terminal operation to execute the command.
+  ///
+  /// @param command   The SQL command to execute.
+  /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
+  ///                  value2, ...).
+  /// @return A traversal that can be chained with other steps.
+  public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command,
+      @Nonnull Object... keyValues) {
+    var arguments = processKeyValueArguments(keyValues);
+    return (YTDBGraphTraversal<Object, Object>) call(
+        YTDBCommandService.SQL_COMMAND_NAME, Map.of(
+            YTDBCommandService.COMMAND, command,
+            YTDBCommandService.ARGUMENTS, arguments
+        )
+    );
+  }
+
+  private static HashMap<Object, Object> processKeyValueArguments(@Nonnull Object[] keyValues) {
+    if (keyValues.length % 2 != 0) {
+      throw new IllegalArgumentException("keyValues must be an even number of arguments "
+          + "(key/value pairs)");
+    }
+    var arguments = new HashMap<>();
+    for (var i = 0; i < keyValues.length; i += 2) {
+      arguments.put(keyValues[i], keyValues[i + 1]);
+    }
+    return arguments;
   }
 
   /// Performs backup of database content to the selected folder.

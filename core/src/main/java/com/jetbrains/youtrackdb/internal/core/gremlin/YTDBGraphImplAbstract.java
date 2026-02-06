@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
@@ -13,8 +15,15 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
@@ -41,6 +50,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@SuppressWarnings("resource")
 public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consumer<Status> {
 
   public static void registerOptimizationStrategies(Class<? extends YTDBGraphImplAbstract> cls) {
@@ -218,9 +228,63 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   @Override
   public void executeCommand(String command, Map<?, ?> params) {
-    try (var session = acquireSession()) {
-      session.command(command, params);
+    if (command == null || command.isBlank()) {
+      throw new IllegalArgumentException("Command cannot be null or empty");
     }
+
+    var normalized = command.trim().toUpperCase();
+    var tx = tx();
+
+    switch (normalized) {
+      case "BEGIN" -> {
+        if (!tx.isOpen()) {
+          tx.readWrite();
+        }
+        return;
+      }
+      case "COMMIT" -> {
+        if (tx.isOpen()) {
+          tx.commit();
+        } else {
+          throw new IllegalStateException("No active transaction to commit");
+        }
+        return;
+      }
+      case "ROLLBACK" -> {
+        if (tx.isOpen()) {
+          tx.rollback();
+        } else {
+          throw new IllegalStateException("No active transaction to rollback");
+        }
+        return;
+      }
+    }
+
+    var statement = getSqlStatement(command);
+
+    if (statement instanceof DDLStatement) {
+      try (var schemaSession = acquireSession()) {
+        schemaSession.command(statement, params);
+      }
+    } else {
+      tx.getDatabaseSession().command(statement, params);
+    }
+  }
+
+  private static SQLStatement getSqlStatement(String command) {
+    SQLStatement statement;
+    try {
+      var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
+      var parser = new YouTrackDBSql(is);
+      statement = parser.parse();
+    } catch (ParseException | TokenMgrError e) {
+      throw new CommandSQLParsingException("Error on parsing command: " + command,
+          String.valueOf(e));
+    } catch (Exception e) {
+      throw new CommandExecutionException("Error on executing command: " + command,
+          String.valueOf(e));
+    }
+    return statement;
   }
 
   @Override
@@ -263,6 +327,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         YTDBGraphFactory.CONFIG_DB_NAME) + "]";
   }
 
+  @SuppressWarnings("resource")
   public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {
     var threadLocalState = this.threadLocalState.get();
     var currentSession = threadLocalState.sessionEmbedded;

@@ -93,11 +93,12 @@
     <log4j.version>2.25.3</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.8.1-afdfd9b-SNAPSHOT</gremlin.version>
+    <gremlin.version>3.8.1-fccfc5a-SNAPSHOT</gremlin.version>
     <hamcrest.version>3.0</hamcrest.version>
     <cucumber.version>7.31.0</cucumber.version>
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
     <guice.version>7.0.0</guice.version>
+    <antlr.version>4.13.2</antlr.version>
   </properties>
 
 
@@ -282,6 +283,16 @@
         <groupId>commons-io</groupId>
         <artifactId>commons-io</artifactId>
         <version>2.21.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.antlr</groupId>
+        <artifactId>antlr4-runtime</artifactId>
+        <version>${antlr.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.youtrackdb</groupId>
+        <artifactId>gremlin-language</artifactId>
+        <version>${gremlin.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

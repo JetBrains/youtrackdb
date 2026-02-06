@@ -1,0 +1,2 @@
+MATCH (n:Person|Account)
+RETURN LABELS(n) AS label, n.id

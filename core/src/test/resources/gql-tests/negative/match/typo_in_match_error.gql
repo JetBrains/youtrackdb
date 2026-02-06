@@ -1,0 +1,1 @@
+MATH (p:Person & Employee)-[:LIVES_IN]->(c:City {name: 'Warsaw'}) RETURN p

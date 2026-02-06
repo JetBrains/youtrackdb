@@ -1,0 +1,1 @@
+MATCH (a)-[:FRIEND]->(b) MATCH (b)-[:FRIEND]->(c) RETURN a, c
