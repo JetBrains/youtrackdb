@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
@@ -39,6 +40,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected LiveQueryHook.LiveQueryOps liveQueryOps;
   protected LiveQueryOps liveQueryOpsV2;
   protected StatementCache statementCache;
+  protected GqlStatementCache gqlStatementCache;
   protected ExecutionPlanCache executionPlanCache;
   protected QueryStats queryStats;
   protected volatile boolean loaded = false;
@@ -74,6 +76,12 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     liveQueryOpsV2 = new LiveQueryOps();
     statementCache =
         new StatementCache(
+            storage
+                .getConfiguration()
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
+    gqlStatementCache =
+        new GqlStatementCache(
             storage
                 .getConfiguration()
                 .getContextConfiguration()
@@ -134,6 +142,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       scheduler.close();
       sequenceLibrary.close();
       statementCache.clear();
+      gqlStatementCache.clear();
       executionPlanCache.invalidate();
       liveQueryOps.close();
       liveQueryOpsV2.close();
@@ -247,6 +256,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public StatementCache getStatementCache() {
     return statementCache;
+  }
+
+  public GqlStatementCache getGqlStatementCache() {
+    return gqlStatementCache;
   }
 
   public ExecutionPlanCache getExecutionPlanCache() {

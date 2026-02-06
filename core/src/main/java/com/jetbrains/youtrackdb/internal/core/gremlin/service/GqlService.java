@@ -107,8 +107,8 @@ public class GqlService implements Service<Object, Object> {
     graphTx.readWrite();
     var session = graphTx.getDatabaseSession();
 
-    // 2. Parse the query into a statement
-    var statement = GqlPlanner.parse(query);
+    // 2. Get the query statement (from cache if available)
+    var statement = GqlPlanner.getStatement(query, session);
 
     // 3. Create execution context
     var executionCtx = new GqlExecutionContext(graph, session);
