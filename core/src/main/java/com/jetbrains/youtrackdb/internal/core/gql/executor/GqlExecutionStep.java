@@ -29,4 +29,7 @@ public interface GqlExecutionStep {
   default String prettyPrint(int depth, int indent) {
     return "  ".repeat(depth * indent) + getClass().getSimpleName();
   }
+
+  /// Create a copy of this step for caching purposes.
+  GqlExecutionStep copy();
 }
