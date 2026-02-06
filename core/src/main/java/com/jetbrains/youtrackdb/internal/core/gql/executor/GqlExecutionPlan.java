@@ -40,4 +40,19 @@ public class GqlExecutionPlan {
       lastStep.reset();
     }
   }
+
+  /// Create a copy of this execution plan for caching purposes.
+  public GqlExecutionPlan copy() {
+    var copy = new GqlExecutionPlan();
+    if (lastStep != null) {
+      copy.lastStep = lastStep.copy();
+    }
+    return copy;
+  }
+
+  /// Check if this execution plan can be cached.
+  /// For now, all GQL plans can be cached.
+  public boolean canBeCached() {
+    return true;
+  }
 }
