@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
@@ -42,6 +43,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected StatementCache statementCache;
   protected GqlStatementCache gqlStatementCache;
   protected ExecutionPlanCache executionPlanCache;
+  protected GqlExecutionPlanCache gqlExecutionPlanCache;
   protected QueryStats queryStats;
   protected volatile boolean loaded = false;
   protected Map<String, Object> resources;
@@ -95,6 +97,14 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
     this.registerListener(executionPlanCache);
 
+    gqlExecutionPlanCache =
+        new GqlExecutionPlanCache(
+            storage
+                .getConfiguration()
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
+    this.registerListener(gqlExecutionPlanCache);
+
     queryStats = new QueryStats();
     ((AbstractStorage) storage)
         .setStorageConfigurationUpdateListener(
@@ -144,6 +154,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       statementCache.clear();
       gqlStatementCache.clear();
       executionPlanCache.invalidate();
+      gqlExecutionPlanCache.invalidate();
       liveQueryOps.close();
       liveQueryOpsV2.close();
       loaded = false;
@@ -264,6 +275,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public ExecutionPlanCache getExecutionPlanCache() {
     return executionPlanCache;
+  }
+
+  public GqlExecutionPlanCache getGqlExecutionPlanCache() {
+    return gqlExecutionPlanCache;
   }
 
   public QueryStats getQueryStats() {

@@ -51,7 +51,9 @@ public class GqlPlanner {
     if (routerVisitor.hasMatch()) {
       var matchVisitor = new GqlMatchVisitor();
       matchVisitor.visit(routerVisitor.getMatchContext());
-      return new GqlMatchStatement(matchVisitor.getNodePatterns());
+      var statement = new GqlMatchStatement(matchVisitor.getNodePatterns());
+      statement.setOriginalStatement(query);
+      return statement;
     }
 
     // Future: add more statement types

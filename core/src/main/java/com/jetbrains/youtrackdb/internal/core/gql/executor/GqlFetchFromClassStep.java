@@ -83,4 +83,13 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
         "GqlFetchFromClassStep(" + aliasDisplay + ":" + className +
         ", polymorphic=" + polymorphic + ")";
   }
+
+  @Override
+  public GqlExecutionStep copy() {
+    var copy = new GqlFetchFromClassStep(alias, className, polymorphic, hasAlias);
+    if (prev != null) {
+      copy.setPrevious(prev.copy());
+    }
+    return copy;
+  }
 }
