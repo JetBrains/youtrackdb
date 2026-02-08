@@ -973,7 +973,7 @@
                    excludesFile is a safety net: if skipTests is ever removed,
                    Ekstazi's generated excludes file will still filter unit tests. -->
               <skipTests>true</skipTests>
-              <excludesFile>${project.build.directory}/ekstazi.excludes</excludesFile>
+              <excludesFile>${java.io.tmpdir}/ekstazi-${project.artifactId}.excludes</excludesFile>
             </configuration>
           </plugin>
           <plugin>
@@ -984,7 +984,7 @@
                 <include>**/*IT.java</include>
                 <include>**/*IntegrationTest.java</include>
               </includes>
-              <excludesFile>${project.build.directory}/ekstazi.excludes</excludesFile>
+              <excludesFile>${java.io.tmpdir}/ekstazi-${project.artifactId}.excludes</excludesFile>
               <systemPropertyVariables>
                 <buildDirectory>${project.build.directory}</buildDirectory>
                 <youtrackdb.security.userPasswordSaltIterations>1</youtrackdb.security.userPasswordSaltIterations>
