@@ -26,10 +26,10 @@ jobs:
         platform:
           - os: ubuntu-latest
             arch: x64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,ekstazi'
           - os: ubuntu-24.04-arm
             arch: arm64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images,ekstazi'
           - os: windows-latest
             arch: x64
             mvn_opts: '-Dmaven.test.failure.ignore=true'
@@ -44,6 +44,15 @@ jobs:
           architecture: ${{ matrix.platform.arch }}
           cache: 'maven'
           overwrite-settings: false
+      - name: Cache Ekstazi data
+        uses: actions/cache@v4
+        if: runner.os == 'Linux'
+        with:
+          path: '**/.ekstazi'
+          key: ekstazi-${{ matrix.platform.os }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ekstazi-${{ matrix.platform.os }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-${{ github.ref }}-
+            ekstazi-${{ matrix.platform.os }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-
       - name: Run Maven Tests
         id: tests
         shell: bash
@@ -51,6 +60,7 @@ jobs:
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+          JAVA_TOOL_OPTIONS: ${{ runner.os == 'Linux' && '-Djdk.attach.allowAttachSelf=true -Djava.security.manager=allow' || '' }}
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
         if: always() && runner.os == 'Linux'
@@ -73,6 +83,13 @@ jobs:
           large_files: true
           comment_mode: off
           check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Coverage Data
+        uses: actions/upload-artifact@v4
+        if: "!cancelled() && matrix.platform.os == 'ubuntu-latest' && matrix.java == '21' && matrix.distribution == 'temurin'"
+        with:
+          name: coverage-data
+          path: '.qodana/code-coverage/'
+          retention-days: 1
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY
