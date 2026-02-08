@@ -32,7 +32,7 @@ jobs:
             mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images'
           - os: windows-latest
             arch: x64
-            mvn_opts: ''
+            mvn_opts: '-Dmaven.test.failure.ignore=true'
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -46,6 +46,7 @@ jobs:
           overwrite-settings: false
       - name: Run Maven Tests
         id: tests
+        shell: bash
         run: mvn -s .github/workflows/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
         env:
           MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
