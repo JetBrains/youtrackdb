@@ -968,6 +968,7 @@
             <artifactId>maven-surefire-plugin</artifactId>
             <configuration>
               <skipTests>true</skipTests>
+              <excludesFile>${project.build.directory}/ekstazi.excludes</excludesFile>
             </configuration>
           </plugin>
           <plugin>
