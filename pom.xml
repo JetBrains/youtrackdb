@@ -984,6 +984,7 @@
                 <include>**/*IT.java</include>
                 <include>**/*IntegrationTest.java</include>
               </includes>
+              <excludesFile>${project.build.directory}/ekstazi.excludes</excludesFile>
               <systemPropertyVariables>
                 <buildDirectory>${project.build.directory}</buildDirectory>
                 <youtrackdb.security.userPasswordSaltIterations>1</youtrackdb.security.userPasswordSaltIterations>
