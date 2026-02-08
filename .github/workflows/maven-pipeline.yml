@@ -29,7 +29,7 @@ jobs:
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,coverage'
           - os: ubuntu-24.04-arm
             arch: arm64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images,coverage'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images'
           - os: windows-latest
             arch: x64
             mvn_opts: '-Dmaven.test.failure.ignore=true'
@@ -97,6 +97,7 @@ jobs:
           name: coverage-data
           path: '.qodana/code-coverage/'
           retention-days: 1
+          if-no-files-found: error
 
     # ------------------------------------------------------------------
     # JOB 2: DEPLOY

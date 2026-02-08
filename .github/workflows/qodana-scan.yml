@@ -10,9 +10,6 @@ on:
   workflow_run:
     workflows: ["Java CI/CD Pipeline"]
     types: [completed]
-  push:
-    branches:
-      - develop
 
 concurrency:
   group: qodana-${{ github.event.workflow_run.head_sha || github.sha }}
