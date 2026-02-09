@@ -32,11 +32,13 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     // 1 SUB, 0 SUPER
     Assert.assertEquals(1, session.countClass("TestSubclass", false));
     Assert.assertEquals(1, session.countClass("TestSubclass", true));
     Assert.assertEquals(0, session.countClass("TestSuperclass", false));
     Assert.assertEquals(1, session.countClass("TestSuperclass", true));
+    session.commit();
 
     session.begin();
     try {
@@ -272,7 +274,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
       var linkedVal = res.getProperty("o");
       Assert.assertTrue(linkedVal instanceof Collection);
-      Assert.assertEquals(1, ((Collection) linkedVal).size());
+      Assert.assertEquals(1, ((Collection<?>) linkedVal).size());
     }
     session.commit();
   }
@@ -308,7 +310,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
       var linkedVal = res.getProperty("o");
       Assert.assertTrue(linkedVal instanceof Collection);
-      Assert.assertEquals(2, ((Collection) linkedVal).size());
+      Assert.assertEquals(2, ((Collection<?>) linkedVal).size());
     }
     session.commit();
   }
