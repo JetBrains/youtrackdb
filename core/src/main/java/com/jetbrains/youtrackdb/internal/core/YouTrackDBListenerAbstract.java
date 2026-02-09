@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core;
 
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 
 /**
  * Abstract implementation of YouTrackDBListener interface.
@@ -32,11 +32,11 @@ public abstract class YouTrackDBListenerAbstract
   }
 
   @Override
-  public void onStorageRegistered(Storage iStorage) {
+  public void onStorageRegistered(AbstractStorage iStorage) {
   }
 
   @Override
-  public void onStorageUnregistered(Storage iStorage) {
+  public void onStorageUnregistered(AbstractStorage iStorage) {
   }
 
   @Override

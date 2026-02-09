@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBListener;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.util.Collections;
@@ -348,7 +349,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   @Override
-  public void onStorageRegistered(final Storage iStorage) {
+  public void onStorageRegistered(final AbstractStorage iStorage) {
   }
 
   /**
@@ -356,9 +357,8 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
    * closed storages.
    */
   @Override
-  public void onStorageUnregistered(final Storage iStorage) {
+  public void onStorageUnregistered(final AbstractStorage iStorage) {
     final var storageURL = iStorage.getURL();
-
     lock();
     try {
       Set<String> poolToClose = null;

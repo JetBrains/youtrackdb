@@ -24,34 +24,27 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommonDurableComponentException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
-import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationTableState;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * @since 12/3/13
- */
 public class AtomicOperationsManager {
-
-  private final ThreadLocal<AtomicOperation> currentOperation = new ThreadLocal<>();
-  private final ThreadLocal<AtomicOperationTableState> currentAtomicOperationTableState = new ThreadLocal<>();
 
   private final AbstractStorage storage;
 
@@ -63,11 +56,10 @@ public class AtomicOperationsManager {
   private final ReadCache readCache;
   private final WriteCache writeCache;
 
-  private final Object segmentLock = new Object();
   private final AtomicOperationIdGen idGen;
+  private final ReentrantLock segmentLock = new ReentrantLock();
 
-  private final OperationsFreezer atomicOperationsFreezer = new OperationsFreezer();
-  private final OperationsFreezer componentOperationsFreezer = new OperationsFreezer();
+  private final OperationsFreezer writeOperationsFreezer = new OperationsFreezer();
   private final AtomicOperationsTable atomicOperationsTable;
 
   public AtomicOperationsManager(
@@ -81,32 +73,14 @@ public class AtomicOperationsManager {
     this.atomicOperationsTable = atomicOperationsTable;
   }
 
-  public AtomicOperation startAtomicOperation() throws IOException {
-    var operation = currentOperation.get();
-    if (operation != null) {
-      throw new StorageException(storage.getName(), "Atomic operation already started");
-    }
+  public AtomicOperation startAtomicOperation() {
+    var snapshot = atomicOperationsTable.snapshotAtomicOperationTableState(idGen.getLastId());
+    return new AtomicOperationBinaryTracking(readCache, writeCache, storage.getId(),
+        snapshot);
+  }
 
-    atomicOperationsFreezer.startOperation();
-
-    final long activeSegment;
-    final long unitId;
-
-    // transaction id and id of active segment should grow synchronously to maintain correct size of
-    // WAL
-    synchronized (segmentLock) {
-      unitId = idGen.nextId();
-      activeSegment = writeAheadLog.activeSegment();
-    }
-
-    atomicOperationsTable.startOperation(unitId, activeSegment);
-    writeAheadLog.logAtomicOperationStartRecord(true, unitId);
-
-    operation = new AtomicOperationBinaryTracking(unitId, readCache, writeCache, storage.getId());
-
-    currentOperation.set(operation);
-
-    return operation;
+  public void startWriteOperations() {
+    writeOperationsFreezer.startOperation();
   }
 
   public <T> T calculateInsideAtomicOperation(final TxFunction<T> function)
@@ -114,6 +88,7 @@ public class AtomicOperationsManager {
     Throwable error = null;
     final var atomicOperation = startAtomicOperation();
     try {
+      startWriteOperations();
       return function.accept(atomicOperation);
     } catch (Exception e) {
       error = e;
@@ -123,7 +98,7 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(error);
+      endAtomicOperation(atomicOperation, error);
     }
   }
 
@@ -132,6 +107,7 @@ public class AtomicOperationsManager {
     Throwable error = null;
     final var atomicOperation = startAtomicOperation();
     try {
+      startWriteOperations();
       consumer.accept(atomicOperation);
     } catch (Exception e) {
       error = e;
@@ -141,7 +117,7 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(error);
+      endAtomicOperation(atomicOperation, error);
     }
   }
 
@@ -171,8 +147,6 @@ public class AtomicOperationsManager {
                   + " in storage "
                   + storage.getName(), lockName, storage.getName()),
           e, storage.getName());
-    } finally {
-      endComponentOperation(atomicOperation);
     }
   }
 
@@ -197,72 +171,32 @@ public class AtomicOperationsManager {
                   + " in storage "
                   + storage.getName(), lockName, storage.getName()),
           e, storage.getName());
-    } finally {
-      endComponentOperation(atomicOperation);
     }
   }
 
-  private void startComponentOperation(
-      final AtomicOperation atomicOperation, final String lockName) {
+  private void startComponentOperation(final AtomicOperation atomicOperation,
+      final String lockName) {
     acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
-    atomicOperation.incrementComponentOperations();
-
-    componentOperationsFreezer.startOperation();
   }
 
-  private void endComponentOperation(final AtomicOperation atomicOperation) {
-    atomicOperation.decrementComponentOperations();
 
-    componentOperationsFreezer.endOperation();
+  public long startWriteOperations(@Nullable Supplier<? extends BaseException> throwException) {
+    return writeOperationsFreezer.freezeOperations(throwException);
   }
 
-  public void alarmClearOfAtomicOperation() {
-    final var current = currentOperation.get();
-
-    if (current != null) {
-      currentOperation.set(null);
-    }
+  public void unfreezeWriteOperations(long id) {
+    writeOperationsFreezer.releaseOperations(id);
   }
 
-  public long freezeAtomicOperations(@Nullable Supplier<? extends BaseException> throwException) {
-    return atomicOperationsFreezer.freezeOperations(throwException);
-  }
-
-  public void releaseAtomicOperations(long id) {
-    atomicOperationsFreezer.releaseOperations(id);
-  }
-
-  public final AtomicOperation getCurrentOperation() {
-    return currentOperation.get();
-  }
-
-  public AtomicOperationTableState shapshotAtomicOperationTableState() {
-    return atomicOperationsTable.snapshotAtomicOperationTableState();
-  }
-
-  public void setAtomicOperationTableState(AtomicOperationTableState atomicOperationTableState) {
-    currentAtomicOperationTableState.set(atomicOperationTableState);
-  }
-
-  public AtomicOperationTableState getAtomicOperationTableState() {
-    return currentAtomicOperationTableState.get();
-  }
-
-  public void clearAtomicOperationTableState() {
-    currentAtomicOperationTableState.remove();
+  public AtomicOperationsSnapshot snapshotAtomicOperationTableState() {
+    return atomicOperationsTable.snapshotAtomicOperationTableState(storage.getIdGen().getLastId());
   }
 
   /**
    * Ends the current atomic operation on this manager.
    */
-  public void endAtomicOperation(final Throwable error) throws IOException {
-    final var operation = currentOperation.get();
-
-    if (operation == null) {
-      LogManager.instance().error(this, "There is no atomic operation active", null);
-      throw new DatabaseException(storage.getName(), "There is no atomic operation active");
-    }
-
+  public void endAtomicOperation(@Nonnull final AtomicOperation operation, final Throwable error)
+      throws IOException {
     try {
       storage.moveToErrorStateIfNeeded(error);
 
@@ -273,12 +207,26 @@ public class AtomicOperationsManager {
       try {
         final LogSequenceNumber lsn;
         if (!operation.isRollbackInProgress()) {
-          lsn = operation.commitChanges(writeAheadLog);
+          final long activeSegment;
+          final long commitTs;
+
+          // transaction id and id of active segment should grow synchronously to maintain correct size of
+          // WAL
+          segmentLock.lock();
+          try {
+            commitTs = idGen.nextId();
+            activeSegment = writeAheadLog.activeSegment();
+          } finally {
+            segmentLock.unlock();
+          }
+
+          atomicOperationsTable.startOperation(commitTs, activeSegment);
+          lsn = operation.commitChanges(commitTs, writeAheadLog);
         } else {
           lsn = null;
         }
 
-        final var operationId = operation.getOperationUnitId();
+        final var operationId = operation.getCommitTs();
         if (error != null) {
           atomicOperationsTable.rollbackOperation(operationId);
         } else {
@@ -289,34 +237,28 @@ public class AtomicOperationsManager {
       } finally {
         final var lockedObjectIterator = operation.lockedObjects().iterator();
 
-        try {
-          while (lockedObjectIterator.hasNext()) {
-            final var lockedObject = lockedObjectIterator.next();
-            lockedObjectIterator.remove();
+        while (lockedObjectIterator.hasNext()) {
+          final var lockedObject = lockedObjectIterator.next();
+          lockedObjectIterator.remove();
 
-            lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
-          }
-        } finally {
-          currentOperation.set(null);
+          lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
         }
-      }
 
+        operation.deactivate();
+      }
     } finally {
-      atomicOperationsFreezer.endOperation();
+      writeOperationsFreezer.endOperation();
     }
   }
 
-  public void ensureThatComponentsUnlocked() {
-    final var operation = currentOperation.get();
-    if (operation != null) {
-      final var lockedObjectIterator = operation.lockedObjects().iterator();
+  public void ensureThatComponentsUnlocked(@Nonnull final AtomicOperation operation) {
+    final var lockedObjectIterator = operation.lockedObjects().iterator();
 
-      while (lockedObjectIterator.hasNext()) {
-        final var lockedObject = lockedObjectIterator.next();
-        lockedObjectIterator.remove();
+    while (lockedObjectIterator.hasNext()) {
+      final var lockedObject = lockedObjectIterator.next();
+      lockedObjectIterator.remove();
 
-        lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
-      }
+      lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
     }
   }
 
@@ -342,11 +284,10 @@ public class AtomicOperationsManager {
    * Acquires exclusive lock in the active atomic operation running on the current thread for the
    * {@code durableComponent}.
    */
-  public void acquireExclusiveLockTillOperationComplete(DurableComponent durableComponent) {
+  public void acquireExclusiveLockTillOperationComplete(@Nonnull AtomicOperation operation,
+      @Nonnull DurableComponent durableComponent) {
     storage.checkErrorState();
 
-    final var operation = currentOperation.get();
-    assert operation != null;
     acquireExclusiveLockTillOperationComplete(operation, durableComponent.getLockName());
   }
 

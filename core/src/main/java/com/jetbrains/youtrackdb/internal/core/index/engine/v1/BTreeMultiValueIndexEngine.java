@@ -119,11 +119,12 @@ public final class BTreeMultiValueIndexEngine
 
   private void doClearSVTree(final AtomicOperation atomicOperation) {
     {
-      final var firstKey = svTree.firstKey();
-      final var lastKey = svTree.lastKey();
+      final var firstKey = svTree.firstKey(atomicOperation);
+      final var lastKey = svTree.lastKey(atomicOperation);
 
       try (var stream =
-          svTree.iterateEntriesBetween(firstKey, true, lastKey, true, true)) {
+          svTree.iterateEntriesBetween(firstKey, true, lastKey, true,
+              true, atomicOperation)) {
         stream.forEach(
             (pair) -> {
               try {
@@ -138,12 +139,13 @@ public final class BTreeMultiValueIndexEngine
     }
 
     {
-      final var firstKey = nullTree.firstKey();
-      final var lastKey = nullTree.lastKey();
+      final var firstKey = nullTree.firstKey(atomicOperation);
+      final var lastKey = nullTree.lastKey(atomicOperation);
 
       if (firstKey != null && lastKey != null) {
         try (var stream =
-            nullTree.iterateEntriesBetween(firstKey, true, lastKey, true, true)) {
+            nullTree.iterateEntriesBetween(firstKey, true, lastKey, true,
+                true, atomicOperation)) {
           stream.forEach(
               (pair) -> {
                 try {
@@ -160,17 +162,16 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void load(IndexEngineData data) {
+  public void load(IndexEngineData data, AtomicOperation atomicOperation) {
     var name = data.getName();
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     final var sbTypes = calculateTypes(keyTypes);
 
-    svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer());
+    svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
     nullTree.load(
         nullTreeName, 1, new PropertyTypeInternal[]{PropertyTypeInternal.LINK},
-        CompactedLinkSerializer.INSTANCE
-    );
+        CompactedLinkSerializer.INSTANCE, atomicOperation);
   }
 
   @Override
@@ -181,7 +182,8 @@ public final class BTreeMultiValueIndexEngine
 
         final var removed = new boolean[1];
         try (var stream =
-            svTree.iterateEntriesBetween(compositeKey, true, compositeKey, true, true)) {
+            svTree.iterateEntriesBetween(compositeKey, true, compositeKey,
+                true, true, atomicOperation)) {
           stream.forEach(
               (pair) -> {
                 try {
@@ -225,32 +227,35 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RID> get(Object key) {
+  public Stream<RID> get(Object key, AtomicOperation atomicOperation) {
     if (key != null) {
       final var firstKey = convertToCompositeKey(key);
       final var lastKey = convertToCompositeKey(key);
 
       return svTree
-          .iterateEntriesBetween(firstKey, true, lastKey, true, true)
+          .iterateEntriesBetween(firstKey, true, lastKey, true,
+              true, atomicOperation)
           .map(RawPair::second);
     } else {
       return nullTree
           .iterateEntriesBetween(
               new RecordId(0, 0), true,
               new RecordId(Short.MAX_VALUE, Long.MAX_VALUE), true,
-              true)
+              true, atomicOperation)
           .map(RawPair::second);
     }
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer) {
-    final var firstKey = svTree.firstKey();
+  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation) {
+    final var firstKey = svTree.firstKey(atomicOperation);
     if (firstKey == null) {
       return emptyStream();
     }
 
-    return mapSVStream(svTree.iterateEntriesMajor(firstKey, true, true));
+    return mapSVStream(svTree.iterateEntriesMajor(firstKey, true,
+        true, atomicOperation));
   }
 
   private static Stream<RawPair<Object, RID>> mapSVStream(
@@ -264,17 +269,18 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> descStream(
-      IndexEngineValuesTransformer valuesTransformer) {
-    final var lastKey = svTree.lastKey();
+      IndexEngineValuesTransformer valuesTransformer, AtomicOperation atomicOperation) {
+    final var lastKey = svTree.lastKey(atomicOperation);
     if (lastKey == null) {
       return emptyStream();
     }
-    return mapSVStream(svTree.iterateEntriesMinor(lastKey, true, false));
+    return mapSVStream(svTree.iterateEntriesMinor(lastKey, true,
+        false, atomicOperation));
   }
 
   @Override
-  public Stream<Object> keyStream() {
-    return svTree.keyStream().map(BTreeMultiValueIndexEngine::extractKey);
+  public Stream<Object> keyStream(AtomicOperation atomicOperation) {
+    return svTree.keyStream(atomicOperation).map(BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override
@@ -302,29 +308,32 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionEmbedded db, Object rangeFrom,
+      Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     // "from", "to" are null, then scan whole tree as for infinite range
     if (rangeFrom == null && rangeTo == null) {
-      return mapSVStream(svTree.allEntries());
+      return mapSVStream(svTree.allEntries(atomicOperation));
     }
 
     // "from" could be null, then "to" is not (minor)
     final var toKey = convertToCompositeKey(rangeTo);
     if (rangeFrom == null) {
-      return mapSVStream(svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder));
+      return mapSVStream(
+          svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation));
     }
     final var fromKey = convertToCompositeKey(rangeFrom);
     // "to" could be null, then "from" is not (major)
     if (rangeTo == null) {
-      return mapSVStream(svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder));
+      return mapSVStream(
+          svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder, atomicOperation));
     }
     return mapSVStream(
-        svTree.iterateEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder));
+        svTree.iterateEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder,
+            atomicOperation));
   }
 
   private static CompositeKey convertToCompositeKey(Object rangeFrom) {
@@ -342,9 +351,10 @@ public final class BTreeMultiValueIndexEngine
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     final var firstKey = convertToCompositeKey(fromKey);
-    return mapSVStream(svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder));
+    return mapSVStream(
+        svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder, atomicOperation));
   }
 
   @Override
@@ -352,36 +362,28 @@ public final class BTreeMultiValueIndexEngine
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     final var lastKey = convertToCompositeKey(toKey);
-    return mapSVStream(svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder));
+    return mapSVStream(
+        svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder, atomicOperation));
   }
 
   @Override
-  public long size(Storage storage, final IndexEngineValuesTransformer transformer) {
-    return svTreeEntries();
+  public long size(Storage storage, final IndexEngineValuesTransformer transformer,
+      AtomicOperation atomicOperation) {
+    return svTreeEntries(atomicOperation);
   }
 
-  private long svTreeEntries() {
-    return svTree.size() + nullTree.size();
-  }
-
-  @Override
-  public boolean hasRangeQuerySupport() {
-    return true;
+  private long svTreeEntries(AtomicOperation atomicOperation) {
+    return svTree.size(atomicOperation) + nullTree.size(atomicOperation);
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock() {
-    svTree.acquireAtomicExclusiveLock();
-    nullTree.acquireAtomicExclusiveLock();
+  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+    svTree.acquireAtomicExclusiveLock(atomicOperation);
+    nullTree.acquireAtomicExclusiveLock(atomicOperation);
 
     return true;
-  }
-
-  @Override
-  public String getIndexNameByKey(Object key) {
-    return name;
   }
 
   private static PropertyTypeInternal[] calculateTypes(final PropertyTypeInternal[] keyTypes) {

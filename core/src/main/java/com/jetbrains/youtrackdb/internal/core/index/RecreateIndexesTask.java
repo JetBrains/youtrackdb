@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collection;
 import java.util.Map;
 
@@ -69,7 +70,8 @@ public class RecreateIndexesTask implements Runnable {
   private void recreateIndex(Map<String, Object> indexMap, DatabaseSessionEmbedded session) {
     session.executeInTxInternal(transaction -> {
       var indexManager = session.getSharedContext().getIndexManager();
-      final var index = createIndex(transaction, indexMap, indexManager.storage);
+      final var index = createIndex(transaction, indexMap,
+          indexManager.storage);
 
       final var indexMetadata = index.loadMetadata(transaction, indexMap);
       final var indexDefinition = indexMetadata.getIndexDefinition();
@@ -188,7 +190,7 @@ public class RecreateIndexesTask implements Runnable {
     }
   }
 
-  private Index createIndex(FrontendTransaction transaction, Map<String, Object> idx,
+  private Index createIndex(FrontendTransactionImpl transaction, Map<String, Object> idx,
       Storage storage) {
     final var indexType = (String) idx.get(Index.CONFIG_TYPE);
 

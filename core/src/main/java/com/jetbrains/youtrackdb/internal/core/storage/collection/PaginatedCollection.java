@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection;
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import java.io.IOException;
 
@@ -30,7 +31,8 @@ public abstract class PaginatedCollection extends DurableComponent implements St
     super(storage, name, extension, lockName);
   }
 
-  public abstract RECORD_STATUS getRecordStatus(final long collectionPosition) throws IOException;
+  public abstract RECORD_STATUS getRecordStatus(final long collectionPosition,
+      AtomicOperation atomicOperation) throws IOException;
 
   public abstract StoragePaginatedCollectionConfiguration generateCollectionConfig();
 

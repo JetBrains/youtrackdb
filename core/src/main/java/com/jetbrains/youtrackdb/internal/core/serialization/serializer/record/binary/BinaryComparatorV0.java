@@ -562,7 +562,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
                 try {
                   final SimpleDateFormat dateFormat;
                   if (session != null) {
-                    dateFormat = session.getStorageInfo().getConfiguration()
+                    dateFormat = session.getStorage()
                         .getDateFormatInstance();
                   } else {
                     dateFormat =

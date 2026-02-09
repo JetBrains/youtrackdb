@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.UniqueIndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import javax.annotation.Nonnull;
@@ -40,7 +40,7 @@ public class IndexUnique extends IndexOneValue {
   private final IndexEngineValidator<Object, RID> uniqueValidator =
       new UniqueIndexEngineValidator(this);
 
-  public IndexUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+  public IndexUnique(@Nullable RID identity, @Nonnull FrontendTransactionImpl transaction,
       @Nonnull Storage storage) {
     super(identity, transaction, storage);
   }
@@ -54,23 +54,14 @@ public class IndexUnique extends IndexOneValue {
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
-    storage.validatedPutIndexValue(indexId, key, rid, uniqueValidator);
+    var transaction = session.getActiveTransaction();
+    storage.validatedPutIndexValue(indexId, key, rid, uniqueValidator,
+        transaction.getAtomicOperation());
   }
 
   @Override
   public boolean canBeUsedInEqualityOperators() {
     return true;
-  }
-
-  @Override
-  public boolean supportsOrderedIterations() {
-    while (true) {
-      try {
-        return storage.hasIndexRangeQuerySupport(indexId);
-      } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
-      }
-    }
   }
 
   @Override

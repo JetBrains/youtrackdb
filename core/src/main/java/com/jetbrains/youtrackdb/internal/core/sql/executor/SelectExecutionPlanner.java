@@ -1120,7 +1120,7 @@ public class SelectExecutionPlanner {
     var db = ctx.getDatabaseSession();
     String schemaRecordIdAsString;
     if (metadata.getName().equalsIgnoreCase("SCHEMA")) {
-      schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getSchemaRecordId();
+      schemaRecordIdAsString = db.getStorage().getSchemaRecordId();
       var schemaRid = RecordIdInternal.fromString(schemaRecordIdAsString, false);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("INDEXES")) {
@@ -1593,7 +1593,6 @@ public class SelectExecutionPlanner {
 
     for (var idx :
         clazz.getIndexesInternal().stream()
-            .filter(Index::supportsOrderedIterations)
             .filter(i -> i.getDefinition() != null)
             .toList()) {
       var indexFields = idx.getDefinition().getProperties();
@@ -2185,7 +2184,7 @@ public class SelectExecutionPlanner {
       var info =
           new IndexSearchInfo(
               indexProperty,
-              allowsRangeQueries(index),
+              true,
               isMap(clazz, indexProperty),
               isIndexByKey(index, indexProperty),
               isIndexByValue(index, indexProperty),
@@ -2220,13 +2219,6 @@ public class SelectExecutionPlanner {
       } else {
         break;
       }
-    }
-
-    var keyExpressions = indexKeyValue.getSubBlocks();
-    if (keyExpressions.size() < index.getDefinition().getProperties().size()
-        && !index.supportsOrderedIterations()) {
-      // hash indexes do not support partial key match
-      return null;
     }
 
     return new IndexSearchDescriptor(index, indexKeyValue, additionalRangeCondition, blockCopy);
@@ -2265,12 +2257,6 @@ public class SelectExecutionPlanner {
       }
     }
 
-    if (indexKeyValue.getSubBlocks().size() < index.getDefinition().getProperties().size()
-        && !index.supportsOrderedIterations()) {
-      // hash indexes do not support partial key match
-      return null;
-    }
-
     if (found) {
       return new IndexSearchDescriptor(index, indexKeyValue, null, blockCopy);
     }
@@ -2304,10 +2290,6 @@ public class SelectExecutionPlanner {
       return false;
     }
     return prop.getType() == PropertyType.EMBEDDEDMAP;
-  }
-
-  private static boolean allowsRangeQueries(Index index) {
-    return index.supportsOrderedIterations();
   }
 
   /**

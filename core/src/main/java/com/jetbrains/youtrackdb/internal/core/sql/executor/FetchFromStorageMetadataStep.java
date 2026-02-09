@@ -29,17 +29,16 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    return new ProduceExecutionStream(this::produce).limit(1);
+    return new ProduceExecutionStream(FetchFromStorageMetadataStep::produce).limit(1);
   }
 
-  private Result produce(CommandContext ctx) {
+  private static Result produce(CommandContext ctx) {
     var db = ctx.getDatabaseSession();
     var result = new ResultInternal(db);
 
     var storage = db.getStorage();
     result.setProperty("collections", toResult(db, storage.getCollectionInstances()));
     result.setProperty("totalCollections", storage.getCollections());
-    result.setProperty("configuration", toResult(db, storage.getConfiguration()));
     result.setProperty(
         "conflictStrategy",
         storage.getRecordConflictStrategy() == null
@@ -82,8 +81,11 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     return result;
   }
 
-  private List<Result> toResult(DatabaseSessionEmbedded db,
+  private static List<Result> toResult(DatabaseSessionEmbedded db,
       Collection<? extends StorageCollection> collectionInstances) {
+    var transaction = db.getActiveTransaction();
+    var atomicOperation = transaction.getAtomicOperation();
+
     List<Result> result = new ArrayList<>();
     if (collectionInstances != null) {
       for (var collection : collectionInstances) {
@@ -91,7 +93,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
         item.setProperty("name", collection.getName());
         item.setProperty("fileName", collection.getFileName());
         item.setProperty("id", collection.getId());
-        item.setProperty("entries", collection.getEntries());
+        item.setProperty("entries", collection.getEntries(atomicOperation));
         item.setProperty(
             "conflictStrategy",
             collection.getRecordConflictStrategy() == null

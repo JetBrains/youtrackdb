@@ -26,8 +26,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -46,13 +47,13 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   protected final Map<String, Map<MultiKey, Set<Index>>> classPropertyIndex =
       new ConcurrentHashMap<>();
   protected Map<String, Index> indexes = new ConcurrentHashMap<>();
-  final Storage storage;
+  final AbstractStorage storage;
 
   String CONFIG_INDEXES = "indexes";
 
   protected RID indexManagerIdentity;
 
-  protected IndexManagerAbstract(Storage storage) {
+  protected IndexManagerAbstract(AbstractStorage storage) {
     this.storage = storage;
   }
 
@@ -195,7 +196,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return indexes.containsKey(iName);
   }
 
-  protected void load(FrontendTransaction transaction, EntityImpl entity) {
+  protected void load(FrontendTransactionImpl transaction, EntityImpl entity) {
     indexes.clear();
     classPropertyIndex.clear();
 
@@ -212,7 +213,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     }
   }
 
-  protected abstract Index createIndexInstance(FrontendTransaction transaction,
+  protected abstract Index createIndexInstance(FrontendTransactionImpl transaction,
       Identifiable indexIdentifiable,
       IndexMetadata newIndexMetadata);
 

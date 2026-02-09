@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core;
 
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 
 /**
  * Listener Interface for basic YouTrackDB events.
@@ -29,7 +29,7 @@ public interface YouTrackDBListener extends YouTrackDBShutdownListener {
   @Override
   void onShutdown();
 
-  void onStorageRegistered(final Storage storage);
+  void onStorageRegistered(final AbstractStorage storage);
 
-  void onStorageUnregistered(final Storage storage);
+  void onStorageUnregistered(final AbstractStorage storage);
 }

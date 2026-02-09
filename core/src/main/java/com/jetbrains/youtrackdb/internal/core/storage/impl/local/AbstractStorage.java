@@ -39,7 +39,6 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration;
@@ -92,7 +91,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.St
 import com.jetbrains.youtrackdb.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
@@ -101,9 +99,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
-import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageTransaction;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
@@ -138,6 +134,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -186,8 +183,7 @@ public abstract class AbstractStorage
     IdentifiableStorage,
     BackgroundExceptionListener,
     FreezableStorageComponent,
-    PageIsBrokenListener,
-    Storage {
+    PageIsBrokenListener {
 
   private static final Logger logger = LoggerFactory.getLogger(AbstractStorage.class);
   private static final int WAL_RESTORE_REPORT_INTERVAL = 30 * 1000; // milliseconds
@@ -231,7 +227,6 @@ public abstract class AbstractStorage
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
   private final List<StorageCollection> collections = new CopyOnWriteArrayList<>();
 
-  private volatile ThreadLocal<StorageTransaction> transaction;
   private final AtomicBoolean walVacuumInProgress = new AtomicBoolean();
 
   protected volatile WriteAheadLog writeAheadLog;
@@ -271,7 +266,7 @@ public abstract class AbstractStorage
 
   protected volatile STATUS status = STATUS.CLOSED;
 
-  protected AtomicReference<Throwable> error = new AtomicReference<>(null);
+  protected final AtomicReference<Throwable> error = new AtomicReference<>(null);
   protected YouTrackDBInternalEmbedded context;
   private volatile CountDownLatch migration = new CountDownLatch(1);
 
@@ -346,9 +341,69 @@ public abstract class AbstractStorage
     return name;
   }
 
-  @Override
   public String getURL() {
     return url;
+  }
+
+  public ContextConfiguration getContextConfiguration() {
+    return configuration.getContextConfiguration();
+  }
+
+  public String getSchemaRecordId() {
+    return configuration.getSchemaRecordId();
+  }
+
+  public String getCharset() {
+    return configuration.getCharset();
+  }
+
+  public String getIndexMgrRecordId() {
+    return configuration.getIndexMgrRecordId();
+  }
+
+  @Nullable
+  public TimeZone getTimeZone() {
+    return configuration.getTimeZone();
+  }
+
+  public SimpleDateFormat getDateFormatInstance() {
+    return configuration.getDateFormatInstance();
+  }
+
+  public String getDateFormat() {
+    return configuration.getDateFormat();
+  }
+
+  public String getDateTimeFormat() {
+    return configuration.getDateTimeFormat();
+  }
+
+  public SimpleDateFormat getDateTimeFormatInstance() {
+    return configuration.getDateTimeFormatInstance();
+  }
+
+  public String getRecordSerializer() {
+    return configuration.getRecordSerializer();
+  }
+
+  public int getRecordSerializerVersion() {
+    return configuration.getRecordSerializerVersion();
+  }
+
+  public String getLocaleCountry() {
+    return configuration.getLocaleCountry();
+  }
+
+  public String getLocaleLanguage() {
+    return configuration.getLocaleLanguage();
+  }
+
+  public int getMinimumCollections() {
+    return configuration.getMinimumCollections();
+  }
+
+  public boolean isValidationEnabled() {
+    return configuration.isValidationEnabled();
   }
 
   @Override
@@ -394,9 +449,11 @@ public abstract class AbstractStorage
   public long countRecords(DatabaseSessionEmbedded session) {
     long tot = 0;
 
+    var transaction = session.getActiveTransaction();
+    var atomicOperation = transaction.getAtomicOperation();
     for (var c : getCollectionInstances()) {
       if (c != null) {
-        tot += c.getEntries() - c.getTombstonesCount();
+        tot += c.getEntries(atomicOperation) - c.getTombstonesCount();
       }
     }
 
@@ -533,7 +590,6 @@ public abstract class AbstractStorage
           readIv();
 
           initWalAndDiskCache(contextConfiguration);
-          transaction = new ThreadLocal<>();
 
           final var startupMetadata = checkIfStorageDirty();
           final var lastTxId = startupMetadata.lastTxId;
@@ -575,14 +631,18 @@ public abstract class AbstractStorage
                 this.uuid = UUID.fromString(uuid);
               });
 
-          checkPageSizeAndRelatedParameters();
+          var binaryFormatVersion =
+              atomicOperationsManager.calculateInsideAtomicOperation(
+                  configuration::getBinaryFormatVersion);
+          componentsFactory = new CurrentStorageComponentsFactory(binaryFormatVersion);
 
-          componentsFactory = new CurrentStorageComponentsFactory(configuration);
+          atomicOperationsManager.executeInsideAtomicOperation(
+              this::checkPageSizeAndRelatedParameters);
 
-          linkCollectionsBTreeManager.load();
+          atomicOperationsManager.executeInsideAtomicOperation(linkCollectionsBTreeManager::load);
 
           atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
-          openIndexes();
+          atomicOperationsManager.executeInsideAtomicOperation(this::openIndexes);
 
           atomicOperationsManager.executeInsideAtomicOperation(
               (atomicOperation) -> {
@@ -696,28 +756,28 @@ public abstract class AbstractStorage
     return configuration.getCreatedAtVersion();
   }
 
-  protected final void openIndexes() {
+  protected final void openIndexes(AtomicOperation atomicOperation) {
     final var cf = componentsFactory;
     if (cf == null) {
       throw new StorageException(name, "Storage '" + name + "' is not properly initialized");
     }
-    final var indexNames = configuration.indexEngines();
+    final var indexNames = configuration.indexEngines(atomicOperation);
     var counter = 0;
 
     // avoid duplication of index engine ids
     for (final var indexName : indexNames) {
-      final var engineData = configuration.getIndexEngine(indexName, -1);
+      final var engineData = configuration.getIndexEngine(indexName, -1, atomicOperation);
       if (counter <= engineData.getIndexId()) {
         counter = engineData.getIndexId() + 1;
       }
     }
 
     for (final var indexName : indexNames) {
-      final var engineData = configuration.getIndexEngine(indexName, counter);
+      final var engineData = configuration.getIndexEngine(indexName, counter, atomicOperation);
 
       final var engine = Indexes.createIndexEngine(this, engineData);
 
-      engine.load(engineData);
+      engine.load(engineData, atomicOperation);
 
       indexEngineNameMap.put(engineData.getName(), engine);
       while (engineData.getIndexId() >= indexEngines.size()) {
@@ -738,8 +798,7 @@ public abstract class AbstractStorage
       final var collectionConfig = configurationCollections.get(i);
 
       if (collectionConfig != null) {
-        pos = createCollectionFromConfig(collectionConfig);
-
+        pos = createCollectionFromConfig(collectionConfig, atomicOperation);
         try {
           if (pos == -1) {
             collections.get(i).open(atomicOperation);
@@ -868,7 +927,6 @@ public abstract class AbstractStorage
                 GlobalConfiguration.STORAGE_ATOMIC_OPERATIONS_TABLE_COMPACTION_LIMIT),
             idGen.getLastId() + 1);
     atomicOperationsManager = new AtomicOperationsManager(this, atomicOperationsTable);
-    transaction = new ThreadLocal<>();
 
     preCreateSteps();
     makeStorageDirty();
@@ -880,9 +938,11 @@ public abstract class AbstractStorage
               .create(atomicOperation, contextConfiguration);
           configuration.setUuid(atomicOperation, uuid.toString());
 
-          componentsFactory = new CurrentStorageComponentsFactory(configuration);
+          var binaryFormatVersion = atomicOperationsManager.calculateInsideAtomicOperation(
+              configuration::getBinaryFormatVersion);
+          componentsFactory = new CurrentStorageComponentsFactory(binaryFormatVersion);
 
-          linkCollectionsBTreeManager.load();
+          linkCollectionsBTreeManager.load(atomicOperation);
 
           status = STATUS.OPEN;
 
@@ -941,24 +1001,26 @@ public abstract class AbstractStorage
 
   protected abstract void initIv() throws IOException;
 
-  private void checkPageSizeAndRelatedParameters() {
+  private void checkPageSizeAndRelatedParameters(AtomicOperation atomicOperation) {
     final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
     final var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
 
-    if (configuration.getPageSize() != -1 && configuration.getPageSize() != pageSize) {
+    if (configuration.getPageSize(atomicOperation) != -1
+        && configuration.getPageSize(atomicOperation) != pageSize) {
       throw new StorageException(name,
           "Storage is created with value of "
-              + configuration.getPageSize()
+              + configuration.getPageSize(atomicOperation)
               + " parameter equal to "
               + GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getKey()
               + " but current value is "
               + pageSize);
     }
 
-    if (configuration.getMaxKeySize() != -1 && configuration.getMaxKeySize() != maxKeySize) {
+    if (configuration.getMaxKeySize(atomicOperation) != -1
+        && configuration.getMaxKeySize(atomicOperation) != maxKeySize) {
       throw new StorageException(name,
           "Storage is created with value of "
-              + configuration.getMaxKeySize()
+              + configuration.getMaxKeySize(atomicOperation)
               + " parameter equal to "
               + GlobalConfiguration.BTREE_MAX_KEY_SIZE.getKey()
               + " but current value is "
@@ -1032,46 +1094,6 @@ public abstract class AbstractStorage
     // CLOSE THE DATABASE BY REMOVING THE CURRENT USER
     doShutdownOnDelete();
     postDeleteSteps();
-  }
-
-  public boolean check(final boolean verbose, final CommandOutputListener listener) {
-    try {
-      listener.onMessage("Check of storage is started...");
-
-      stateLock.readLock().lock();
-      try {
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
-        try {
-
-          checkOpennessAndMigration();
-
-          final var start = System.currentTimeMillis();
-
-          final var pageErrors =
-              writeCache.checkStoredPages(verbose ? listener : null);
-
-          var errors =
-              pageErrors.length > 0 ? pageErrors.length + " with errors." : " without errors.";
-          listener.onMessage(
-              "Check of storage completed in "
-                  + (System.currentTimeMillis() - start)
-                  + "ms. "
-                  + errors);
-
-          return pageErrors.length == 0;
-        } finally {
-          atomicOperationsManager.releaseAtomicOperations(lockId);
-        }
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
   }
 
   @Override
@@ -1339,6 +1361,8 @@ public abstract class AbstractStorage
             "Collection Id " + collectionId + " is invalid in database '" + name + "'");
       }
 
+      var transaction = session.getActiveTransaction();
+      var atomicOperation = transaction.getAtomicOperation();
       // COUNT PHYSICAL COLLECTION IF ANY
       stateLock.readLock().lock();
       try {
@@ -1351,10 +1375,10 @@ public abstract class AbstractStorage
         }
 
         if (countTombstones) {
-          return collection.getEntries();
+          return collection.getEntries(atomicOperation);
         }
 
-        return collection.getEntries() - collection.getTombstonesCount();
+        return collection.getEntries(atomicOperation) - collection.getTombstonesCount();
       } finally {
         stateLock.readLock().unlock();
       }
@@ -1408,6 +1432,8 @@ public abstract class AbstractStorage
     try {
       long tot = 0;
 
+      var transaction = session.getActiveTransaction();
+      var atomicOperation = transaction.getAtomicOperation();
       stateLock.readLock().lock();
       try {
 
@@ -1423,7 +1449,8 @@ public abstract class AbstractStorage
           if (iCollectionId > -1) {
             final var c = collections.get(iCollectionId);
             if (c != null) {
-              tot += c.getEntries() - (countTombstones ? 0L : c.getTombstonesCount());
+              tot +=
+                  c.getEntries(atomicOperation) - (countTombstones ? 0L : c.getTombstonesCount());
             }
           }
         }
@@ -1483,8 +1510,8 @@ public abstract class AbstractStorage
 
   public Iterator<CollectionBrowsePage> browseCollection(
       final int collectionId,
-      final boolean forward
-  ) {
+      final boolean forward,
+      AtomicOperation atomicOperation) {
     try {
       stateLock.readLock().lock();
       try {
@@ -1503,7 +1530,7 @@ public abstract class AbstractStorage
           @Override
           public boolean hasNext() {
             if (page == null) {
-              page = nextPage(collectionId, lastPos, forward);
+              page = nextPage(collectionId, lastPos, forward, atomicOperation);
               if (page != null) {
                 lastPos = page.getLastPosition();
               }
@@ -1536,8 +1563,8 @@ public abstract class AbstractStorage
   private CollectionBrowsePage nextPage(
       final int collectionId,
       final long lastPosition,
-      final boolean forward
-  ) {
+      final boolean forward,
+      AtomicOperation atomicOperation) {
     try {
       stateLock.readLock().lock();
       try {
@@ -1545,7 +1572,7 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         final var collection = doGetAndCheckCollection(collectionId);
-        return collection.nextPage(lastPosition, forward);
+        return collection.nextPage(lastPosition, forward, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -1569,9 +1596,10 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public @Nonnull RawBuffer readRecord(final RecordIdInternal rid) {
+  public @Nonnull RawBuffer readRecord(final RecordIdInternal rid,
+      @Nonnull AtomicOperation atomicOperation) {
     try {
-      return readRecordInternal(rid);
+      return readRecordInternal(rid, atomicOperation);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -1680,7 +1708,7 @@ public abstract class AbstractStorage
         makeStorageDirty();
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
-              lockCollections(collectionsToLock);
+              lockCollections(collectionsToLock, atomicOperation);
 
               var session = clientTx.getDatabaseSession();
               for (final var txEntry : newRecords) {
@@ -1709,7 +1737,8 @@ public abstract class AbstractStorage
                   final var rid = rec.getIdentity();
                   final var collection =
                       (PaginatedCollection) doGetAndCheckCollection(rid.getCollectionId());
-                  var recordStatus = collection.getRecordStatus(rid.getCollectionPosition());
+                  var recordStatus = collection.getRecordStatus(rid.getCollectionPosition(),
+                      atomicOperation);
                   if (recordStatus == RECORD_STATUS.NOT_EXISTENT) {
                     var ppos =
                         collection.allocatePosition(
@@ -1848,6 +1877,7 @@ public abstract class AbstractStorage
       }
 
       final List<RecordOperation> result = new ArrayList<>(8);
+      final var atomicOperation = frontendTransaction.getAtomicOperation();
       stateLock.readLock().lock();
       try {
         try {
@@ -1856,12 +1886,11 @@ public abstract class AbstractStorage
           makeStorageDirty();
 
           Throwable error = null;
-          startStorageTx(frontendTransaction);
+          startTxCommit();
           try {
-            final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-            lockCollections(collectionsToLock);
-            lockLinkBags(collectionsToLock);
-            lockIndexes(indexOperations);
+            lockCollections(collectionsToLock, atomicOperation);
+            lockLinkBags(collectionsToLock, atomicOperation);
+            lockIndexes(indexOperations, atomicOperation);
 
             final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
             for (final var recordOperation : newRecords) {
@@ -1939,9 +1968,11 @@ public abstract class AbstractStorage
             var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
             recordSerializationContext.executeOperations(atomicOperation, this);
 
-            commitIndexes(frontendTransaction.getDatabaseSession(), indexOperations);
+            commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
+                indexOperations);
           } catch (final IOException | RuntimeException e) {
             error = e;
+
             if (e instanceof RuntimeException) {
               throw ((RuntimeException) e);
             } else {
@@ -1950,14 +1981,13 @@ public abstract class AbstractStorage
             }
           } finally {
             if (error != null) {
-              rollback(error);
+              rollback(error, atomicOperation);
             } else {
-              endStorageTx();
+              endTxCommit(atomicOperation);
             }
-            this.transaction.remove();
           }
         } finally {
-          atomicOperationsManager.ensureThatComponentsUnlocked();
+          atomicOperationsManager.ensureThatComponentsUnlocked(atomicOperation);
           session.getMetadata().clearThreadLocalSchemaSnapshot();
         }
       } finally {
@@ -1978,20 +2008,19 @@ public abstract class AbstractStorage
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
-      atomicOperationsManager.alarmClearOfAtomicOperation();
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
   }
 
-  private void commitIndexes(DatabaseSessionEmbedded db,
+  private void commitIndexes(DatabaseSessionEmbedded db, AtomicOperation atomicOperation,
       final Map<String, FrontendTransactionIndexChanges> indexesToCommit) {
     for (final var changes : indexesToCommit.values()) {
       var index = changes.getIndex();
       try {
         if (changes.cleared) {
-          clearIndex(index.getIndexId());
+          doClearIndex(atomicOperation, index.getIndexId());
         }
 
         for (final var changesPerKey : changes.changesPerKey.values()) {
@@ -2056,7 +2085,8 @@ public abstract class AbstractStorage
   }
 
   public int loadExternalIndexEngine(
-      final IndexMetadata indexMetadata, final Map<String, String> engineProperties) {
+      final IndexMetadata indexMetadata, final Map<String, String> engineProperties,
+      AtomicOperation atomicOperation) {
     final var indexDefinition = indexMetadata.getIndexDefinition();
     try {
       stateLock.writeLock().lock();
@@ -2065,7 +2095,7 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         // this method introduced for binary compatibility only
-        if (configuration.getBinaryFormatVersion() > 15) {
+        if (configuration.getBinaryFormatVersion(atomicOperation) > 15) {
           return -1;
         }
         if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
@@ -2076,7 +2106,7 @@ public abstract class AbstractStorage
 
         final var valueSerializerId = StreamSerializerRID.INSTANCE.getId();
 
-        final var keySerializer = determineKeySerializer(indexDefinition);
+        final var keySerializer = determineKeySerializer(indexDefinition, atomicOperation);
         if (keySerializer == null) {
           throw new IndexException(name, "Can not determine key serializer");
         }
@@ -2099,15 +2129,13 @@ public abstract class AbstractStorage
 
         final var engine = Indexes.createIndexEngine(this, engineData);
 
-        engine.load(engineData);
+        engine.load(engineData, atomicOperation);
 
-        atomicOperationsManager.executeInsideAtomicOperation(
-            atomicOperation -> {
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
-              indexEngines.add(engine);
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
-            });
+        indexEngineNameMap.put(indexMetadata.getName(), engine);
+        indexEngines.add(engine);
+        ((CollectionBasedStorageConfiguration) configuration)
+            .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+
         return generateIndexId(engineData.getIndexId(), engine);
       } catch (final IOException e) {
         throw BaseException.wrapException(
@@ -2140,13 +2168,6 @@ public abstract class AbstractStorage
         throw new IndexException(name, "Types of indexed keys have to be provided");
       }
 
-      final var keySerializer = determineKeySerializer(indexDefinition);
-      if (keySerializer == null) {
-        throw new IndexException(name, "Can not determine key serializer");
-      }
-
-      final var keySize = determineKeySize(indexDefinition);
-
       stateLock.writeLock().lock();
       try {
         checkOpennessAndMigration();
@@ -2154,6 +2175,12 @@ public abstract class AbstractStorage
         makeStorageDirty();
         return atomicOperationsManager.calculateInsideAtomicOperation(
             atomicOperation -> {
+              final var keySerializer = determineKeySerializer(indexDefinition, atomicOperation);
+              if (keySerializer == null) {
+                throw new IndexException(name, "Can not determine key serializer");
+              }
+
+              final var keySize = determineKeySize(indexDefinition);
               if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
                 // OLD INDEX FILE ARE PRESENT: THIS IS THE CASE OF PARTIAL/BROKEN INDEX
                 LogManager.instance()
@@ -2247,7 +2274,8 @@ public abstract class AbstractStorage
     }
   }
 
-  private BinarySerializer<?> determineKeySerializer(final IndexDefinition indexDefinition) {
+  private BinarySerializer<?> determineKeySerializer(final IndexDefinition indexDefinition,
+      AtomicOperation atomicOperation) {
     if (indexDefinition == null) {
       throw new StorageException(name, "Index definition has to be provided");
     }
@@ -2271,7 +2299,8 @@ public abstract class AbstractStorage
     } else {
       final var keyType = indexDefinition.getTypes()[0];
 
-      if (keyType == PropertyTypeInternal.STRING && configuration.getBinaryFormatVersion() >= 13) {
+      if (keyType == PropertyTypeInternal.STRING
+          && configuration.getBinaryFormatVersion(atomicOperation) >= 13) {
         return UTF8Serializer.INSTANCE;
       }
 
@@ -2346,13 +2375,11 @@ public abstract class AbstractStorage
     }
   }
 
-  public boolean removeKeyFromIndex(final int indexId, final Object key)
+  public boolean removeKeyFromIndex(final int indexId, final Object key,
+      @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var internalIndexId = extractInternalId(indexId);
-
     try {
-      assert transaction.get() != null;
-      final var atomicOperation = atomicOperationsManager.getCurrentOperation();
       return removeKeyFromIndexInternal(atomicOperation, internalIndexId, key);
     } catch (final InvalidIndexEngineIdException ie) {
       throw logAndPrepareForRethrow(ie);
@@ -2392,15 +2419,8 @@ public abstract class AbstractStorage
     }
   }
 
-  public void clearIndex(final int indexId)
-      throws InvalidIndexEngineIdException {
+  public void clearIndex(final int indexId) {
     try {
-      if (transaction.get() != null) {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-        doClearIndex(atomicOperation, indexId);
-        return;
-      }
-
       final var internalIndexId = extractInternalId(indexId);
       stateLock.readLock().lock();
       try {
@@ -2414,8 +2434,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2442,7 +2460,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public Stream<RID> getIndexValues(int indexId, final Object key)
+  public Stream<RID> getIndexValues(int indexId, final Object key, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 1) {
@@ -2453,16 +2471,11 @@ public abstract class AbstractStorage
     indexId = extractInternalId(indexId);
 
     try {
-
-      if (transaction.get() != null) {
-        return doGetIndexValues(indexId, key);
-      }
-
       stateLock.readLock().lock();
       try {
         checkOpennessAndMigration();
 
-        return doGetIndexValues(indexId, key);
+        return doGetIndexValues(indexId, key, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2477,14 +2490,15 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RID> doGetIndexValues(final int indexId, final Object key)
+  private Stream<RID> doGetIndexValues(final int indexId, final Object key,
+      AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return ((V1IndexEngine) engine).get(key);
+    return ((V1IndexEngine) engine).get(key, atomicOperation);
   }
 
   public BaseIndexEngine getIndexEngine(int indexId) throws InvalidIndexEngineIdException {
@@ -2523,7 +2537,6 @@ public abstract class AbstractStorage
     try {
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
         if (readOperation) {
@@ -2554,7 +2567,8 @@ public abstract class AbstractStorage
     callback.callEngine(engine);
   }
 
-  public void putRidIndexEntry(int indexId, final Object key, final RID value)
+  public void putRidIndexEntry(int indexId, final Object key, final RID value,
+      @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     final var internalIndexId = extractInternalId(indexId);
@@ -2565,9 +2579,6 @@ public abstract class AbstractStorage
     }
 
     try {
-      assert transaction.get() != null;
-      final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-      assert atomicOperation != null;
       putRidIndexEntryInternal(atomicOperation, internalIndexId, key, value);
     } catch (final InvalidIndexEngineIdException ie) {
       throw logAndPrepareForRethrow(ie);
@@ -2592,7 +2603,8 @@ public abstract class AbstractStorage
     ((V1IndexEngine) engine).put(atomicOperation, key, value);
   }
 
-  public boolean removeRidIndexEntry(int indexId, final Object key, final RID value)
+  public boolean removeRidIndexEntry(int indexId, final Object key, final RID value,
+      @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     final var internalIndexId = extractInternalId(indexId);
@@ -2603,11 +2615,7 @@ public abstract class AbstractStorage
     }
 
     try {
-      assert transaction.get() != null;
-      final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-      assert atomicOperation != null;
       return removeRidIndexEntryInternal(atomicOperation, internalIndexId, key, value);
-
     } catch (final InvalidIndexEngineIdException ie) {
       throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
@@ -2647,14 +2655,11 @@ public abstract class AbstractStorage
       final int indexId,
       final Object key,
       final RID value,
-      final IndexEngineValidator<Object, RID> validator)
+      final IndexEngineValidator<Object, RID> validator, @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var internalIndexId = extractInternalId(indexId);
 
     try {
-      assert transaction.get() != null;
-      final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-      assert atomicOperation != null;
       return doValidatedPutIndexValue(atomicOperation, internalIndexId, key, value, validator);
     } catch (final InvalidIndexEngineIdException ie) {
       throw logAndPrepareForRethrow(ie);
@@ -2700,29 +2705,24 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
-      DatabaseSessionEmbedded db, int indexId,
+      int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
       final boolean toInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
-
     try {
-      if (transaction.get() != null) {
-        return doIterateIndexEntriesBetween(db,
-            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
-      }
-
       stateLock.readLock().lock();
       try {
 
         checkOpennessAndMigration();
 
-        return doIterateIndexEntriesBetween(db,
-            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
+        return doIterateIndexEntriesBetween(
+            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer,
+            atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2738,21 +2738,21 @@ public abstract class AbstractStorage
   }
 
   private Stream<RawPair<Object, RID>> doIterateIndexEntriesBetween(
-      DatabaseSessionEmbedded db, final int indexId,
+      final int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
       final boolean toInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
+      final IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.iterateEntriesBetween(db
-        , rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
+    return engine.iterateEntriesBetween(
+        rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer, atomicOperation);
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesMajor(
@@ -2760,21 +2760,18 @@ public abstract class AbstractStorage
       final Object fromKey,
       final boolean isInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
-      if (transaction.get() != null) {
-        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder, transformer);
-      }
-
       stateLock.readLock().lock();
       try {
 
         checkOpennessAndMigration();
 
-        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder, transformer);
+        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder,
+            transformer, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2794,14 +2791,15 @@ public abstract class AbstractStorage
       final Object fromKey,
       final boolean isInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
+      final IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer);
+    return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer,
+        atomicOperation);
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesMinor(
@@ -2809,21 +2807,17 @@ public abstract class AbstractStorage
       final Object toKey,
       final boolean isInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
+      final IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
-      if (transaction.get() != null) {
-        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder, transformer);
-      }
-
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
-        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder, transformer);
+        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder, transformer,
+            atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2843,32 +2837,27 @@ public abstract class AbstractStorage
       final Object toKey,
       final boolean isInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
+      final IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, transformer);
+    return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, transformer,
+        atomicOperation);
   }
 
   public Stream<RawPair<Object, RID>> getIndexStream(
-      int indexId, final IndexEngineValuesTransformer valuesTransformer)
+      int indexId, final IndexEngineValuesTransformer valuesTransformer,
+      @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
-      if (transaction.get() != null) {
-        return doGetIndexStream(indexId, valuesTransformer);
-      }
-
       stateLock.readLock().lock();
       try {
-
-        checkOpennessAndMigration();
-
-        return doGetIndexStream(indexId, valuesTransformer);
+        return doGetIndexStream(indexId, valuesTransformer, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2884,32 +2873,29 @@ public abstract class AbstractStorage
   }
 
   private Stream<RawPair<Object, RID>> doGetIndexStream(
-      final int indexId, final IndexEngineValuesTransformer valuesTransformer)
+      final int indexId, final IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.stream(valuesTransformer);
+    return engine.stream(valuesTransformer, atomicOperation);
   }
 
   public Stream<RawPair<Object, RID>> getIndexDescStream(
-      int indexId, final IndexEngineValuesTransformer valuesTransformer)
+      int indexId, final IndexEngineValuesTransformer valuesTransformer,
+      @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
-      if (transaction.get() != null) {
-        return doGetIndexDescStream(indexId, valuesTransformer);
-      }
-
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
-        return doGetIndexDescStream(indexId, valuesTransformer);
+        return doGetIndexDescStream(indexId, valuesTransformer, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2925,30 +2911,27 @@ public abstract class AbstractStorage
   }
 
   private Stream<RawPair<Object, RID>> doGetIndexDescStream(
-      final int indexId, final IndexEngineValuesTransformer valuesTransformer)
+      final int indexId, final IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.descStream(valuesTransformer);
+    return engine.descStream(valuesTransformer, atomicOperation);
   }
 
-  public Stream<Object> getIndexKeyStream(int indexId) throws InvalidIndexEngineIdException {
+  public Stream<Object> getIndexKeyStream(int indexId, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
-      if (transaction.get() != null) {
-        return doGetIndexKeyStream(indexId);
-      }
-
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
-        return doGetIndexKeyStream(indexId);
+        return doGetIndexKeyStream(indexId, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2963,31 +2946,27 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<Object> doGetIndexKeyStream(final int indexId)
+  private Stream<Object> doGetIndexKeyStream(final int indexId, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.keyStream();
+    return engine.keyStream(atomicOperation);
   }
 
-  public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer)
+  public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer,
+      @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
-      if (transaction.get() != null) {
-        return doGetIndexSize(indexId, transformer);
-      }
-
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
-        return doGetIndexSize(indexId, transformer);
+        return doGetIndexSize(indexId, transformer, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3002,58 +2981,21 @@ public abstract class AbstractStorage
     }
   }
 
-  private long doGetIndexSize(final int indexId, final IndexEngineValuesTransformer transformer)
+  private long doGetIndexSize(final int indexId, final IndexEngineValuesTransformer transformer,
+      AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.size(this, transformer);
+    return engine.size(this, transformer, atomicOperation);
   }
 
-  public boolean hasIndexRangeQuerySupport(int indexId) throws InvalidIndexEngineIdException {
-    indexId = extractInternalId(indexId);
 
-    try {
-      if (transaction.get() != null) {
-        return doHasRangeQuerySupport(indexId);
-      }
-
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        return doHasRangeQuerySupport(indexId);
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  private boolean doHasRangeQuerySupport(final int indexId) throws InvalidIndexEngineIdException {
-    checkIndexId(indexId);
-
-    final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
-
-    return engine.hasRangeQuerySupport();
-  }
-
-  private void rollback(final Throwable error) throws IOException {
-    assert transaction.get() != null;
-    atomicOperationsManager.endAtomicOperation(error);
-
-    assert atomicOperationsManager.getCurrentOperation() == null;
+  private void rollback(final Throwable error, @Nonnull AtomicOperation atomicOperation)
+      throws IOException {
+    atomicOperationsManager.endAtomicOperation(atomicOperation, error);
   }
 
   public void moveToErrorStateIfNeeded(final Throwable error) {
@@ -3072,7 +3014,7 @@ public abstract class AbstractStorage
       try {
 
         final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
+        final var lockId = atomicOperationsManager.startWriteOperations(null);
         try {
           checkOpennessAndMigration();
 
@@ -3104,7 +3046,7 @@ public abstract class AbstractStorage
           }
 
         } finally {
-          atomicOperationsManager.releaseAtomicOperations(lockId);
+          atomicOperationsManager.unfreezeWriteOperations(lockId);
           synchDuration.setNanos(System.nanoTime() - synchStartedAt);
         }
       } finally {
@@ -3170,7 +3112,6 @@ public abstract class AbstractStorage
     }
   }
 
-  @Override
   public final int getCollections() {
     try {
       stateLock.readLock().lock();
@@ -3231,11 +3172,11 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         if (throwException) {
-          atomicOperationsManager.freezeAtomicOperations(
+          atomicOperationsManager.startWriteOperations(
               () -> new ModificationOperationProhibitedException(name,
                   "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.freezeAtomicOperations(null);
+          atomicOperationsManager.startWriteOperations(null);
         }
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
@@ -3278,7 +3219,7 @@ public abstract class AbstractStorage
         }
       }
 
-      atomicOperationsManager.releaseAtomicOperations(-1);
+      atomicOperationsManager.unfreezeWriteOperations(-1);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3313,11 +3254,6 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
-  }
-
-  @SuppressWarnings("unused")
-  public static String getMode() {
-    return "rw";
   }
 
   /**
@@ -3371,13 +3307,15 @@ public abstract class AbstractStorage
         return new PhysicalPosition[0];
       }
 
+      var transaction = session.getActiveTransaction();
+      var atomicOperation = transaction.getAtomicOperation();
+
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
         final var collection = doGetAndCheckCollection(currentCollectionId);
-        return collection.higherPositions(physicalPosition, limit);
+        return collection.higherPositions(physicalPosition, limit, atomicOperation);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3404,13 +3342,14 @@ public abstract class AbstractStorage
         return new PhysicalPosition[0];
       }
 
+      var transaction = session.getActiveTransaction();
+      var atomicOperation = transaction.getAtomicOperation();
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
         final var collection = doGetAndCheckCollection(collectionId);
-        return collection.ceilingPositions(physicalPosition, limit);
+        return collection.ceilingPositions(physicalPosition, limit, atomicOperation);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3437,6 +3376,8 @@ public abstract class AbstractStorage
         return new PhysicalPosition[0];
       }
 
+      var transaction = session.getActiveTransaction();
+      var atomicOperation = transaction.getAtomicOperation();
       stateLock.readLock().lock();
       try {
 
@@ -3444,7 +3385,7 @@ public abstract class AbstractStorage
 
         final var collection = doGetAndCheckCollection(currentCollectionId);
 
-        return collection.lowerPositions(physicalPosition, limit);
+        return collection.lowerPositions(physicalPosition, limit, atomicOperation);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3471,12 +3412,15 @@ public abstract class AbstractStorage
         return new PhysicalPosition[0];
       }
 
+      var transaction = session.getActiveTransaction();
+      var atomicOperation = transaction.getAtomicOperation();
+
       stateLock.readLock().lock();
       try {
         checkOpennessAndMigration();
         final var collection = doGetAndCheckCollection(collectionId);
 
-        return collection.floorPositions(physicalPosition, limit);
+        return collection.floorPositions(physicalPosition, limit, atomicOperation);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3674,12 +3618,12 @@ public abstract class AbstractStorage
     }
   }
 
-  public void deleteTreeLinkBag(final BTreeBasedLinkBag ridBag) {
+  public void deleteTreeLinkBag(final BTreeBasedLinkBag ridBag,
+      @Nonnull AtomicOperation atomicOperation) {
     try {
       checkOpennessAndMigration();
 
-      assert transaction.get() != null;
-      deleteTreeLinkBag(ridBag, atomicOperationsManager.getCurrentOperation());
+      doDeleteTreeLinkBag(ridBag, atomicOperation);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3689,7 +3633,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private void deleteTreeLinkBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
+  private void doDeleteTreeLinkBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
     final var collectionPointer = ridBag.getCollectionPointer();
     checkOpennessAndMigration();
 
@@ -3784,7 +3728,8 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private RawBuffer readRecordInternal(final RecordIdInternal rid) {
+  private RawBuffer readRecordInternal(@Nonnull final RecordIdInternal rid,
+      @Nonnull AtomicOperation atomicOperation) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "
@@ -3793,20 +3738,6 @@ public abstract class AbstractStorage
           + name
           + '\'');
     }
-
-    if (transaction.get() != null) {
-      checkOpennessAndMigration();
-      final StorageCollection collection;
-      try {
-        collection = doGetAndCheckCollection(rid.getCollectionId());
-      } catch (IllegalArgumentException e) {
-        throw BaseException.wrapException(new RecordNotFoundException(name, rid), e, name);
-      }
-      // Disabled this assert have no meaning anymore
-      // assert iLockingStrategy.equals(LOCKING_STRATEGY.DEFAULT);
-      return doReadRecord(collection, rid);
-    }
-
     stateLock.readLock().lock();
     try {
       checkOpennessAndMigration();
@@ -3816,14 +3747,15 @@ public abstract class AbstractStorage
       } catch (IllegalArgumentException e) {
         throw BaseException.wrapException(new RecordNotFoundException(name, rid), e, name);
       }
-      return doReadRecord(collection, rid);
+      return doReadRecord(collection, rid, atomicOperation);
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
   @Override
-  public boolean recordExists(DatabaseSessionEmbedded session, RID rid) {
+  public boolean recordExists(DatabaseSessionEmbedded session, RID rid,
+      @Nonnull AtomicOperation atomicOperation) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "
@@ -3832,19 +3764,6 @@ public abstract class AbstractStorage
           + name
           + '\'');
     }
-
-    if (transaction.get() != null) {
-      checkOpennessAndMigration();
-      final StorageCollection collection;
-      try {
-        collection = doGetAndCheckCollection(rid.getCollectionId());
-      } catch (IllegalArgumentException e) {
-        return false;
-      }
-
-      return doRecordExists(name, collection, rid);
-    }
-
     stateLock.readLock().lock();
     try {
       checkOpennessAndMigration();
@@ -3854,29 +3773,24 @@ public abstract class AbstractStorage
       } catch (IllegalArgumentException e) {
         return false;
       }
-      return doRecordExists(name, collection, rid);
+      return doRecordExists(name, collection, rid, atomicOperation);
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  private void endStorageTx() throws IOException {
-    atomicOperationsManager.endAtomicOperation(null);
-    assert atomicOperationsManager.getCurrentOperation() == null;
+  private void endTxCommit(AtomicOperation atomicOperation) throws IOException {
+    atomicOperationsManager.endAtomicOperation(atomicOperation, null);
   }
 
-  private void startStorageTx(final FrontendTransaction clientTx) throws IOException {
-    final var storageTx = transaction.get();
-    assert storageTx == null || storageTx.clientTx().getId() == clientTx.getId();
-    assert atomicOperationsManager.getCurrentOperation() == null;
+  public AtomicOperation startStorageTx() {
+    checkOpennessAndMigration();
 
-    transaction.set(new StorageTransaction(clientTx));
-    try {
-      atomicOperationsManager.startAtomicOperation();
-    } catch (final RuntimeException e) {
-      transaction.remove();
-      throw e;
-    }
+    return atomicOperationsManager.startAtomicOperation();
+  }
+
+  private void startTxCommit() {
+    atomicOperationsManager.startWriteOperations();
   }
 
   private void recoverIfNeeded() throws Exception {
@@ -3967,7 +3881,8 @@ public abstract class AbstractStorage
     collection.meters().update().record();
     try {
       final var ppos =
-          collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()));
+          collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()),
+              atomicOperation);
 
       if (ppos == null || ppos.recordVersion != version) {
         final var dbVersion = ppos == null ? -1 : ppos.recordVersion;
@@ -3975,7 +3890,7 @@ public abstract class AbstractStorage
             name, rid, dbVersion, version, RecordOperation.UPDATED);
       }
 
-      final var newRecordVersion = atomicOperation.getOperationUnitId();
+      final var newRecordVersion = atomicOperation.getCommitTs();
       ppos.recordVersion = newRecordVersion;
       if (updateContent) {
         collection.updateRecord(
@@ -4010,9 +3925,9 @@ public abstract class AbstractStorage
       final StorageCollection collection) {
     collection.meters().delete().record();
     try {
-
       final var ppos =
-          collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()));
+          collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()),
+              atomicOperation);
 
       if (ppos == null) {
         // ALREADY DELETED
@@ -4041,12 +3956,12 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private RawBuffer doReadRecord(final StorageCollection collection, final RecordIdInternal rid) {
+  private RawBuffer doReadRecord(final StorageCollection collection, final RecordIdInternal rid,
+      AtomicOperation atomicOperation) {
     collection.meters().read().record();
     try {
-
-      final var buff = collection.readRecord(rid.getCollectionPosition());
-
+      final var buff = collection.readRecord(rid.getCollectionPosition(),
+          atomicOperation);
       if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
@@ -4065,16 +3980,17 @@ public abstract class AbstractStorage
   }
 
   private static boolean doRecordExists(String dbName, final StorageCollection collectionSegment,
-      final RID rid) {
+      final RID rid, AtomicOperation atomicOperation) {
     try {
-      return collectionSegment.exists(rid.getCollectionPosition());
+      return collectionSegment.exists(rid.getCollectionPosition(), atomicOperation);
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(dbName, "Error during read of record with rid = " + rid), e, dbName);
     }
   }
 
-  private int createCollectionFromConfig(final StorageCollectionConfiguration config)
+  private int createCollectionFromConfig(final StorageCollectionConfiguration config,
+      AtomicOperation atomicOperation)
       throws IOException {
     var collection = collectionMap.get(config.name().toLowerCase());
 
@@ -4085,7 +4001,8 @@ public abstract class AbstractStorage
 
     collection =
         StorageCollectionFactory.createCollection(
-            config.name(), configuration.getVersion(), config.getBinaryVersion(), this);
+            config.name(), configuration.getVersion(atomicOperation), config.getBinaryVersion(),
+            this);
 
     collection.configure(this, config);
 
@@ -4160,7 +4077,7 @@ public abstract class AbstractStorage
       collection =
           StorageCollectionFactory.createCollection(
               collectionName,
-              configuration.getVersion(),
+              configuration.getVersion(atomicOperation),
               configuration
                   .getContextConfiguration()
                   .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
@@ -4203,7 +4120,7 @@ public abstract class AbstractStorage
 
       makeStorageDirty();
 
-      atomicOperationsManager.calculateInsideAtomicOperation(
+      atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
               collection));
     } catch (final RuntimeException ee) {
@@ -4217,7 +4134,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private boolean doSetCollectionAttributed(
+  private void doSetCollectionAttributed(
       final AtomicOperation atomicOperation,
       final ATTRIBUTES attribute,
       final Object value,
@@ -4243,7 +4160,6 @@ public abstract class AbstractStorage
     ((CollectionBasedStorageConfiguration) configuration)
         .updateCollection(atomicOperation,
             ((PaginatedCollection) collection).generateCollectionConfig());
-    return true;
   }
 
   private boolean dropCollectionInternal(final AtomicOperation atomicOperation,
@@ -4336,9 +4252,7 @@ public abstract class AbstractStorage
 
       postCloseSteps(false, isInError(), idGen.getLastId());
 
-      transaction = null;
       migration = new CountDownLatch(1);
-
       status = STATUS.CLOSED;
     });
   }
@@ -4397,7 +4311,6 @@ public abstract class AbstractStorage
                 null);
       }
       postCloseSteps(true, isInError(), idGen.getLastId());
-      transaction = null;
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
     } catch (final IOException e) {
@@ -4473,7 +4386,7 @@ public abstract class AbstractStorage
         if (allocated != null) {
           final PhysicalPosition ppos;
           final var recordType = rec.getRecordType();
-          final var recordVersion = rec.getVersion() > -1 ? atomicOperation.getOperationUnitId() : 0;
+          final var recordVersion = rec.getVersion() > -1 ? atomicOperation.getCommitTs() : 0;
           ppos =
               doCreateRecord(
                   atomicOperation,
@@ -4625,11 +4538,8 @@ public abstract class AbstractStorage
               // flushed to the disk
               if (atomicUnit != null) {
                 atomicUnit.add(walRecord);
-                if (!restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate)) {
-                  return lastUpdatedLSN;
-                } else {
-                  lastUpdatedLSN = walRecord.getLsn();
-                }
+                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+                lastUpdatedLSN = walRecord.getLsn();
               }
             }
             case AtomicUnitStartRecord oAtomicUnitStartRecord -> {
@@ -4698,7 +4608,7 @@ public abstract class AbstractStorage
     return lastUpdatedLSN;
   }
 
-  protected final boolean restoreAtomicUnit(
+  protected final void restoreAtomicUnit(
       final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
       throws IOException {
     assert atomicUnit.getLast() instanceof AtomicUnitEndRecord;
@@ -4809,7 +4719,6 @@ public abstract class AbstractStorage
         }
       }
     }
-    return true;
   }
 
   @SuppressWarnings("unused")
@@ -4863,22 +4772,23 @@ public abstract class AbstractStorage
     return ridsPerCollection;
   }
 
-  private static void lockIndexes(final TreeMap<String, FrontendTransactionIndexChanges> indexes) {
+  private static void lockIndexes(final TreeMap<String, FrontendTransactionIndexChanges> indexes,
+      AtomicOperation atomicOperation) {
     for (final var changes : indexes.values()) {
-      changes.getIndex().acquireAtomicExclusiveLock();
+      changes.getIndex().acquireAtomicExclusiveLock(atomicOperation);
     }
   }
 
-  private static void lockCollections(final TreeMap<Integer, StorageCollection> collectionsToLock) {
+  private static void lockCollections(final TreeMap<Integer, StorageCollection> collectionsToLock,
+      AtomicOperation atomicOperation) {
     for (final var collection : collectionsToLock.values()) {
-      collection.acquireAtomicExclusiveLock();
+      collection.acquireAtomicExclusiveLock(atomicOperation);
     }
   }
 
   private void lockLinkBags(
-      final TreeMap<Integer, StorageCollection> collections) {
-    final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-
+      final TreeMap<Integer, StorageCollection> collections,
+      @Nonnull AtomicOperation atomicOperation) {
     for (final var collectionId : collections.keySet()) {
       atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
           atomicOperation, LinkCollectionsBTreeManagerShared.generateLockName(collectionId));
@@ -4956,11 +4866,6 @@ public abstract class AbstractStorage
     LogManager.instance()
         .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
     return exception;
-  }
-
-  @Override
-  public final StorageConfiguration getConfiguration() {
-    return configuration;
   }
 
   @Override
@@ -5154,56 +5059,6 @@ public abstract class AbstractStorage
 
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> storageConfiguration.setLocaleCountry(atomicOperation, localeCountry));
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    } finally {
-      stateLock.readLock().unlock();
-    }
-  }
-
-  @Override
-  public final void setCollectionSelection(final String collectionSelection) {
-    stateLock.readLock().lock();
-    try {
-
-      checkOpennessAndMigration();
-
-      final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
-
-      makeStorageDirty();
-
-      atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation ->
-              storageConfiguration.setCollectionSelection(atomicOperation, collectionSelection));
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    } finally {
-      stateLock.readLock().unlock();
-    }
-  }
-
-  @Override
-  public final void setMinimumCollections(final int minimumCollections) {
-    stateLock.readLock().lock();
-    try {
-
-      checkOpennessAndMigration();
-
-      final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
-
-      makeStorageDirty();
-
-      storageConfiguration.setMinimumCollections(minimumCollections);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5444,10 +5299,6 @@ public abstract class AbstractStorage
     return this.context;
   }
 
-  public boolean isMemory() {
-    return false;
-  }
-
   public void registryFrontendTransaction(FrontendTransaction transaction) {
     transactionsTracker.put(transaction.getId(), transaction);
   }
@@ -5459,17 +5310,4 @@ public abstract class AbstractStorage
   public int getActiveTransactionsCount() {
     return transactionsTracker.size();
   }
-
-  // TODO: How to test?
-  public void cleanUnreachableRecordVersions() {
-    var min = transactionsTracker.values().stream().
-        mapToLong(t ->
-            ((FrontendTransactionImpl) t).getAtomicOperationTableState().maxPersistedOperationId()).
-        min().orElse(Long.MAX_VALUE);
-    Collection<? extends StorageCollection> collectionInstances = getCollectionInstances();
-    for (var collection : collectionInstances) {
-      ((PaginatedCollectionV2) collection).cleanUnreachableRecordVersions(min);
-    }
-  }
-
 }

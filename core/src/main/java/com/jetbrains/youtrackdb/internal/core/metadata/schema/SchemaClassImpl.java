@@ -1195,16 +1195,14 @@ public abstract class SchemaClassImpl {
   public void fireDatabaseMigration(
       final DatabaseSessionEmbedded database, final String propertyName,
       final PropertyTypeInternal type) {
-    final var strictSQL =
-        database.getStorageInfo().getConfiguration().isStrictSql();
 
     var recordsToUpdate = database.computeInTx(transaction -> {
       try (var result =
           database.query(
               "select from "
-                  + getEscapedName(name, strictSQL)
+                  + getEscapedName(name, true)
                   + " where "
-                  + getEscapedName(propertyName, strictSQL)
+                  + getEscapedName(propertyName, true)
                   + ".type() <> \""
                   + type.name()
                   + "\"")) {
@@ -1231,16 +1229,13 @@ public abstract class SchemaClassImpl {
       final String propertyName,
       final String newPropertyName,
       final PropertyTypeInternal type) {
-    final var strictSQL =
-        database.getStorageInfo().getConfiguration().isStrictSql();
-
     var ridsToMigrate = database.computeInTx(transaction -> {
       try (var result =
           database.query(
               "select from "
-                  + getEscapedName(name, strictSQL)
+                  + getEscapedName(name, true)
                   + " where "
-                  + getEscapedName(propertyName, strictSQL)
+                  + getEscapedName(propertyName, true)
                   + " is not null ")) {
         return result.toRidList();
       }
@@ -1258,13 +1253,11 @@ public abstract class SchemaClassImpl {
       final String propertyName,
       final PropertyTypeInternal type,
       SchemaClassImpl linkedClass) {
-    final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
-
     final var builder = new StringBuilder(256);
     builder.append("select from ");
-    builder.append(getEscapedName(name, strictSQL));
+    builder.append(getEscapedName(name, true));
     builder.append(" where ");
-    builder.append(getEscapedName(propertyName, strictSQL));
+    builder.append(getEscapedName(propertyName, true));
     builder.append(".type() not in [");
 
     final var cur = type.getCastable().iterator();
@@ -1276,12 +1269,12 @@ public abstract class SchemaClassImpl {
     }
     builder
         .append("] and ")
-        .append(getEscapedName(propertyName, strictSQL))
+        .append(getEscapedName(propertyName, true))
         .append(" is not null ");
     if (type.isMultiValue()) {
       builder
           .append(" and ")
-          .append(getEscapedName(propertyName, strictSQL))
+          .append(getEscapedName(propertyName, true))
           .append(".size() <> 0 limit 1");
     }
 

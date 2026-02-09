@@ -237,16 +237,14 @@ public class SQLTarget extends BaseParser {
                 .add(
                     RecordIdInternal.fromString(
                         session
-                            .getStorageInfo()
-                            .getConfiguration()
+                            .getStorage()
                             .getSchemaRecordId(), false));
           } else if (metadataTarget.equals(CommandExecutorSQLAbstract.METADATA_INDEXMGR)) {
             ((ArrayList<Identifiable>) targetRecords)
                 .add(
                     RecordIdInternal.fromString(
                         session
-                            .getStorageInfo()
-                            .getConfiguration()
+                            .getStorage()
                             .getIndexMgrRecordId(), false));
           } else {
             throw new QueryParsingException(session.getDatabaseName(),

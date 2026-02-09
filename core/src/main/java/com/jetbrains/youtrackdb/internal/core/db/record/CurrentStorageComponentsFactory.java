@@ -16,7 +16,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 
 /**
@@ -32,8 +31,8 @@ public class CurrentStorageComponentsFactory {
   public final int binaryFormatVersion;
   public final BinarySerializerFactory binarySerializerFactory;
 
-  public CurrentStorageComponentsFactory(StorageConfiguration configuration) {
-    this.binaryFormatVersion = configuration.getBinaryFormatVersion();
+  public CurrentStorageComponentsFactory(int binaryFormatVersion) {
+    this.binaryFormatVersion = binaryFormatVersion;
 
     binarySerializerFactory = BinarySerializerFactory.create(binaryFormatVersion);
   }

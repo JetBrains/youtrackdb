@@ -83,10 +83,10 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     docCollectionOne.setProperty("ridBag", ridBagCollectionOne);
     session.commit();
 
-    final var directory = session.getStorage().getConfiguration().getDirectory();
+    final var directory = ((DiskStorage) session.getStorage()).getStoragePath().toString();
 
     final var wowCache =
-        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
+        (WOWCache) (session.getStorage()).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(
@@ -243,7 +243,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     session.freeze();
     session.release();
 
-    final var directory = session.getStorage().getConfiguration().getDirectory();
+    final var directory = ((DiskStorage) session.getStorage()).getStoragePath().toString();
 
     var testRidBagFile =
         new File(
