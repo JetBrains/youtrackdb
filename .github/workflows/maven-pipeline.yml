@@ -63,7 +63,7 @@ jobs:
           JAVA_TOOL_OPTIONS: ${{ runner.os == 'Linux' && '-Djdk.attach.allowAttachSelf=true -Djava.security.manager=allow' || '' }}
       - name: Run Integration Tests
         if: runner.os == 'Linux'
-        run: mvn -s .github/workflows/settings.xml verify -B -Dmaven.test.failure.ignore=true -Dmaven.compiler.skip=true -P docker-images,ekstazi,coverage
+        run: mvn -s .github/workflows/settings.xml verify -B -Dmaven.test.failure.ignore=true -P docker-images,ekstazi,coverage
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
