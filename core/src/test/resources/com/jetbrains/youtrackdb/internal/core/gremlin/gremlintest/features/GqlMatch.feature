@@ -30,24 +30,42 @@ Feature: GQL Match Support
     When iterated to list
     Then the result should have a count of 1
     And the result should be unordered
-      | result |
+      | result              |
       | m[{"a":"v[Alice]"}] |
+
+  Scenario: g_gql_MATCH_multiple_nodes
+    And the traversal of
+      """
+      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO GqlPerson SET name = 'John'").sqlCommand("COMMIT")
+      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO GqlPerson SET name = 'Alice'").sqlCommand("COMMIT")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 2
+    And the result should be unordered
+      | result              |
+      | m[{"a":"v[Alice]"}] |
+      | m[{"a":"v[John]"}]  |
 
   Scenario: g_gql_MATCH_with_parameters_and_where
     And the traversal of
       """
-      g.addV("GqlPerson").property("name", "John")
+      g.addV("GqlPerson").property("name", "Maria")
       """
     When iterated to list
     And the traversal of
       """
-      g.gql("MATCH (a:GqlPerson) WHERE a.name = :name",  "name", "John")
+      g.gql("MATCH (a:GqlPerson) WHERE a.name = $name",  "name", "John")
       """
     When iterated to list
     Then the result should have a count of 1
     And the result should be unordered
-      | result |
-      | m[{"a":"v[John]"}] |
+      | result              |
+      | m[{"a":"v[Maria]"}] |
 
   Scenario: g_gql_MATCH_with_select_and_values
     And the traversal of
