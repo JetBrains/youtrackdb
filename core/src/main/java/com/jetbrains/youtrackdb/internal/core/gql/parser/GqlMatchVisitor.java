@@ -27,6 +27,7 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
   /// If alias is null/blank, the execution returns Vertex directly.
   /// If alias is provided, the execution returns Map<String, Object> with the binding.
   public record NodePattern(String alias, String label) {
+
   }
 
   private final List<NodePattern> nodePatterns = new ArrayList<>();

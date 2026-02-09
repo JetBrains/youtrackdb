@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import javax.annotation.Nullable;
 
+
+@SuppressWarnings("unused")
 /// Execution plan for GQL queries.
 public class GqlExecutionPlan {
 
@@ -52,7 +54,7 @@ public class GqlExecutionPlan {
 
   /// Check if this execution plan can be cached.
   /// For now, all GQL plans can be cached.
-  public boolean canBeCached() {
+  public static boolean canBeCached() {
     return true;
   }
 }

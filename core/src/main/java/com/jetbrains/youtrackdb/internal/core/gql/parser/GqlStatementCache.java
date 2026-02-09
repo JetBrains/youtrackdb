@@ -37,6 +37,7 @@ public class GqlStatementCache {
     return GqlPlanner.parse(statement);
   }
 
+  @SuppressWarnings("unused")
   public boolean contains(String statement) {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return false;
