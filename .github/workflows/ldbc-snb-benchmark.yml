@@ -11,7 +11,7 @@ on:
       driver_sha:
         description: 'LDBC driver commit SHA'
         required: true
-        default: '09c055620acd4d8c5623eedd41cf0c6b5934f4db'
+        default: '8da77a3416aab965066c3637b581566060367290'
       loader_sha:
         description: 'LDBC loader commit SHA. Uses driver_sha if empty.'
         required: false
@@ -52,7 +52,7 @@ jobs:
       - name: Determine parameters
         id: params
         run: |
-          driver_sha="${{ inputs.driver_sha || '09c055620acd4d8c5623eedd41cf0c6b5934f4db' }}"
+          driver_sha="${{ inputs.driver_sha || '8da77a3416aab965066c3637b581566060367290' }}"
           loader_sha="${{ inputs.loader_sha }}"
           if [[ -z "${loader_sha}" ]]; then
             loader_sha="${driver_sha}"

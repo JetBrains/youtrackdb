@@ -210,14 +210,17 @@ class Orchestrator:
         local_tarball = f"/tmp/{name}.tar"
         remote_tarball = f"/tmp/{name}.tar"
 
-        logger.info(f"Exporting {name} Docker image")
-        local_run(f"docker save {image_tag} -o {local_tarball}", timeout=timeout)
+        try:
+            logger.info(f"Exporting {name} Docker image")
+            local_run(f"docker save {image_tag} -o {local_tarball}", timeout=timeout)
 
-        logger.info(f"Uploading {name} Docker image")
-        self.db_host.upload(local_tarball, remote_tarball)
+            logger.info(f"Uploading {name} Docker image")
+            self.db_host.upload(local_tarball, remote_tarball)
 
-        self.db_host.run(f"docker load -i {remote_tarball}", timeout=timeout)
-        self.db_host.run(f"rm {remote_tarball}")
+            self.db_host.run(f"docker load -i {remote_tarball}", timeout=timeout)
+            self.db_host.run(f"rm {remote_tarball}")
+        finally:
+            Path(local_tarball).unlink(missing_ok=True)
 
     def _deploy(self) -> None:
         logger.info(f"Deploying to {self.db_host.host}")
@@ -230,7 +233,7 @@ class Orchestrator:
         for dir in ("conf", "databases", "log", "secrets", "memory-dumps", "backups"):
             self.db_host.run(f"mkdir -p {self.db_home_dir}/{dir}")
         self.db_host.run(f"mkdir -p {self.ldbc_data_backup_path}")
-        self.db_host.run(f"chmod 777 {self.db_home_dir}/backups {self.ldbc_data_backup_path}", check=False)
+        self.db_host.run(f"chmod 775 {self.db_home_dir}/backups {self.ldbc_data_backup_path}", check=False)
         root_password = self.config.get("database", "root_password", default="root")
         self.db_host.run(f"echo '{root_password}' > {self.db_home_dir}/secrets/root_password")
         if self.server_conf_path:
@@ -412,6 +415,8 @@ class Orchestrator:
             "-P", str(props_file.absolute()),
         ]
 
+        driver_env = os.environ.copy()
+        driver_env["YTDB_HOST"] = self.config.get("hosts", "db", "public_ip", default="localhost")
         driver_timeout = int(self.config.get("driver", "timeout", default=3600))
         start_time = time.time()
         result = subprocess.run(
@@ -420,6 +425,7 @@ class Orchestrator:
             text=True,
             timeout=driver_timeout,
             cwd=self.driver_repo,
+            env=driver_env,
         )
         elapsed = time.time() - start_time
 
@@ -494,7 +500,6 @@ class Orchestrator:
             warmup=self.config.get("ldbc", "warmup_count", default=0),
             params_path=params_dir / "substitution_parameters",
             updates_path=params_dir / "update_streams" / f"numpart-{update_partitions}",
-            db_host=self.config.get("hosts", "db", "public_ip", default="localhost"),
             db_port=self.config.get("database", "port", default=8182),
             db_name=self.config.get("database", "name", default="ldbc_snb"),
             db_user=self.config.get("database", "user", default="admin"),
