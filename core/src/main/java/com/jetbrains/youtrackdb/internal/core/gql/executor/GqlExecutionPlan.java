@@ -54,6 +54,7 @@ public class GqlExecutionPlan {
 
   /// Check if this execution plan can be cached.
   /// For now, all GQL plans can be cached.
+  @SuppressWarnings("SameReturnValue")
   public static boolean canBeCached() {
     return true;
   }
