@@ -15,24 +15,84 @@ permissions:
   actions: read
 
 jobs:
-  test:
-    name: Test on ${{ matrix.platform.os }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
-    runs-on: ${{ matrix.platform.os }}
+  test-linux:
+    name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
+               'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
+               volume-cache ]
     strategy:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
         distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
-        platform:
-          - os: ubuntu-latest
-            arch: x64
+        arch: [ 'x86', 'arm' ]
+        include:
+          - arch: x86
+            java_arch: x64
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,coverage'
-          - os: ubuntu-24.04-arm
-            arch: arm64
+          - arch: arm
+            java_arch: aarch64
             mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images'
-          - os: windows-latest
-            arch: x64
-            mvn_opts: '-Dmaven.test.failure.ignore=true'
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: ${{ matrix.distribution }}
+          architecture: ${{ matrix.java_arch }}
+          overwrite-settings: false
+      - name: Cache Ekstazi data
+        uses: actions/cache@v4
+        with:
+          path: '**/.ekstazi'
+          key: ekstazi-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ekstazi-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-${{ github.ref }}-
+            ekstazi-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-
+      - name: Run Unit Tests
+        id: tests
+        run: ./mvnw -s .github/workflows/settings.xml clean package -B ${{ matrix.mvn_opts }}
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+      - name: Run Integration Tests
+        run: ./mvnw -s .github/workflows/settings.xml verify -B -Dmaven.test.failure.ignore=true -P docker-images,ekstazi,coverage
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+          JAVA_TOOL_OPTIONS: '-Djdk.attach.allowAttachSelf=true'
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          comment_mode: off
+          check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Coverage Data
+        uses: actions/upload-artifact@v4
+        if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
+        with:
+          name: coverage-data
+          path: '.qodana/code-coverage/'
+          retention-days: 1
+          if-no-files-found: error
+
+  test-windows:
+    name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        distribution: [ 'temurin', 'corretto', 'oracle', 'zulu', 'microsoft' ]
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -41,47 +101,19 @@ jobs:
         with:
           java-version: ${{ matrix.java }}
           distribution: ${{ matrix.distribution }}
-          architecture: ${{ matrix.platform.arch }}
+          architecture: x64
           cache: 'maven'
           overwrite-settings: false
-      - name: Cache Ekstazi data
-        uses: actions/cache@v4
-        if: runner.os == 'Linux'
-        with:
-          path: '**/.ekstazi'
-          key: ekstazi-${{ matrix.platform.os }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-${{ github.ref }}-${{ github.sha }}
-          restore-keys: |
-            ekstazi-${{ matrix.platform.os }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-${{ github.ref }}-
-            ekstazi-${{ matrix.platform.os }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-
       - name: Run Unit Tests
         id: tests
         shell: bash
-        run: mvn -s .github/workflows/settings.xml clean package -B ${{ matrix.platform.mvn_opts }}
+        run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
-          JAVA_TOOL_OPTIONS: ${{ runner.os == 'Linux' && '-Djdk.attach.allowAttachSelf=true -Djava.security.manager=allow' || '' }}
-      - name: Run Integration Tests
-        if: runner.os == 'Linux'
-        run: mvn -s .github/workflows/settings.xml verify -B -Dmaven.test.failure.ignore=true -P docker-images,ekstazi,coverage
-        env:
-          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
-          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
-          JAVA_TOOL_OPTIONS: '-Djdk.attach.allowAttachSelf=true'
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always() && runner.os == 'Linux'
-        with:
-          files: |
-            **/target/surefire-reports/TEST-*.xml
-            **/target/failsafe-reports/TEST-*.xml
-          action_fail: true
-          large_files: true
-          comment_mode: off
-          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
-      - name: Publish Test Results (Windows)
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
-        if: always() && runner.os == 'Windows'
+        if: always()
         with:
           files: |
             **/target/surefire-reports/TEST-*.xml
@@ -89,22 +121,14 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
-          check_name: Tests Results (${{ matrix.platform.os }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
-      - name: Upload Coverage Data
-        uses: actions/upload-artifact@v4
-        if: "!cancelled() && matrix.platform.os == 'ubuntu-latest' && matrix.java == '21' && matrix.distribution == 'temurin'"
-        with:
-          name: coverage-data
-          path: '.qodana/code-coverage/'
-          retention-days: 1
-          if-no-files-found: error
+          check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
     # ------------------------------------------------------------------
-    # JOB 2: DEPLOY
+    # JOB 3: DEPLOY
     # Runs only if all Test jobs pass. Uses JDK 21
     # ------------------------------------------------------------------
   deploy:
-    needs: test
+    needs: [ test-linux, test-windows ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' # Only deploy on push, not PRs
 
@@ -150,7 +174,7 @@ jobs:
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ test, deploy ]
+    needs: [ test-linux, test-windows, deploy ]
     if: failure() && github.event_name == 'push' && contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
@@ -172,7 +196,7 @@ jobs:
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ test, deploy ]
+    needs: [ test-linux, test-windows, deploy ]
     if: >-
       always() &&
       !contains(needs.*.result, 'failure') &&
