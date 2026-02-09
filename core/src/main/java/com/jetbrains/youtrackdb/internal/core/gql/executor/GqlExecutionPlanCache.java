@@ -13,13 +13,13 @@ import javax.annotation.Nullable;
 /**
  * LRU cache for already prepared GQL execution plans.
  * Analogous to SQL's ExecutionPlanCache.
- *
+ * <p>
  * Stores itself in SharedContext as a resource and acts as an entry point for the GQL executor.
  */
 public class GqlExecutionPlanCache implements MetadataUpdateListener {
 
-  Map<String, GqlExecutionPlan> map;
-  int mapSize;
+  final Map<String, GqlExecutionPlan> map;
+  final int mapSize;
 
   protected long lastInvalidation = -1;
 
@@ -39,11 +39,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   }
 
   public static long getLastInvalidation(DatabaseSessionInternal db) {
-    if (db == null) {
-      throw new IllegalArgumentException("DB cannot be null");
-    }
-
-    var resource = db.getSharedContext().getGqlExecutionPlanCache();
+    var resource = instance(db);
     synchronized (resource) {
       return resource.lastInvalidation;
     }
@@ -53,6 +49,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param statement a GQL statement
    * @return true if the corresponding execution plan is present in the cache
    */
+  @SuppressWarnings("unused")
   public boolean contains(String statement) {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return false;
@@ -100,13 +97,13 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     }
 
     var resource = db.getSharedContext().getGqlExecutionPlanCache();
-    resource.putInternal(statement, plan, db);
+    resource.putInternal(statement, plan);
   }
 
   /**
    * Internal method to store a plan in cache.
    */
-  public void putInternal(String statement, GqlExecutionPlan plan, DatabaseSessionInternal db) {
+  public void putInternal(String statement, GqlExecutionPlan plan) {
     if (statement == null) {
       return;
     }
@@ -127,6 +124,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param ctx       execution context
    * @return the corresponding execution plan from cache, or null if not found
    */
+  @SuppressWarnings("unused")
   @Nullable
   public GqlExecutionPlan getInternal(String statement, GqlExecutionContext ctx) {
     if (statement == null) {
@@ -199,7 +197,6 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
       throw new IllegalArgumentException("DB cannot be null");
     }
 
-    var resource = db.getSharedContext().getGqlExecutionPlanCache();
-    return resource;
+    return db.getSharedContext().getGqlExecutionPlanCache();
   }
 }

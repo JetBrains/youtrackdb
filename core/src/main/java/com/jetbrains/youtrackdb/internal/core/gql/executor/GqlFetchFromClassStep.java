@@ -13,6 +13,8 @@ import java.util.Map;
 /// Result type depends on whether alias was provided:
 /// - With alias (MATCH (a:Person)): Map<String, Object> with {"a": vertex}
 /// - Without alias (MATCH (:Person)): just the Vertex (no side effects)
+///
+@SuppressWarnings("unused")
 public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   private final String alias;
@@ -26,7 +28,8 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
   /// @param className   The class/label to fetch from (e.g., "Person")
   /// @param polymorphic Whether to include subclasses
   /// @param hasAlias    Whether alias was explicitly provided (if false, returns Vertex directly)
-  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic, boolean hasAlias) {
+  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic,
+      boolean hasAlias) {
     this.alias = alias;
     this.className = className;
     this.polymorphic = polymorphic;
@@ -36,20 +39,23 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
   @Override
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
 
-    var session = ctx.getSession();
-    var graph = ctx.getGraph();
-    if (prev != null) {
-      throw new CommandExecutionException(session.getDatabaseName(),
-          "Match can be only start for now");
-    }
+    com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal graph;
+    com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass entityIterator;
+    try (var session = ctx.session()) {
+      graph = ctx.graph();
+      if (prev != null) {
+        throw new CommandExecutionException(session.getDatabaseName(),
+            "Match can be only start for now");
+      }
 
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    if (schema.getClass(className) == null) {
-      throw new CommandExecutionException(session.getDatabaseName(),
-          "Class '" + className + "' not found");
-    }
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema.getClass(className) == null) {
+        throw new CommandExecutionException(session.getDatabaseName(),
+            "Class '" + className + "' not found");
+      }
 
-    var entityIterator = session.browseClass(className, polymorphic);
+      entityIterator = session.browseClass(className, polymorphic);
+    }
 
     if (hasAlias) {
       // With alias: return Map with binding (side effect)
