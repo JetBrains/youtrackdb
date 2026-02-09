@@ -120,7 +120,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         var plan = statement.createExecutionPlan(ctx);
         Assert.assertNotNull(plan);
 
-        Assert.assertTrue("Cache should contain the query again after planning", cache.contains(query));
+        Assert.assertTrue("Cache should contain the query again after planning",
+            cache.contains(query));
       } finally {
         tx.commit();
       }
