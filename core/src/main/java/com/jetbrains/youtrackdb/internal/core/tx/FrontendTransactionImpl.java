@@ -152,6 +152,10 @@ public class FrontendTransactionImpl implements
       var localCache = session.getLocalCache();
       localCache.unloadNotModifiedRecords();
       localCache.clear();
+
+      var storage = session.getStorage();
+      atomicOperation = storage.startStorageTx();
+      storage.registryFrontendTransaction(this);
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
         throw new RollbackException(
@@ -816,6 +820,8 @@ public class FrontendTransactionImpl implements
   @Override
   public void close() {
     clear();
+
+    session.getStorage().unregisterFrontendTransaction(id);
 
     if (atomicOperation != null) {
       atomicOperation.deactivate();

@@ -2281,10 +2281,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       status = STATUS.CLOSED;
       if (!recycle) {
         sharedContext = null;
-
-        if (storage != null) {
-          storage.close(this);
-        }
+        storage.close(this);
       }
 
     } finally {
@@ -3239,7 +3236,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           "No active transaction to commit. Call begin() first");
     }
 
-    storage.unregisterFrontendTransaction(currentTx.getId());
     if (currentTx.amountOfNestedTxs() > 1) {
       // This just do count down no real commit here
       return currentTx.commitInternal();
@@ -3335,7 +3331,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    storage.unregisterFrontendTransaction(currentTx.getId());
     if (currentTx.isActive()) {
       // WAKE UP LISTENERS
       currentTx.rollbackInternal();

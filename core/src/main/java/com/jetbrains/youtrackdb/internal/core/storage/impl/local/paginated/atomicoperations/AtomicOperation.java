@@ -17,6 +17,10 @@ public interface AtomicOperation {
 
   long getCommitTs();
 
+  long getCommitTsUnsafe();
+
+  void startToApplyOperations(long commitTs);
+
   CacheEntry loadPageForWrite(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)
       throws IOException;
 

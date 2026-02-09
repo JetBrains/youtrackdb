@@ -79,8 +79,23 @@ public class AtomicOperationsManager {
         snapshot);
   }
 
-  public void startWriteOperations() {
+  public void startToApplyOperations(AtomicOperation atomicOperation) {
+    final long activeSegment;
+
+    // transaction id and id of active segment should grow synchronously to maintain correct size of
+    // WAL
+    final long commitTs;
+    segmentLock.lock();
+    try {
+      commitTs = idGen.nextId();
+      activeSegment = writeAheadLog.activeSegment();
+    } finally {
+      segmentLock.unlock();
+    }
+
+    atomicOperationsTable.startOperation(commitTs, activeSegment);
     writeOperationsFreezer.startOperation();
+    atomicOperation.startToApplyOperations(commitTs);
   }
 
   public <T> T calculateInsideAtomicOperation(final TxFunction<T> function)
@@ -88,7 +103,7 @@ public class AtomicOperationsManager {
     Throwable error = null;
     final var atomicOperation = startAtomicOperation();
     try {
-      startWriteOperations();
+      startToApplyOperations(atomicOperation);
       return function.accept(atomicOperation);
     } catch (Exception e) {
       error = e;
@@ -107,7 +122,7 @@ public class AtomicOperationsManager {
     Throwable error = null;
     final var atomicOperation = startAtomicOperation();
     try {
-      startWriteOperations();
+      startToApplyOperations(atomicOperation);
       consumer.accept(atomicOperation);
     } catch (Exception e) {
       error = e;
@@ -180,7 +195,7 @@ public class AtomicOperationsManager {
   }
 
 
-  public long startWriteOperations(@Nullable Supplier<? extends BaseException> throwException) {
+  public long freezeWriteOperations(@Nullable Supplier<? extends BaseException> throwException) {
     return writeOperationsFreezer.freezeOperations(throwException);
   }
 
@@ -206,32 +221,18 @@ public class AtomicOperationsManager {
 
       try {
         final LogSequenceNumber lsn;
+        var commitTs = operation.getCommitTs();
         if (!operation.isRollbackInProgress()) {
-          final long activeSegment;
-          final long commitTs;
-
-          // transaction id and id of active segment should grow synchronously to maintain correct size of
-          // WAL
-          segmentLock.lock();
-          try {
-            commitTs = idGen.nextId();
-            activeSegment = writeAheadLog.activeSegment();
-          } finally {
-            segmentLock.unlock();
-          }
-
-          atomicOperationsTable.startOperation(commitTs, activeSegment);
           lsn = operation.commitChanges(commitTs, writeAheadLog);
         } else {
           lsn = null;
         }
 
-        final var operationId = operation.getCommitTs();
         if (error != null) {
-          atomicOperationsTable.rollbackOperation(operationId);
+          atomicOperationsTable.rollbackOperation(commitTs);
         } else {
-          atomicOperationsTable.commitOperation(operationId);
-          writeAheadLog.addEventAt(lsn, () -> atomicOperationsTable.persistOperation(operationId));
+          atomicOperationsTable.commitOperation(commitTs);
+          writeAheadLog.addEventAt(lsn, () -> atomicOperationsTable.persistOperation(commitTs));
         }
 
       } finally {
