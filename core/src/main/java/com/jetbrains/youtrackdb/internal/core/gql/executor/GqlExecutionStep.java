@@ -7,6 +7,8 @@ import javax.annotation.Nullable;
 ///
 /// Steps are chained together to form an execution plan.
 /// Each step pulls data from the previous step and processes it.
+///
+@SuppressWarnings("unused")
 public interface GqlExecutionStep {
 
   /// Start execution and return a stream of results.

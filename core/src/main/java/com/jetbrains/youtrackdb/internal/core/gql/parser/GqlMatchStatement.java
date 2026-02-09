@@ -45,7 +45,7 @@ public class GqlMatchStatement implements GqlStatement {
   /// @param useCache whether to use execution plan cache
   /// @return the execution plan
   public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
-    var session = ctx.getSession();
+    var session = ctx.session();
 
     // Try to get from cache if enabled
     if (useCache && originalStatement != null) {
@@ -63,7 +63,7 @@ public class GqlMatchStatement implements GqlStatement {
     // Cache the plan if eligible
     if (useCache
         && originalStatement != null
-        && plan.canBeCached()
+        && GqlExecutionPlan.canBeCached()
         && GqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
       GqlExecutionPlanCache.put(originalStatement, plan, session);
     }

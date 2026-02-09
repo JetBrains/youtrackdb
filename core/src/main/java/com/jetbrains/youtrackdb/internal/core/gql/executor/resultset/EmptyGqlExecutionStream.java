@@ -7,7 +7,8 @@ public final class EmptyGqlExecutionStream implements GqlExecutionStream {
 
   public static final EmptyGqlExecutionStream INSTANCE = new EmptyGqlExecutionStream();
 
-  private EmptyGqlExecutionStream() {}
+  private EmptyGqlExecutionStream() {
+  }
 
   @Override
   public boolean hasNext() {

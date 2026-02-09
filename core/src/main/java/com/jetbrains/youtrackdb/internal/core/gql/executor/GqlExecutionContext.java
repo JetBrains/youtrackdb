@@ -9,11 +9,8 @@ import javax.annotation.Nonnull;
 /// Context for GQL query execution.
 ///
 /// Contains the graph, database session, and query parameters.
-public class GqlExecutionContext {
-
-  private final YTDBGraphInternal graph;
-  private final DatabaseSessionEmbedded session;
-  private final Map<String, Object> parameters;
+public record GqlExecutionContext(YTDBGraphInternal graph, DatabaseSessionEmbedded session,
+                                  Map<String, Object> parameters) {
 
   public GqlExecutionContext(
       @Nonnull YTDBGraphInternal graph,
@@ -30,18 +27,7 @@ public class GqlExecutionContext {
     this.parameters = parameters;
   }
 
-  public YTDBGraphInternal getGraph() {
-    return graph;
-  }
-
-  public DatabaseSessionEmbedded getSession() {
-    return session;
-  }
-
-  public Map<String, Object> getParameters() {
-    return parameters;
-  }
-
+  @SuppressWarnings("unused")
   public Object getParameter(String name) {
     return parameters.get(name);
   }

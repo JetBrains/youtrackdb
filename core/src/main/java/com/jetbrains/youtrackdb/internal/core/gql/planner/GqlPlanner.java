@@ -63,6 +63,7 @@ public class GqlPlanner {
     //   return new GqlReturnStatement(...);
     // }
 
-    throw new IllegalArgumentException("Unsupported GQL query type. Currently only MATCH is supported.");
+    throw new IllegalArgumentException(
+        "Unsupported GQL query type. Currently only MATCH is supported.");
   }
 }
