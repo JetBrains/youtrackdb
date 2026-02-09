@@ -19,7 +19,8 @@ public class GqlStatementCacheTest extends DbTestBase {
 
     Assert.assertTrue(cache.contains("MATCH (b:Company)"));
     Assert.assertTrue(cache.contains("MATCH (c:Product)"));
-    Assert.assertFalse("The first query should have been evicted", cache.contains("MATCH (a:Person)"));
+    Assert.assertFalse("The first query should have been evicted",
+        cache.contains("MATCH (a:Person)"));
 
     // Accessing (b:Company) to make it the most recently used
     cache.getCached("MATCH (b:Company)");
