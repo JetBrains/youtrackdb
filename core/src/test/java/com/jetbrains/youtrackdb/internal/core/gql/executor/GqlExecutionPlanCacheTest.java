@@ -99,7 +99,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         Assert.assertNotNull(session);
 
         var cache = GqlExecutionPlanCache.instance(session);
-        Assert.assertFalse("Cache should be invalidated after schema change", cache.contains(query));
+        Assert.assertFalse("Cache should be invalidated after schema change",
+            cache.contains(query));
       } finally {
         tx.commit();
       }

@@ -10,9 +10,11 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 /// Result type depends on query:
 /// - With alias (MATCH (a:Person)): Map<String, Object> with bindings {"a": vertex}
 /// - Without alias (MATCH (:Person)): just the Vertex (no side effects)
+@SuppressWarnings("unused")
 public interface GqlExecutionStream extends CloseableIterator<Object> {
 
   /// Create an empty stream.
+  @SuppressWarnings("SameReturnValue")
   static GqlExecutionStream empty() {
     return EmptyGqlExecutionStream.INSTANCE;
   }

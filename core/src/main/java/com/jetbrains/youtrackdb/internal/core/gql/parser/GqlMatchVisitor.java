@@ -19,6 +19,7 @@ import java.util.List;
 /// - Collects [NodePattern("a", "Person"), NodePattern("b", "Work")]
 ///
 /// Returns raw parsed values - default handling is applied by the planner.
+@SuppressWarnings("all")
 public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
   /// Represents a node pattern like (a:Person) in MATCH clause.
