@@ -41,21 +41,20 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
     com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal graph;
     com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass entityIterator;
-    try (var session = ctx.session()) {
-      graph = ctx.graph();
-      if (prev != null) {
-        throw new CommandExecutionException(session.getDatabaseName(),
-            "Match can be only start for now");
-      }
-
-      var schema = session.getMetadata().getImmutableSchemaSnapshot();
-      if (schema.getClass(className) == null) {
-        throw new CommandExecutionException(session.getDatabaseName(),
-            "Class '" + className + "' not found");
-      }
-
-      entityIterator = session.browseClass(className, polymorphic);
+    var session = ctx.session();
+    graph = ctx.graph();
+    if (prev != null) {
+      throw new CommandExecutionException(session.getDatabaseName(),
+          "Match can be only start for now");
     }
+
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema.getClass(className) == null) {
+      throw new CommandExecutionException(session.getDatabaseName(),
+          "Class '" + className + "' not found");
+    }
+
+    entityIterator = session.browseClass(className, polymorphic);
 
     if (hasAlias) {
       // With alias: return Map with binding (side effect)
