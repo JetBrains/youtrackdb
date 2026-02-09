@@ -1,16 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagBucketPointer;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
-import java.util.Set;
+import javax.annotation.Nonnull;
 
 public interface AtomicOperation {
 
-  long getOperationUnitId();
+  @Nonnull
+  AtomicOperationsSnapshot getAtomicOperationsSnapshot();
+
+  void deactivate();
+
+  long getCommitTs();
 
   CacheEntry loadPageForWrite(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)
       throws IOException;
@@ -20,10 +25,6 @@ public interface AtomicOperation {
   void addMetadata(AtomicOperationMetadata<?> metadata);
 
   AtomicOperationMetadata<?> getMetadata(String key);
-
-  void addDeletedRidBag(LinkBagBucketPointer rootPointer);
-
-  Set<LinkBagBucketPointer> getDeletedBonsaiPointers();
 
   CacheEntry addPage(long fileId) throws IOException;
 
@@ -41,8 +42,6 @@ public interface AtomicOperation {
 
   boolean isFileExists(String fileName);
 
-  String fileNameById(long fileId);
-
   long fileIdByName(String name);
 
   void truncateFile(long fileId) throws IOException;
@@ -55,17 +54,14 @@ public interface AtomicOperation {
 
   boolean isRollbackInProgress();
 
-  LogSequenceNumber commitChanges(WriteAheadLog writeAheadLog) throws IOException;
+  LogSequenceNumber commitChanges(long commitTs, WriteAheadLog writeAheadLog) throws IOException;
 
   Iterable<String> lockedObjects();
 
-  void addDeletedRecordPosition(final int collectionId, final int pageIndex, final int recordPosition);
+  void addDeletedRecordPosition(final int collectionId, final int pageIndex,
+      final int recordPosition);
 
   IntSet getBookedRecordPositions(final int collectionId, final int pageIndex);
 
-  void incrementComponentOperations();
-
-  void decrementComponentOperations();
-
-  int getComponentOperations();
+  boolean isActive();
 }

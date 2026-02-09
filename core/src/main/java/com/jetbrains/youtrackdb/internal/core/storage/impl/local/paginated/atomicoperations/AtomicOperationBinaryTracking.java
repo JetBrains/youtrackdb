@@ -20,12 +20,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
@@ -33,7 +35,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagBucketPointer;
 import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -51,6 +52,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -62,7 +64,7 @@ import javax.annotation.Nullable;
 final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private final int storageId;
-  private final long operationUnitId;
+  private long operationCommitTs = -1;
 
   private boolean rollback;
 
@@ -78,34 +80,43 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private final Map<String, AtomicOperationMetadata<?>> metadata = new LinkedHashMap<>();
 
-  private int componentOperationsCount;
-
-  /**
-   * Pointers to ridbags deleted during current transaction. We can not reuse pointers if we delete
-   * ridbag and then create new one inside of the same transaction.
-   */
-  private final Set<LinkBagBucketPointer> deletedBonsaiPointers = new HashSet<>();
+  private boolean active;
 
   private final Map<IntIntImmutablePair, IntSet> deletedRecordPositions = new HashMap<>();
+  private final @Nonnull AtomicOperationsSnapshot snapshot;
 
   AtomicOperationBinaryTracking(
-      final long operationUnitId,
       final ReadCache readCache,
       final WriteCache writeCache,
-      final int storageId) {
+      final int storageId,
+      @Nonnull AtomicOperationsSnapshot snapshot) {
+    this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
 
     this.storageId = storageId;
-    this.operationUnitId = operationUnitId;
-
     this.readCache = readCache;
     this.writeCache = writeCache;
+    this.active = true;
+  }
+
+
+  @Override
+  public @Nonnull AtomicOperationsSnapshot getAtomicOperationsSnapshot() {
+    checkIfActive();
+
+    return snapshot;
   }
 
   @Override
-  public long getOperationUnitId() {
-    return operationUnitId;
+  public long getCommitTs() {
+    checkIfActive();
+
+    if (operationCommitTs == -1) {
+      throw new DatabaseException("Atomic operation is not committed yet.");
+    }
+
+    return operationCommitTs;
   }
 
   @Nullable
@@ -113,6 +124,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   public CacheEntry loadPageForWrite(
       long fileId, final long pageIndex, final int pageCount, final boolean verifyChecksum)
       throws IOException {
+    checkIfActive();
+
     assert pageCount > 0;
     fileId = checkFileIdCompatibility(fileId, storageId);
 
@@ -159,6 +172,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Nullable
   @Override
   public CacheEntry loadPageForRead(long fileId, final long pageIndex) throws IOException {
+    checkIfActive();
 
     fileId = checkFileIdCompatibility(fileId, storageId);
 
@@ -209,6 +223,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    */
   @Override
   public void addMetadata(final AtomicOperationMetadata<?> metadata) {
+    checkIfActive();
+
     this.metadata.put(metadata.getKey(), metadata);
   }
 
@@ -218,6 +234,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    */
   @Override
   public AtomicOperationMetadata<?> getMetadata(final String key) {
+    checkIfActive();
+
     return metadata.get(key);
   }
 
@@ -229,17 +247,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void addDeletedRidBag(LinkBagBucketPointer rootPointer) {
-    deletedBonsaiPointers.add(rootPointer);
-  }
-
-  @Override
-  public Set<LinkBagBucketPointer> getDeletedBonsaiPointers() {
-    return deletedBonsaiPointers;
-  }
-
-  @Override
   public CacheEntry addPage(long fileId) {
+    checkIfActive();
+
     fileId = checkFileIdCompatibility(fileId, storageId);
 
     if (deletedFiles.contains(fileId)) {
@@ -272,6 +282,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void releasePageFromRead(final CacheEntry cacheEntry) {
+    checkIfActive();
+
     if (cacheEntry instanceof CacheEntryChanges) {
       releasePageFromWrite(cacheEntry);
     } else {
@@ -281,6 +293,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void releasePageFromWrite(final CacheEntry cacheEntry) {
+    checkIfActive();
+
     final var real = (CacheEntryChanges) cacheEntry;
 
     if (deletedFiles.contains(cacheEntry.getFileId())) {
@@ -297,6 +311,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public long filledUpTo(long fileId) {
+    checkIfActive();
+
     fileId = checkFileIdCompatibility(fileId, storageId);
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -340,6 +356,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public long addFile(final String fileName) {
+    checkIfActive();
+
     if (newFileNamesId.containsKey(fileName)) {
       throw new StorageException(writeCache.getStorageName(),
           "File with name " + fileName + " already exists.");
@@ -369,6 +387,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public long loadFile(final String fileName) throws IOException {
+    checkIfActive();
+
     var fileId = newFileNamesId.getLong(fileName);
     if (fileId == -1) {
       fileId = writeCache.loadFile(fileName);
@@ -379,6 +399,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void deleteFile(long fileId) {
+    checkIfActive();
+
     fileId = checkFileIdCompatibility(fileId, storageId);
 
     final var fileChanges = this.fileChanges.remove(fileId);
@@ -395,6 +417,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public boolean isFileExists(final String fileName) {
+    checkIfActive();
+
     if (newFileNamesId.containsKey(fileName)) {
       return true;
     }
@@ -407,25 +431,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public String fileNameById(long fileId) {
-    fileId = checkFileIdCompatibility(fileId, storageId);
-
-    final var fileChanges = this.fileChanges.get(fileId);
-
-    if (fileChanges != null && fileChanges.fileName != null) {
-      return fileChanges.fileName;
-    }
-
-    if (deletedFiles.contains(fileId)) {
-      throw new StorageException(writeCache.getStorageName(),
-          "File with id " + fileId + " was deleted.");
-    }
-
-    return writeCache.fileNameById(fileId);
-  }
-
-  @Override
   public long fileIdByName(final String fileName) {
+    checkIfActive();
+
     var fileId = newFileNamesId.getLong(fileName);
     if (fileId > -1) {
       return fileId;
@@ -440,6 +448,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void truncateFile(long fileId) {
+    checkIfActive();
+
     fileId = checkFileIdCompatibility(fileId, storageId);
 
     final var fileChanges =
@@ -456,127 +466,147 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public LogSequenceNumber commitChanges(final WriteAheadLog writeAheadLog) throws IOException {
-    LogSequenceNumber txEndLsn = null;
+  public LogSequenceNumber commitChanges(long commitTs, @Nonnull final WriteAheadLog writeAheadLog)
+      throws IOException {
+    checkIfActive();
+    try {
+      LogSequenceNumber txEndLsn;
 
-    final var startLSN = writeAheadLog.end();
+      writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
 
-    var deletedFilesIterator = deletedFiles.longIterator();
-    while (deletedFilesIterator.hasNext()) {
-      final var deletedFileId = deletedFilesIterator.nextLong();
-      writeAheadLog.log(new FileDeletedWALRecord(operationUnitId, deletedFileId));
-    }
+      final var startLSN = writeAheadLog.end();
+      this.operationCommitTs = commitTs;
 
-    for (final var fileChangesEntry :
-        fileChanges.long2ObjectEntrySet()) {
-      final var fileChanges = fileChangesEntry.getValue();
-      final var fileId = fileChangesEntry.getLongKey();
-
-      if (fileChanges.isNew) {
-        writeAheadLog.log(new FileCreatedWALRecord(operationUnitId, fileChanges.fileName, fileId));
-      } else if (fileChanges.truncate) {
-        LogManager.instance()
-            .warn(
-                this,
-                "You performing truncate operation which is considered unsafe because can not be"
-                    + " rolled back, as result data can be incorrectly restored after crash, this"
-                    + " operation is not recommended to be used");
+      var deletedFilesIterator = deletedFiles.longIterator();
+      while (deletedFilesIterator.hasNext()) {
+        final var deletedFileId = deletedFilesIterator.nextLong();
+        writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
 
-      final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
-          fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
-      while (filePageChangesIterator.hasNext()) {
-        final var filePageChangesEntry =
-            filePageChangesIterator.next();
+      for (final var fileChangesEntry :
+          fileChanges.long2ObjectEntrySet()) {
+        final var fileChanges = fileChangesEntry.getValue();
+        final var fileId = fileChangesEntry.getLongKey();
 
-        if (filePageChangesEntry.getValue().changes.hasChanges()) {
-          final var pageIndex = filePageChangesEntry.getLongKey();
-          final var filePageChanges = filePageChangesEntry.getValue();
+        if (fileChanges.isNew) {
+          writeAheadLog.log(
+              new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
+        } else if (fileChanges.truncate) {
+          LogManager.instance()
+              .warn(
+                  this,
+                  "You performing truncate operation which is considered unsafe because can not be"
+                      + " rolled back, as result data can be incorrectly restored after crash, this"
+                      + " operation is not recommended to be used");
+        }
 
-          final var initialLSN = filePageChanges.getInitialLSN();
-          Objects.requireNonNull(initialLSN);
-          final var updatePageRecord =
-              new UpdatePageRecord(
-                  pageIndex, fileId, operationUnitId, filePageChanges.changes, initialLSN);
-          writeAheadLog.log(updatePageRecord);
-          filePageChanges.setChangeLSN(updatePageRecord.getLsn());
+        final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
+            fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
+        while (filePageChangesIterator.hasNext()) {
+          final var filePageChangesEntry =
+              filePageChangesIterator.next();
 
-        } else {
-          filePageChangesIterator.remove();
+          if (filePageChangesEntry.getValue().changes.hasChanges()) {
+            final var pageIndex = filePageChangesEntry.getLongKey();
+            final var filePageChanges = filePageChangesEntry.getValue();
+
+            final var initialLSN = filePageChanges.getInitialLSN();
+            Objects.requireNonNull(initialLSN);
+            final var updatePageRecord =
+                new UpdatePageRecord(
+                    pageIndex, fileId, operationCommitTs, filePageChanges.changes, initialLSN);
+            writeAheadLog.log(updatePageRecord);
+            filePageChanges.setChangeLSN(updatePageRecord.getLsn());
+
+          } else {
+            filePageChangesIterator.remove();
+          }
         }
       }
-    }
 
-    txEndLsn =
-        writeAheadLog.log(new AtomicUnitEndRecord(operationUnitId, rollback, getMetadata()));
+      txEndLsn =
+          writeAheadLog.log(new AtomicUnitEndRecord(operationCommitTs, rollback, getMetadata()));
 
-    deletedFilesIterator = deletedFiles.longIterator();
-    while (deletedFilesIterator.hasNext()) {
-      var deletedFileId = deletedFilesIterator.nextLong();
-      readCache.deleteFile(deletedFileId, writeCache);
-    }
-
-    for (final var fileChangesEntry :
-        fileChanges.long2ObjectEntrySet()) {
-      final var fileChanges = fileChangesEntry.getValue();
-      final var fileId = fileChangesEntry.getLongKey();
-
-      if (fileChanges.isNew) {
-        readCache.addFile(
-            fileChanges.fileName, newFileNamesId.getLong(fileChanges.fileName), writeCache);
-      } else if (fileChanges.truncate) {
-        LogManager.instance()
-            .warn(
-                this,
-                "You performing truncate operation which is considered unsafe because can not be"
-                    + " rolled back, as result data can be incorrectly restored after crash, this"
-                    + " operation is not recommended to be used");
-        readCache.truncateFile(fileId, writeCache);
+      deletedFilesIterator = deletedFiles.longIterator();
+      while (deletedFilesIterator.hasNext()) {
+        var deletedFileId = deletedFilesIterator.nextLong();
+        readCache.deleteFile(deletedFileId, writeCache);
       }
 
-      final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
-          fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
-      while (filePageChangesIterator.hasNext()) {
-        final var filePageChangesEntry =
-            filePageChangesIterator.next();
+      for (final var fileChangesEntry :
+          fileChanges.long2ObjectEntrySet()) {
+        final var fileChanges = fileChangesEntry.getValue();
+        final var fileId = fileChangesEntry.getLongKey();
 
-        if (filePageChangesEntry.getValue().changes.hasChanges()) {
-          final var pageIndex = filePageChangesEntry.getLongKey();
-          final var filePageChanges = filePageChangesEntry.getValue();
+        if (fileChanges.isNew) {
+          readCache.addFile(
+              fileChanges.fileName, newFileNamesId.getLong(fileChanges.fileName), writeCache);
+        } else if (fileChanges.truncate) {
+          LogManager.instance()
+              .warn(
+                  this,
+                  "You performing truncate operation which is considered unsafe because can not be"
+                      + " rolled back, as result data can be incorrectly restored after crash, this"
+                      + " operation is not recommended to be used");
+          readCache.truncateFile(fileId, writeCache);
+        }
 
-          var cacheEntry =
-              readCache.loadForWrite(
-                  fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, startLSN);
-          if (cacheEntry == null) {
-            if (!filePageChanges.isNew) {
-              throw new StorageException(writeCache.getStorageName(),
-                  "Page with index " + pageIndex + " is not found in file with id " + fileId);
-            }
-            do {
-              if (cacheEntry != null) {
-                readCache.releaseFromWrite(cacheEntry, writeCache, true);
+        final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
+            fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
+        while (filePageChangesIterator.hasNext()) {
+          final var filePageChangesEntry =
+              filePageChangesIterator.next();
+
+          if (filePageChangesEntry.getValue().changes.hasChanges()) {
+            final var pageIndex = filePageChangesEntry.getLongKey();
+            final var filePageChanges = filePageChangesEntry.getValue();
+
+            var cacheEntry =
+                readCache.loadForWrite(
+                    fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, startLSN);
+            if (cacheEntry == null) {
+              if (!filePageChanges.isNew) {
+                throw new StorageException(writeCache.getStorageName(),
+                    "Page with index " + pageIndex + " is not found in file with id " + fileId);
               }
+              do {
+                if (cacheEntry != null) {
+                  readCache.releaseFromWrite(cacheEntry, writeCache, true);
+                }
 
-              cacheEntry = readCache.allocateNewPage(fileId, writeCache, startLSN);
-            } while (cacheEntry.getPageIndex() != pageIndex);
+                cacheEntry = readCache.allocateNewPage(fileId, writeCache, startLSN);
+              } while (cacheEntry.getPageIndex() != pageIndex);
+            }
+
+            try {
+              final var durablePage = new DurablePage(cacheEntry);
+              cacheEntry.setEndLSN(txEndLsn);
+
+              durablePage.restoreChanges(filePageChanges.changes);
+              durablePage.setLsn(filePageChanges.getChangeLSN());
+            } finally {
+              readCache.releaseFromWrite(cacheEntry, writeCache, true);
+            }
+          } else {
+            filePageChangesIterator.remove();
           }
-
-          try {
-            final var durablePage = new DurablePage(cacheEntry);
-            cacheEntry.setEndLSN(txEndLsn);
-
-            durablePage.restoreChanges(filePageChanges.changes);
-            durablePage.setLsn(filePageChanges.getChangeLSN());
-          } finally {
-            readCache.releaseFromWrite(cacheEntry, writeCache, true);
-          }
-        } else {
-          filePageChangesIterator.remove();
         }
       }
-    }
 
-    return txEndLsn;
+      return txEndLsn;
+    } finally {
+      active = false;
+    }
+  }
+
+  @Override
+  public void deactivate() {
+    active = false;
+  }
+
+  @Override
+  public boolean isActive() {
+    return active;
   }
 
   @Override
@@ -615,12 +645,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     final var operation = (AtomicOperationBinaryTracking) o;
 
-    return operationUnitId == operation.operationUnitId;
+    return operationCommitTs == operation.operationCommitTs;
   }
 
   @Override
   public int hashCode() {
-    return Long.hashCode(operationUnitId);
+    return Long.hashCode(operationCommitTs);
   }
 
   private static final class FileChanges {
@@ -666,18 +696,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         new IntIntImmutablePair(collectionId, pageIndex), IntSets.emptySet());
   }
 
-  @Override
-  public void incrementComponentOperations() {
-    componentOperationsCount++;
-  }
-
-  @Override
-  public void decrementComponentOperations() {
-    componentOperationsCount--;
-  }
-
-  @Override
-  public int getComponentOperations() {
-    return componentOperationsCount;
+  private void checkIfActive() {
+    if (!active) {
+      throw new DatabaseException(writeCache.getStorageName(),
+          "Atomic operation is not active and can not be used");
+    }
   }
 }

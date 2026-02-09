@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface CellBTreeSingleValue<K> {
@@ -20,7 +21,7 @@ public interface CellBTreeSingleValue<K> {
       throws IOException;
 
   @Nullable
-  RID get(K key);
+  RID get(K key, @Nonnull AtomicOperation atomicOperation);
 
   void put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
@@ -37,29 +38,32 @@ public interface CellBTreeSingleValue<K> {
       String name,
       int keySize,
       PropertyTypeInternal[] keyTypes,
-      BinarySerializer<K> keySerializer);
+      BinarySerializer<K> keySerializer, AtomicOperation atomicOperation);
 
-  long size();
+  long size(AtomicOperation atomicOperation);
 
   @Nullable
   RID remove(AtomicOperation atomicOperation, K key) throws IOException;
 
-  Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder);
+  Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder,
+      AtomicOperation atomicOperation);
 
-  Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder);
+  Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder,
+      AtomicOperation atomicOperation);
 
   @Nullable
-  K firstKey();
+  K firstKey(AtomicOperation atomicOperation);
 
   @Nullable
-  K lastKey();
+  K lastKey(AtomicOperation atomicOperation);
 
-  Stream<K> keyStream();
+  Stream<K> keyStream(AtomicOperation atomicOperation);
 
-  Stream<RawPair<K, RID>> allEntries();
+  Stream<RawPair<K, RID>> allEntries(AtomicOperation atomicOperation);
 
   Stream<RawPair<K, RID>> iterateEntriesBetween(
-      K keyFrom, boolean fromInclusive, K keyTo, boolean toInclusive, boolean ascSortOrder);
+      K keyFrom, boolean fromInclusive, K keyTo, boolean toInclusive, boolean ascSortOrder,
+      AtomicOperation atomicOperation);
 
-  void acquireAtomicExclusiveLock();
+  void acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation);
 }

@@ -32,12 +32,13 @@ import javax.annotation.Nullable;
  */
 public interface TreeInternal<K, V> {
 
-  boolean isEmpty();
+  boolean isEmpty(AtomicOperation atomicOperation);
 
   void loadEntriesMajor(
-      K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener);
+      K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener,
+      AtomicOperation atomicOperation);
 
-  K firstKey();
+  K firstKey(AtomicOperation atomicOperation);
 
   @Nullable
   V remove(AtomicOperation atomicOperation, K key) throws IOException;

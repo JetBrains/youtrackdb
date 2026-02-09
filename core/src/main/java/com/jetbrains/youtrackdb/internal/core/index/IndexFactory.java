@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -52,7 +52,7 @@ public interface IndexFactory {
    * Creates an index.
    */
   Index createIndex(String indexType, @Nullable RID identity,
-      @Nonnull FrontendTransaction transaction,
+      @Nonnull FrontendTransactionImpl transaction,
       @Nonnull Storage storage)
       throws ConfigurationException;
 

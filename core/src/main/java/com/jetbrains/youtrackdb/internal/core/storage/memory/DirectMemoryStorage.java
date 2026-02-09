@@ -207,8 +207,4 @@ public class DirectMemoryStorage extends AbstractStorage {
     }
   }
 
-  @Override
-  public boolean isMemory() {
-    return true;
-  }
 }

@@ -56,7 +56,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationTableState;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -108,8 +108,7 @@ public class FrontendTransactionImpl implements
   private final boolean readOnly;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
-
-  private AtomicOperationTableState atomicOperationTableState;
+  private AtomicOperation atomicOperation;
 
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
     this(iDatabase, false);
@@ -127,15 +126,6 @@ public class FrontendTransactionImpl implements
     this.id = txId;
     this.readOnly = readOnly;
   }
-
-  public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
-      boolean readOnly, AtomicOperationTableState atomicOperationTableState) {
-    this.session = session;
-    this.id = txId;
-    this.readOnly = readOnly;
-    this.atomicOperationTableState = atomicOperationTableState;
-  }
-
 
   protected FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long id) {
     this.session = session;
@@ -627,7 +617,6 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  @Nullable
   public void preProcessRecordsAndExecuteCallCallbacks() {
     if (beforeCallBacksInProgress) {
       throw new IllegalStateException(
@@ -827,6 +816,10 @@ public class FrontendTransactionImpl implements
   @Override
   public void close() {
     clear();
+
+    if (atomicOperation != null) {
+      atomicOperation.deactivate();
+    }
 
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
@@ -1153,19 +1146,14 @@ public class FrontendTransactionImpl implements
     return txEntry != null && txEntry.type == RecordOperation.DELETED;
   }
 
-  public AtomicOperationTableState getAtomicOperationTableState() {
-    return atomicOperationTableState;
+  public AtomicOperation getAtomicOperation() {
+    return atomicOperation;
   }
 
   private enum Dependency {
     Unknown,
     Yes,
     No
-  }
-
-  private record KeyChangesUpdateRecord(FrontendTransactionIndexChangesPerKey keyChanges,
-                                        FrontendTransactionIndexChanges indexChanges) {
-
   }
 
   protected void checkTransactionValid() {

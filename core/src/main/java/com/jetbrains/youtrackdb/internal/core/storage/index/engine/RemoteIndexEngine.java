@@ -79,7 +79,7 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public void load(IndexEngineData data) {
+  public void load(IndexEngineData data, AtomicOperation atomicOperation) {
   }
 
   @Override
@@ -123,12 +123,12 @@ public class RemoteIndexEngine implements IndexEngine {
 
   @Override
   public Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionEmbedded db, Object rangeFrom,
+      Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
@@ -137,7 +137,7 @@ public class RemoteIndexEngine implements IndexEngine {
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
@@ -146,38 +146,35 @@ public class RemoteIndexEngine implements IndexEngine {
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
-  public long size(Storage storage, IndexEngineValuesTransformer transformer) {
+  public long size(Storage storage, IndexEngineValuesTransformer transformer,
+      AtomicOperation atomicOperation) {
     return 0;
   }
 
   @Override
-  public boolean hasRangeQuerySupport() {
-    return false;
-  }
-
-  @Override
-  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
   public Stream<RawPair<Object, RID>> descStream(
-      IndexEngineValuesTransformer valuesTransformer) {
+      IndexEngineValuesTransformer valuesTransformer, AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<Object> keyStream() {
+  public Stream<Object> keyStream(AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("keyStream");
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock() {
+  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException(
         "atomic locking is not supported by remote index engine");
   }

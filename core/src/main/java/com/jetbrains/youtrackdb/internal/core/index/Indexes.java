@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
@@ -135,7 +135,7 @@ public final class Indexes {
   }
 
   public static Index createIndexInstance(@Nonnull String indexType, @Nullable String algorithm,
-      @Nonnull Storage storage, @Nonnull FrontendTransaction transaction, @Nonnull RID identity)
+      @Nonnull Storage storage, @Nonnull FrontendTransactionImpl transaction, @Nonnull RID identity)
       throws ConfigurationException, IndexException {
 
     return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, identity,

@@ -2669,13 +2669,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
   }
 
   private void validateCompositeIndex(RID rid) {
-    session.executeInTx(transaction -> {
+    session.executeInTxInternal(transaction -> {
       var index = session.getSharedContext().getIndexManager().getIndex(
           COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX);
 
+      var atomicOperation = transaction.getAtomicOperation();
       var entity = session.loadEntity(rid);
       var expectedKeys = createCompositeKeysFromEntity(entity);
-      var actualKeys = index.keyStream();
+      var actualKeys = index.keyStream(atomicOperation);
 
       actualKeys.forEach(key -> Assert.assertTrue(expectedKeys.remove((CompositeKey) key)));
       Assert.assertTrue(expectedKeys.isEmpty());

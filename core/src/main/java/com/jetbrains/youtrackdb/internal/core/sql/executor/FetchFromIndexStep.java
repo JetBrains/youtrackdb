@@ -179,7 +179,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
     return switch (condition) {
       case null -> processFlatIteration(ctx.getDatabaseSession(), index, isOrderAsc);
-      case SQLAndBlock sqlAndBlock ->
+      case SQLAndBlock ignored ->
           processAndBlock(index, condition, additionalRangeCondition, isOrderAsc, ctx);
       default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
           "search for index for " + condition + " is not supported yet");
@@ -345,47 +345,24 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                     var itemVal =
                         convertToIndexDefinitionTypes(session, condition, item,
                             indexDef.getTypes());
-                    if (index.supportsOrderedIterations()) {
 
-                      var from = toBetweenIndexKey(transaction, indexDef, itemVal);
-                      var to = toBetweenIndexKey(transaction, indexDef, itemVal);
-                      if (from == null && to == null) {
-                        // manage null value explicitly, as the index API does not seem to work
-                        // correctly in this
-                        // case
-                        stream = getStreamForNullKey(session, index);
-                        if (acquiredStreams.add(stream)) {
-                          streams.add(stream);
-                        }
-                      } else {
-                        stream =
-                            index.streamEntriesBetween(session,
-                                from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
-                        if (acquiredStreams.add(stream)) {
-                          streams.add(stream);
-                        }
-                      }
-
-                    } else if (additionalRangeCondition == null
-                        && allEqualities((SQLAndBlock) condition)) {
-                      stream =
-                          index.streamEntries(session,
-                              toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
-
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
-                      }
-
-                    } else if (isFullTextIndex(index)) {
-                      stream =
-                          index.streamEntries(session,
-                              toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
+                    var from = toBetweenIndexKey(transaction, indexDef, itemVal);
+                    var to = toBetweenIndexKey(transaction, indexDef, itemVal);
+                    if (from == null && to == null) {
+                      // manage null value explicitly, as the index API does not seem to work
+                      // correctly in this
+                      // case
+                      stream = getStreamForNullKey(session, index);
                       if (acquiredStreams.add(stream)) {
                         streams.add(stream);
                       }
                     } else {
-                      throw new UnsupportedOperationException(
-                          "Cannot evaluate " + condition + " on index " + index);
+                      stream =
+                          index.streamEntriesBetween(session,
+                              from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
+                      if (acquiredStreams.add(stream)) {
+                        streams.add(stream);
+                      }
                     }
                   });
         }
@@ -394,78 +371,49 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         continue;
       }
       Stream<RawPair<Object, RID>> stream;
-      if (index.supportsOrderedIterations()) {
+      var from = toBetweenIndexKey(transaction, indexDef, secondValue);
+      var to = toBetweenIndexKey(transaction, indexDef, thirdValue);
 
-        var from = toBetweenIndexKey(transaction, indexDef, secondValue);
-        var to = toBetweenIndexKey(transaction, indexDef, thirdValue);
+      if (from == null && to == null) {
+        // manage null value explicitly, as the index API does not seem to work correctly in this
+        // case
+        stream = getStreamForNullKey(session, index);
+        if (acquiredStreams.add(stream)) {
+          streams.add(stream);
+        }
+      } else {
+        if (from instanceof Collection<?> fromColl) {
+          var toColl = (Collection<?>) to;
 
-        if (from == null && to == null) {
-          // manage null value explicitly, as the index API does not seem to work correctly in this
-          // case
-          stream = getStreamForNullKey(session, index);
-          if (acquiredStreams.add(stream)) {
-            streams.add(stream);
+          if (fromColl.size() != toColl.size()) {
+            throw new DatabaseException(session, "Size of from and to collections for "
+                + "index range search do not match: " + fromColl.size() + " != " + toColl.size());
           }
-        } else {
-          if (from instanceof Collection<?> fromColl) {
-            var toColl = (Collection<?>) to;
 
-            if (fromColl.size() != toColl.size()) {
-              throw new DatabaseException(session, "Size of from and to collections for "
-                  + "index range search do not match: " + fromColl.size() + " != " + toColl.size());
-            }
+          var fromIter = fromColl.iterator();
+          var toIter = toColl.iterator();
 
-            var fromIter = fromColl.iterator();
-            var toIter = toColl.iterator();
+          while (fromIter.hasNext()) {
+            var fromVal = fromIter.next();
+            var toVal = toIter.next();
 
-            while (fromIter.hasNext()) {
-              var fromVal = fromIter.next();
-              var toVal = toIter.next();
-
-              stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
-                  toKeyIncluded,
-                  isOrderAsc);
-              if (acquiredStreams.add(stream)) {
-                streams.add(stream);
-              }
-            }
-          } else {
-            stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
+            stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
+                toKeyIncluded,
                 isOrderAsc);
             if (acquiredStreams.add(stream)) {
               streams.add(stream);
             }
           }
-
+        } else {
+          stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
+              isOrderAsc);
+          if (acquiredStreams.add(stream)) {
+            streams.add(stream);
+          }
         }
-
-      } else if (additionalRangeCondition == null && allEqualities((SQLAndBlock) condition)) {
-        stream =
-            index.streamEntries(session,
-                toIndexKey(transaction, indexDef, secondValue),
-                isOrderAsc);
-        if (acquiredStreams.add(stream)) {
-          streams.add(stream);
-        }
-      } else if (isFullTextIndex(index)) {
-        stream =
-            index.streamEntries(session,
-                toIndexKey(transaction, indexDef, secondValue),
-                isOrderAsc);
-        if (acquiredStreams.add(stream)) {
-          streams.add(stream);
-        }
-      } else {
-        throw new UnsupportedOperationException(
-            "Cannot evaluate " + condition + " on index " + index);
       }
     }
     return streams;
-  }
-
-  private static boolean isFullTextIndex(Index index) {
-    return index.getType().equalsIgnoreCase("FULLTEXT")
-        && !index.getAlgorithm().equalsIgnoreCase("LUCENE");
   }
 
   private static Stream<RawPair<Object, RID>> getStreamForNullKey(

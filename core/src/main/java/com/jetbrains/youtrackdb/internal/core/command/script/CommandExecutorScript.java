@@ -124,59 +124,55 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   private String preParse(DatabaseSessionEmbedded db, String parserText,
       final Map<Object, Object> iArgs)
       throws ParseException {
-    final var strict = db.getStorageInfo().getConfiguration().isStrictSql();
-    if (strict) {
-      parserText = addSemicolons(parserText);
 
-      byte[] bytes;
-      try {
-        bytes =
-            parserText.getBytes(db.getStorageInfo().getConfiguration().getCharset());
-      } catch (UnsupportedEncodingException e) {
-        LogManager.instance()
-            .warn(
-                this,
-                "Invalid charset for database "
-                    + db
-                    + " "
-                    + db.getStorageInfo().getConfiguration().getCharset());
+    parserText = addSemicolons(parserText);
 
-        bytes = parserText.getBytes();
-      }
+    byte[] bytes;
+    try {
+      bytes =
+          parserText.getBytes(db.getStorage().getCharset());
+    } catch (UnsupportedEncodingException e) {
+      LogManager.instance()
+          .warn(
+              this,
+              "Invalid charset for database "
+                  + db
+                  + " "
+                  + db.getStorage().getCharset());
 
-      InputStream is = new ByteArrayInputStream(bytes);
-
-      YouTrackDBSql osql = null;
-      try {
-
-        if (db == null) {
-          osql = new YouTrackDBSql(is);
-        } else {
-          osql = new YouTrackDBSql(is, db.getStorageInfo().getConfiguration().getCharset());
-        }
-      } catch (UnsupportedEncodingException e) {
-        LogManager.instance()
-            .warn(
-                this,
-                "Invalid charset for database "
-                    + db
-                    + " "
-                    + db.getStorageInfo().getConfiguration().getCharset());
-        osql = new YouTrackDBSql(is);
-      }
-      var statements = osql.parseScript();
-      var result = new StringBuilder();
-      for (var stm : statements) {
-        stm.toString(iArgs, result);
-        if (!(stm instanceof SQLIfStatement)) {
-          result.append(";");
-        }
-        result.append("\n");
-      }
-      return result.toString();
-    } else {
-      return parserText;
+      bytes = parserText.getBytes();
     }
+
+    InputStream is = new ByteArrayInputStream(bytes);
+
+    YouTrackDBSql osql = null;
+    try {
+
+      if (db == null) {
+        osql = new YouTrackDBSql(is);
+      } else {
+        osql = new YouTrackDBSql(is, db.getStorage().getCharset());
+      }
+    } catch (UnsupportedEncodingException e) {
+      LogManager.instance()
+          .warn(
+              this,
+              "Invalid charset for database "
+                  + db
+                  + " "
+                  + db.getStorage().getCharset());
+      osql = new YouTrackDBSql(is);
+    }
+    var statements = osql.parseScript();
+    var result = new StringBuilder();
+    for (var stm : statements) {
+      stm.toString(iArgs, result);
+      if (!(stm instanceof SQLIfStatement)) {
+        result.append(";");
+      }
+      result.append("\n");
+    }
+    return result.toString();
   }
 
   private String addSemicolons(String parserText) {

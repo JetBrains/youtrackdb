@@ -303,12 +303,12 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     clazz.createProperty("byte", PropertyType.BYTE).setMax("11");
     var cal = Calendar.getInstance();
     cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
-    var format = session.getStorage().getConfiguration().getDateFormatInstance();
+    var format = session.getStorage().getDateFormatInstance();
     clazz.createProperty("date", PropertyType.DATE)
         .setMax(format.format(cal.getTime()));
     cal = Calendar.getInstance();
     cal.add(Calendar.HOUR, 1);
-    format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
+    format = session.getStorage().getDateTimeFormatInstance();
     clazz.createProperty("datetime", PropertyType.DATETIME)
         .setMax(format.format(cal.getTime()));
 
@@ -455,12 +455,12 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     clazz.createProperty("byte", PropertyType.BYTE).setMin("11");
     var cal = Calendar.getInstance();
     cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
-    var format = session.getStorage().getConfiguration().getDateFormatInstance();
+    var format = session.getStorage().getDateFormatInstance();
     clazz.createProperty("date", PropertyType.DATE)
         .setMin(format.format(cal.getTime()));
     cal = Calendar.getInstance();
     cal.add(Calendar.HOUR, 1);
-    format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
+    format = session.getStorage().getDateTimeFormatInstance();
     clazz.createProperty("datetime", PropertyType.DATETIME)
         .setMin(format.format(cal.getTime()));
 
@@ -729,7 +729,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     var newLinkSet = session.newEmbeddedSet();
     newLinkList.addAll(Arrays.asList("a", "b"));
-    checkField(entity, "linkSet", newLinkList);
+    checkField(entity, "linkSet", newLinkSet);
 
     Map<String, String> map1 = session.newEmbeddedMap();
     map1.put("a", "a1");

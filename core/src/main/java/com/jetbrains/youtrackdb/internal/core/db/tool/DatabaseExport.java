@@ -207,10 +207,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             rec = it.next();
             if (rec instanceof EntityImpl entity) {
               // CHECK IF THE CLASS OF THE DOCUMENT IS INCLUDED
-              final var className =
-                  entity.getSchemaClassName() != null
-                      ? entity.getSchemaClassName().toUpperCase(Locale.ENGLISH)
-                      : null;
             }
 
             if (exportRecord(
@@ -388,9 +384,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         StorageConfiguration.CURRENT_VERSION);
     jsonGenerator.writeNumberField("schema-version", SchemaShared.CURRENT_VERSION_NUMBER);
     jsonGenerator.writeStringField("schemaRecordId",
-        session.getStorageInfo().getConfiguration().getSchemaRecordId());
+        session.getStorage().getSchemaRecordId());
     jsonGenerator.writeStringField("indexMgrRecordId",
-        session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
+        session.getStorage().getIndexMgrRecordId());
     jsonGenerator.writeEndObject();
 
     listener.onMessage("OK");
@@ -460,7 +456,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonGenerator.writeObjectFieldStart("schema");
     final Schema schema = (session.getMetadata()).getImmutableSchemaSnapshot();
-    //noinspection deprecation
     jsonGenerator.writeNumberField("version", schema.getVersion());
     jsonGenerator.writeArrayFieldStart("blob-collections");
     for (var collectionId : session.getBlobCollectionIds()) {

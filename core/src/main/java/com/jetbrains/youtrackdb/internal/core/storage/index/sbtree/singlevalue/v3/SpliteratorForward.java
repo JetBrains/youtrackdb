@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,10 +14,6 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
-
-  /**
-   *
-   */
   private final BTree<K> btree;
 
   private final K fromKey;
@@ -29,6 +26,8 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
 
   private LogSequenceNumber lastLSN = null;
 
+  private final AtomicOperation atomicOperation;
+
   private final List<RawPair<K, RID>> dataCache = new ArrayList<>();
   private Iterator<RawPair<K, RID>> cacheIterator = Collections.emptyIterator();
 
@@ -37,13 +36,14 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
       final K fromKey,
       final K toKey,
       final boolean fromKeyInclusive,
-      final boolean toKeyInclusive) {
+      final boolean toKeyInclusive, AtomicOperation atomicOperation) {
     btree = BTree;
     this.fromKey = fromKey;
     this.toKey = toKey;
 
     this.toKeyInclusive = toKeyInclusive;
     this.fromKeyInclusive = fromKeyInclusive;
+    this.atomicOperation = atomicOperation;
   }
 
   @Override
@@ -57,7 +57,7 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
       return true;
     }
 
-    btree.fetchNextForwardCachePortion(this);
+    btree.fetchNextForwardCachePortion(this, atomicOperation);
 
     cacheIterator = dataCache.iterator();
 

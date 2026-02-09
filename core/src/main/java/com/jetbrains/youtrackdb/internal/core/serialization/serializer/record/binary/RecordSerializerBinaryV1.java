@@ -57,7 +57,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.MapRecordInfo;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.Tuple;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -753,9 +752,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final var collectionId = btreeLinkBag.getOwnerEntity().getIdentity().getCollectionId();
       assert collectionId > -1;
       try {
-        final var storage = (AbstractStorage) session.getStorage();
-        final var atomicOperation =
-            storage.getAtomicOperationsManager().getCurrentOperation();
+        final var atomicOperation = currentTx.getAtomicOperation();
         assert atomicOperation != null;
         pointer = session
             .getBTreeCollectionManager()

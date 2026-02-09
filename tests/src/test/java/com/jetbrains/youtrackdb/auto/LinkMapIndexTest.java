@@ -64,11 +64,14 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -84,7 +87,7 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(valueIndexMap.size(session), 2);
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -95,6 +98,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapInTx() {
@@ -122,11 +126,14 @@ public class LinkMapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -141,7 +148,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -152,6 +159,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateOne() {
@@ -180,11 +188,14 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -199,7 +210,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -210,6 +221,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateOneTx() {
@@ -234,11 +246,14 @@ public class LinkMapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -253,7 +268,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -264,6 +279,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateOneTxRollback() {
@@ -297,11 +313,14 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -316,7 +335,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -327,6 +346,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapAddItem() {
@@ -353,11 +373,14 @@ public class LinkMapIndexTest extends BaseDBTest {
         .close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -372,7 +395,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 3);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -384,6 +407,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapAddItemTx() {
@@ -416,11 +440,14 @@ public class LinkMapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 3);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -436,7 +463,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 3);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -448,6 +475,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapAddItemTxRollback() {
@@ -475,11 +503,14 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -494,7 +525,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -505,6 +536,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateItem() {
@@ -533,11 +565,14 @@ public class LinkMapIndexTest extends BaseDBTest {
         .close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndexMap.size(session), 2);
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -552,7 +587,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -563,6 +598,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateItemInTx() {
@@ -595,12 +631,15 @@ public class LinkMapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Assert.assertEquals(keyIndexMap.size(session), 2);
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -615,7 +654,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -626,6 +665,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateItemInTxRollback() {
@@ -653,11 +693,14 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -672,7 +715,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -683,6 +726,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemoveItem() {
@@ -709,11 +753,14 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.execute("UPDATE " + document.getIdentity() + " remove linkMap = 'key2'").close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -728,7 +775,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -739,6 +786,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemoveItemInTx() {
@@ -772,11 +820,14 @@ public class LinkMapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -791,7 +842,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -802,6 +853,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemoveItemInTxRollback() {
@@ -830,11 +882,14 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 3);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -849,7 +904,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 3);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -861,6 +916,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemove() {
@@ -869,8 +925,6 @@ public class LinkMapIndexTest extends BaseDBTest {
     final var docOne = ((EntityImpl) session.newEntity());
 
     final var docTwo = ((EntityImpl) session.newEntity());
-
-    final var docThree = ((EntityImpl) session.newEntity());
 
     var map = session.newLinkMap();
 
@@ -950,11 +1004,14 @@ public class LinkMapIndexTest extends BaseDBTest {
     activeTx.<EntityImpl>load(document).delete();
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     final var keyIndexMap = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndexMap.size(session), 2);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -969,7 +1026,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndexMap.size(session), 2);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -980,6 +1037,7 @@ public class LinkMapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapSQL() {

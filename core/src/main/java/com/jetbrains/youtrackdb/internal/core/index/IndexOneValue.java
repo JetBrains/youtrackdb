@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.index.iterator.PureTxBetweenIndexB
 import com.jetbrains.youtrackdb.internal.core.index.iterator.PureTxBetweenIndexForwardSpliterator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
@@ -53,7 +54,7 @@ import javax.annotation.Nullable;
  */
 public abstract class IndexOneValue extends IndexAbstract {
 
-  public IndexOneValue(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+  public IndexOneValue(@Nullable RID identity, @Nonnull FrontendTransactionImpl transaction,
       @Nonnull Storage storage) {
     super(identity, transaction, storage);
   }
@@ -86,7 +87,8 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
-          stream = storage.getIndexValues(indexId, key);
+          var transaction = session.getActiveTransaction();
+          stream = storage.getIndexValues(indexId, key, transaction.getAtomicOperation());
           stream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -114,7 +116,6 @@ public abstract class IndexOneValue extends IndexAbstract {
     RID rid;
     if (!indexChanges.cleared) {
       // BEGIN FROM THE UNDERLYING RESULT SET
-      //noinspection resource
       rid = stream.findFirst().orElse(null);
     } else {
       rid = null;
@@ -143,7 +144,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
     sortedKeys.sort(comparator);
 
-    //noinspection resource
+    var transaction = session.getActiveTransaction();
     var stream =
         IndexStreamSecurityDecorator.decorateStream(
             this,
@@ -151,13 +152,13 @@ public abstract class IndexOneValue extends IndexAbstract {
                 .flatMap(
                     (key) -> {
                       final var collatedKey = getCollatingValue(key);
-
                       acquireSharedLock();
                       try {
                         while (true) {
                           try {
                             return storage
-                                .getIndexValues(indexId, collatedKey)
+                                .getIndexValues(indexId, collatedKey,
+                                    transaction.getAtomicOperation())
                                 .map((rid) -> new RawPair<>(collatedKey, rid));
                           } catch (InvalidIndexEngineIdException ignore) {
                             doReloadIndexEngine();
@@ -180,7 +181,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       keyComparator = DescComparator.INSTANCE;
     }
 
-    @SuppressWarnings("resource") final var txStream =
+    final var txStream =
         keys.stream()
             .map((key) -> calculateTxIndexEntry(getCollatingValue(key), null, indexChanges))
             .filter(Objects::nonNull)
@@ -205,11 +206,13 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
+          var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this,
-                  storage.iterateIndexEntriesBetween(session,
-                      indexId, fromKey, fromInclusive, toKey, toInclusive, ascOrder, null),
+                  storage.iterateIndexEntriesBetween(
+                      indexId, fromKey, fromInclusive, toKey, toInclusive, ascOrder, null,
+                      transaction.getAtomicOperation()),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -228,14 +231,12 @@ public abstract class IndexOneValue extends IndexAbstract {
 
     final Stream<RawPair<Object, RID>> txStream;
     if (ascOrder) {
-      //noinspection resource
       txStream =
           StreamSupport.stream(
               new PureTxBetweenIndexForwardSpliterator(
                   this, fromKey, fromInclusive, toKey, toInclusive, indexChanges),
               false);
     } else {
-      //noinspection resource
       txStream =
           StreamSupport.stream(
               new PureTxBetweenIndexBackwardSpliterator(
@@ -260,11 +261,14 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
+          var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesMajor(
-                      indexId, fromKey, fromInclusive, ascOrder, null), session);
+                      indexId, fromKey, fromInclusive, ascOrder, null,
+                      transaction.getAtomicOperation()),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -316,10 +320,12 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
+          var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this,
-                  storage.iterateIndexEntriesMinor(indexId, toKey, toInclusive, ascOrder, null),
+                  storage.iterateIndexEntriesMinor(indexId, toKey, toInclusive, ascOrder,
+                      null, transaction.getAtomicOperation()),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -369,7 +375,8 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
-          return storage.getIndexSize(indexId, null);
+          var transaction = session.getActiveTransaction();
+          return storage.getIndexSize(indexId, null, transaction.getAtomicOperation());
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
         }
@@ -386,9 +393,12 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
+          var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexStream(indexId, null), session);
+                  this, storage.getIndexStream(indexId, null,
+                      transaction.getAtomicOperation()),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -423,9 +433,12 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
+          var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexDescStream(indexId, null), session);
+                  this, storage.getIndexDescStream(indexId, null,
+                      transaction.getAtomicOperation()),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -516,9 +529,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     final var rid = (RecordIdInternal) value.getIdentity();
 
     if (!rid.isValidPosition()) {
-      if (value instanceof DBRecord) {
-        // EARLY SAVE IT
-      } else {
+      if (!(value instanceof DBRecord)) {
         throw new IllegalArgumentException(
             "Cannot store non persistent RID as index value for key '" + key + "'");
       }

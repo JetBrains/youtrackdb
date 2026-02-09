@@ -17,7 +17,6 @@ import org.testng.annotations.BeforeMethod;
 /**
  * @since 3/28/14
  */
-@SuppressWarnings("deprecation")
 public class LinkSetIndexTest extends BaseDBTest {
 
   @BeforeClass
@@ -76,11 +75,14 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -91,6 +93,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetInTx() {
@@ -119,11 +122,13 @@ public class LinkSetIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.getActiveTransaction();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -134,6 +139,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdate() {
@@ -160,11 +166,13 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -175,6 +183,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateInTx() {
@@ -214,11 +223,13 @@ public class LinkSetIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -229,6 +240,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateInTxRollback() {
@@ -263,11 +275,13 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -278,6 +292,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateAddItem() {
@@ -307,11 +322,13 @@ public class LinkSetIndexTest extends BaseDBTest {
         .close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -323,6 +340,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateAddItemInTx() {
@@ -356,11 +374,14 @@ public class LinkSetIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -372,6 +393,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateAddItemInTxRollback() {
@@ -400,11 +422,14 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -415,6 +440,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateRemoveItemInTx() {
@@ -443,11 +469,14 @@ public class LinkSetIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -457,6 +486,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateRemoveItemInTxRollback() {
@@ -480,11 +510,14 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -495,6 +528,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetUpdateRemoveItem() {
@@ -519,11 +553,14 @@ public class LinkSetIndexTest extends BaseDBTest {
         .close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -533,6 +570,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetRemove() {
@@ -614,11 +652,13 @@ public class LinkSetIndexTest extends BaseDBTest {
     activeTx.<EntityImpl>load(document).delete();
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -629,6 +669,7 @@ public class LinkSetIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexLinkSetSQL() {

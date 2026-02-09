@@ -61,8 +61,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -72,6 +73,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionInTx() {
@@ -89,8 +91,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
@@ -99,6 +102,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdate() {
@@ -106,15 +110,16 @@ public class CollectionIndexTest extends BaseDBTest {
     session.begin();
     var collector = session.newEntity("Collector");
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
-    collector = collector;
+
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -124,6 +129,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateInTx() {
@@ -146,8 +152,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
 
     Assert.assertEquals(index.size(session), 2);
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -157,6 +164,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateInTxRollback() {
@@ -164,7 +172,7 @@ public class CollectionIndexTest extends BaseDBTest {
     session.begin();
     var collector = session.newEntity("Collector");
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
-    collector = collector;
+
     session.commit();
 
     session.begin();
@@ -177,8 +185,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -188,6 +197,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateAddItem() {
@@ -210,8 +220,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 3);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -221,6 +232,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateAddItemInTx() {
@@ -244,8 +256,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 3);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -255,6 +268,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateAddItemInTxRollback() {
@@ -272,8 +286,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -283,6 +298,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateRemoveItemInTx() {
@@ -305,8 +321,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 1);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -316,6 +333,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateRemoveItemInTxRollback() {
@@ -333,8 +351,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -344,6 +363,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateRemoveItem() {
@@ -361,8 +381,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -372,6 +393,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionRemove() {
@@ -423,8 +445,9 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
+    var tx = session.begin();
     Iterator<Object> keysIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -434,6 +457,7 @@ public class CollectionIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionSQL() {

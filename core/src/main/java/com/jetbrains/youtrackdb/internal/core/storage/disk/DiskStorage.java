@@ -348,14 +348,14 @@ public class DiskStorage extends AbstractStorage {
     java.io.File[] nonActiveSegments;
 
     LogSequenceNumber lastLSN;
-    final var freezeId = getAtomicOperationsManager().freezeAtomicOperations(null);
+    final var freezeId = getAtomicOperationsManager().startWriteOperations(null);
     try {
       lastLSN = writeAheadLog.end();
       writeAheadLog.flush();
       writeAheadLog.appendNewSegment();
       nonActiveSegments = writeAheadLog.nonActiveSegments(startSegment);
     } finally {
-      getAtomicOperationsManager().releaseAtomicOperations(freezeId);
+      getAtomicOperationsManager().unfreezeWriteOperations(freezeId);
     }
 
     for (final var nonActiveSegment : nonActiveSegments) {
@@ -1224,7 +1224,7 @@ public class DiskStorage extends AbstractStorage {
     try {
       final long startSegment;
       final LogSequenceNumber freezeLsn;
-      final var newSegmentFreezeId = atomicOperationsManager.freezeAtomicOperations(null);
+      final var newSegmentFreezeId = atomicOperationsManager.startWriteOperations(null);
       try {
         final var startLsn = writeAheadLog.end();
         if (startLsn != null) {
@@ -1238,7 +1238,7 @@ public class DiskStorage extends AbstractStorage {
         writeAheadLog.appendNewSegment();
         startSegment = writeAheadLog.activeSegment();
       } finally {
-        atomicOperationsManager.releaseAtomicOperations(newSegmentFreezeId);
+        atomicOperationsManager.unfreezeWriteOperations(newSegmentFreezeId);
       }
 
       try {
@@ -1251,7 +1251,7 @@ public class DiskStorage extends AbstractStorage {
         backupIBUEncryptionIv(zipOutputStream, encryptionIv);
 
         final var aesKeyEncoded =
-            getConfiguration()
+            configuration
                 .getContextConfiguration()
                 .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
         final var aesKey =
@@ -1485,7 +1485,7 @@ public class DiskStorage extends AbstractStorage {
       }
 
       final var aesKeyEncoded =
-          getConfiguration()
+          configuration
               .getContextConfiguration()
               .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
       final var aesKey =
@@ -1640,13 +1640,13 @@ public class DiskStorage extends AbstractStorage {
 
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
-    linkCollectionsBTreeManager.load();
 
-    openIndexes();
+    atomicOperationsManager.executeInsideAtomicOperation(linkCollectionsBTreeManager::load);
+    atomicOperationsManager.executeInsideAtomicOperation(this::openIndexes);
+
     flushAllData();
 
-    atomicOperationsManager.executeInsideAtomicOperation(
-        this::generateDatabaseInstanceId);
+    atomicOperationsManager.executeInsideAtomicOperation(this::generateDatabaseInstanceId);
   }
 
   private void restoreFromIncrementalBackup(
@@ -1927,10 +1927,10 @@ public class DiskStorage extends AbstractStorage {
   }
 
   protected record BackupMetadata(int backupFormatVersion,
-                                UUID databaseId,
-                                int sequenceNumber,
-                                LogSequenceNumber startLsn,
-                                LogSequenceNumber endLsn) {
+                                  UUID databaseId,
+                                  int sequenceNumber,
+                                  LogSequenceNumber startLsn,
+                                  LogSequenceNumber endLsn) {
 
   }
 
