@@ -1,0 +1,83 @@
+# LDBC SNB Driver Configuration
+
+# YouTrackDB Gremlin/TinkerPop driver adapter settings
+tinkerpop.vendor=ytdb
+tinkerpop.ic13.maxHops=4
+tinkerpop.ic14.maxHops=4
+ytdb.host={{ db_host }}
+ytdb.port={{ db_port }}
+ytdb.database={{ db_name }}
+ytdb.username={{ db_user }}
+ytdb.password={{ db_password }}
+
+# Mode
+mode={{ mode }}
+{% if mode == "validate_database" and validation_file %}
+validate_database={{ validation_file }}
+{% endif %}
+
+# Driver settings
+workload=org.ldbcouncil.snb.driver.workloads.interactive.LdbcSnbInteractiveWorkload
+db=com.youtrackdb.ldbc.runner.TinkerPopDb
+name=LDBC-SNB
+status=1
+time_unit=MICROSECONDS
+
+# TCR controls how fast operations are scheduled relative to their original timestamps.
+# They ("original timestamps") come from LDBC Datagen (the data generator which simulates ~3 years of social network activity).
+time_compression_ratio={{ time_compression_ratio }}
+
+# When true:
+# * Operations run back-to-back - no waiting between them
+# * TCR becomes meaningless - there's no schedule to compress
+# * Schedule audit is skipped
+# Max out the database
+ignore_scheduled_start_times={{ ignore_scheduled_start_times }}
+
+spinner_wait_duration=1
+help=false
+workload_statistics=false
+results_dir={{ results_dir }}
+thread_count={{ thread_count }}
+operation_count={{ operation_count }}
+warmup={{ warmup }}
+
+# Workload parameters
+ldbc.snb.interactive.short_read_dissipation=0.2
+ldbc.snb.interactive.scale_factor={{ scale_factor }}
+
+# Data paths
+ldbc.snb.interactive.parameters_dir={{ params_path }}
+ldbc.snb.interactive.updates_dir={{ updates_path }}
+
+ldbc.snb.interactive.LdbcQuery1_enable=true
+ldbc.snb.interactive.LdbcQuery2_enable=true
+ldbc.snb.interactive.LdbcQuery3_enable=true
+ldbc.snb.interactive.LdbcQuery4_enable=true
+ldbc.snb.interactive.LdbcQuery5_enable=true
+ldbc.snb.interactive.LdbcQuery6_enable=true
+ldbc.snb.interactive.LdbcQuery7_enable=true
+ldbc.snb.interactive.LdbcQuery8_enable=true
+ldbc.snb.interactive.LdbcQuery9_enable=true
+ldbc.snb.interactive.LdbcQuery10_enable=true
+ldbc.snb.interactive.LdbcQuery11_enable=true
+ldbc.snb.interactive.LdbcQuery12_enable=true
+ldbc.snb.interactive.LdbcQuery13_enable=true
+ldbc.snb.interactive.LdbcQuery14_enable=true
+
+ldbc.snb.interactive.LdbcShortQuery1PersonProfile_enable=true
+ldbc.snb.interactive.LdbcShortQuery2PersonPosts_enable=true
+ldbc.snb.interactive.LdbcShortQuery3PersonFriends_enable=true
+ldbc.snb.interactive.LdbcShortQuery4MessageContent_enable=true
+ldbc.snb.interactive.LdbcShortQuery5MessageCreator_enable=true
+ldbc.snb.interactive.LdbcShortQuery6MessageForum_enable=true
+ldbc.snb.interactive.LdbcShortQuery7MessageReplies_enable=true
+
+ldbc.snb.interactive.LdbcUpdate1AddPerson_enable=true
+ldbc.snb.interactive.LdbcUpdate2AddPostLike_enable=true
+ldbc.snb.interactive.LdbcUpdate3AddCommentLike_enable=true
+ldbc.snb.interactive.LdbcUpdate4AddForum_enable=true
+ldbc.snb.interactive.LdbcUpdate5AddForumMembership_enable=true
+ldbc.snb.interactive.LdbcUpdate6AddPost_enable=true
+ldbc.snb.interactive.LdbcUpdate7AddComment_enable=true
+ldbc.snb.interactive.LdbcUpdate8AddFriendship_enable=true
