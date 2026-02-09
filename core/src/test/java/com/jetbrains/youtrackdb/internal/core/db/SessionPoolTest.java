@@ -55,7 +55,9 @@ public class SessionPoolTest {
     db.newEntity("Test");
     db.close();
     db = pool.acquire();
+    db.begin();
     assertEquals(0, db.countClass("Test"));
+    db.rollback();
     db.close();
     pool.close();
     youTrackDb.close();

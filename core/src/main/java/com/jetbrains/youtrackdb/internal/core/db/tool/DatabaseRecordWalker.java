@@ -54,11 +54,13 @@ public class DatabaseRecordWalker {
 
       var visited = 0L;
 
+      session.begin();
       final var collectionId = session.getCollectionIdByName(collectionName);
       final var collectionSize = session.countCollectionElements(collectionId);
 
       var positions = storage.ceilingPhysicalPositions(
           session, collectionId, new PhysicalPosition(0), Integer.MAX_VALUE);
+      session.rollback();
 
       while (positions.length > 0) {
         for (var position : positions) {
@@ -82,11 +84,13 @@ public class DatabaseRecordWalker {
           }
         }
 
+        session.begin();
         positions = storage.higherPhysicalPositions(
             session, collectionId,
             positions[positions.length - 1],
             Integer.MAX_VALUE
         );
+        session.rollback();
       }
 
       final var now = System.currentTimeMillis();
