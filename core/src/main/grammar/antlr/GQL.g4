@@ -93,7 +93,7 @@ boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression 
 
 comparison_expression: value_expression comparison_operator value_expression;
 
-value_expression: RID | ID | property_reference | STRING | math_expression |
+value_expression: RID | ID | PARAMETER | property_reference | STRING | math_expression |
                   list_literal | map_literal | temporal_literal | path_function |
                   case_expression | aggregate_function | exists_predicate;
 
@@ -197,6 +197,7 @@ BOOL: T R U E | F A L S E;
 DOT : '.' ;
 DASH: '-';
 RID: '#' [0-9]+ ':' [0-9]+ ;
+PARAMETER: '$' [a-zA-Z_][a-zA-Z_0-9]*;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 INT: [0-9]+;
 NUMBER: [0-9]+ (DOT [0-9]+)? ([eE] [+-]? [0-9]+)?;
