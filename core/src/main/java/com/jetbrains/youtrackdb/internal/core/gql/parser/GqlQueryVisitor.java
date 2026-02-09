@@ -18,6 +18,7 @@ import javax.annotation.Nullable;
 ///     matchVisitor.visit(visitor.getMatchContext());
 /// }
 /// ```
+@SuppressWarnings("unused")
 public class GqlQueryVisitor extends GQLBaseVisitor<Void> {
 
   // Query type flags
@@ -27,8 +28,6 @@ public class GqlQueryVisitor extends GQLBaseVisitor<Void> {
   private GQLParser.Match_statementContext matchContext = null;
 
   // Future: add more query types
-  // private boolean hasReturn = false;
-  // private GQLParser.Return_statementContext returnContext = null;
 
   @Override
   public Void visitMatch_statement(GQLParser.Match_statementContext ctx) {
