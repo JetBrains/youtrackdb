@@ -80,6 +80,8 @@ public class AtomicOperationsManager {
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {
+    writeOperationsFreezer.startOperation();
+
     final long activeSegment;
 
     // transaction id and id of active segment should grow synchronously to maintain correct size of
@@ -94,7 +96,6 @@ public class AtomicOperationsManager {
     }
 
     atomicOperationsTable.startOperation(commitTs, activeSegment);
-    writeOperationsFreezer.startOperation();
     atomicOperation.startToApplyOperations(commitTs);
   }
 
