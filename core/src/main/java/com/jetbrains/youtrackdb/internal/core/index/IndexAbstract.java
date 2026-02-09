@@ -19,11 +19,13 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -477,16 +479,51 @@ public abstract class IndexAbstract implements Index {
     }
 
     try (var deletionSession = session.copy()) {
-      try (final var stream = stream(deletionSession)) {
-        deletionSession.executeInTxBatchesInternal(stream,
-            (deletionTransaction, entry) ->
-                remove(deletionTransaction, entry.first(),
-                    entry.second()));
-      } catch (Exception e) {
-        if (transaction != null) {
-          transaction.rollback();
-          throw e;
+      var batchSize =
+          deletionSession.getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE);
+
+      var lastIndexEntry = deletionSession.computeInTxInternal(deletionTx -> {
+        RawPair<Object, RID> indexEntry = null;
+        try (var indexStream = stream(deletionSession)) {
+          var indexIterator = indexStream.iterator();
+
+          for (var i = 0; i < batchSize && indexIterator.hasNext(); i++) {
+            indexEntry = indexIterator.next();
+            remove(deletionTx, indexEntry.first(), indexEntry.second());
+          }
+
+          if (indexIterator.hasNext()) {
+            return indexEntry;
+          } else {
+            return null;
+          }
         }
+      });
+
+      while (lastIndexEntry != null) {
+        var lEntry = lastIndexEntry;
+        lastIndexEntry = deletionSession.computeInTxInternal(deletionTx -> {
+          try (var indexStream = streamEntriesMajor(deletionSession, lEntry.first(), true, true)) {
+            var indexIterator = indexStream.iterator();
+
+            RawPair<Object, RID> indexEntry = null;
+            for (var i = 0; i < batchSize && indexIterator.hasNext(); i++) {
+              indexEntry = indexIterator.next();
+              remove(deletionTx, indexEntry.first(), indexEntry.second());
+            }
+
+            if (indexIterator.hasNext()) {
+              return indexEntry;
+            } else {
+              return null;
+            }
+          }
+        });
+      }
+    } catch (Exception e) {
+      if (transaction != null) {
+        transaction.rollback();
+        throw e;
       }
     }
   }
@@ -807,7 +844,9 @@ public abstract class IndexAbstract implements Index {
     }
 
     var collectionId = session.getCollectionIdByName(collectionName);
+    session.begin();
     var collectionCount = session.countCollectionElements(collectionId);
+    session.rollback();
 
     if (collectionCount > 0) {
       try (var fillSession = session.copy()) {
