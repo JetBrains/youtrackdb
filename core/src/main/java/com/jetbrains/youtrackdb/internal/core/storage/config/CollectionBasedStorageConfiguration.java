@@ -267,12 +267,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
 
       readConfiguration(atomicOperation);
-      readMinimumCollections(atomicOperation);
 
       preloadIntProperties(atomicOperation);
       preloadStringProperties(atomicOperation);
       preloadConfigurationProperties(atomicOperation);
       preloadCollections(atomicOperation);
+
+      readMinimumCollections(atomicOperation);
       recalculateLocale();
 
       validation = "true".equalsIgnoreCase(getProperty(VALIDATION_PROPERTY));
@@ -1083,13 +1084,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   public void setValidation(final AtomicOperation atomicOperation, final boolean validation) {
-    lock.writeLock().lock();
-    try {
-      setProperty(atomicOperation, VALIDATION_PROPERTY, validation ? "true" : "false");
-    } finally {
-      lock.writeLock().unlock();
-    }
-
+    setProperty(atomicOperation, VALIDATION_PROPERTY, validation ? "true" : "false");
   }
 
   @Override
