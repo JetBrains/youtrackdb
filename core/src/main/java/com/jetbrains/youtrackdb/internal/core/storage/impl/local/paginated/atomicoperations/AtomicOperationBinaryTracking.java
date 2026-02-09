@@ -109,6 +109,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
+  public void startToApplyOperations(long commitTs) {
+    checkIfActive();
+
+    operationCommitTs = commitTs;
+  }
+
+  @Override
   public long getCommitTs() {
     checkIfActive();
 
@@ -116,6 +123,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       throw new DatabaseException("Atomic operation is not committed yet.");
     }
 
+    return operationCommitTs;
+  }
+
+  @Override
+  public long getCommitTsUnsafe() {
     return operationCommitTs;
   }
 

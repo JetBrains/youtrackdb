@@ -348,7 +348,7 @@ public class DiskStorage extends AbstractStorage {
     java.io.File[] nonActiveSegments;
 
     LogSequenceNumber lastLSN;
-    final var freezeId = getAtomicOperationsManager().startWriteOperations(null);
+    final var freezeId = getAtomicOperationsManager().freezeWriteOperations(null);
     try {
       lastLSN = writeAheadLog.end();
       writeAheadLog.flush();
@@ -1224,7 +1224,7 @@ public class DiskStorage extends AbstractStorage {
     try {
       final long startSegment;
       final LogSequenceNumber freezeLsn;
-      final var newSegmentFreezeId = atomicOperationsManager.startWriteOperations(null);
+      final var newSegmentFreezeId = atomicOperationsManager.freezeWriteOperations(null);
       try {
         final var startLsn = writeAheadLog.end();
         if (startLsn != null) {
