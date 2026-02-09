@@ -17,9 +17,12 @@ permissions:
 jobs:
   test-linux:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
-    runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
-               'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
-               volume-cache ]
+    runs-on:
+      - self-hosted
+      - in-nbg1
+      - "${{ matrix.arch == 'x86' && 'type-cpx42' || 'type-cax31' }}"
+      - "image-${{ matrix.arch == 'x86' && 'x86-system' || 'arm-system' }}-ubuntu-24.04"
+      - volume-cache
     strategy:
       fail-fast: false
       matrix:
