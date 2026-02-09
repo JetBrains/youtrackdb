@@ -25,7 +25,6 @@ public class SchemaEmbedded extends SchemaShared {
       int[] collectionIds,
       SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
-    //noinspection ConstantValue
     if (wrongCharacter != null) {
       throw new SchemaException(session.getDatabaseName(),
           "Invalid class name found. Character '"
@@ -59,7 +58,6 @@ public class SchemaEmbedded extends SchemaShared {
       int collections,
       SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
-    //noinspection ConstantValue
     if (wrongCharacter != null) {
       throw new SchemaException(session.getDatabaseName(),
           "Invalid class name found. Character '"
@@ -294,7 +292,7 @@ public class SchemaEmbedded extends SchemaShared {
             createCollections(
                 session,
                 className,
-                session.getStorageInfo().getConfiguration().getMinimumCollections());
+                session.getStorage().getMinimumCollections());
       }
       List<SchemaClassImpl> superClassesList = new ArrayList<>();
       if (superClasses != null) {
@@ -322,7 +320,7 @@ public class SchemaEmbedded extends SchemaShared {
 
   private int[] createCollections(DatabaseSessionEmbedded session, final String iClassName) {
     return createCollections(
-        session, iClassName, session.getStorageInfo().getConfiguration().getMinimumCollections());
+        session, iClassName, session.getStorage().getMinimumCollections());
   }
 
   protected int[] createCollections(

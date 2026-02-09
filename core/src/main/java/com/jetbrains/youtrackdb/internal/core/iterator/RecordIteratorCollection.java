@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
@@ -42,7 +42,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   private final boolean forwardDirection;
 
   private Iterator<CollectionBrowsePage> storageIterator;
-  private FrontendTransaction currentTx;
+  private FrontendTransactionImpl currentTx;
   private long minTxPosition;
   private RecordIdInternal nextTxId;
   private Iterator<CollectionBrowseEntry> collectionIterator;
@@ -213,7 +213,8 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
 
   private void initStorageIterator() {
     storageIterator =
-        ((AbstractStorage) session.getStorage()).browseCollection(collectionId, forwardDirection);
+        session.getStorage().browseCollection(collectionId, forwardDirection,
+            currentTx.getAtomicOperation());
   }
 
   @Override

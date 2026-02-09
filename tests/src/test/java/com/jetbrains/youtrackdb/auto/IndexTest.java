@@ -32,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -45,7 +44,6 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-@SuppressWarnings({"deprecation"})
 @Test
 public class IndexTest extends BaseDBTest {
 
@@ -1141,7 +1139,6 @@ public class IndexTest extends BaseDBTest {
 
     Assert.assertEquals(resultSet.getFirst().getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupport where nullField is null";
     resultSet = executeQuery("select from NullIndexKeysSupport where nullField is null");
 
     Assert.assertEquals(resultSet.size(), 4);
@@ -1186,7 +1183,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullHashIndexKeysSupport where nullField is null";
     result =
         session.query("select from NullHashIndexKeysSupport where nullField is null").toList();
 
@@ -1235,7 +1231,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupportInTx where nullField is null";
     result =
         session.query(
             "select from NullIndexKeysSupportInTx where nullField is null").toList();
@@ -1283,7 +1278,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
     result =
         session.query(
             "select from NullIndexKeysSupportInMiddleTx where nullField is null").toList();
@@ -1317,7 +1311,7 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
-    var tx = session.begin();
+    session.begin();
     final var queryOne = "select from TestCreateIndexAbstractClass where value = 'val1'";
 
     var resultOne = executeQuery(queryOne);
@@ -1364,7 +1358,7 @@ public class IndexTest extends BaseDBTest {
       }
     }
 
-    final var storageLocalAbstract = (AbstractStorage) session.getStorage();
+    final var storageLocalAbstract = session.getStorage();
 
     final var writeCache = storageLocalAbstract.getWriteCache();
     Assert.assertTrue(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
@@ -1571,7 +1565,8 @@ public class IndexTest extends BaseDBTest {
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keyStream()) {
+    var txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1589,6 +1584,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     final RID rid = document.getIdentity();
 
@@ -1609,10 +1605,12 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1635,10 +1633,12 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStreamAsc = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStreamAsc = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1657,10 +1657,12 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1680,7 +1682,8 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1698,6 +1701,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1716,10 +1720,12 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
+    session.rollback();
   }
 
   public void testMultikeyWithoutFieldAndNoNullSupport() {
@@ -1780,7 +1786,8 @@ public class IndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keyStream()) {
+    var txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1798,6 +1805,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     final RID rid = document.getIdentity();
 
@@ -1817,10 +1825,12 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1858,10 +1868,12 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1882,7 +1894,8 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1891,6 +1904,7 @@ public class IndexTest extends BaseDBTest {
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
     }
+    session.rollback();
     try (var descStream = index.descStream(session)) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(

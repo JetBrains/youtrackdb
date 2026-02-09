@@ -61,9 +61,9 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
     entity.setProperty("linkSet", linkSet);
     session.commit();
 
-    final var directory = session.getStorage().getConfiguration().getDirectory();
+    final var directory = ((DiskStorage) session.getStorage()).getStoragePath().toString();
     final var wowCache =
-        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
+        (WOWCache) (session.getStorage()).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(
@@ -225,7 +225,9 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
     var collectionManager = session.getStorage().getLinkCollectionsBtreeCollectionManager();
     var isolatedTree = collectionManager.loadIsolatedBTree(pointer);
-    Assert.assertEquals(isolatedTree.getRealBagSize(), 0);
+    var activeTx = session.begin();
+    Assert.assertEquals(isolatedTree.getRealBagSize(activeTx.getAtomicOperation()), 0);
+    session.rollback();
   }
 
   @Override

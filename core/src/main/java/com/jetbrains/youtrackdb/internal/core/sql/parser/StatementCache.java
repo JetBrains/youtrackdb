@@ -123,7 +123,7 @@ public class StatementCache {
       try {
         is =
             new ByteArrayInputStream(
-                statement.getBytes(session.getStorageInfo().getConfiguration().getCharset()));
+                statement.getBytes(session.getStorage().getCharset()));
       } catch (UnsupportedEncodingException e2) {
         LogManager.instance()
             .warn(
@@ -131,7 +131,7 @@ public class StatementCache {
                 "Unsupported charset for database "
                     + session
                     + " "
-                    + session.getStorageInfo().getConfiguration().getCharset());
+                    + session.getStorage().getCharset());
         is = new ByteArrayInputStream(statement.getBytes());
       }
 
@@ -140,7 +140,7 @@ public class StatementCache {
         osql = new YouTrackDBSql(is);
       } else {
         try {
-          osql = new YouTrackDBSql(is, session.getStorageInfo().getConfiguration().getCharset());
+          osql = new YouTrackDBSql(is, session.getStorage().getCharset());
         } catch (UnsupportedEncodingException e2) {
           LogManager.instance()
               .warn(
@@ -148,7 +148,7 @@ public class StatementCache {
                   "Unsupported charset for database "
                       + session
                       + " "
-                      + session.getStorageInfo().getConfiguration().getCharset());
+                      + session.getStorage().getCharset());
           osql = new YouTrackDBSql(is);
         }
       }
@@ -177,10 +177,10 @@ public class StatementCache {
     try {
       InputStream is = new ByteArrayInputStream(statement.getBytes());
       var osql = new YouTrackDBSql(is);
-      var result = osql.parseServerStatement();
+      var serverStatement = osql.parseServerStatement();
       //      result.originalStatement = statement;
 
-      return result;
+      return serverStatement;
     } catch (ParseException e) {
       throwParsingException(e, statement);
     } catch (TokenMgrError e2) {

@@ -68,9 +68,12 @@ public class MapIndexTest extends BaseDBTest {
     mapper.setProperty("intMap", map);
     session.commit();
 
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    var ato = activeTx.getAtomicOperation();
     final var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
-    try (final var keyStream = keyIndex.keyStream()) {
+    try (final var keyStream = keyIndex.keyStream(ato)) {
       final var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         final var key = (String) keyIterator.next();
@@ -82,7 +85,7 @@ public class MapIndexTest extends BaseDBTest {
 
     final var valueIndex = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndex.size(session), 2);
-    try (final var valueStream = valueIndex.keyStream()) {
+    try (final var valueStream = valueIndex.keyStream(ato)) {
       final var valuesIterator = valueStream.iterator();
       while (valuesIterator.hasNext()) {
         final var value = (Integer) valuesIterator.next();
@@ -91,6 +94,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapInTx() {
@@ -110,11 +114,13 @@ public class MapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndex.size(session), 2);
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -129,7 +135,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -139,6 +145,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateOne() {
@@ -166,12 +173,14 @@ public class MapIndexTest extends BaseDBTest {
 
     session.commit();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -186,7 +195,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -196,6 +205,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateOneTx() {
@@ -226,12 +236,14 @@ public class MapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -246,7 +258,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -256,6 +268,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateOneTxRollback() {
@@ -281,11 +294,13 @@ public class MapIndexTest extends BaseDBTest {
     mapper.setProperty("intMap", mapTwo);
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -300,7 +315,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -310,6 +325,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapAddItem() {
@@ -329,11 +345,13 @@ public class MapIndexTest extends BaseDBTest {
     session.execute("UPDATE " + mapper.getIdentity() + " set intMap['key3'] = 30").close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -348,7 +366,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 3);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -358,6 +376,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapAddItemTx() {
@@ -383,11 +402,13 @@ public class MapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -402,7 +423,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 3);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -412,6 +433,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapAddItemTxRollback() {
@@ -431,12 +453,14 @@ public class MapIndexTest extends BaseDBTest {
     loadedMapper.<Map<String, Integer>>getProperty("intMap").put("key3", 30);
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -451,7 +475,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -479,11 +503,14 @@ public class MapIndexTest extends BaseDBTest {
     session.execute("UPDATE " + mapper.getIdentity() + " set intMap['key2'] = 40").close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -499,7 +526,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -509,6 +536,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateItemInTx() {
@@ -533,11 +561,14 @@ public class MapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -552,7 +583,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -562,6 +593,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateItemInTxRollback() {
@@ -582,11 +614,13 @@ public class MapIndexTest extends BaseDBTest {
     loadedMapper.<Map<String, Integer>>getProperty("intMap").put("key2", 40);
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -601,7 +635,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -611,6 +645,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemoveItem() {
@@ -631,11 +666,14 @@ public class MapIndexTest extends BaseDBTest {
     session.execute("UPDATE " + mapper.getIdentity() + " remove intMap = 'key2'").close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -650,7 +688,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -660,6 +698,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemoveItemInTx() {
@@ -685,11 +724,13 @@ public class MapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -704,7 +745,7 @@ public class MapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(valueIndex.size(session), 2);
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -714,6 +755,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemoveItemInTxRollback() {
@@ -735,11 +777,13 @@ public class MapIndexTest extends BaseDBTest {
     loadedMapper.<Map<String, Integer>>getProperty("intMap").remove("key2");
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
 
     Assert.assertEquals(keyIndex.size(session), 3);
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -754,7 +798,7 @@ public class MapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(valueIndex.size(session), 3);
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -764,6 +808,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapRemove() {
@@ -839,11 +884,13 @@ public class MapIndexTest extends BaseDBTest {
     session.delete(activeTx.<Entity>load(mapper));
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keyStream(ato)) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -858,7 +905,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keyStream(ato)) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -868,6 +915,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapSQL() {
@@ -887,7 +935,7 @@ public class MapIndexTest extends BaseDBTest {
         executeQuery("select * from Mapper where intMap containskey ?", "key1");
     Assert.assertNotNull(resultByKey);
     Assert.assertEquals(resultByKey.size(), 1);
-    var result = session.loadEntity(resultByKey.get(0).getIdentity());
+    var result = session.loadEntity(resultByKey.getFirst().getIdentity());
 
     Assert.assertEquals(map, result.<Map<String, Integer>>getProperty("intMap"));
 
@@ -895,7 +943,7 @@ public class MapIndexTest extends BaseDBTest {
         executeQuery("select * from Mapper where intMap containsvalue ?", 10);
     Assert.assertNotNull(resultByValue);
     Assert.assertEquals(resultByValue.size(), 1);
-    result = session.loadEntity(resultByValue.get(0).getIdentity());
+    result = session.loadEntity(resultByValue.getFirst().getIdentity());
 
     Assert.assertEquals(map, result.<Map<String, Integer>>getProperty("intMap"));
     session.commit();

@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
 import java.util.Map;
@@ -57,11 +56,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     init(storage);
   }
 
-  protected void init(Storage storage) {
+  protected void init(AbstractStorage storage) {
     stringCache =
         new StringCache(
             storage
-                .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
     schema = new SchemaEmbedded();
@@ -75,20 +73,18 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     statementCache =
         new StatementCache(
             storage
-                .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
 
     executionPlanCache =
         new ExecutionPlanCache(
             storage
-                .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
     this.registerListener(executionPlanCache);
 
     queryStats = new QueryStats();
-    ((AbstractStorage) storage)
+    storage
         .setStorageConfigurationUpdateListener(
             update -> {
               for (var listener : browseListeners()) {
@@ -177,8 +173,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       schema.createClass(session, "V");
       schema.createClass(session, "E");
 
-      var config = storage.getConfiguration();
-      var blobCollectionsCount = config.getContextConfiguration()
+      var blobCollectionsCount = storage.getContextConfiguration()
           .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
 
       for (var i = 0; i < blobCollectionsCount; i++) {

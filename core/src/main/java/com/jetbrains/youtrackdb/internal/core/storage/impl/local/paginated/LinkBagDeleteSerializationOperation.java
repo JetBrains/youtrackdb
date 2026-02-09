@@ -35,6 +35,6 @@ public class LinkBagDeleteSerializationOperation implements RecordSerializationO
   @Override
   public void execute(
       final AtomicOperation atomicOperation, final AbstractStorage paginatedStorage) {
-    paginatedStorage.deleteTreeLinkBag(ridBag);
+    paginatedStorage.deleteTreeLinkBag(ridBag, atomicOperation);
   }
 }

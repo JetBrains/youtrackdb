@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
 
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
@@ -126,19 +127,28 @@ public class BTreeTestIT {
     System.out.printf("%d us per insert%n", (end - start) / 1_000 / keysCount);
 
     start = System.nanoTime();
-    for (var i = 0; i < keysCount; i++) {
-      Assertions.assertThat(bTree.get(new EdgeKey(42, i % 32000, i))).isEqualTo(i + 1);
-    }
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (var i = 0; i < keysCount; i++) {
+        Assertions.assertThat(bTree.get(new EdgeKey(42, i % 32000, i), atomicOperation))
+            .isEqualTo(i + 1);
+      }
+    });
     end = System.nanoTime();
 
     System.out.printf("%d us per get%n", (end - start) / 1_000 / keysCount);
 
-    Assert.assertEquals(firstKey, bTree.firstKey());
-    Assert.assertEquals(lastKey, bTree.lastKey());
+    var fk = firstKey;
+    var lk = lastKey;
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      Assert.assertEquals(fk, bTree.firstKey(atomicOperation));
+      Assert.assertEquals(lk, bTree.lastKey(atomicOperation));
+    });
 
-    for (var i = keysCount; i < keysCount + 100; i++) {
-      Assert.assertEquals(bTree.get(new EdgeKey(42, i % 32000, i)), -1);
-    }
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (var i = keysCount; i < keysCount + 100; i++) {
+        Assert.assertEquals(-1, bTree.get(new EdgeKey(42, i % 32000, i), atomicOperation));
+      }
+    });
   }
 
   @Test
@@ -154,16 +164,18 @@ public class BTreeTestIT {
             bTree.put(atomicOperation, key, val);
 
             keys.add(key);
-            Assert.assertEquals(bTree.get(key), val);
+            Assert.assertEquals(bTree.get(key, atomicOperation), val);
           });
     }
 
-    Assert.assertEquals(bTree.firstKey(), keys.first());
-    Assert.assertEquals(bTree.lastKey(), keys.last());
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      Assert.assertEquals(bTree.firstKey(atomicOperation), keys.first());
+      Assert.assertEquals(bTree.lastKey(atomicOperation), keys.last());
 
-    for (var key : keys) {
-      Assert.assertEquals(bTree.get(key), key.targetPosition);
-    }
+      for (var key : keys) {
+        Assert.assertEquals(bTree.get(key, atomicOperation), key.targetPosition);
+      }
+    });
   }
 
   @Test
@@ -186,16 +198,18 @@ public class BTreeTestIT {
             bTree.put(atomicOperation, key, val);
 
             keys.add(key);
-            Assert.assertEquals(bTree.get(key), val);
+            Assert.assertEquals(bTree.get(key, atomicOperation), val);
           });
     }
 
-    Assert.assertEquals(bTree.firstKey(), keys.first());
-    Assert.assertEquals(bTree.lastKey(), keys.last());
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      Assert.assertEquals(bTree.firstKey(atomicOperation), keys.first());
+      Assert.assertEquals(bTree.lastKey(atomicOperation), keys.last());
 
-    for (var key : keys) {
-      Assert.assertEquals(bTree.get(key), key.targetPosition);
-    }
+      for (var key : keys) {
+        Assert.assertEquals(bTree.get(key, atomicOperation), key.targetPosition);
+      }
+    });
   }
 
   @Test
@@ -219,21 +233,23 @@ public class BTreeTestIT {
       }
     }
 
-    if (!keys.isEmpty()) {
-      Assert.assertEquals(bTree.firstKey(), keys.first());
-      Assert.assertEquals(bTree.lastKey(), keys.last());
-    } else {
-      Assert.assertNull(bTree.firstKey());
-      Assert.assertNull(bTree.lastKey());
-    }
-
-    for (final var key : keys) {
-      if (key.targetPosition % 3 == 0) {
-        Assert.assertEquals(-1, bTree.get(key));
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      if (!keys.isEmpty()) {
+        Assert.assertEquals(bTree.firstKey(atomicOperation), keys.first());
+        Assert.assertEquals(bTree.lastKey(atomicOperation), keys.last());
       } else {
-        Assert.assertEquals(key.targetPosition, bTree.get(key));
+        Assert.assertNull(bTree.firstKey(atomicOperation));
+        Assert.assertNull(bTree.lastKey(atomicOperation));
       }
-    }
+
+      for (final var key : keys) {
+        if (key.targetPosition % 3 == 0) {
+          Assert.assertEquals(-1, bTree.get(key, atomicOperation));
+        } else {
+          Assert.assertEquals(key.targetPosition, bTree.get(key, atomicOperation));
+        }
+      }
+    });
   }
 
   @Test
@@ -255,7 +271,9 @@ public class BTreeTestIT {
           atomicOperation -> bTree.put(atomicOperation, key, val));
       keys.add(key);
 
-      Assert.assertEquals(bTree.get(key), val);
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+          Assert.assertEquals(bTree.get(key, atomicOperation), val)
+      );
     }
 
     var keysIterator = keys.iterator();
@@ -270,21 +288,23 @@ public class BTreeTestIT {
       }
     }
 
-    if (!keys.isEmpty()) {
-      Assert.assertEquals(bTree.firstKey(), keys.first());
-      Assert.assertEquals(bTree.lastKey(), keys.last());
-    } else {
-      Assert.assertNull(bTree.firstKey());
-      Assert.assertNull(bTree.lastKey());
-    }
-
-    for (var key : keys) {
-      if (key.targetPosition % 3 == 0) {
-        Assert.assertEquals(-1, bTree.get(key));
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      if (!keys.isEmpty()) {
+        Assert.assertEquals(bTree.firstKey(atomicOperation), keys.first());
+        Assert.assertEquals(bTree.lastKey(atomicOperation), keys.last());
       } else {
-        Assert.assertEquals(bTree.get(key), key.targetPosition);
+        Assert.assertNull(bTree.firstKey(atomicOperation));
+        Assert.assertNull(bTree.lastKey(atomicOperation));
       }
-    }
+
+      for (var key : keys) {
+        if (key.targetPosition % 3 == 0) {
+          Assert.assertEquals(-1, bTree.get(key, atomicOperation));
+        } else {
+          Assert.assertEquals(bTree.get(key, atomicOperation), key.targetPosition);
+        }
+      }
+    });
   }
 
   @Test
@@ -309,14 +329,16 @@ public class BTreeTestIT {
       }
     }
 
-    for (var i = 0; i < keysCount; i++) {
-      final var key = new EdgeKey(42, i, i);
-      if (i % 3 == 0) {
-        Assert.assertEquals(-1, bTree.get(key));
-      } else {
-        Assert.assertEquals(i, bTree.get(key));
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (var i = 0; i < keysCount; i++) {
+        final var key = new EdgeKey(42, i, i);
+        if (i % 3 == 0) {
+          Assert.assertEquals(-1, bTree.get(key, atomicOperation));
+        } else {
+          Assert.assertEquals(i, bTree.get(key, atomicOperation));
+        }
       }
-    }
+    });
   }
 
   @Test
@@ -326,9 +348,13 @@ public class BTreeTestIT {
     for (var i = 0; i < keysCount; i++) {
       final var key = new EdgeKey(42, i, i);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> bTree.put(atomicOperation, key, key.targetCollection % 5));
+          atomicOperation -> bTree.put(atomicOperation, key,
+              key.targetCollection % 5)
+      );
 
-      Assert.assertEquals(bTree.get(key), key.targetCollection % 5);
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+          Assert.assertEquals(bTree.get(key, atomicOperation), key.targetCollection % 5)
+      );
     }
 
     for (var i = 0; i < keysCount; i++) {
@@ -348,21 +374,23 @@ public class BTreeTestIT {
           });
     }
 
-    for (var i = 0; i < keysCount; i++) {
-      {
-        final var key = new EdgeKey(42, i, i);
-        if (i % 3 == 0) {
-          Assert.assertEquals(-1, bTree.get(key));
-        } else {
-          Assert.assertEquals(i % 5, bTree.get(key));
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (var i = 0; i < keysCount; i++) {
+        {
+          final var key = new EdgeKey(42, i, i);
+          if (i % 3 == 0) {
+            Assert.assertEquals(-1, bTree.get(key, atomicOperation));
+          } else {
+            Assert.assertEquals(i % 5, bTree.get(key, atomicOperation));
+          }
+        }
+
+        if (i % 2 == 0) {
+          final var key = new EdgeKey(42, i + keysCount, i + keysCount);
+          Assert.assertEquals(bTree.get(key, atomicOperation), (i + keysCount) % 5);
         }
       }
-
-      if (i % 2 == 0) {
-        final var key = new EdgeKey(42, i + keysCount, i + keysCount);
-        Assert.assertEquals(bTree.get(key), (i + keysCount) % 5);
-      }
-    }
+    });
   }
 
   @Test
@@ -393,21 +421,23 @@ public class BTreeTestIT {
       }
     }
 
-    assertIterateMajorEntries(keyValues, random, true, true);
-    assertIterateMajorEntries(keyValues, random, false, true);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertIterateMajorEntries(keyValues, random, true, true, atomicOperation);
+      assertIterateMajorEntries(keyValues, random, false, true, atomicOperation);
 
-    assertIterateMajorEntries(keyValues, random, true, false);
-    assertIterateMajorEntries(keyValues, random, false, false);
+      assertIterateMajorEntries(keyValues, random, true, false, atomicOperation);
+      assertIterateMajorEntries(keyValues, random, false, false, atomicOperation);
 
-    Assert.assertEquals(bTree.firstKey(), keyValues.firstKey());
-    Assert.assertEquals(bTree.lastKey(), keyValues.lastKey());
+      Assert.assertEquals(bTree.firstKey(atomicOperation), keyValues.firstKey());
+      Assert.assertEquals(bTree.lastKey(atomicOperation), keyValues.lastKey());
+    });
   }
 
-  private void assertIterateMajorEntries(
+  private static void assertIterateMajorEntries(
       NavigableMap<EdgeKey, Integer> keyValues,
       Random random,
       boolean keyInclusive,
-      boolean ascSortOrder) {
+      boolean ascSortOrder, AtomicOperation atomicOperation) {
     var keys = new EdgeKey[keyValues.size()];
     var index = 0;
 
@@ -427,7 +457,7 @@ public class BTreeTestIT {
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
       try (var stream =
-          bTree.iterateEntriesMajor(fromKey, keyInclusive, ascSortOrder)) {
+          bTree.iterateEntriesMajor(fromKey, keyInclusive, ascSortOrder, atomicOperation)) {
         indexIterator = stream.iterator();
 
         Iterator<Map.Entry<EdgeKey, Integer>> iterator;
@@ -485,21 +515,23 @@ public class BTreeTestIT {
       }
     }
 
-    assertIterateMinorEntries(keyValues, random, true, true);
-    assertIterateMinorEntries(keyValues, random, false, true);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertIterateMinorEntries(keyValues, random, true, true, atomicOperation);
+      assertIterateMinorEntries(keyValues, random, false, true, atomicOperation);
 
-    assertIterateMinorEntries(keyValues, random, true, false);
-    assertIterateMinorEntries(keyValues, random, false, false);
+      assertIterateMinorEntries(keyValues, random, true, false, atomicOperation);
+      assertIterateMinorEntries(keyValues, random, false, false, atomicOperation);
 
-    Assert.assertEquals(bTree.firstKey(), keyValues.firstKey());
-    Assert.assertEquals(bTree.lastKey(), keyValues.lastKey());
+      Assert.assertEquals(bTree.firstKey(atomicOperation), keyValues.firstKey());
+      Assert.assertEquals(bTree.lastKey(atomicOperation), keyValues.lastKey());
+    });
   }
 
-  private void assertIterateMinorEntries(
+  private static void assertIterateMinorEntries(
       NavigableMap<EdgeKey, Integer> keyValues,
       Random random,
       boolean keyInclusive,
-      boolean ascSortOrder) {
+      boolean ascSortOrder, AtomicOperation atomicOperation) {
     var keys = new EdgeKey[keyValues.size()];
     var index = 0;
 
@@ -517,7 +549,7 @@ public class BTreeTestIT {
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
       try (var stream =
-          bTree.iterateEntriesMinor(toKey, keyInclusive, ascSortOrder)) {
+          bTree.iterateEntriesMinor(toKey, keyInclusive, ascSortOrder, atomicOperation)) {
         indexIterator = stream.iterator();
 
         Iterator<Map.Entry<EdgeKey, Integer>> iterator;
@@ -565,26 +597,29 @@ public class BTreeTestIT {
         printCounter++;
       }
     }
-    assertIterateBetweenEntries(keyValues, random, true, true, true);
-    assertIterateBetweenEntries(keyValues, random, true, false, true);
-    assertIterateBetweenEntries(keyValues, random, false, true, true);
-    assertIterateBetweenEntries(keyValues, random, false, false, true);
 
-    assertIterateBetweenEntries(keyValues, random, true, true, false);
-    assertIterateBetweenEntries(keyValues, random, true, false, false);
-    assertIterateBetweenEntries(keyValues, random, false, true, false);
-    assertIterateBetweenEntries(keyValues, random, false, false, false);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertIterateBetweenEntries(keyValues, random, true, true, true, atomicOperation);
+      assertIterateBetweenEntries(keyValues, random, true, false, true, atomicOperation);
+      assertIterateBetweenEntries(keyValues, random, false, true, true, atomicOperation);
+      assertIterateBetweenEntries(keyValues, random, false, false, true, atomicOperation);
 
-    Assert.assertEquals(bTree.firstKey(), keyValues.firstKey());
-    Assert.assertEquals(bTree.lastKey(), keyValues.lastKey());
+      assertIterateBetweenEntries(keyValues, random, true, true, false, atomicOperation);
+      assertIterateBetweenEntries(keyValues, random, true, false, false, atomicOperation);
+      assertIterateBetweenEntries(keyValues, random, false, true, false, atomicOperation);
+      assertIterateBetweenEntries(keyValues, random, false, false, false, atomicOperation);
+
+      Assert.assertEquals(bTree.firstKey(atomicOperation), keyValues.firstKey());
+      Assert.assertEquals(bTree.lastKey(atomicOperation), keyValues.lastKey());
+    });
   }
 
-  private void assertIterateBetweenEntries(
+  private static void assertIterateBetweenEntries(
       NavigableMap<EdgeKey, Integer> keyValues,
       Random random,
       boolean fromInclusive,
       boolean toInclusive,
-      boolean ascSortOrder) {
+      boolean ascSortOrder, AtomicOperation atomicOperation) {
     var keys = new EdgeKey[keyValues.size()];
     var index = 0;
 
@@ -619,7 +654,8 @@ public class BTreeTestIT {
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
       try (var stream =
-          bTree.streamEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder)) {
+          bTree.streamEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder,
+              atomicOperation)) {
         indexIterator = stream.iterator();
 
         Iterator<Map.Entry<EdgeKey, Integer>> iterator;

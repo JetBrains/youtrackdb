@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.Map;
 import org.junit.After;
 import org.junit.Assert;
@@ -91,11 +90,7 @@ public class TransactionTest {
     // isolation check tx1
     System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
     Assert.assertEquals(recordValue, v3.getProperty("name"));
-    ((AbstractStorage) db.getStorage()).cleanUnreachableRecordVersions();
-
     tx1.commit();
-
-    ((AbstractStorage) db.getStorage()).cleanUnreachableRecordVersions();
   }
 
   /*
@@ -130,7 +125,8 @@ public class TransactionTest {
     // Session 1: start read tx2
     var tx2 = db.begin();
     Vertex v2 = tx2.load(rid);
-    System.out.println("Before modifying with txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
+    System.out.println(
+        "Before modifying with txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
     Assert.assertEquals(recordValue, v2.getProperty("name"));
 
     // commit tx1
@@ -241,7 +237,8 @@ public class TransactionTest {
     var tx2 = db.begin();
     Vertex v2 = tx2.load(rid);
     v2.removeProperty("name");
-    System.out.println("Remove property txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
+    System.out.println(
+        "Remove property txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
     tx2.commit();
 
     // re-load inside tx1
@@ -252,11 +249,7 @@ public class TransactionTest {
     // isolation check tx1
     System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
     Assert.assertEquals(recordValue, v3.getProperty("name"));
-    ((AbstractStorage) db.getStorage()).cleanUnreachableRecordVersions();
-
     tx1.commit();
-
-    ((AbstractStorage) db.getStorage()).cleanUnreachableRecordVersions();
   }
 
   /*
@@ -282,7 +275,7 @@ public class TransactionTest {
     tx.commit();
 
     // Session 2: start read tx1
-    var db1 = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
+    var db1 = youTrackDB.open("test", "admin",
         DbTestBase.ADMIN_PASSWORD);
     var tx1 = db1.begin();
     Vertex v1 = tx1.load(rid);
@@ -305,11 +298,7 @@ public class TransactionTest {
     // isolation check tx1
     System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
     Assert.assertEquals(recordValue, v3.getProperty("name"));
-    ((AbstractStorage) db.getStorage()).cleanUnreachableRecordVersions();
-
     tx1.commit();
-
-    ((AbstractStorage) db.getStorage()).cleanUnreachableRecordVersions();
   }
 
   @Test(expected = com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException.class)
@@ -351,7 +340,7 @@ public class TransactionTest {
   tx1:commit
  */
   @Test
-  public void testSnapshotIsolationIndexes() throws Exception {
+  public void testSnapshotIsolationIndexes() {
     var recordValue = "Foo";
     var updateRecordValue = "Bar";
 

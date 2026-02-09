@@ -55,13 +55,16 @@ public class IndexTxTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     Map<String, RID> expectedResult = new HashMap<>();
     expectedResult.put("doc1", doc1.getIdentity());
     expectedResult.put("doc2", doc2.getIdentity());
 
     var index = getIndex("IndexTxTestIndex");
     Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -78,5 +81,6 @@ public class IndexTxTest extends BaseDBTest {
         Assert.assertEquals(value, expectedValue);
       }
     }
+    session.rollback();
   }
 }

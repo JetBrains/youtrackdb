@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
@@ -122,7 +123,7 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator() {
+  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(AtomicOperation atomicOperation) {
     return null;
   }
 

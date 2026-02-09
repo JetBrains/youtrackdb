@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquality;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
@@ -95,37 +96,6 @@ public interface Index extends Comparable<Index> {
    */
   boolean remove(FrontendTransaction transaction, Object key, Identifiable rid);
 
-  /**
-   * @return number of entries in the index.
-   * @deprecated Use {@link Index#size(DatabaseSessionEmbedded)} instead. This API only for internal
-   * use !.
-   */
-  @Deprecated
-  long getSize(DatabaseSessionEmbedded session);
-
-  /**
-   * Counts the entries for the key.
-   *
-   * @deprecated Use <code>index.getInternal().getRids(key).count()</code> instead. This API only
-   * for internal use !.
-   */
-  @Deprecated
-  long count(DatabaseSessionEmbedded session, Object iKey);
-
-  /**
-   * @return Number of keys in index
-   * @deprecated Use <code>index.getInternal().getRids(key).distinct().count()</code> instead. This
-   * API only for internal use !.
-   */
-  @Deprecated
-  long getKeySize();
-
-  /**
-   * Flushes in-memory changes to disk.
-   */
-  @Deprecated
-  void flush();
-
   @Deprecated
   long getRebuildVersion();
 
@@ -135,41 +105,6 @@ public interface Index extends Comparable<Index> {
    */
   @Deprecated
   boolean isRebuilding();
-
-  /**
-   * @deprecated Use <code>index.getInternal().stream().findFirst().map(pair->pair.first)</code>
-   * instead. This API only for internal use !
-   */
-  @Deprecated
-  Object getFirstKey();
-
-  /**
-   * @deprecated Use <code>index.getInternal().descStream().findFirst().map(pair->pair.first)</code>
-   * instead. This API only for internal use !
-   */
-  @Deprecated
-  Object getLastKey(DatabaseSessionEmbedded session);
-
-  /**
-   * @deprecated Use <code>index.getInternal().stream()</code> instead. This API only for internal
-   * use !
-   */
-  @Deprecated
-  IndexCursor cursor(DatabaseSessionEmbedded session);
-
-  /**
-   * @deprecated Use <code>index.getInternal().descStream()</code> instead. This API only for
-   * internal use !
-   */
-  @Deprecated
-  IndexCursor descCursor(DatabaseSessionEmbedded session);
-
-  /**
-   * @deprecated Use <code>index.getInternal().keyStream()</code> instead. This API only for
-   * internal use !
-   */
-  @Deprecated
-  IndexKeyCursor keyCursor();
 
   /**
    * Delete the index.
@@ -242,81 +177,7 @@ public interface Index extends Comparable<Index> {
    */
   Set<String> getCollections();
 
-  /**
-   * Returns cursor which presents data associated with passed in keys.
-   *
-   * @param session
-   * @param keys         Keys data of which should be returned.
-   * @param ascSortOrder Flag which determines whether data iterated by cursor should be in
-   *                     ascending or descending order.
-   * @return cursor which presents data associated with passed in keys.
-   * @deprecated Use {@link Index#streamEntries(DatabaseSessionEmbedded, Collection, boolean)}
-   * instead. This API only for internal use !
-   */
-  @Deprecated
-  IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
-      boolean ascSortOrder);
-
-  /**
-   * Returns cursor which presents subset of index data between passed in keys.
-   *
-   * @param session
-   * @param fromKey       Lower border of index data.
-   * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
-   * @param toKey         Upper border of index data.
-   * @param toInclusive   Indicates whether upper border should be inclusive or exclusive.
-   * @param ascOrder      Flag which determines whether data iterated by cursor should be in
-   *                      ascending or descending order.
-   * @return Cursor which presents subset of index data between passed in keys.
-   * @deprecated Use
-   * {@link Index#streamEntriesBetween(DatabaseSessionEmbedded, Object, boolean, Object, boolean, boolean)} instead. This API only * for internal use !
-   */
-  @Deprecated
-  IndexCursor iterateEntriesBetween(
-      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
-      boolean toInclusive, boolean ascOrder);
-
-  /**
-   * Returns cursor which presents subset of data which associated with key which is greater than
-   * passed in key.
-   *
-   * @param session
-   * @param fromKey       Lower border of index data.
-   * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
-   * @param ascOrder      Flag which determines whether data iterated by cursor should be in
-   *                      ascending or descending order.
-   * @return cursor which presents subset of data which associated with key which is greater than
-   * passed in key.
-   * @deprecated Use
-   * {@link Index#streamEntriesMajor(DatabaseSessionEmbedded, Object, boolean, boolean)} instead.
-   * This API only for internal use !
-   */
-  @Deprecated
-  IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
-      boolean fromInclusive, boolean ascOrder);
-
-  /**
-   * Returns cursor which presents subset of data which associated with key which is less than
-   * passed in key.
-   *
-   * @param session
-   * @param toKey       Upper border of index data.
-   * @param toInclusive Indicates Indicates whether upper border should be inclusive or exclusive.
-   * @param ascOrder    Flag which determines whether data iterated by cursor should be in ascending
-   *                    or descending order.
-   * @return cursor which presents subset of data which associated with key which is less than
-   * passed in key.
-   * @deprecated Use
-   * {@link Index#streamEntriesMinor(DatabaseSessionEmbedded, Object, boolean, boolean)} instead.
-   * This API only for internal use !
-   */
-  @Deprecated
-  IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
-      boolean toInclusive, boolean ascOrder);
-
   Map<String, Object> getMetadata();
-
-  boolean supportsOrderedIterations();
 
   boolean isUnique();
 
@@ -334,9 +195,9 @@ public interface Index extends Comparable<Index> {
   /**
    * Add given collection to the list of collections that should be automatically indexed.
    *
-   * @param transaction
+   * @param transaction    Currently active database transaction.
    * @param collectionName Collection to add.
-   * @param requireEmpty Whether the collection has to be empty.
+   * @param requireEmpty   Whether the collection has to be empty.
    * @return Current index instance.
    */
   Index addCollection(FrontendTransaction transaction, final String collectionName,
@@ -345,7 +206,7 @@ public interface Index extends Comparable<Index> {
   /**
    * Remove given collection from the list of collections that should be automatically indexed.
    *
-   * @param transaction
+   * @param transaction    Currently active database transaction.
    * @param collectionName Collection to remove.
    */
   void removeCollection(FrontendTransaction transaction, final String collectionName);
@@ -359,8 +220,6 @@ public interface Index extends Comparable<Index> {
    */
   boolean canBeUsedInEqualityOperators();
 
-  boolean hasRangeQuerySupport();
-
   IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config);
 
   void close();
@@ -369,7 +228,7 @@ public interface Index extends Comparable<Index> {
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * index.
    */
-  boolean acquireAtomicExclusiveLock();
+  boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
 
   /**
    * @return number of entries in the index.
@@ -382,7 +241,7 @@ public interface Index extends Comparable<Index> {
 
   Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session);
 
-  Stream<Object> keyStream();
+  Stream<Object> keyStream(AtomicOperation operation);
 
   /**
    * Returns stream which presents subset of index data between passed in keys.

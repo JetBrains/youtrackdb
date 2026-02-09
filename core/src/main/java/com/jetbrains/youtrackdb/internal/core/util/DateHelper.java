@@ -43,7 +43,7 @@ public class DateHelper {
 
   public static DateFormat getDateFormatInstance(final DatabaseSessionEmbedded session) {
     if (session != null && !session.isClosed()) {
-      return session.getStorageInfo().getConfiguration().getDateFormatInstance();
+      return session.getStorage().getDateFormatInstance();
     } else {
       var format = new SimpleDateFormat(StorageConfiguration.DEFAULT_DATE_FORMAT);
       format.setTimeZone(getDatabaseTimeZone(session));
@@ -53,7 +53,7 @@ public class DateHelper {
 
   public static String getDateFormat(final DatabaseSessionEmbedded session) {
     if (session != null && !session.isClosed()) {
-      return session.getStorageInfo().getConfiguration().getDateFormat();
+      return session.getStorage().getDateFormat();
     } else {
       return StorageConfiguration.DEFAULT_DATE_FORMAT;
     }
@@ -62,7 +62,7 @@ public class DateHelper {
 
   public static DateFormat getDateTimeFormatInstance(final DatabaseSessionEmbedded db) {
     if (db != null && !db.isClosed()) {
-      return db.getStorageInfo().getConfiguration().getDateTimeFormatInstance();
+      return db.getStorage().getDateTimeFormatInstance();
     } else {
       var format = new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT);
       format.setTimeZone(getDatabaseTimeZone(db));
@@ -72,7 +72,7 @@ public class DateHelper {
 
   public static String getDateTimeFormat(final DatabaseSessionEmbedded db) {
     if (db != null && !db.isClosed()) {
-      return db.getStorageInfo().getConfiguration().getDateTimeFormat();
+      return db.getStorage().getDateTimeFormat();
     } else {
       return StorageConfiguration.DEFAULT_DATETIME_FORMAT;
     }

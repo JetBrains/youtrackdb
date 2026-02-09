@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,6 +13,7 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 public final class SpliteratorForward implements Spliterator<RawPairObjectInteger<EdgeKey>> {
+
   private final SharedLinkBagBTree bTree;
 
   private final EdgeKey fromKey;
@@ -27,18 +29,21 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
   private final List<RawPairObjectInteger<EdgeKey>> dataCache = new ArrayList<>();
   private Iterator<RawPairObjectInteger<EdgeKey>> cacheIterator = Collections.emptyIterator();
 
+  private final AtomicOperation atomicOperation;
+
   SpliteratorForward(
       SharedLinkBagBTree bTree,
       final EdgeKey fromKey,
       final EdgeKey toKey,
       final boolean fromKeyInclusive,
-      final boolean toKeyInclusive) {
+      final boolean toKeyInclusive, AtomicOperation atomicOperation) {
     this.bTree = bTree;
     this.fromKey = fromKey;
     this.toKey = toKey;
 
     this.toKeyInclusive = toKeyInclusive;
     this.fromKeyInclusive = fromKeyInclusive;
+    this.atomicOperation = atomicOperation;
   }
 
   @Override
@@ -52,7 +57,7 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
       return true;
     }
 
-    this.bTree.fetchNextCachePortionForward(this);
+    this.bTree.fetchNextCachePortionForward(this, atomicOperation);
 
     cacheIterator = dataCache.iterator();
 

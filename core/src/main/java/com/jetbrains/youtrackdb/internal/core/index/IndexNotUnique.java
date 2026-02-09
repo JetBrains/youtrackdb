@@ -20,9 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import javax.annotation.Nonnull;
@@ -34,7 +33,7 @@ import javax.annotation.Nullable;
 public class IndexNotUnique extends IndexMultiValues {
 
   public IndexNotUnique(@Nullable RID identity,
-      @Nonnull FrontendTransaction transaction,
+      @Nonnull FrontendTransactionImpl transaction,
       @Nonnull Storage storage) {
     super(identity, transaction, storage);
   }
@@ -46,17 +45,6 @@ public class IndexNotUnique extends IndexMultiValues {
   @Override
   public boolean canBeUsedInEqualityOperators() {
     return true;
-  }
-
-  @Override
-  public boolean supportsOrderedIterations() {
-    while (true) {
-      try {
-        return storage.hasIndexRangeQuerySupport(indexId);
-      } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
-      }
-    }
   }
 
   @Override

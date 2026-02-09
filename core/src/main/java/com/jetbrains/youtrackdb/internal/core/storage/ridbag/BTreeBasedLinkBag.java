@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LinkBagDeleteSerializationOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LinkBagUpdateSerializationOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
@@ -167,7 +168,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     if (tree == null) {
       oldValue = 0;
     } else {
-      oldValue = tree.get(rid);
+      oldValue = tree.get(rid, atomicOperation);
     }
 
     if (oldValue == null) {
@@ -203,14 +204,14 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator() {
+  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(AtomicOperation atomicOperation) {
     Spliterator<ObjectIntPair<RID>> btreeRecordsSpliterator = null;
 
     var tree = loadTree();
     if (tree != null) {
       btreeRecordsSpliterator = tree.spliteratorEntriesBetween(new RecordId(0, 0),
           true,
-          new RecordId(RID.COLLECTION_MAX, Integer.MAX_VALUE), true, true);
+          new RecordId(RID.COLLECTION_MAX, Integer.MAX_VALUE), true, true, atomicOperation);
     }
 
     return btreeRecordsSpliterator;

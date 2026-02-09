@@ -1198,11 +1198,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       // just in case they are not in the internal collection (possibly redundant logic)
       final var schemaRecordId =
           RecordIdInternal.fromString(
-              session.getStorageInfo().getConfiguration().getSchemaRecordId(),
+              session.getStorage().getSchemaRecordId(),
               false);
       final var indexMgrRecordId =
           RecordIdInternal.fromString(
-              session.getStorageInfo().getConfiguration().getIndexMgrRecordId(),
+              session.getStorage().getIndexMgrRecordId(),
               false);
 
       session.executeInTx(transaction -> {

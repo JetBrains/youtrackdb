@@ -21,14 +21,13 @@ import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 @Test
 public class DateTest extends BaseDBTest {
   @Test
-  public void testDateConversion() throws ParseException {
+  public void testDateConversion() {
     final var begin = System.currentTimeMillis();
 
     session.createClass("Order");
@@ -52,11 +51,11 @@ public class DateTest extends BaseDBTest {
   }
 
   @Test
-  public void testDatePrecision() throws ParseException {
+  public void testDatePrecision() {
     final var begin = System.currentTimeMillis();
 
     var dateAsString =
-        session.getStorage().getConfiguration().getDateFormatInstance().format(begin);
+        DateHelper.getDateFormatInstance(session).format(begin);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Order"));
@@ -72,14 +71,14 @@ public class DateTest extends BaseDBTest {
             .execute(
                 "select * from Order where date >= ? and context = 'testPrecision'", dateAsString)
             .stream()
-            .collect(Collectors.toList());
+            .toList();
 
     Assert.assertEquals(result.size(), 1);
     session.commit();
   }
 
   @Test
-  public void testDateTypes() throws ParseException {
+  public void testDateTypes() {
     session.begin();
     var doc = ((EntityImpl) session.newEntity());
     doc.setProperty("context", "test");
@@ -93,7 +92,7 @@ public class DateTest extends BaseDBTest {
   /**
    * https://github.com/orientechnologies/orientjs/issues/48
    */
-  @Test
+@Test
   public void testDateGregorianCalendar() throws ParseException {
     session.execute("CREATE CLASS TimeTest EXTENDS V").close();
 
