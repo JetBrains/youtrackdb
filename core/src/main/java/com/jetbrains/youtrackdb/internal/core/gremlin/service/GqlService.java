@@ -1,4 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
+
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
@@ -29,12 +30,11 @@ public class GqlService implements Service<Object, Object> {
   public static final String ARGUMENTS = "args";
 
   private final String query;
-  private final Map<?, ?> arguments;
   private final Type type;
 
+  @SuppressWarnings("unused")
   public GqlService(String query, Map<?, ?> arguments, Type type) {
     this.query = query;
-    this.arguments = arguments;
     this.type = type;
   }
 
@@ -121,17 +121,10 @@ public class GqlService implements Service<Object, Object> {
     return new GqlResultIterator(stream, executionPlan);
   }
 
-  /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption.
-  /// Handles any query type, not just MATCH.
-  private static class GqlResultIterator implements CloseableIterator<Object> {
-
-    private final GqlExecutionStream stream;
-    private final GqlExecutionPlan plan;
-
-    GqlResultIterator(GqlExecutionStream stream, GqlExecutionPlan plan) {
-      this.stream = stream;
-      this.plan = plan;
-    }
+  /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption. Handles any
+  /// query type, not just MATCH.
+  private record GqlResultIterator(GqlExecutionStream stream, GqlExecutionPlan plan) implements
+      CloseableIterator<Object> {
 
     @Override
     public boolean hasNext() {
