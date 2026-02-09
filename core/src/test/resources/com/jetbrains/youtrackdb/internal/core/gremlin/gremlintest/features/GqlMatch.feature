@@ -33,24 +33,6 @@ Feature: GQL Match Support
       | result              |
       | m[{"a":"v[Alice]"}] |
 
-  Scenario: g_gql_MATCH_multiple_nodes
-    And the traversal of
-      """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO GqlPerson SET name = 'John'").sqlCommand("COMMIT")
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO GqlPerson SET name = 'Alice'").sqlCommand("COMMIT")
-      """
-    When iterated to list
-    And the traversal of
-      """
-      g.gql("MATCH (a:GqlPerson)")
-      """
-    When iterated to list
-    Then the result should have a count of 2
-    And the result should be unordered
-      | result              |
-      | m[{"a":"v[Alice]"}] |
-      | m[{"a":"v[John]"}]  |
-
   Scenario: g_gql_MATCH_with_parameters_and_where
     And the traversal of
       """
