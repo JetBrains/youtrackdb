@@ -25,7 +25,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     var cache = GqlExecutionPlanCache.instance(session);
 
     // 1) Cache should not contain this statement before the first planning
-    Assert.assertFalse("Execution plan cache should not contain the query yet", cache.contains(query));
+    Assert.assertFalse("Execution plan cache should not contain the query yet",
+        cache.contains(query));
 
     // 2) Planning (this code path is expected to populate the execution plan cache)
     var statement = GqlPlanner.getStatement(query, session);

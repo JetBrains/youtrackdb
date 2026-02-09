@@ -26,6 +26,7 @@ public class GqlMatchStatement implements GqlStatement {
     this.originalStatement = originalStatement;
   }
 
+  @SuppressWarnings("unused")
   public String getOriginalStatement() {
     return originalStatement;
   }
