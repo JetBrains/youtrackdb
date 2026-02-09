@@ -122,6 +122,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           CREATED_AT_VERSION_PROPERTY,
           UUID
       };
+  public static final String VALIDATION_PROPERTY = "validation";
 
   private ContextConfiguration configuration;
   private boolean validation;
@@ -174,9 +175,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       preloadStringProperties(atomicOperation);
       preloadCollections(atomicOperation);
       preloadConfigurationProperties(atomicOperation);
-      setValidation(
-          atomicOperation,
-          getContextConfiguration().getValueAsBoolean(GlobalConfiguration.DB_VALIDATION));
+
+      doSetProperty(atomicOperation, VALIDATION_PROPERTY,
+          configuration.getValueAsBoolean(GlobalConfiguration.DB_VALIDATION) ? "true" : "false");
       recalculateLocale();
     } catch (Exception e) {
       cache.clear();
@@ -274,7 +275,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       preloadCollections(atomicOperation);
       recalculateLocale();
 
-      validation = "true".equalsIgnoreCase(getProperty("validation"));
+      validation = "true".equalsIgnoreCase(getProperty(VALIDATION_PROPERTY));
     } catch (Exception e) {
       cache.clear();
       throw BaseException.wrapException(new StorageException(storage.getName(),
@@ -322,7 +323,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private void updateMinimumCollections(AtomicOperation atomicOperation) {
-    updateIntProperty(atomicOperation, MINIMUM_COLLECTIONS_PROPERTY, getMinimumCollections());
+    updateIntProperty(atomicOperation, MINIMUM_COLLECTIONS_PROPERTY, doGetMinimalCollections());
   }
 
   private void readMinimumCollections(AtomicOperation atomicOperation) {
@@ -335,17 +336,21 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getMinimumCollections() {
     lock.readLock().lock();
     try {
-      final var mc =
-          getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
-      if (mc == 0) {
-        autoInitCollections();
-        return (Integer)
-            getContextConfiguration().getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
-      }
-      return mc;
+      return doGetMinimalCollections();
     } finally {
       lock.readLock().unlock();
     }
+  }
+
+  private int doGetMinimalCollections() {
+    final var mc =
+        configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
+    if (mc == 0) {
+      autoInitCollections();
+      return (Integer)
+          configuration.getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
+    }
+    return mc;
   }
 
   @Override
@@ -1054,16 +1059,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final AtomicOperation atomicOperation, final String name, final String value) {
     lock.writeLock().lock();
     try {
-      if ("validation".equalsIgnoreCase(name)) {
-        validation = "true".equalsIgnoreCase(value);
-      }
-
-      final var key = PROPERTY_PREFIX_PROPERTY + name;
-      updateStringProperty(atomicOperation, key, value, false);
-
-      @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
-          PROPERTIES);
-      properties.put(name, value);
+      doSetProperty(atomicOperation, name, value);
     } catch (Exception e) {
       cache.clear();
       throw BaseException.wrapException(new StorageException(storage.getName(),
@@ -1073,8 +1069,27 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  private void doSetProperty(AtomicOperation atomicOperation, String name, String value) {
+    if (VALIDATION_PROPERTY.equalsIgnoreCase(name)) {
+      validation = "true".equalsIgnoreCase(value);
+    }
+
+    final var key = PROPERTY_PREFIX_PROPERTY + name;
+    updateStringProperty(atomicOperation, key, value, false);
+
+    @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
+        PROPERTIES);
+    properties.put(name, value);
+  }
+
   public void setValidation(final AtomicOperation atomicOperation, final boolean validation) {
-    setProperty(atomicOperation, "validation", validation ? "true" : "false");
+    lock.writeLock().lock();
+    try {
+      setProperty(atomicOperation, VALIDATION_PROPERTY, validation ? "true" : "false");
+    } finally {
+      lock.writeLock().unlock();
+    }
+
   }
 
   @Override
@@ -1173,13 +1188,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private void recalculateLocale() {
     Locale locale;
     try {
-      final var localeLanguage = getLocaleLanguage();
-      final var localeCountry = getLocaleCountry();
+      final var localeLanguage = readStringProperty(LOCALE_LANGUAGE_PROPERTY);
+      final var localeCountry = readStringProperty(LOCALE_COUNTRY_PROPERTY);
 
       if (localeLanguage == null || localeCountry == null) {
         locale = Locale.getDefault();
       } else {
-        locale = Locale.of(getLocaleLanguage(), getLocaleCountry());
+        locale = Locale.of(localeLanguage, localeCountry);
       }
     } catch (final RuntimeException e) {
       locale = Locale.getDefault();
@@ -1879,16 +1894,22 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     updateVersion(atomicOperation);
     updateBinaryFormatVersion(atomicOperation);
 
-    setCharset(atomicOperation, DEFAULT_CHARSET);
-    setDateFormat(atomicOperation, DEFAULT_DATE_FORMAT);
-    setDateTimeFormat(atomicOperation, DEFAULT_DATETIME_FORMAT);
-    setLocaleLanguage(atomicOperation, Locale.getDefault().getLanguage());
-    setLocaleCountry(atomicOperation, Locale.getDefault().getCountry());
-    setTimeZone(atomicOperation, TimeZone.getDefault());
+    updateStringProperty(atomicOperation, CHARSET_PROPERTY, DEFAULT_CHARSET, true);
+    updateStringProperty(atomicOperation, DATE_FORMAT_PROPERTY, DEFAULT_DATE_FORMAT, true);
+    updateStringProperty(atomicOperation, DATE_TIME_FORMAT_PROPERTY, DEFAULT_DATETIME_FORMAT, true);
 
-    setPageSize(atomicOperation, -1);
-    setFreeListBoundary(atomicOperation, -1);
-    setMaxKeySize(atomicOperation, -1);
+    updateStringProperty(atomicOperation, LOCALE_LANGUAGE_PROPERTY,
+        Locale.getDefault().getLanguage(), true);
+    updateStringProperty(atomicOperation, LOCALE_COUNTRY_PROPERTY,
+        Locale.getDefault().getCountry(), true);
+
+    recalculateLocale();
+
+    updateStringProperty(atomicOperation, TIME_ZONE_PROPERTY, TimeZone.getDefault().getID(), true);
+
+    updateIntProperty(atomicOperation, PAGE_SIZE_PROPERTY, -1);
+    updateIntProperty(atomicOperation, FREE_LIST_BOUNDARY_PROPERTY, -1);
+    updateIntProperty(atomicOperation, MAX_KEY_SIZE_PROPERTY, -1);
 
     if (!configuration
         .getContextKeys()
@@ -1901,7 +1922,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     updateMinimumCollections(atomicOperation); // store inside of configuration
 
-    setRecordSerializerVersion(atomicOperation, 0);
+    updateIntProperty(
+        atomicOperation, RECORD_SERIALIZER_VERSION_PROPERTY, 0);
   }
 
   private void copy(
@@ -1960,9 +1982,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private void autoInitCollections() {
-    if (getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT)
+    if (configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT)
         == 0) {
-      getContextConfiguration().setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 8);
+      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 8);
     }
   }
 

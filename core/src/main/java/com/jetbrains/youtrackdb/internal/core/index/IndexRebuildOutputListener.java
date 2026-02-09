@@ -101,7 +101,9 @@ public class IndexRebuildOutputListener implements ProgressListener {
   @Override
   public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
       final boolean iSucceed) {
+    session.begin();
     final var idxSize = idx.size(session);
+    session.rollback();
 
     if (idxSize > 0) {
       if (rebuild) {

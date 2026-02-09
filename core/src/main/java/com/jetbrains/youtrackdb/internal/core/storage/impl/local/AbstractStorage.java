@@ -1886,7 +1886,7 @@ public abstract class AbstractStorage
           makeStorageDirty();
 
           Throwable error = null;
-          startTxCommit();
+          startTxCommit(atomicOperation);
           try {
             lockCollections(collectionsToLock, atomicOperation);
             lockLinkBags(collectionsToLock, atomicOperation);
@@ -3014,7 +3014,7 @@ public abstract class AbstractStorage
       try {
 
         final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.startWriteOperations(null);
+        final var lockId = atomicOperationsManager.freezeWriteOperations(null);
         try {
           checkOpennessAndMigration();
 
@@ -3172,11 +3172,11 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         if (throwException) {
-          atomicOperationsManager.startWriteOperations(
+          atomicOperationsManager.freezeWriteOperations(
               () -> new ModificationOperationProhibitedException(name,
                   "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.startWriteOperations(null);
+          atomicOperationsManager.freezeWriteOperations(null);
         }
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
@@ -3789,8 +3789,8 @@ public abstract class AbstractStorage
     return atomicOperationsManager.startAtomicOperation();
   }
 
-  private void startTxCommit() {
-    atomicOperationsManager.startWriteOperations();
+  private void startTxCommit(AtomicOperation atomicOperation) {
+    atomicOperationsManager.startToApplyOperations(atomicOperation);
   }
 
   private void recoverIfNeeded() throws Exception {
