@@ -40,9 +40,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
 
   private static final int THREADS = Runtime.getRuntime().availableProcessors() << 1;
