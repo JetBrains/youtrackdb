@@ -4238,17 +4238,76 @@ public class CASDiskWriteAheadLogIT {
     wal.close();
   }
 
+  /// Tests that the `read()` method of [CASDiskWriteAheadLog] correctly reads WAL records across
+  /// multiple segments, both before and after WAL close/reopen (simulating crash recovery).
+  ///
+  /// The test exercises the following scenario:
+  /// <ol>
+  ///     - **Write phase**: 100,000 randomly-sized records (1 byte to 3x page size) are
+  ///     written to the WAL. After each record, with ~5% probability, 1-5 new segments are
+  ///     appended via `appendNewSegment()`, forcing subsequent records into new WAL
+  ///     segment files. This creates a multi-segment WAL with records scattered across many
+  ///     segment boundaries.
+  ///     - **First verification (in-memory)**: While the WAL is still open, the test reads
+  ///     all records using `read(lsn, 500)`, starting from each record's LSN to fetch a
+  ///     batch of up to 500 records. It verifies that every record's data payload and LSN
+  ///     match the original written records. [EmptyWALRecord] entries (inserted at segment
+  ///     boundaries) are skipped.
+  ///     - **Close and reopen**: The WAL is closed and reopened from disk, simulating a
+  ///     database restart or crash recovery. The reopened WAL uses different configuration
+  ///     parameters (smaller initial segment count of 100, unlimited max segment size set to
+  ///     `Integer.MAX_VALUE`, and free-space limit of -1) to verify that recovery
+  ///     works regardless of current configuration.
+  ///     - **Post-recovery begin/end verification**: After reopening, the test checks that:
+  ///
+  ///   - `wal.begin()` still points to the very first record in segment 1 at
+  ///     offset [CASWALPage#RECORDS_OFFSET].
+  ///   - `wal.end()` points to the correct position. On recovery, the WAL scans
+  ///     existing segment files, takes `segments.last() + 1` as the new segment ID, and
+  ///     opens a fresh segment there. If K segments were appended after the last record
+  ///     (creating segment files up to N+K), recovery opens segment N+K+1.
+  ///     If no segments were appended, recovery opens N+1. So the expected end is
+  ///     always `(lastRecordSegment + segmentsAppendedAfterLastRecord + 1,
+  ///     RECORDS_OFFSET)`.
+  ///
+  ///
+  ///     - **Second verification (from disk)**: The same record-by-record read via
+  ///     `read()` is repeated on the reopened WAL. All records are verified to have
+  ///     identical data and LSNs as the originals. The inner loop also checks
+  ///     `recordIterator.hasNext()` to handle trailing [EmptyWALRecord] entries
+  ///     that may appear after the last user record due to recovery.
+  /// </ol>
+  ///
+  /// **Key invariants verified**:
+  ///
+  ///     - `read()` correctly returns records spanning segment boundaries.
+  ///     - Random segment splits at arbitrary points do not corrupt record ordering or data.
+  ///     - All records survive WAL close and reopen (durability).
+  ///     - The WAL's begin/end LSN bookkeeping remains consistent after recovery,
+  ///     accounting for the exact number of empty segments appended after the last record.
+  ///     - EmptyWALRecords at segment boundaries are correctly handled (skipped during
+  ///     iteration).
+  ///
+  ///
+  /// The test uses a random seed (printed to stdout) so failures can be reproduced
+  /// deterministically by reusing the same seed value.
   @Test
   public void testAppendSegment() throws Exception {
     var iterations = 1;
     for (var n = 0; n < iterations; n++) {
+      // Clean the test directory to ensure a fresh WAL for each iteration.
       FileUtils.deleteRecursively(testDirectory.toFile());
 
+      // Use a time-based random seed so that failures can be reproduced by reusing the seed.
       final var seed = System.nanoTime();
       System.out.println("testAppendSegment seed : " + seed);
       final var random = new Random(seed);
 
       try {
+        // --- WAL Initialization ---
+        // Create a new WAL with a 48KB max segment size and 10MB free-space limit.
+        // The relatively small segment size (48KB) ensures that records will span across
+        // many segments, thoroughly testing cross-segment reads.
         var wal =
             new CASDiskWriteAheadLog(
                 "walTest",
@@ -4271,42 +4330,68 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
+        // Stores all written records in order for later verification.
         List<TestRecord> records = new ArrayList<>();
 
-        var segmentWasAdded = false;
+        // Tracks how many segments were appended after the very last record.
+        // This affects the expected WAL end position after recovery: the WAL constructor
+        // sets currentSegment = segments.last() + 1, so end = N + K + 1 where N is the
+        // last record's segment and K is the number of appended segments after it.
+        var segmentsAppendedAfterLastRecord = 0;
         System.out.println("Load data");
+
+        // --- Write Phase ---
+        // Write 100,000 records with random sizes between 1 byte and 3x the WAL page size.
+        // Randomly append new segments (~5% chance per record) to create a complex
+        // multi-segment WAL layout.
         final var recordsCount = 100_000;
         for (var i = 0; i < recordsCount; i++) {
-          segmentWasAdded = false;
+          // Reset per-record: only the state after the LAST record matters for the
+          // end-position assertion after recovery.
+          segmentsAppendedAfterLastRecord = 0;
+
+          // Create a record with random data payload (size: 1 to 3*pageSize bytes).
           final var walRecord = new TestRecord(random, 3 * wal.pageSize(), 1);
           records.add(walRecord);
 
+          // Log the record and verify the returned LSN matches the one assigned to the record.
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
+          // The WAL begin should always point to the very first record position in segment 1.
           Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+          // The WAL end should always be the LSN of the most recently logged record.
           Assert.assertEquals(wal.end(), lsn);
 
+          // With ~5% probability, force 1-5 new segment boundaries.
+          // This simulates real-world scenarios where segments rotate due to size limits
+          // or explicit segment switches (e.g., after checkpoint).
           if (random.nextDouble() < 0.05) {
             final var segments = random.nextInt(5) + 1;
 
             for (var k = 0; k < segments; k++) {
               wal.appendNewSegment();
-              segmentWasAdded = true;
+              segmentsAppendedAfterLastRecord++;
             }
           }
         }
 
+        // --- First Verification: In-Memory (WAL still open) ---
+        // Walk through all records using read(), verifying data integrity and LSN correctness.
+        // read(lsn, limit) returns up to `limit` records starting FROM the given LSN.
         System.out.println("First check");
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
           Assert.assertFalse(result.isEmpty());
 
           final var resultIterator = result.iterator();
+          // Expected records start from i (read() returns records starting FROM the given LSN).
           final var recordIterator = records.subList(i, recordsCount).iterator();
 
           while (resultIterator.hasNext()) {
             var writeableWALRecord = resultIterator.next();
+            // EmptyWALRecords are internal markers placed at segment boundaries;
+            // they carry no user data and should be skipped during verification.
             if (writeableWALRecord instanceof EmptyWALRecord) {
               continue;
             }
@@ -4314,13 +4399,23 @@ public class CASDiskWriteAheadLogIT {
             var record = recordIterator.next();
             var resultRecord = (TestRecord) writeableWALRecord;
 
+            // Verify the record's data payload matches exactly.
             Assert.assertArrayEquals(record.data, resultRecord.data);
+            // Verify the record's LSN matches the one assigned during logging.
             Assert.assertEquals(record.getLsn(), resultRecord.getLsn());
           }
         }
 
+        // --- Close WAL ---
+        // Flush all in-memory buffers to disk and close the WAL cleanly.
         wal.close();
 
+        // --- Reopen WAL (simulates restart/recovery) ---
+        // Reopen the WAL from disk with different configuration parameters:
+        //   - Smaller initial segment count (100 vs 48,000) — tests that recovery does
+        //     not depend on matching the original segment configuration.
+        //   - Max segment size set to Integer.MAX_VALUE — no size-based segment rotation.
+        //   - Free-space limit set to -1 — no free-space-based cleanup during recovery.
         System.out.println("Second check");
         wal =
             new CASDiskWriteAheadLog(
@@ -4344,21 +4439,27 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
+        // --- Post-Recovery Begin/End Assertions ---
+        // After recovery, begin() must still point to the first record in segment 1.
         Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
-        if (segmentWasAdded) {
-          Assert.assertEquals(
-              new LogSequenceNumber(
-                  records.getLast().getLsn().getSegment() + 4,
-                  CASWALPage.RECORDS_OFFSET),
-              wal.end());
-        } else {
-          Assert.assertEquals(
-              new LogSequenceNumber(
-                  records.getLast().getLsn().getSegment() + 1,
-                  CASWALPage.RECORDS_OFFSET),
-              wal.end());
-        }
 
+        // The expected end position depends on how many segments were appended after the
+        // last logged record. On recovery, the WAL constructor scans all segment files,
+        // computes nextSegmentId = segments.last() + 1, and opens a new segment there.
+        //   - If the last record is in segment N and K segments were appended after it,
+        //     segment files exist up to N+K, so recovery opens segment N+K+1.
+        //   - If no segments were appended (K=0), recovery opens segment N+1.
+        // In both cases: end = (N + K + 1, RECORDS_OFFSET).
+        Assert.assertEquals(
+            new LogSequenceNumber(
+                records.getLast().getLsn().getSegment()
+                    + segmentsAppendedAfterLastRecord + 1,
+                CASWALPage.RECORDS_OFFSET),
+            wal.end());
+
+        // --- Second Verification: From Disk (after recovery) ---
+        // Repeat the same record-by-record read as the first check, but now reading
+        // from the recovered WAL. This verifies durability — all records survive close/reopen.
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
           Assert.assertFalse(result.isEmpty());
@@ -4366,6 +4467,9 @@ public class CASDiskWriteAheadLogIT {
           final var resultIterator = result.iterator();
           final var recordIterator = records.subList(i, recordsCount).iterator();
 
+          // Note: this loop also checks recordIterator.hasNext() to handle the case where
+          // the result batch extends beyond the expected records (e.g., includes trailing
+          // EmptyWALRecords from recovery).
           while (resultIterator.hasNext() && recordIterator.hasNext()) {
             var writeableWALRecord = resultIterator.next();
             if (writeableWALRecord instanceof EmptyWALRecord) {
@@ -4385,23 +4489,87 @@ public class CASDiskWriteAheadLogIT {
         Thread.sleep(2);
         System.out.printf("%d iterations out of %d were passed\n", n, iterations);
       } catch (Error | Exception e) {
+        // Re-print the seed on failure so the exact sequence can be reproduced for debugging.
         System.out.println("testAppendSegment seed : " + seed);
         throw e;
       }
     }
   }
 
+  /// Tests that the `next()` method of [CASDiskWriteAheadLog] correctly iterates through WAL
+  /// records across multiple segments, both before and after WAL close/reopen (simulating crash
+  /// recovery).
+  ///
+  /// The test exercises the following scenario:
+  /// <ol>
+  ///     - **Write phase**: 100,000 randomly-sized records (1 byte to 3x page size) are
+  ///     written to the WAL. After each record, with ~5% probability, 1-5 new segments are
+  ///     appended via `appendNewSegment()`, forcing subsequent records into new WAL
+  ///     segment files. This creates a multi-segment WAL with records scattered across many
+  ///     segment boundaries.
+  ///     - **First verification (in-memory)**: While the WAL is still open, the test walks
+  ///     through all records using `next(lsn, 500)`, starting from each record's LSN
+  ///     to fetch the next batch of up to 500 records. It verifies that every record's data
+  ///     payload and LSN match the original written records. [EmptyWALRecord] entries
+  ///     (inserted at segment boundaries) are skipped. The test also confirms that calling
+  ///     `next()` on the very last record returns an empty list, indicating no more
+  ///     records follow.
+  ///     - **Close and reopen**: The WAL is closed and reopened from disk, simulating a
+  ///     database restart or crash recovery. The reopened WAL uses different configuration
+  ///     parameters (smaller initial segment count of 100, unlimited max segment size set to
+  ///     `Integer.MAX_VALUE`, and free-space limit of -1) to verify that recovery
+  ///     works regardless of current configuration.
+  ///     - **Post-recovery begin/end verification**: After reopening, the test checks that:
+  ///
+  ///   - `wal.begin()` still points to the very first record in segment 1 at
+  ///     offset [CASWALPage#RECORDS_OFFSET].
+  ///       - `wal.end()` points to the correct position. On recovery, the WAL scans
+  ///     existing segment files, takes `segments.last() + 1` as the new segment ID, and
+  ///     opens a fresh segment there. If K segments were appended after the last record
+  ///     (creating segment files up to N+K), recovery opens segment N+K+1.
+  ///     If no segments were appended, recovery opens N+1. So the expected end is
+  ///     always `(lastRecordSegment + segmentsAppendedAfterLastRecord + 1,
+  ///     RECORDS_OFFSET)`.
+  ///
+  ///
+  ///     - **Second verification (from disk)**: The same record-by-record iteration via
+  ///     `next()` is repeated on the reopened WAL. All records are verified to have
+  ///     identical data and LSNs as the originals. Unlike the first check, after the last
+  ///     record, `next()` now returns a single [EmptyWALRecord] rather than an
+  ///     empty list — this is because recovery appends an empty record as a sentinel marking
+  ///     the end of the recovered WAL.
+  /// </ol>
+  ///
+  /// **Key invariants verified**:
+  ///
+  ///     - `next()` correctly traverses segment boundaries, returning records from
+  ///     subsequent segments transparently.
+  ///     - Random segment splits at arbitrary points do not corrupt record ordering or data.
+  ///     - All records survive WAL close and reopen (durability).
+  ///     - The WAL's begin/end LSN bookkeeping remains consistent after recovery.
+  ///     - EmptyWALRecords at segment boundaries are correctly handled (skipped during
+  ///     iteration).
+  ///
+  ///
+  /// The test uses a random seed (printed to stdout) so failures can be reproduced
+  /// deterministically by reusing the same seed value.
   @Test
   public void testAppendSegmentNext() throws Exception {
     final var iterations = 1;
     for (var n = 0; n < iterations; n++) {
+      // Clean the test directory to ensure a fresh WAL for each iteration.
       FileUtils.deleteRecursively(testDirectory.toFile());
 
+      // Use a time-based random seed so that failures can be reproduced by reusing the seed.
       final var seed = System.nanoTime();
       System.out.println("testAppendSegmentNext seed : " + seed);
       final var random = new Random(seed);
 
       try {
+        // --- WAL Initialization ---
+        // Create a new WAL with a 48KB max segment size and 10MB free-space limit.
+        // The relatively small segment size (48KB) ensures that records will span across
+        // many segments, thoroughly testing cross-segment iteration.
         var wal =
             new CASDiskWriteAheadLog(
                 "walTest",
@@ -4424,59 +4592,99 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
+        // Stores all written records in order for later verification.
         List<TestRecord> records = new ArrayList<>();
 
-        var segmentWasAdded = false;
+        // Tracks how many segments were appended after the very last record.
+        // This affects the expected WAL end position after recovery: the WAL constructor
+        // sets currentSegment = segments.last() + 1, so end = N + K + 1 where N is the
+        // last record's segment and K is the number of appended segments after it.
+        var segmentsAppendedAfterLastRecord = 0;
         System.out.println("Load data");
+
+        // --- Write Phase ---
+        // Write 100,000 records with random sizes between 1 byte and 3x the WAL page size.
+        // Randomly append new segments (~5% chance per record) to create a complex
+        // multi-segment WAL layout.
         final var recordsCount = 100_000;
         for (var i = 0; i < recordsCount; i++) {
-          segmentWasAdded = false;
+          // Reset per-record: only the state after the LAST record matters for the
+          // end-position assertion after recovery.
+          segmentsAppendedAfterLastRecord = 0;
+
+          // Create a record with random data payload (size: 1 to 3*pageSize bytes).
           final var walRecord = new TestRecord(random, 3 * wal.pageSize(), 1);
           records.add(walRecord);
 
+          // Log the record and verify the returned LSN matches the one assigned to the record.
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
+          // The WAL begin should always point to the very first record position in segment 1.
           Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+          // The WAL end should always be the LSN of the most recently logged record.
           Assert.assertEquals(wal.end(), lsn);
 
+          // With ~5% probability, force 1-5 new segment boundaries.
+          // This simulates real-world scenarios where segments rotate due to size limits
+          // or explicit segment switches (e.g., after checkpoint).
           if (random.nextDouble() < 0.05) {
             final var segments = random.nextInt(5) + 1;
 
             for (var k = 0; k < segments; k++) {
               wal.appendNewSegment();
-              segmentWasAdded = true;
+              segmentsAppendedAfterLastRecord++;
             }
           }
         }
 
+        // --- First Verification: In-Memory (WAL still open) ---
+        // Walk through all records using next(), verifying data integrity and LSN correctness.
+        // next(lsn, limit) returns up to `limit` records starting AFTER the given LSN.
         System.out.println("First check");
-        for (var i = 0; i < recordsCount - 1; i++) {
+        for (var i = 0; i < recordsCount - 1; ) {
+          // Fetch the next batch of up to 500 records after records[i]'s LSN.
           final var result = wal.next(records.get(i).getLsn(), 500);
           Assert.assertFalse(result.isEmpty());
 
           final var resultIterator = result.iterator();
+          // Expected records start from i+1 (next() returns records AFTER the given LSN).
           final var recordIterator =
               records.subList(i + 1, recordsCount).iterator();
 
           while (resultIterator.hasNext()) {
             var writeableWALRecord = resultIterator.next();
+            // EmptyWALRecords are internal markers placed at segment boundaries;
+            // they carry no user data and should be skipped during verification.
             if (writeableWALRecord instanceof EmptyWALRecord) {
               continue;
             }
 
+            i++;
             var record = recordIterator.next();
             var resultRecord = (TestRecord) writeableWALRecord;
 
+            // Verify the record's data payload matches exactly.
             Assert.assertArrayEquals(record.data, resultRecord.data);
+            // Verify the record's LSN matches the one assigned during logging.
             Assert.assertEquals(record.getLsn(), resultRecord.getLsn());
           }
         }
 
+        // After the last record, next() should return an empty list — there are no more
+        // records to read while the WAL is still open and no recovery sentinel exists.
         Assert.assertTrue(wal.next(records.get(recordsCount - 1).getLsn(), 500).isEmpty());
 
+        // --- Close WAL ---
+        // Flush all in-memory buffers to disk and close the WAL cleanly.
         wal.close();
 
+        // --- Reopen WAL (simulates restart/recovery) ---
+        // Reopen the WAL from disk with different configuration parameters:
+        //   - Smaller initial segment count (100 vs 48,000) — tests that recovery does
+        //     not depend on matching the original segment configuration.
+        //   - Max segment size set to Integer.MAX_VALUE — no size-based segment rotation.
+        //   - Free-space limit set to -1 — no free-space-based cleanup during recovery.
         System.out.println("Second check");
         wal =
             new CASDiskWriteAheadLog(
@@ -4500,21 +4708,28 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
+        // --- Post-Recovery Begin/End Assertions ---
+        // After recovery, begin() must still point to the first record in segment 1.
         Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
-        if (segmentWasAdded) {
-          Assert.assertEquals(
-              new LogSequenceNumber(
-                  records.getLast().getLsn().getSegment() + 2,
-                  CASWALPage.RECORDS_OFFSET),
-              wal.end());
-        } else {
-          Assert.assertEquals(
-              new LogSequenceNumber(
-                  records.getLast().getLsn().getSegment() + 1,
-                  CASWALPage.RECORDS_OFFSET),
-              wal.end());
-        }
-        for (var i = 0; i < recordsCount - 1; i++) {
+
+        // The expected end position depends on how many segments were appended after the
+        // last logged record. On recovery, the WAL constructor scans all segment files,
+        // computes nextSegmentId = segments.last() + 1, and opens a new segment there.
+        //   - If the last record is in segment N and K segments were appended after it,
+        //     segment files exist up to N+K, so recovery opens segment N+K+1.
+        //   - If no segments were appended (K=0), recovery opens segment N+1.
+        // In both cases: end = (N + K + 1, RECORDS_OFFSET).
+        Assert.assertEquals(
+            new LogSequenceNumber(
+                records.getLast().getLsn().getSegment()
+                    + segmentsAppendedAfterLastRecord + 1,
+                CASWALPage.RECORDS_OFFSET),
+            wal.end());
+
+        // --- Second Verification: From Disk (after recovery) ---
+        // Repeat the same record-by-record iteration as the first check, but now reading
+        // from the recovered WAL. This verifies durability — all records survive close/reopen.
+        for (var i = 0; i < recordsCount - 1; ) {
           final var result = wal.next(records.get(i).getLsn(), 500);
           Assert.assertFalse(result.isEmpty());
 
@@ -4522,11 +4737,15 @@ public class CASDiskWriteAheadLogIT {
           final var recordIterator =
               records.subList(i + 1, recordsCount).iterator();
 
+          // Note: this loop also checks recordIterator.hasNext() to handle the case where
+          // the result batch extends beyond the expected records (e.g., includes trailing
+          // EmptyWALRecords from recovery).
           while (resultIterator.hasNext() && recordIterator.hasNext()) {
             var writeableWALRecord = resultIterator.next();
             if (writeableWALRecord instanceof EmptyWALRecord) {
               continue;
             }
+            i++;
             var record = recordIterator.next();
             var resultRecord = (TestRecord) writeableWALRecord;
 
@@ -4535,6 +4754,10 @@ public class CASDiskWriteAheadLogIT {
           }
         }
 
+        // After recovery, next() on the last record should return a single EmptyWALRecord.
+        // This is different from the first check (which returned an empty list) because
+        // the recovery process writes an EmptyWALRecord sentinel at the end of the WAL
+        // to mark the boundary of recovered data.
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
         Assert.assertEquals(1, lastResult.size());
         var emptyRecord = lastResult.getFirst();
@@ -4546,6 +4769,7 @@ public class CASDiskWriteAheadLogIT {
         Thread.sleep(2);
         System.out.printf("%d iterations out of %d were passed\n", n, iterations);
       } catch (Error | Exception e) {
+        // Re-print the seed on failure so the exact sequence can be reproduced for debugging.
         System.out.println("testAppendSegmentNext seed : " + seed);
         throw e;
       }
@@ -4554,7 +4778,7 @@ public class CASDiskWriteAheadLogIT {
 
   @Test
   public void testDelete() throws Exception {
-    var wal =
+    @SuppressWarnings("resource") var wal =
         new CASDiskWriteAheadLog(
             "walTest",
             testDirectory,
@@ -4606,17 +4830,69 @@ public class CASDiskWriteAheadLogIT {
     Assert.assertTrue(files == null || files.length == 0);
   }
 
+  /// Tests that [CASDiskWriteAheadLog] correctly detects page-level corruption and truncates the
+  /// WAL at the corrupted page during recovery.
+  ///
+  /// The test exercises the following scenario:
+  /// <ol>
+  ///     - **Write phase**: 100,000 randomly-sized records (1 byte to 3x page size) are
+  ///     written to the WAL without any explicit segment appends (segments rotate naturally
+  ///     based on the 10MB max segment size). The WAL is then closed, flushing all data to
+  ///     disk.
+  ///     - **Corruption phase**: A random record is selected and the WAL page containing
+  ///     that record is identified by its segment file and page offset. The page is read
+  ///     from disk, a single byte at offset 42 (within the records data area, past the
+  ///     22-byte page header) is incremented, and the corrupted page is written back to
+  ///     the same position. This simulates a disk-level bit flip or partial write failure.
+  ///     The XX_HASH checksum stored in the page header will no longer match the modified
+  ///     content, so the WAL will detect the corruption on the next read.
+  ///     - **Recovery phase**: The WAL is reopened from disk. The constructor scans
+  ///     existing segment files and opens a new segment for writing, but does not validate
+  ///     old pages eagerly — corruption is detected lazily when pages are read.
+  ///     - **Verification phase**: The test reads records sequentially from the beginning,
+  ///     comparing each against the original. Reading proceeds in batches of 100 using
+  ///     `read()` for the first batch and `next()` for subsequent batches. When the
+  ///     corrupted page is encountered, the XX_HASH check fails and the WAL returns no
+  ///     more records, breaking the read loop.
+  ///     - **Corruption boundary assertion**: After the loop, the test verifies that the
+  ///     first unreadable record (`records.get(recordCounter)`) is located in the same
+  ///     segment as the corrupted page, and that the corrupted page index is >= the page
+  ///     where that record starts. This accounts for the fact that a record may start
+  ///     on a page before the corrupted one but span into it, causing the earlier record
+  ///     to be the first one that fails to read.
+  /// </ol>
+  ///
+  /// **Special case**: If the corrupted page is page 0 of segment 1 (the very first page
+  /// of the WAL), no records can be read at all, and the test asserts that the initial
+  /// `read()` returns an empty list.
+  ///
+  /// **Key invariants verified**:
+  ///
+  ///     - Single-byte corruption is detected via the per-page XX_HASH checksum.
+  ///     - Records before the corrupted page are fully intact and readable.
+  ///     - The WAL does not return partially corrupted records — it stops at the page
+  ///     boundary.
+  ///     - The first unreadable record is in the same segment and at or after the
+  ///     corrupted page.
+  ///
+  ///
+  /// The test uses a random seed (printed to stdout) so failures can be reproduced
+  /// deterministically by reusing the same seed value.
   @Test
   public void testWALCrash() throws Exception {
     final var iterations = 1;
 
     for (var n = 0; n < iterations; n++) {
+      // Clean the test directory to ensure a fresh WAL for each iteration.
       FileUtils.deleteRecursively(testDirectory.toFile());
 
+      // Use a time-based random seed so that failures can be reproduced by reusing the seed.
       final var seed = System.nanoTime();
       final var random = new Random(seed);
 
       try {
+        // --- WAL Initialization ---
+        // Create a new WAL with 48KB max page cache and 10MB max segment size.
         var wal =
             new CASDiskWriteAheadLog(
                 "walTest",
@@ -4639,6 +4915,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
+        // --- Write Phase ---
+        // Write 100,000 records with random sizes (1 to 3*pageSize bytes) and close the WAL.
         final List<TestRecord> records = new ArrayList<>();
         final var recordsCount = 100_000;
         for (var i = 0; i < recordsCount; i++) {
@@ -4649,11 +4927,17 @@ public class CASDiskWriteAheadLogIT {
 
         wal.close();
 
+        // --- Corruption Phase ---
+        // Pick a random record and identify the WAL page that contains it.
         final var index = random.nextInt(records.size());
         final var lsn = records.get(index).getLsn();
         final var segment = lsn.getSegment();
         final long page = lsn.getPosition() / wal.pageSize();
 
+        // Read the target page, flip byte 42 (in the records data area, past the 22-byte
+        // page header: 8 bytes magic + 8 bytes XX_HASH + 4 bytes operation ID + 2 bytes
+        // page size = 22 bytes), and write the corrupted page back to its original position.
+        // This invalidates the page's XX_HASH checksum.
         try (final var channel =
             FileChannel.open(
                 testDirectory.resolve(getSegmentName(segment)),
@@ -4665,9 +4949,12 @@ public class CASDiskWriteAheadLogIT {
           channel.read(buffer);
 
           buffer.put(42, (byte) (buffer.get(42) + 1));
-          IOUtils.writeByteBuffer(buffer, channel, 0);
+          IOUtils.writeByteBuffer(buffer, channel, page * wal.pageSize());
         }
 
+        // --- Recovery Phase ---
+        // Reopen the WAL. The constructor does not validate old segments eagerly;
+        // corruption will be detected lazily during read operations.
         var loadedWAL =
             new CASDiskWriteAheadLog(
                 "walTest",
@@ -4690,6 +4977,9 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
+        // --- Verification Phase ---
+        // Read records from the beginning and compare with originals.
+        // The first batch is fetched using read(), subsequent batches using next().
         var recordIterator = records.iterator();
         var walRecords = loadedWAL.read(records.getFirst().getLsn(), 100);
         var walRecordIterator = walRecords.iterator();
@@ -4698,8 +4988,13 @@ public class CASDiskWriteAheadLogIT {
         var recordCounter = 0;
 
         if (segment == 1 && page == 0) {
+          // Special case: page 0 of segment 1 is corrupted, meaning the very first page
+          // of the WAL is unreadable. No records can be read at all.
           Assert.assertTrue(walRecords.isEmpty());
         } else {
+          // Read records sequentially, comparing each with the original.
+          // When the corrupted page is reached, the XX_HASH check will fail and
+          // next() will return an empty list, breaking the loop.
           while (recordIterator.hasNext()) {
             if (walRecordIterator.hasNext()) {
               final var walRecord = walRecordIterator.next();
@@ -4714,9 +5009,12 @@ public class CASDiskWriteAheadLogIT {
 
               recordCounter++;
             } else {
+              // Current batch exhausted — fetch the next batch of 100 records
+              // starting after the last successfully read record.
               walRecords = loadedWAL.next(lastLSN, 100);
 
               if (walRecords.isEmpty()) {
+                // No more readable records — corruption boundary reached.
                 break;
               }
 
@@ -4725,6 +5023,11 @@ public class CASDiskWriteAheadLogIT {
           }
         }
 
+        // --- Corruption Boundary Assertion ---
+        // The first record that could NOT be read (records[recordCounter]) must be in the
+        // same segment as the corrupted page. Its starting page must be <= the corrupted
+        // page index, because a record that starts before the corrupted page might span
+        // into it, making it the first record to fail the checksum.
         final var nextRecordLSN = records.get(recordCounter).getLsn();
         Assert.assertEquals(segment, nextRecordLSN.getSegment());
         Assert.assertTrue(page >= nextRecordLSN.getPosition() / wal.pageSize());
@@ -4733,6 +5036,7 @@ public class CASDiskWriteAheadLogIT {
 
         System.out.printf("%d iterations out of %d were passed\n", n, iterations);
       } catch (Exception | Error e) {
+        // Re-print the seed on failure so the exact sequence can be reproduced for debugging.
         System.out.println("testWALCrash seed : " + seed);
         throw e;
       }
