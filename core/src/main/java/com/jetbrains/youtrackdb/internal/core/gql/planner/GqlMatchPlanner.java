@@ -9,18 +9,18 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 ///
 /// Converts a GqlMatchStatement into an execution plan with appropriate steps.
 ///
-/// Result type depends on whether alias was provided:
-/// - With alias `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
-/// - Without alias `MATCH (:Person)` → returns just the Vertex directly (alias=null)
+/// `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
 ///
 /// Default values:
 /// - Missing label → "V" (all vertices)
+/// - Missing alias → default alias ("$cN" where N is a number)
 public class GqlMatchPlanner {
 
   /// Default label when not specified (base vertex class = all vertices).
   private static final String DEFAULT_LABEL = "V";
 
   private final GqlMatchStatement statement;
+  private int anonymousCounter = 0;
 
   public GqlMatchPlanner(GqlMatchStatement statement) {
     this.statement = statement;
@@ -37,12 +37,11 @@ public class GqlMatchPlanner {
 
     for (var i = 0; i < patterns.size(); i++) {
       var pattern = patterns.get(i);
-      var alias = pattern.alias();
+      var alias = effectiveAlias(pattern.alias());
       var label = effectiveLabel(pattern.label());
-      var hasAlias = alias != null && !alias.isBlank();
 
       if (i == 0) {
-        plan.chain(new GqlFetchFromClassStep(alias, label, true, hasAlias));
+        plan.chain(new GqlFetchFromClassStep(alias, label, true));
       } else {
         plan.chain(new GqlCrossJoinClassStep(alias, label, true));
       }
@@ -54,5 +53,16 @@ public class GqlMatchPlanner {
   /// Returns effective label, defaulting to "V" (all vertices) if not provided.
   private static String effectiveLabel(String label) {
     return (label == null || label.isBlank()) ? DEFAULT_LABEL : label;
+  }
+
+  /// Returns effective label, defaulting to "$c{anonymousCounter}" if not provided.
+  private String effectiveAlias(String alias) {
+    return (alias == null || alias.isBlank()) ? generateDefaultAlias() : alias;
+  }
+
+  private String generateDefaultAlias(){
+    var current = "$c" + this.anonymousCounter;
+    this.anonymousCounter++;
+    return current;
   }
 }
