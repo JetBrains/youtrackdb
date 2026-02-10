@@ -1,15 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
-import java.util.Iterator;
 import org.apache.groovy.internal.util.Function;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class FlatMapGqlExecutionStream implements GqlExecutionStream {
 
-  private final Iterator<Object> upstream;
+  private final CloseableIterator<Object> upstream;
   private final Function<Object, GqlExecutionStream> mapper;
   private GqlExecutionStream currentChildStream = null;
 
-  public FlatMapGqlExecutionStream(Iterator<Object> upstream,
+  public FlatMapGqlExecutionStream(CloseableIterator<Object> upstream,
       Function<Object, GqlExecutionStream> mapper) {
     this.upstream = upstream;
     this.mapper = mapper;
@@ -19,12 +19,17 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
   public boolean hasNext() {
     while (currentChildStream == null || !currentChildStream.hasNext()) {
       if (!upstream.hasNext()) {
-        currentChildStream.close();
+        upstream.close();
+        if (currentChildStream != null) {
+          currentChildStream.close();
+          currentChildStream = null;
+        }
         return false;
       }
 
-      if (currentChildStream != null)
+      if (currentChildStream != null) {
         currentChildStream.close();
+      }
 
       currentChildStream = mapper.apply(upstream.next());
     }
@@ -33,7 +38,8 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
 
   @Override
   public Object next() {
-    if (!hasNext()) throw new java.util.NoSuchElementException();
+    if (!hasNext())
+      throw new java.util.NoSuchElementException();
     return currentChildStream.next();
   }
 
