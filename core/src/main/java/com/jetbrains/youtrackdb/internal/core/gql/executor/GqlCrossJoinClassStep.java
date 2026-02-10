@@ -30,28 +30,29 @@ public class GqlCrossJoinClassStep extends GqlAbstractExecutionStep {
       throw new IllegalStateException("CrossJoinStep requires a previous step");
     }
 
-    var upstream = prev.start(ctx);
-    var graph = ctx.graph();
-    var session = ctx.session();
+    try (var upstream = prev.start(ctx)) {
+      var graph = ctx.graph();
+      var session = ctx.session();
 
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    if (schema.getClass(className) == null) {
-      throw new com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException(
-          session.getDatabaseName(), "Class '" + className + "' not found");
-    }
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema.getClass(className) == null) {
+        throw new com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException(
+            session.getDatabaseName(), "Class '" + className + "' not found");
+      }
 
-    return upstream.flatMap(input -> {
-      var baseRow = (Map<String, Object>) input;
+      return upstream.flatMap(input -> {
+        var baseRow = (Map<String, Object>) input;
 
-      var entityIterator = session.browseClass(className, polymorphic);
+        var entityIterator = session.browseClass(className, polymorphic);
 
-      return GqlExecutionStream.fromIterator(entityIterator, entity -> {
-        Map<String, Object> newRow = new LinkedHashMap<>(baseRow);
-        var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-        newRow.put(alias, vertex);
-        return newRow;
+        return GqlExecutionStream.fromIterator(entityIterator, entity -> {
+          Map<String, Object> newRow = new LinkedHashMap<>(baseRow);
+          var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+          newRow.put(alias, vertex);
+          return newRow;
+        });
       });
-    });
+    }
   }
 
   @Override
