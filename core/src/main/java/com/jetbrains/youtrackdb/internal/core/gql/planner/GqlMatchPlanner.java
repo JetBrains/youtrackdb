@@ -61,8 +61,6 @@ public class GqlMatchPlanner {
   }
 
   private String generateDefaultAlias() {
-    var current = "$c" + this.anonymousCounter;
-    this.anonymousCounter++;
-    return current;
+    return "$c" + this.anonymousCounter++;
   }
 }
