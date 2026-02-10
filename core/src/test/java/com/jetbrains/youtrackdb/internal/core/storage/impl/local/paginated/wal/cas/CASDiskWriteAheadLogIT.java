@@ -4671,9 +4671,22 @@ public class CASDiskWriteAheadLogIT {
           }
         }
 
-        // After the last record, next() should return an empty list — there are no more
-        // records to read while the WAL is still open and no recovery sentinel exists.
-        Assert.assertTrue(wal.next(records.get(recordsCount - 1).getLsn(), 500).isEmpty());
+        // After the last record, the behavior depends on whether new segments were appended
+        // after the last user record.
+        var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 500);
+        if (segmentsAppendedAfterLastRecord == 0) {
+          // No segments were appended after the last record — there are no more records
+          // to read while the WAL is still open and no recovery sentinel exists.
+          Assert.assertTrue(lastResult.isEmpty());
+        } else {
+          // Each appendNewSegment() call logs an EmptyWALRecord (to preserve the operation
+          // id in the new segment). These internal records have LSNs beyond the last user
+          // record, so next() returns them.
+          Assert.assertFalse(lastResult.isEmpty());
+          for (var record : lastResult) {
+            Assert.assertTrue(record instanceof EmptyWALRecord);
+          }
+        }
 
         // --- Close WAL ---
         // Flush all in-memory buffers to disk and close the WAL cleanly.
@@ -4758,7 +4771,7 @@ public class CASDiskWriteAheadLogIT {
         // This is different from the first check (which returned an empty list) because
         // the recovery process writes an EmptyWALRecord sentinel at the end of the WAL
         // to mark the boundary of recovered data.
-        var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
+        lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
         Assert.assertEquals(1, lastResult.size());
         var emptyRecord = lastResult.getFirst();
 
