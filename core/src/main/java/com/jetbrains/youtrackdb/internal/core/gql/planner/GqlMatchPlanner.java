@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.planner;
 
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlCrossJoinClassStep;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlFetchFromClassStep;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
@@ -34,16 +35,18 @@ public class GqlMatchPlanner {
       throw new IllegalArgumentException("MATCH query requires at least one node pattern");
     }
 
-    // For now, support single node pattern: MATCH (a:Label)
-    // Future: support multiple patterns, relationships, etc.
-    var pattern = patterns.getFirst();
-    var rawAlias = pattern.alias();
-    var hasAlias = rawAlias != null && !rawAlias.isBlank();
-    var alias = hasAlias ? rawAlias : null;
-    var label = effectiveLabel(pattern.label());
+    for (int i = 0; i < patterns.size(); i++) {
+      var pattern = patterns.get(i);
+      var alias = pattern.alias();
+      var label = effectiveLabel(pattern.label());
+      var hasAlias = alias != null && !alias.isBlank();
 
-    var fetchStep = new GqlFetchFromClassStep(alias, label, true, hasAlias);
-    plan.chain(fetchStep);
+      if (i == 0) {
+        plan.chain(new GqlFetchFromClassStep(alias, label, true, hasAlias));
+      } else {
+        plan.chain(new GqlCrossJoinClassStep(alias, label, true));
+      }
+    }
 
     return plan;
   }
