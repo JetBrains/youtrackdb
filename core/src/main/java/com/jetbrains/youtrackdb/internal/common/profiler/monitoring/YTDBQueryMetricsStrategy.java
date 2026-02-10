@@ -10,6 +10,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
+/// TinkerPop strategy that adds a special metrics step for query monitoring.
 public class YTDBQueryMetricsStrategy
     extends AbstractTraversalStrategy<FinalizationStrategy>
     implements FinalizationStrategy {

@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
+/// Transaction-level listener that gets notified when a write transaction is finished. It won't get
+/// called if the transaction was idempotent.
 public interface TransactionMetricsListener {
 
   /// Called when a write transaction is commited, providing information about its runtime. If the
