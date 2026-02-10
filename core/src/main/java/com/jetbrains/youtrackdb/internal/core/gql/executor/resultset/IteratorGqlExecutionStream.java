@@ -25,7 +25,11 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   @Override
   public boolean hasNext() {
-    return source.hasNext();
+    final var hasNext = source.hasNext();
+    if (!hasNext) {
+      close();
+    }
+    return hasNext;
   }
 
   @Override
