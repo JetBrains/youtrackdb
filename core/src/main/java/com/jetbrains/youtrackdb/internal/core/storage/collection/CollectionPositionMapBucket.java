@@ -91,11 +91,6 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return size;
   }
 
-  public void truncateLastEntry() {
-    final var size = getIntValue(SIZE_OFFSET);
-    setIntValue(SIZE_OFFSET, size - 1);
-  }
-
   @Nullable
   public PositionEntry get(int index) {
     var size = getIntValue(SIZE_OFFSET);
