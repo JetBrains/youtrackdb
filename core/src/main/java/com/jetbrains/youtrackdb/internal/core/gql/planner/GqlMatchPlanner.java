@@ -35,7 +35,7 @@ public class GqlMatchPlanner {
       throw new IllegalArgumentException("MATCH query requires at least one node pattern");
     }
 
-    for (int i = 0; i < patterns.size(); i++) {
+    for (var i = 0; i < patterns.size(); i++) {
       var pattern = patterns.get(i);
       var alias = pattern.alias();
       var label = effectiveLabel(pattern.label());
