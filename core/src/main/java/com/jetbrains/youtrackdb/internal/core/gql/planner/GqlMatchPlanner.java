@@ -60,7 +60,7 @@ public class GqlMatchPlanner {
     return (alias == null || alias.isBlank()) ? generateDefaultAlias() : alias;
   }
 
-  private String generateDefaultAlias(){
+  private String generateDefaultAlias() {
     var current = "$c" + this.anonymousCounter;
     this.anonymousCounter++;
     return current;

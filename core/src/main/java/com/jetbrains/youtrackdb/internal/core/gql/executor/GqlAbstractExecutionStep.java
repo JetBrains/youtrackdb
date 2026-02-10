@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutio
 import javax.annotation.Nullable;
 
 /// Abstract base class for GQL execution steps.
-@SuppressWarnings("AbstractClassWithOnlyOneDirectInheritor")
 public abstract class GqlAbstractExecutionStep implements GqlExecutionStep {
 
   @Nullable
