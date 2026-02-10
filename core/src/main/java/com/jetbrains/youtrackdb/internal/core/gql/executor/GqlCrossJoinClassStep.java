@@ -22,8 +22,7 @@ public class GqlCrossJoinClassStep extends GqlAbstractExecutionStep {
     this.polymorphic = polymorphic;
   }
 
-
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "resource"})
   @Override
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
     if (prev == null) {
