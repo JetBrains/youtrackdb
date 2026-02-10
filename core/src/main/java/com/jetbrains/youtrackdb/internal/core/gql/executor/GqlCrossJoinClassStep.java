@@ -1,0 +1,79 @@
+package com.jetbrains.youtrackdb.internal.core.gql.executor;
+
+import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/// Execution step that performs a Cartesian product (Cross Join) between
+/// the current results and all vertices of a specified class.
+///
+/// For each row in the upstream, it iterates over all vertices of the class
+/// and produces a new Map containing all previous bindings plus the new one.
+public class GqlCrossJoinClassStep extends GqlAbstractExecutionStep {
+
+  private final String alias;
+  private final String className;
+  private final boolean polymorphic;
+
+  public GqlCrossJoinClassStep(String alias, String className, boolean polymorphic) {
+    this.alias = alias;
+    this.className = className;
+    this.polymorphic = polymorphic;
+  }
+
+  @Override
+  protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
+    if (prev == null) {
+      throw new IllegalStateException("CrossJoinStep requires a previous step");
+    }
+
+    try (var upstream = prev.start(ctx)) {
+      var graph = ctx.graph();
+      var session = ctx.session();
+
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema.getClass(className) == null) {
+        throw new com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException(
+            session.getDatabaseName(), "Class '" + className + "' not found");
+      }
+
+      return upstream.flatMap(input -> {
+        var baseRow = convertToMap(input);
+
+        var entityIterator = session.browseClass(className, polymorphic);
+
+        return GqlExecutionStream.fromIterator(entityIterator, entity -> {
+          Map<String, Object> newRow = new LinkedHashMap<>(baseRow);
+          var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+
+          if (alias != null) {
+            newRow.put(alias, vertex);
+          }
+          return newRow;
+        });
+      });
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> convertToMap(Object input) {
+    if (input instanceof Map) {
+      return (Map<String, Object>) input;
+    }
+    return new LinkedHashMap<>();
+  }
+
+  @Override
+  public String prettyPrint(int depth, int indent) {
+    return "  ".repeat(depth * indent) +
+        "GqlCrossJoinClassStep(" + (alias != null ? alias : "_") + ":" + className + ")";
+  }
+
+  @Override
+  public GqlExecutionStep copy() {
+    var copy = new GqlCrossJoinClassStep(alias, className, polymorphic);
+    if (prev != null) copy.setPrevious(prev.copy());
+    return copy;
+  }
+}
