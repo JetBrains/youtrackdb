@@ -90,7 +90,8 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   public long add(
-      final long pageIndex, final int recordPosition, final AtomicOperation atomicOperation)
+      final long pageIndex, final int recordPosition, final long recordVersion,
+      final AtomicOperation atomicOperation)
       throws IOException {
     CacheEntry cacheEntry;
     var clear = false;
@@ -137,7 +138,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           bucket.init();
         }
 
-        final long index = bucket.add(pageIndex, recordPosition);
+        final long index = bucket.add(pageIndex, recordPosition, recordVersion);
         return index
             + (long) (cacheEntry.getPageIndex() - 1) * CollectionPositionMapBucket.MAX_ENTRIES;
       } finally {
@@ -233,6 +234,47 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
       bucket.set(index, entry);
+    }
+  }
+
+  public void updateVersion(
+      final long collectionPosition, final long recordVersion,
+      final AtomicOperation atomicOperation)
+      throws IOException {
+
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
+    final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    final var lastPage = getLastPage(atomicOperation);
+    if (pageIndex > lastPage) {
+      throw new CollectionPositionMapException(storage.getName(),
+          "Passed in collection position "
+              + collectionPosition
+              + " is outside of range of collection-position map", this);
+    }
+
+    try (final var cacheEntry =
+        loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+      final var bucket = new CollectionPositionMapBucket(cacheEntry);
+      bucket.updateVersion(index, recordVersion);
+    }
+  }
+
+  public long getVersion(
+      final long collectionPosition, final AtomicOperation atomicOperation)
+      throws IOException {
+
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
+    final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    final var lastPage = getLastPage(atomicOperation);
+    if (pageIndex > lastPage) {
+      return -1;
+    }
+
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var bucket = new CollectionPositionMapBucket(cacheEntry);
+      return bucket.getVersion(index);
     }
   }
 
@@ -569,11 +611,15 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     private final long position;
     private final long page;
     private final int offset;
+    private final long recordVersion;
 
-    CollectionPositionEntry(final long position, final long page, final int offset) {
+    CollectionPositionEntry(
+        final long position, final long page, final int offset,
+        final long recordVersion) {
       this.position = position;
       this.page = page;
       this.offset = offset;
+      this.recordVersion = recordVersion;
     }
 
     public long getPosition() {
@@ -586,6 +632,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     public int getOffset() {
       return offset;
+    }
+
+    public long getRecordVersion() {
+      return recordVersion;
     }
   }
 
@@ -683,7 +733,8 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           result[index] = new CollectionPositionEntry(
               position,
               entry.getPageIndex(),
-              entry.getRecordPosition());
+              entry.getRecordPosition(),
+              entry.getRecordVersion());
         }
 
         @Override

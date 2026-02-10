@@ -19,7 +19,7 @@ public abstract class PaginatedCollection extends DurableComponent implements St
 
   @SuppressWarnings("SameReturnValue")
   public static int getLatestBinaryVersion() {
-    return 2;
+    return 3;
   }
 
   protected PaginatedCollection(

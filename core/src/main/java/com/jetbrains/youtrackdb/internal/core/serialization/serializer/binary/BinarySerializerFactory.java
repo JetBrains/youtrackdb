@@ -60,9 +60,10 @@ public class BinarySerializerFactory {
    */
   public static final int TYPE_IDENTIFIER_SIZE = 1;
 
-  public static final byte CURRENT_BINARY_FORMAT_VERSION = 13;
+  public static final byte CURRENT_BINARY_FORMAT_VERSION = 14;
 
   private final Byte2ObjectArrayMap<BinarySerializer<?>> serializerIdMap = new Byte2ObjectArrayMap<>();
+  @SuppressWarnings("rawtypes")
   private final Byte2ObjectArrayMap<Class<? extends BinarySerializer>> serializerClassesIdMap =
       new Byte2ObjectArrayMap<>();
   private final EnumMap<PropertyTypeInternal, BinarySerializer<?>> serializerTypeMap = new EnumMap<>(
@@ -130,17 +131,6 @@ public class BinarySerializerFactory {
     if (iType != null) {
       serializerTypeMap.put(iType, iInstance);
     }
-  }
-
-  @SuppressWarnings({"rawtypes"})
-  public void registerSerializer(final byte iId,
-      final Class<? extends BinarySerializer> iClass) {
-    if (serializerClassesIdMap.containsKey(iId)) {
-      throw new IllegalStateException(
-          "Serializer with id " + iId + " has been already registered.");
-    }
-
-    serializerClassesIdMap.put(iId, iClass);
   }
 
   /**

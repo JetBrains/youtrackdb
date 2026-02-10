@@ -59,7 +59,7 @@ public final class CollectionPage extends DurablePage {
   private static final int MARKED_AS_DELETED_FLAG = 1 << 16;
   private static final int POSITION_MASK = 0xFFFF;
   public static final int PAGE_SIZE =
-      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
 
   static final int MAX_ENTRY_SIZE = PAGE_SIZE - PAGE_INDEXES_OFFSET - INDEX_ITEM_SIZE;
 
@@ -67,7 +67,7 @@ public final class CollectionPage extends DurablePage {
 
   private static final int ENTRY_KIND_HOLE = -1;
   private static final int ENTRY_KIND_UNKNOWN = 0;
-  private static final int ENTRY_KIND_DATA = +1;
+  private static final int ENTRY_KIND_DATA = 1;
 
   public CollectionPage(CacheEntry cacheEntry) {
     super(cacheEntry);
@@ -190,7 +190,7 @@ public final class CollectionPage extends DurablePage {
   }
 
   public void setRecordEntryBytesLength(int recordPosition, int bytesLength) {
-    setIntValue(recordPosition + IntegerSerializer.INT_SIZE * 2, bytesLength);
+    setIntValue(recordPosition + (IntegerSerializer.INT_SIZE << 1), bytesLength);
   }
 
   public void setRecordEntryBytes(int recordPosition, byte[] record) {
@@ -201,12 +201,8 @@ public final class CollectionPage extends DurablePage {
     return getIntValue(recordPosition);
   }
 
-  public int getRecordEntryIndex(int recordPosition) {
-    return getIntValue(recordPosition + IntegerSerializer.INT_SIZE);
-  }
-
   public int getRecordEntryBytesLength(int recordPosition) {
-    return getIntValue(recordPosition + IntegerSerializer.INT_SIZE * 2);
+    return getIntValue(recordPosition + (IntegerSerializer.INT_SIZE << 1));
   }
 
   public byte[] getRecordEntryBytes(int recordPosition, int valLen) {
@@ -261,13 +257,12 @@ public final class CollectionPage extends DurablePage {
     return null;
   }
 
-  private boolean insertIntoRequestedSlot(
+  private void insertIntoRequestedSlot(
       final int recordVersion,
       final int freePosition,
       final int entrySize,
       final int requestedPosition,
       final int freeListHeader) {
-    var allocatedFromFreeList = false;
     var indexesLength = getPageIndexesLength();
     // 1. requested position is first free slot inside of list of pointers
     if (indexesLength == requestedPosition) {
@@ -324,14 +319,12 @@ public final class CollectionPage extends DurablePage {
       setPointerAt(entryIndexPosition, freePosition);
 
       setVersionAt(entryIndexPosition, recordVersion);
-      allocatedFromFreeList = true;
     } else {
       throw new StorageException(null,
           "Can not insert record out side of list of already inserted records, record position = "
               + requestedPosition);
     }
 
-    return allocatedFromFreeList;
   }
 
   @Nullable
@@ -456,7 +449,7 @@ public final class CollectionPage extends DurablePage {
     return getVersionAt(entryIndexPosition);
   }
 
-  public boolean updateRecordVersion(int position) {
+  public boolean setRecordVersion(int position, int version) {
     var indexesLength = getPageIndexesLength();
     if (position >= indexesLength) {
       return false;
@@ -469,7 +462,7 @@ public final class CollectionPage extends DurablePage {
       return false;
     }
 
-    updateRecordVersion(entryIndexPosition);
+    setVersionAt(entryIndexPosition, version);
     return true;
   }
 
@@ -495,9 +488,7 @@ public final class CollectionPage extends DurablePage {
       return null;
     }
 
-    final var oldVersion = getVersionAt(entryIndexPosition);
     var entryPosition = entryPointer & POSITION_MASK;
-
     if (preserveFreeListPointer) {
       var freeListHeader = getFreeListHeader();
       if (freeListHeader <= 0) {
@@ -528,9 +519,7 @@ public final class CollectionPage extends DurablePage {
 
     decrementEntriesCount();
 
-    final var oldRecord = getRecordEntryBytes(entryPosition, recordSize);
-
-    return oldRecord;
+    return getRecordEntryBytes(entryPosition, recordSize);
   }
 
   public boolean isDeleted(final int position) {
@@ -629,38 +618,6 @@ public final class CollectionPage extends DurablePage {
 
   public void setPrevPage(final long prevPage) {
     setLongValue(PREV_PAGE_OFFSET, prevPage);
-  }
-
-  public void setRecordLongValue(final int recordPosition, final int offset, final long value) {
-    assert isPositionInsideInterval(recordPosition);
-
-    final var entryPosition = getPointerValuePosition(recordPosition);
-
-    if (offset >= 0) {
-      assert insideRecordBounds(entryPosition, offset, LongSerializer.LONG_SIZE);
-      final var valueOffset = entryPosition + offset + 3 * IntegerSerializer.INT_SIZE;
-      setLongValue(valueOffset, value);
-    } else {
-      final var recordSize = getRecordEntryBytesLength(entryPosition);
-      assert insideRecordBounds(entryPosition, recordSize + offset, LongSerializer.LONG_SIZE);
-      final var valueOffset = entryPosition + 3 * IntegerSerializer.INT_SIZE + recordSize + offset;
-      setLongValue(valueOffset, value);
-    }
-  }
-
-  public long getRecordLongValue(final int recordPosition, final int offset) {
-    assert isPositionInsideInterval(recordPosition);
-
-    final var entryPosition = getPointerValuePosition(recordPosition);
-
-    if (offset >= 0) {
-      assert insideRecordBounds(entryPosition, offset, LongSerializer.LONG_SIZE);
-      return getLongValue(entryPosition + offset + 3 * IntegerSerializer.INT_SIZE);
-    } else {
-      final var recordSize = getRecordEntryBytesLength(entryPosition);
-      assert insideRecordBounds(entryPosition, recordSize + offset, LongSerializer.LONG_SIZE);
-      return getLongValue(entryPosition + 3 * IntegerSerializer.INT_SIZE + recordSize + offset);
-    }
   }
 
   @Nullable
@@ -783,7 +740,7 @@ public final class CollectionPage extends DurablePage {
       }
 
       if (entryKind == ENTRY_KIND_HOLE) {
-        shift += -size;
+        shift -= size;
       }
     }
 
@@ -796,20 +753,20 @@ public final class CollectionPage extends DurablePage {
     return getIntValue(FREE_POSITION_OFFSET);
   }
 
-  public int setFreePosition(int freePosition) {
-    return setIntValue(FREE_POSITION_OFFSET, freePosition);
+  public void setFreePosition(int freePosition) {
+    setIntValue(FREE_POSITION_OFFSET, freePosition);
   }
 
-  public int setFreeSpace(int freePosition) {
-    return setIntValue(FREE_SPACE_COUNTER_OFFSET, freePosition);
+  public void setFreeSpace(int freePosition) {
+    setIntValue(FREE_SPACE_COUNTER_OFFSET, freePosition);
   }
 
   public int getPageIndexesLength() {
     return getIntValue(PAGE_INDEXES_LENGTH_OFFSET);
   }
 
-  public int setPageIndexesLength(int freePosition) {
-    return setIntValue(PAGE_INDEXES_LENGTH_OFFSET, freePosition);
+  public void setPageIndexesLength(int freePosition) {
+    setIntValue(PAGE_INDEXES_LENGTH_OFFSET, freePosition);
   }
 
   public void setPointer(int position, int value) {
@@ -843,10 +800,6 @@ public final class CollectionPage extends DurablePage {
 
   public int getVersionAt(int entryIndexPosition) {
     return getIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE);
-  }
-
-  public void updateVersionAt(int entryIndexPosition, int version) {
-    setIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
   }
 
   public static int computePointerPosition(int position) {
