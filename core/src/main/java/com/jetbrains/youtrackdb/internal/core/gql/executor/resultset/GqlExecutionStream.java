@@ -12,7 +12,7 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 /// - With alias (MATCH (a:Person)): Map<String, Object> with bindings {"a": vertex}
 /// - Without alias (MATCH (:Person)): just the Vertex (no side effects)
 @SuppressWarnings("unused")
-public interface GqlExecutionStream extends CloseableIterator<Object>, Iterable<Object> {
+public interface GqlExecutionStream extends CloseableIterator<Object> {
 
   /// Create an empty stream.
   @SuppressWarnings("SameReturnValue")
@@ -33,10 +33,5 @@ public interface GqlExecutionStream extends CloseableIterator<Object>, Iterable<
 
   default GqlExecutionStream flatMap(Function<Object, GqlExecutionStream> mapper) {
     return new FlatMapGqlExecutionStream(this, mapper);
-  }
-
-  @Override
-  default Iterator<Object> iterator() {
-    return this;
   }
 }
