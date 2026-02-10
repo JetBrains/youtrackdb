@@ -73,7 +73,8 @@ public class GqlCrossJoinClassStep extends GqlAbstractExecutionStep {
   @Override
   public GqlExecutionStep copy() {
     var copy = new GqlCrossJoinClassStep(alias, className, polymorphic);
-    if (prev != null) copy.setPrevious(prev.copy());
+    if (prev != null)
+      copy.setPrevious(prev.copy());
     return copy;
   }
 }
