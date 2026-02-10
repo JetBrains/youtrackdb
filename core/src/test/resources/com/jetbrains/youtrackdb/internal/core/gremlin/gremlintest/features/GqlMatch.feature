@@ -46,8 +46,8 @@ Feature: GQL Match Support
     When iterated to list
     Then the result should have a count of 1
     And the result should be unordered
-      | result   |
-      | v[Alice] |
+      | result                |
+      | m[{"$c0":"v[Alice]"}] |
 
   Scenario: g_gql_MATCH_without_alias_returns_vertices
     And the traversal of
@@ -62,9 +62,9 @@ Feature: GQL Match Support
     When iterated to list
     Then the result should have a count of 2
     And the result should be unordered
-      | result   |
-      | v[Alice] |
-      | v[John]  |
+      | result                |
+      | m[{"$c0":"v[Alice]"}] |
+      | m[{"$c0":"v[John]"}]  |
 
   Scenario: g_gql_MATCH_without_label_returns_all_vertices
     And the traversal of
@@ -96,8 +96,8 @@ Feature: GQL Match Support
     When iterated to list
     Then the result should have a count of 1
     And the result should be unordered
-      | result   |
-      | v[Alice] |
+      | result                |
+      | m[{"$c0":"v[Alice]"}] |
 
   Scenario: g_gql_MATCH_multiple_nodes
     And the traversal of
@@ -129,9 +129,9 @@ Feature: GQL Match Support
     When iterated to list
     Then the result should have a count of 2
     And the result should be unordered
-      | result    |
-      | v[Alice]  |
-      | ["v[John] |
+      | result                |
+      | m[{"$c0":"v[Alice]"}] |
+      | m[{"$c0":"v[John]"}]  |
 
   Scenario: g_gql_MATCH_multiple_patterns
     And the traversal of
@@ -209,11 +209,31 @@ Feature: GQL Match Support
     When iterated to list
     Then the result should have a count of 4
     And the result should be unordered
-      | result                             |
-      | m[{"a":"v[John]"}]  |
-      | m[{"a":"v[Alice]"}, v[Programmer]] |
-      | m[{"a":"v[Alice]"}, v[TeamLeader]] |
-      | m[{"a":"v[John]"}, v[TeamLeader]]  |
+      | result                                     |
+      | m[{"a":"v[John]", "$c0":"v[Programmer]"}]  |
+      | m[{"a":"v[Alice]", "$c0":"v[Programmer]"}] |
+      | m[{"a":"v[Alice]", "$c0":"v[TeamLeader]"}] |
+      | m[{"a":"v[John]", "$c0":"v[TeamLeader]"}]  |
+
+  Scenario: g_gql_MATCH_multiple_patterns_without_alias
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      .addV("GqlWork").property("name", "Programmer").addV("GqlWork").property("name", "TeamLeader")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (:GqlPerson), (:GqlWork)")
+      """
+    When iterated to list
+    Then the result should have a count of 4
+    And the result should be unordered
+      | result                                       |
+      | m[{"$c0":"v[John]", "$c1":"v[Programmer]"}]  |
+      | m[{"$c0":"v[Alice]", "$c1":"v[Programmer]"}] |
+      | m[{"$c0":"v[Alice]", "$c1":"v[TeamLeader]"}] |
+      | m[{"$c0":"v[John]", "$c1":"v[TeamLeader]"}]  |
 
   Scenario: g_gql_MATCH_multiple_patterns_without_labels
     And the traversal of
