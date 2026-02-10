@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
 import javax.annotation.Nullable;
 
+/// Transaction-level listener that gets notified when a query is finished.
 public interface QueryMetricsListener {
 
   /// Called when a query is finished, providing information about its runtime.

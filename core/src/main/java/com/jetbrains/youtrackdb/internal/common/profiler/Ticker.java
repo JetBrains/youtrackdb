@@ -10,12 +10,13 @@ public interface Ticker {
   /// Starts the ticker.
   void start();
 
-  /// Returns the last time the ticker was updated.
+  /// Returns the last captured nano time.
   long approximateNanoTime();
 
+  /// Returns the last captured timestamp (in milliseconds).
   long approximateCurrentTimeMillis();
 
-  /// Returns the current nano time. Equivalent to [System#nanoTime()], but can be overridden
+  /// Returns the current nano time. Equivalent to [System#nanoTime()] but can be overridden
   /// for testing purposes.
   long currentNanoTime();
 
