@@ -20,20 +20,16 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
   private final String alias;
   private final String className;
   private final boolean polymorphic;
-  private final boolean hasAlias;
 
   /// Create a step that fetches vertices from a class.
   ///
-  /// @param alias       The variable name to bind vertices to (e.g., "a"), or null if no alias in query
+  /// @param alias       The variable name to bind vertices to (e.g., "a")
   /// @param className   The class/label to fetch from (e.g., "Person")
   /// @param polymorphic Whether to include subclasses
-  /// @param hasAlias    Whether alias was explicitly provided (if false, returns Vertex directly)
-  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic,
-      boolean hasAlias) {
+  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic) {
     this.alias = alias;
     this.className = className;
     this.polymorphic = polymorphic;
-    this.hasAlias = hasAlias;
   }
 
   @Override
@@ -56,17 +52,10 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
     entityIterator = session.browseClass(className, polymorphic);
 
-    if (hasAlias) {
-      // With alias: return Map with binding (side effect)
-      return GqlExecutionStream.fromIterator(entityIterator, entity -> {
-        var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-        return Map.of(alias, vertex);
-      });
-    } else {
-      // Without alias: return just the vertex (no side effects)
-      return GqlExecutionStream.fromIterator(entityIterator,
-          entity -> new YTDBVertexImpl(graph, entity.asVertex()));
-    }
+    return GqlExecutionStream.fromIterator(entityIterator, entity -> {
+      var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+      return Map.of(alias, vertex);
+    });
   }
 
   public String getAlias() {
@@ -91,7 +80,7 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
   @Override
   public GqlExecutionStep copy() {
-    var copy = new GqlFetchFromClassStep(alias, className, polymorphic, hasAlias);
+    var copy = new GqlFetchFromClassStep(alias, className, polymorphic);
     if (prev != null) {
       copy.setPrevious(prev.copy());
     }
