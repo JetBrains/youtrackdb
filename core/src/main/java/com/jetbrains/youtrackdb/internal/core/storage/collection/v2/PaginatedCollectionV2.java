@@ -1476,6 +1476,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   /// Verifies that the version stored in the position map matches the version stored on the data
   /// page. Must only be called within {@code assert} statements.
+  @SuppressWarnings("SameReturnValue")
   private static boolean assertVersionConsistency(
       int positionMapVersion, int pageVersion) {
     if (positionMapVersion != pageVersion) {

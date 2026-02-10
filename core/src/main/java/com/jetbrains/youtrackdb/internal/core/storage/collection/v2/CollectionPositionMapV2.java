@@ -260,24 +260,6 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     }
   }
 
-  public long getVersion(
-      final long collectionPosition, final AtomicOperation atomicOperation)
-      throws IOException {
-
-    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
-    final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
-
-    final var lastPage = getLastPage(atomicOperation);
-    if (pageIndex > lastPage) {
-      return -1;
-    }
-
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-      final var bucket = new CollectionPositionMapBucket(cacheEntry);
-      return bucket.getVersion(index);
-    }
-  }
-
   @Nullable
   public CollectionPositionMapBucket.PositionEntry get(
       final long collectionPosition, final AtomicOperation atomicOperation) throws IOException {
