@@ -33,6 +33,7 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
   }
 
   @Override
+  @SuppressWarnings("resource")
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
 
     com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal graph;
