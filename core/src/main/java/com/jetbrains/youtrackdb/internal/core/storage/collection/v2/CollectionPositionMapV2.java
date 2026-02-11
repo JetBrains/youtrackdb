@@ -89,6 +89,64 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     setName(newName);
   }
 
+  public long add(
+      final long pageIndex, final int recordPosition, final long recordVersion,
+      final AtomicOperation atomicOperation)
+      throws IOException {
+    CacheEntry cacheEntry;
+    var clear = false;
+
+    try (final var entryPointEntry = loadPageForWrite(atomicOperation, fileId, 0, true)) {
+      final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
+      final var lastPage = mapEntryPoint.getFileSize();
+      var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+
+      assert lastPage <= filledUpTo - 1;
+
+      if (lastPage == 0) {
+        if (lastPage == filledUpTo - 1) {
+          cacheEntry = addPage(atomicOperation, fileId);
+          filledUpTo++;
+        } else {
+          cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
+        }
+        mapEntryPoint.setFileSize(lastPage + 1);
+        clear = true;
+      } else {
+        cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage, true);
+      }
+
+      try {
+        var bucket = new CollectionPositionMapBucket(cacheEntry);
+        if (clear) {
+          bucket.init();
+        }
+        if (bucket.isFull()) {
+          cacheEntry.close();
+
+          assert lastPage <= filledUpTo - 1;
+
+          if (lastPage == filledUpTo - 1) {
+            cacheEntry = addPage(atomicOperation, fileId);
+          } else {
+            cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
+          }
+
+          mapEntryPoint.setFileSize(lastPage + 1);
+
+          bucket = new CollectionPositionMapBucket(cacheEntry);
+          bucket.init();
+        }
+
+        final long index = bucket.add(pageIndex, recordPosition, recordVersion);
+        return index
+            + (long) (cacheEntry.getPageIndex() - 1) * CollectionPositionMapBucket.MAX_ENTRIES;
+      } finally {
+        cacheEntry.close();
+      }
+    }
+  }
+
   private long getLastPage(final AtomicOperation atomicOperation) throws IOException {
     long lastPage;
     try (final var entryPointEntry = loadPageForRead(atomicOperation, fileId, 0)) {

@@ -403,13 +403,19 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
             updateCollectionState(1, content.length, atomicOperation);
 
-            // Both pre-allocated and freshly allocated positions use update() here:
-            // allocate() reserves a slot without page coordinates; update() fills them in.
-            collectionPositionMap.update(
-                collectionPosition,
-                new CollectionPositionMapBucket.PositionEntry(
-                    nextPageIndex, nextPageOffset, recordVersion),
-                atomicOperation);
+            final long collectionPosition;
+            if (allocatedPosition != null) {
+              collectionPositionMap.update(
+                  allocatedPosition.collectionPosition,
+                  new CollectionPositionMapBucket.PositionEntry(
+                      nextPageIndex, nextPageOffset, recordVersion),
+                  atomicOperation);
+              collectionPosition = allocatedPosition.collectionPosition;
+            } else {
+              collectionPosition =
+                  collectionPositionMap.add(
+                      nextPageIndex, nextPageOffset, recordVersion, atomicOperation);
+            }
             return createPhysicalPosition(recordType, collectionPosition, recordVersion);
           } finally {
             releaseExclusiveLock();
@@ -761,6 +767,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   collectionPosition,
                   historicalPositionEntry.getPageIndex(),
                   historicalPositionEntry.getRecordPosition(),
+                  versionToInt(historicalPositionEntry.getRecordVersion()),
                   atomicOperation);
             }
           }
@@ -1109,8 +1116,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         || nextRecordPosition != positionEntry.getRecordPosition()) {
       collectionPositionMap.update(
           collectionPosition,
-          new PositionEntry(nextPageIndex, nextRecordPosition),
+          new PositionEntry(nextPageIndex, nextRecordPosition, recordVersion),
           atomicOperation);
+    } else if (recordVersion != positionEntry.getRecordVersion()) {
+      collectionPositionMap.updateVersion(
+          collectionPosition, recordVersion, atomicOperation);
     }
   }
 
@@ -1152,8 +1162,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         || nextRecordPosition != positionEntry.getRecordPosition()) {
       collectionPositionMap.update(
           collectionPosition,
-          new PositionEntry(nextPageIndex, nextRecordPosition),
+          new PositionEntry(nextPageIndex, nextRecordPosition, recordVersion),
           atomicOperation);
+    } else if (recordVersion != positionEntry.getRecordVersion()) {
+      collectionPositionMap.updateVersion(
+          collectionPosition, recordVersion, atomicOperation);
     }
   }
 
@@ -1175,7 +1188,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void updateRecordVersion(long collectionPosition, AtomicOperation atomicOperation) {
+  public void updateRecordVersion(long collectionPosition, long recordVersion,
+      AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -1190,6 +1204,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
             final var pageIndex = positionEntry.getPageIndex();
             final var recordPosition = positionEntry.getRecordPosition();
+            final var newRecordVersion = recordVersion;
 
             try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex,
                 true)) {
@@ -1201,13 +1216,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                     new RecordId(id, collectionPosition));
               }
 
-              if (!localPage.setRecordVersion(recordPosition, recordVersion)) {
+              if (!localPage.setRecordVersion(
+                  recordPosition, versionToInt(newRecordVersion))) {
                 throw new RecordNotFoundException(storageName,
                     new RecordId(id, collectionPosition));
               }
 
               collectionPositionMap.updateVersion(
-                  collectionPosition, recordVersion, atomicOperation);
+                  collectionPosition, newRecordVersion, atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -1260,7 +1276,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           physicalPosition.collectionPosition = position.collectionPosition;
 
           assert assertVersionConsistency(
-              physicalPosition.recordVersion,
+              versionToInt(positionEntry.getRecordVersion()),
               localPage.getRecordVersion(recordPosition));
 
           return physicalPosition;
@@ -1711,7 +1727,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /// page. Must only be called within {@code assert} statements.
   @SuppressWarnings("SameReturnValue")
   private static boolean assertVersionConsistency(
-      int positionMapVersion, int pageVersion) {
+      long positionMapVersion, long pageVersion) {
     if (positionMapVersion != pageVersion) {
       throw new AssertionError(
           "Version mismatch: positionMap=" + positionMapVersion
