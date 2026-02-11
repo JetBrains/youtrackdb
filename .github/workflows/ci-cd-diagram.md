@@ -142,8 +142,12 @@ new findings using Claude Code Action (`anthropics/claude-code-action@v1`):
 
 1. **Manage fix PRs** - Finds existing fix PRs for the source PR, detects stale ones invalidated
    by force-pushes (gap detection), and closes them
-2. **Filter SARIF** - Filters Qodana's SARIF output to only new findings in files changed since
-   the last processed commit (incremental processing)
+2. **Filter SARIF** - Compares the baseline report (`.github/workflows/qodana.sarif.json`) with
+   the generated one to identify new findings. Filtering scope depends on PR commit count:
+   - **Single-commit PR**: fixes all new findings from the baseline comparison (the entire PR is
+     one change set, so all new findings are attributable to it)
+   - **Multi-commit PR**: fixes only new findings in files changed since the last processed commit
+     (incremental processing to avoid re-processing earlier commits)
 3. **Claude Code** - Invokes Claude to apply minimal fixes to source files (no git operations)
 4. **Create fix PR** - Pushes fixes to a branch named
    `{YTDB-NNN-}qodana-claude-fix-pr{N}-{sha7}` and creates a PR targeting the source branch
