@@ -4,15 +4,18 @@ import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Default implementation of {@link Ticker} that updates its internal time at a certain granularity
- * in a separate thread.
- */
+/// Default implementation of [Ticker] that updates its internal time at a certain granularity in a
+/// separate thread.
 public class GranularTicker implements Ticker, AutoCloseable {
 
   private final long granularity;
   private final long timestampRefreshRate;
   private volatile long nanoTime;
+  /// Offset between {@link System#currentTimeMillis()} and {@link System#nanoTime()} converted to
+  /// milliseconds. Since {@code nanoTime} has no defined origin (it is only meaningful for
+  /// measuring elapsed time), this difference lets us derive an approximate wall-clock timestamp
+  /// from the cached {@code nanoTime} without an extra {@code currentTimeMillis()} call. Refreshed
+  /// periodically to account for clock drift.
   private volatile long nanoTimeDifference;
 
   private final ScheduledExecutorService executor;
