@@ -4767,15 +4767,15 @@ public class CASDiskWriteAheadLogIT {
           }
         }
 
-        // After recovery, next() on the last record should return a single EmptyWALRecord.
-        // This is different from the first check (which returned an empty list) because
-        // the recovery process writes an EmptyWALRecord sentinel at the end of the WAL
-        // to mark the boundary of recovered data.
+        // After recovery, next() on the last record returns EmptyWALRecords:
+        // - The recovery sentinel EmptyWALRecord (always present after recovery).
+        // - If segments were appended after the last user record, their EmptyWALRecords
+        //   also survive on disk, so the total count is segmentsAppendedAfterLastRecord + 1.
         lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(1, lastResult.size());
-        var emptyRecord = lastResult.getFirst();
-
-        Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
+        Assert.assertEquals(segmentsAppendedAfterLastRecord + 1, lastResult.size());
+        for (var record : lastResult) {
+          Assert.assertTrue(record instanceof EmptyWALRecord);
+        }
 
         wal.close();
 
