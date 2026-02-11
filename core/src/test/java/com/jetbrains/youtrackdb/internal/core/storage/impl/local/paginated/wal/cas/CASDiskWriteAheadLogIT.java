@@ -4683,6 +4683,7 @@ public class CASDiskWriteAheadLogIT {
           // id in the new segment). These internal records have LSNs beyond the last user
           // record, so next() returns them.
           Assert.assertFalse(lastResult.isEmpty());
+          Assert.assertEquals(segmentsAppendedAfterLastRecord, lastResult.size());
           for (var record : lastResult) {
             Assert.assertTrue(record instanceof EmptyWALRecord);
           }
