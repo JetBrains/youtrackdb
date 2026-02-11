@@ -325,6 +325,7 @@ public final class CollectionPage extends DurablePage {
               + requestedPosition);
     }
 
+    return true;
   }
 
   @Nullable
