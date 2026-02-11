@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
@@ -130,7 +130,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionEmbedded session) {
     super.serializeToMap(map, session);
     map.put("mapIndexBy", indexBy.toString());
   }

@@ -17,8 +17,8 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal.ATTRIBUTES_INTERNAL;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES_INTERNAL;
 import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityComparator;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -68,7 +68,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     } finally {
       session.setValidationEnabled(true);
       session
-          .execute("ALTER DATABASE " + DatabaseSessionInternal.ATTRIBUTES_INTERNAL.VALIDATION.name()
+          .execute("ALTER DATABASE " + DatabaseSessionEmbedded.ATTRIBUTES_INTERNAL.VALIDATION.name()
               + " TRUE")
           .close();
     }

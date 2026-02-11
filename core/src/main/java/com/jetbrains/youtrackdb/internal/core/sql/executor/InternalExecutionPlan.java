@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -36,7 +35,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
     throw new UnsupportedOperationException();
   }
 
-  default void deserialize(Result serializedExecutionPlan, DatabaseSessionInternal session) {
+  default void deserialize(Result serializedExecutionPlan, DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 

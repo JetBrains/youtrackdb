@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -380,7 +380,7 @@ public interface BasicResult {
    * unloaded.
    */
   @Nullable
-  BasicDatabaseSession<?, ?> getBoundedToSession();
+  DatabaseSessionEmbedded getBoundedToSession();
 
   /**
    * Detach the result from the session. If result contained a record, it will be converted into

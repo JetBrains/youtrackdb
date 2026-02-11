@@ -16,7 +16,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.fetch.remote;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.FetchException;
 import com.jetbrains.youtrackdb.internal.core.fetch.FetchContext;
@@ -43,7 +43,7 @@ public abstract class RemoteFetchListener implements FetchListener {
   protected abstract void sendRecord(RecordAbstract iLinked);
 
   public void processStandardField(
-      DatabaseSessionInternal db, EntityImpl iRecord,
+      DatabaseSessionEmbedded db, EntityImpl iRecord,
       Object iFieldValue,
       String iFieldName,
       FetchContext iContext,
@@ -54,7 +54,7 @@ public abstract class RemoteFetchListener implements FetchListener {
   }
 
   public void parseLinked(
-      DatabaseSessionInternal db, EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, EntityImpl iRootRecord,
       Identifiable iLinked,
       Object iUserObject,
       String iFieldName,
@@ -63,7 +63,7 @@ public abstract class RemoteFetchListener implements FetchListener {
   }
 
   public void parseLinkedCollectionValue(
-      DatabaseSessionInternal db, EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, EntityImpl iRootRecord,
       Identifiable iLinked,
       Object iUserObject,
       String iFieldName,

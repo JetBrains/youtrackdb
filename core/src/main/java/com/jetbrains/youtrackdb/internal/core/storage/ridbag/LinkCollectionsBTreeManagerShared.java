@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
@@ -141,7 +141,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
   @Override
   public LinkBagPointer createBTree(
       int collectionId, AtomicOperation atomicOperation,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     final var bonsaiGlobal = doCreateRidBag(atomicOperation, collectionId);
     return bonsaiGlobal.getCollectionPointer();
   }

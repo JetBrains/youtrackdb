@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.Set;
 
@@ -24,14 +24,14 @@ import java.util.Set;
  */
 public interface SQLFunctionFactory {
 
-  void registerDefaultFunctions(DatabaseSessionInternal db);
+  void registerDefaultFunctions(DatabaseSessionEmbedded db);
 
-  boolean hasFunction(String iName, DatabaseSessionInternal session);
+  boolean hasFunction(String iName, DatabaseSessionEmbedded session);
 
   /**
    * @return Set of supported function names of this factory
    */
-  Set<String> getFunctionNames(DatabaseSessionInternal session);
+  Set<String> getFunctionNames(DatabaseSessionEmbedded session);
 
   /**
    * Create function for the given name. returned function may be a new instance each time or a
@@ -42,6 +42,6 @@ public interface SQLFunctionFactory {
    * @return SQLFunction : created function
    * @throws CommandExecutionException : when function creation fail
    */
-  SQLFunction createFunction(String name, DatabaseSessionInternal session)
+  SQLFunction createFunction(String name, DatabaseSessionEmbedded session)
       throws CommandExecutionException;
 }

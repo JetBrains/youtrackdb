@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -176,7 +175,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return super.getSchemaClassName();
   }
 
-  public static void deleteLinks(DatabaseSessionInternal db, Edge delegate) {
+  public static void deleteLinks(DatabaseSessionEmbedded db, Edge delegate) {
     var from = delegate.getFrom();
     if (from != null) {
       VertexEntityImpl.removeOutgoingEdge(db, from, delegate);

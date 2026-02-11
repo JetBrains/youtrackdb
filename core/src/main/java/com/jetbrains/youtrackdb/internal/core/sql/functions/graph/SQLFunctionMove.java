@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -39,7 +37,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       final String[] labels);
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "Syntax error: " + name + "([<labels>])";
   }
 
@@ -80,7 +78,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   @Nullable
   protected static Object v2v(
-      final DatabaseSessionInternal graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final Direction iDirection,
       final String[] labels) {
@@ -103,7 +101,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   @Nullable
   protected static Object v2e(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final Direction iDirection,
       final String[] labels) {
@@ -126,7 +124,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   @Nullable
   protected static Object e2v(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final Direction iDirection) {
     if (iRecord != null) {

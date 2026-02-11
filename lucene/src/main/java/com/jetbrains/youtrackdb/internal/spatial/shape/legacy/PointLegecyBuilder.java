@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.shape.legacy;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import org.locationtech.spatial4j.context.SpatialContext;
@@ -25,7 +25,7 @@ import org.locationtech.spatial4j.shape.Point;
 public class PointLegecyBuilder implements ShapeBuilderLegacy<Point> {
 
   @Override
-  public Point makeShape(DatabaseSessionInternal session, CompositeKey key, SpatialContext ctx) {
+  public Point makeShape(DatabaseSessionEmbedded session, CompositeKey key, SpatialContext ctx) {
     var lat = PropertyTypeInternal.convert(session, key.getKeys().get(0),
         Double.class).doubleValue();
     var lng = PropertyTypeInternal.convert(session, key.getKeys().get(1),

@@ -3,8 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
@@ -40,7 +39,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
     Object finalValue;
     try {
       var attribute =
-          DatabaseSession.ATTRIBUTES.valueOf(
+          DatabaseSessionEmbedded.ATTRIBUTES.valueOf(
               settingName.getStringValue().toUpperCase(Locale.ENGLISH));
 
       db.checkSecurity(Rule.ResourceGeneric.DATABASE, Role.PERMISSION_UPDATE);
@@ -50,7 +49,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
       db.setInternal(attribute, finalValue);
     } catch (IllegalArgumentException e) {
       var attributesInternal =
-          DatabaseSessionInternal.ATTRIBUTES_INTERNAL.valueOf(
+          DatabaseSessionEmbedded.ATTRIBUTES_INTERNAL.valueOf(
               settingName.getStringValue().toUpperCase(Locale.ENGLISH));
       db.checkSecurity(Rule.ResourceGeneric.DATABASE, Role.PERMISSION_UPDATE);
 

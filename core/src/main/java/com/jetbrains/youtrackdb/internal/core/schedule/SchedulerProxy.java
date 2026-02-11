@@ -16,9 +16,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.schedule;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import java.util.Map;
 
@@ -35,18 +33,18 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
   }
 
   @Override
-  public void scheduleEvent(DatabaseSession session, final ScheduledEvent scheduler) {
+  public void scheduleEvent(DatabaseSessionEmbedded session, final ScheduledEvent scheduler) {
     delegate.scheduleEvent(session, scheduler);
   }
 
   @Override
-  public void removeEvent(DatabaseSession session, final String eventName) {
-    delegate.removeEvent((DatabaseSessionInternal) session, eventName);
+  public void removeEvent(DatabaseSessionEmbedded session, final String eventName) {
+    delegate.removeEvent(session, eventName);
   }
 
   @Override
-  public void updateEvent(DatabaseSession session, final ScheduledEvent event) {
-    delegate.updateEvent((DatabaseSessionInternal) session, event);
+  public void updateEvent(DatabaseSessionEmbedded session, final ScheduledEvent event) {
+    delegate.updateEvent(session, event);
   }
 
   @Override

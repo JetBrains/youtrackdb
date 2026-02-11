@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -121,7 +121,7 @@ public interface IndexDefinition extends IndexCallback {
    * Serializes internal index state to map.
    */
   @Nonnull
-  EmbeddedMap<Object> toMap(DatabaseSessionInternal session);
+  EmbeddedMap<Object> toMap(DatabaseSessionEmbedded session);
 
   void toJson(@Nonnull JsonGenerator jsonGenerator);
 

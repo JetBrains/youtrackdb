@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -39,7 +39,7 @@ public class RecordIteratorClass implements Iterator<EntityImpl>, AutoCloseable 
   private final RecordIteratorCollections<EntityImpl> iterator;
 
   public RecordIteratorClass(
-      @Nonnull final DatabaseSessionInternal session,
+      @Nonnull final DatabaseSessionEmbedded session,
       @Nonnull final String className,
       final boolean polymorphic,
       final boolean forwardDirection
@@ -48,7 +48,7 @@ public class RecordIteratorClass implements Iterator<EntityImpl>, AutoCloseable 
   }
 
   public RecordIteratorClass(
-      @Nonnull final DatabaseSessionInternal session,
+      @Nonnull final DatabaseSessionEmbedded session,
       @Nonnull final SchemaClassInternal targetClass,
       final boolean polymorphic,
       final boolean forwardDirection
@@ -71,7 +71,7 @@ public class RecordIteratorClass implements Iterator<EntityImpl>, AutoCloseable 
     return iterator.next();
   }
 
-  private static SchemaClassInternal getSchemaClassInternal(DatabaseSessionInternal session,
+  private static SchemaClassInternal getSchemaClassInternal(DatabaseSessionEmbedded session,
       String className) {
     var targetClass = (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
         .getClass(className);

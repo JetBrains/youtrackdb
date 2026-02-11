@@ -14,7 +14,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.CollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -26,13 +26,13 @@ public class DefaultCollectionSelectionStrategy implements CollectionSelectionSt
 
   public static final String NAME = "default";
 
-  public int getCollection(DatabaseSession session, final SchemaClass iClass,
+  public int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass,
       final EntityImpl entity) {
     return iClass.getCollectionIds()[0];
   }
 
   @Override
-  public int getCollection(DatabaseSession session, SchemaClass iClass, int[] selection,
+  public int getCollection(DatabaseSessionEmbedded session, SchemaClass iClass, int[] selection,
       EntityImpl entity) {
     return iClass.getCollectionIds()[0];
   }

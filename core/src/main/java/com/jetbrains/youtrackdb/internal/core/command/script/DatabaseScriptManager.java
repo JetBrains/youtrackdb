@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.command.script;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolFactory;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import javax.script.ScriptEngine;
 import javax.script.ScriptException;
 
@@ -47,7 +47,7 @@ public class DatabaseScriptManager {
               public ScriptEngine createNewResource(String key, Object... args) {
                 final var scriptEngine = scriptManager.getEngine(iDatabaseName, language);
                 final var library =
-                    scriptManager.getLibrary((DatabaseSessionInternal) args[0], language);
+                    scriptManager.getLibrary((DatabaseSessionEmbedded) args[0], language);
 
                 if (library != null) {
                   try {
@@ -74,7 +74,7 @@ public class DatabaseScriptManager {
     pooledEngines.setMaxPartitions(1);
   }
 
-  public ScriptEngine acquireEngine(DatabaseSessionInternal db, final String language) {
+  public ScriptEngine acquireEngine(DatabaseSessionEmbedded db, final String language) {
     return pooledEngines.get(language).getResource(language, 0, db);
   }
 

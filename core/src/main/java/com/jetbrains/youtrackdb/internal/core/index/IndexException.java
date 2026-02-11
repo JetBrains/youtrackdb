@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import javax.annotation.Nullable;
 
@@ -32,7 +32,7 @@ public class IndexException extends CoreException {
     super(dbName, message);
   }
 
-  public IndexException(@Nullable DatabaseSession session, final String message) {
+  public IndexException(@Nullable DatabaseSessionEmbedded session, final String message) {
     super(session, message);
   }
 

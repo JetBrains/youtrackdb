@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query.collection.links;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -31,7 +31,7 @@ import java.util.RandomAccess;
 /// assert entity.getIdentity() == linkList.get(0);
 /// ```
 /// Link list cannot be instantiated directly, instead you should use factory methods either in
-/// [DatabaseSession] or in [Transaction] or in [Entity] objects.
+/// [DatabaseSessionEmbedded] or in [Transaction] or in [Entity] objects.
 ///
 /// @see BasicResult#getLinkList(String)
 public interface LinkList extends List<Identifiable>, RandomAccess {

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.QueryLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -56,7 +56,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   }
 
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return underlyingResultSet.getBoundToSession();
   }
 

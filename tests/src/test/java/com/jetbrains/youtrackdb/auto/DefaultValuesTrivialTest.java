@@ -4,7 +4,7 @@ import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertNull;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
@@ -73,7 +73,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
     session.commit();
   }
 
-  private static Date getDatabaseSysdate(DatabaseSession database) {
+  private static Date getDatabaseSysdate(DatabaseSessionEmbedded database) {
     return database.computeInTx(transaction -> {
       try (var dates = transaction.query("SELECT sysdate() as sysdate")) {
         return dates.next().getProperty("sysdate");

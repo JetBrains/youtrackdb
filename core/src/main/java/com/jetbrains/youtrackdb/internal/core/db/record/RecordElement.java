@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Set;
@@ -112,9 +112,9 @@ public interface RecordElement {
   }
 
   @Nullable
-  default DatabaseSessionInternal getSession() {
+  default DatabaseSessionEmbedded getSession() {
     if (this instanceof EntityImpl entity) {
-      return (DatabaseSessionInternal) entity.getBoundedToSession();
+      return entity.getBoundedToSession();
     }
 
     var owner = getOwnerEntity();

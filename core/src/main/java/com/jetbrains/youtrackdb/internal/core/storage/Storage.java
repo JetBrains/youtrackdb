@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -57,30 +57,30 @@ public interface Storage extends StorageInfo {
   }
 
   void open(
-      DatabaseSessionInternal remote, String iUserName, String iUserPassword,
+      DatabaseSessionEmbedded remote, String iUserName, String iUserPassword,
       final ContextConfiguration contextConfiguration);
 
   void create(ContextConfiguration contextConfiguration) throws IOException;
 
   boolean exists();
 
-  void reload(DatabaseSessionInternal database);
+  void reload(DatabaseSessionEmbedded database);
 
   void delete();
 
-  void close(@Nullable DatabaseSessionInternal session);
+  void close(@Nullable DatabaseSessionEmbedded session);
 
-  void close(@Nullable DatabaseSessionInternal database, boolean iForce);
+  void close(@Nullable DatabaseSessionEmbedded database, boolean iForce);
 
-  boolean isClosed(DatabaseSessionInternal database);
+  boolean isClosed(DatabaseSessionEmbedded database);
 
   // CRUD OPERATIONS
   @Nonnull
   RawBuffer readRecord(RecordIdInternal iRid);
 
-  boolean recordExists(DatabaseSessionInternal session, RID rid);
+  boolean recordExists(DatabaseSessionEmbedded session, RID rid);
 
-  RecordMetadata getRecordMetadata(DatabaseSessionInternal session, final RID rid);
+  RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session, final RID rid);
 
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
@@ -95,7 +95,7 @@ public interface Storage extends StorageInfo {
    *
    * @param iCollectionName name of the collection
    */
-  int addCollection(DatabaseSessionInternal database, String iCollectionName,
+  int addCollection(DatabaseSessionEmbedded database, String iCollectionName,
       Object... iParameters);
 
   int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key);
@@ -106,11 +106,11 @@ public interface Storage extends StorageInfo {
    * @param iCollectionName name of the collection
    * @param iRequestedId    requested id of the collection
    */
-  int addCollection(DatabaseSessionInternal database, String iCollectionName, int iRequestedId);
+  int addCollection(DatabaseSessionEmbedded database, String iCollectionName, int iRequestedId);
 
-  boolean dropCollection(DatabaseSessionInternal session, String iCollectionName);
+  boolean dropCollection(DatabaseSessionEmbedded session, String iCollectionName);
 
-  String getCollectionName(DatabaseSessionInternal database, final int collectionId);
+  String getCollectionName(DatabaseSessionEmbedded database, final int collectionId);
 
   void setCollectionAttribute(final int id, ATTRIBUTES attribute,
       Object value);
@@ -121,7 +121,7 @@ public interface Storage extends StorageInfo {
    * @param iId      id of the collection to delete
    * @return true if has been removed, otherwise false
    */
-  boolean dropCollection(DatabaseSessionInternal database, int iId);
+  boolean dropCollection(DatabaseSessionEmbedded database, int iId);
 
   String getCollectionNameById(final int collectionId);
 
@@ -133,26 +133,26 @@ public interface Storage extends StorageInfo {
 
   boolean isSystemCollection(final int collectionId);
 
-  long count(DatabaseSessionInternal session, int iCollectionId);
+  long count(DatabaseSessionEmbedded session, int iCollectionId);
 
-  long count(DatabaseSessionInternal session, int iCollectionId, boolean countTombstones);
+  long count(DatabaseSessionEmbedded session, int iCollectionId, boolean countTombstones);
 
-  long count(DatabaseSessionInternal session, int[] iCollectionIds);
+  long count(DatabaseSessionEmbedded session, int[] iCollectionIds);
 
-  long count(DatabaseSessionInternal session, int[] iCollectionIds, boolean countTombstones);
+  long count(DatabaseSessionEmbedded session, int[] iCollectionIds, boolean countTombstones);
 
   /**
    * Returns the size of the database.
    */
-  long getSize(DatabaseSessionInternal session);
+  long getSize(DatabaseSessionEmbedded session);
 
-  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordIdInternal identity,
+  AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session, RecordIdInternal identity,
       String fieldName, RID rid);
 
   /**
    * Returns the total number of records.
    */
-  long countRecords(DatabaseSessionInternal session);
+  long countRecords(DatabaseSessionEmbedded session);
 
   @Override
   int getCollectionIdByName(String iCollectionName);
@@ -172,16 +172,16 @@ public interface Storage extends StorageInfo {
 
   void synch();
 
-  PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+  PhysicalPosition[] higherPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+  PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+  PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] floorPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+  PhysicalPosition[] floorPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
   /**

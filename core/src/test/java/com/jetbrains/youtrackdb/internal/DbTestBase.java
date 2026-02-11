@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -183,7 +182,7 @@ public class DbTestBase {
     }
   }
 
-  public static void assertWithTimeout(DatabaseSession session, Runnable runnable)
+  public static void assertWithTimeout(DatabaseSessionEmbedded session, Runnable runnable)
       throws Exception {
     for (var i = 0; i < 30 * 60 * 10; i++) {
       var tx = session.begin();

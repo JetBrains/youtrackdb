@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -27,7 +27,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
   protected static String buildDirectory;
   protected static PaginatedCollection paginatedCollection;
-  protected static DatabaseSessionInternal databaseDocumentTx;
+  protected static DatabaseSessionEmbedded databaseDocumentTx;
   protected static YouTrackDBImpl youTrackDB;
   protected static String dbName;
   protected static AbstractStorage storage;

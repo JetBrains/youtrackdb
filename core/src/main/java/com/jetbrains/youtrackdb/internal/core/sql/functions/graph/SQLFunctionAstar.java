@@ -22,8 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -147,7 +146,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
   }
 
   private LinkedList<Vertex> internalExecute(
-      final CommandContext iContext, DatabaseSessionInternal graph) {
+      final CommandContext iContext, DatabaseSessionEmbedded graph) {
 
     var start = paramSourceVertex;
     var goal = paramDestinationVertex;
@@ -208,8 +207,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     return getPath();
   }
 
-  private static Vertex getNeighbor(DatabaseSessionInternal db, Vertex current, Edge neighborEdge,
-      DatabaseSession graph) {
+  private static Vertex getNeighbor(DatabaseSessionEmbedded db, Vertex current, Edge neighborEdge,
+      DatabaseSessionEmbedded graph) {
     if (neighborEdge.getFrom().equals(current)) {
       return toVertex(neighborEdge.getTo(), db);
     }
@@ -217,7 +216,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
   }
 
   @Nullable
-  private static Vertex toVertex(Identifiable outVertex, DatabaseSessionInternal db) {
+  private static Vertex toVertex(Identifiable outVertex, DatabaseSessionEmbedded db) {
     if (outVertex == null) {
       return null;
     }
@@ -298,7 +297,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     }
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "astar(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, [<options>]) \n"
         + " // options  : {direction:\"OUT\",edgeTypeNames:[] , vertexAxisNames:[] ,"
         + " parallel : false ,"

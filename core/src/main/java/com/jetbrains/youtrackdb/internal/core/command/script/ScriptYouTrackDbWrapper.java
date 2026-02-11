@@ -19,8 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 
 /**
@@ -29,13 +28,13 @@ import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 @Deprecated
 public class ScriptYouTrackDbWrapper {
 
-  protected final DatabaseSession db;
+  protected final DatabaseSessionEmbedded db;
 
   public ScriptYouTrackDbWrapper() {
     this.db = null;
   }
 
-  public ScriptYouTrackDbWrapper(final DatabaseSession db) {
+  public ScriptYouTrackDbWrapper(final DatabaseSessionEmbedded db) {
     this.db = db;
   }
 
@@ -44,11 +43,6 @@ public class ScriptYouTrackDbWrapper {
       throw new ConfigurationException("No database instance found in context");
     }
 
-    if (db instanceof DatabaseSessionInternal) {
-      return new ScriptDocumentDatabaseWrapper((DatabaseSessionInternal) db);
-    }
-
-    throw new ConfigurationException(db.getDatabaseName(),
-        "No valid database instance found in context: " + db + ", class: " + db.getClass());
+    return new ScriptDocumentDatabaseWrapper(db);
   }
 }

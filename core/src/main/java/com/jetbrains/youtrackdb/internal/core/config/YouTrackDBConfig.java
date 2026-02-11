@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.config;
 
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;

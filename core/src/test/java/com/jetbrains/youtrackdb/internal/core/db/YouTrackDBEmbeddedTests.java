@@ -47,9 +47,8 @@ public class YouTrackDBEmbeddedTests {
       youTrackDb.create("createAndUseEmbeddedDatabase", DatabaseType.MEMORY,
           new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       final var db =
-          (DatabaseSessionInternal)
-              youTrackDb.open(
-                  "createAndUseEmbeddedDatabase", "admin", DbTestBase.ADMIN_PASSWORD);
+          youTrackDb.open(
+              "createAndUseEmbeddedDatabase", "admin", DbTestBase.ADMIN_PASSWORD);
       db.executeInTx(
           Transaction::newEntity);
       db.close();
@@ -461,8 +460,7 @@ public class YouTrackDBEmbeddedTests {
     youTrackDb.create("test", DatabaseType.MEMORY,
         new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var db =
-        (DatabaseSessionInternal)
-            youTrackDb.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+        youTrackDb.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
     db.executeInTx(
         Transaction::newEntity);
     db.close();

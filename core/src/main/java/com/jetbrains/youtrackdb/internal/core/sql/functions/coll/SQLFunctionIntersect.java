@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.util.SupportsContains;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -236,7 +236,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "intersect(<field>*)";
   }
 }

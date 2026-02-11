@@ -25,9 +25,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -101,7 +99,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
                 (DatabaseSessionEmbedded) importDB, testPath + "/" + exportFilePath, this);
         // UNREGISTER ALL THE HOOKS
         for (final var hook : new ArrayList<>(
-            ((DatabaseSessionInternal) importDB).getHooks())) {
+            ((DatabaseSessionEmbedded) importDB).getHooks())) {
           session.unregisterHook(hook);
         }
         dbImport.setDeleteRIDMapping(false);
@@ -422,7 +420,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
   }
 
-  private static DatabaseSession createAndOpen(YouTrackDBImpl youTrackDB, String dbName) {
+  private static DatabaseSessionEmbedded createAndOpen(YouTrackDBImpl youTrackDB, String dbName) {
     youTrackDB.create(dbName, DatabaseType.DISK);
     return youTrackDB.open(dbName, "admin", "admin");
   }

@@ -47,7 +47,6 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
@@ -348,7 +347,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public void close(DatabaseSessionInternal session) {
+  public void close(DatabaseSessionEmbedded session) {
     var sessions = sessionCount.decrementAndGet();
 
     if (sessions < 0) {
@@ -369,12 +368,12 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public boolean dropCollection(DatabaseSessionInternal session, final String iCollectionName) {
+  public boolean dropCollection(DatabaseSessionEmbedded session, final String iCollectionName) {
     return dropCollection(session, getCollectionIdByName(iCollectionName));
   }
 
   @Override
-  public long countRecords(DatabaseSessionInternal session) {
+  public long countRecords(DatabaseSessionEmbedded session) {
     long tot = 0;
 
     for (var c : getCollectionInstances()) {
@@ -460,7 +459,7 @@ public abstract class AbstractStorage
 
   @Override
   public final void open(
-      DatabaseSessionInternal remote, final String iUserName,
+      DatabaseSessionEmbedded remote, final String iUserName,
       final String iUserPassword,
       final ContextConfiguration contextConfiguration) {
     open(contextConfiguration);
@@ -950,7 +949,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final boolean isClosed(DatabaseSessionInternal database) {
+  public final boolean isClosed(DatabaseSessionEmbedded database) {
     try {
       stateLock.readLock().lock();
       try {
@@ -972,7 +971,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final void close(DatabaseSessionInternal database, final boolean force) {
+  public final void close(DatabaseSessionEmbedded database, final boolean force) {
     try {
       if (!force) {
         close(database);
@@ -1058,7 +1057,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final int addCollection(DatabaseSessionInternal database, final String collectionName,
+  public final int addCollection(DatabaseSessionEmbedded database, final String collectionName,
       final Object... parameters) {
     try {
       stateLock.writeLock().lock();
@@ -1090,7 +1089,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final int addCollection(DatabaseSessionInternal database, final String collectionName,
+  public final int addCollection(DatabaseSessionEmbedded database, final String collectionName,
       final int requestedId) {
     try {
       stateLock.writeLock().lock();
@@ -1137,7 +1136,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final boolean dropCollection(DatabaseSessionInternal database, final int collectionId) {
+  public final boolean dropCollection(DatabaseSessionEmbedded database, final int collectionId) {
     try {
       stateLock.writeLock().lock();
       try {
@@ -1369,12 +1368,12 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final long count(DatabaseSessionInternal session, final int iCollectionId) {
+  public final long count(DatabaseSessionEmbedded session, final int iCollectionId) {
     return count(session, iCollectionId, false);
   }
 
   @Override
-  public final long count(DatabaseSessionInternal session, final int collectionId,
+  public final long count(DatabaseSessionEmbedded session, final int collectionId,
       final boolean countTombstones) {
     try {
       if (collectionId == -1) {
@@ -1411,7 +1410,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final long count(DatabaseSessionInternal session, final int[] iCollectionIds) {
+  public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds) {
     return count(session, iCollectionIds, false);
   }
 
@@ -1446,7 +1445,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final long count(DatabaseSessionInternal session, final int[] iCollectionIds,
+  public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds,
       final boolean countTombstones) {
     try {
       long tot = 0;
@@ -1486,7 +1485,7 @@ public abstract class AbstractStorage
 
   @Nullable
   @Override
-  public final RecordMetadata getRecordMetadata(DatabaseSessionInternal session,
+  public final RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session,
       final RID rid) {
     try {
       if (rid.isNew()) {
@@ -2028,7 +2027,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private void commitIndexes(DatabaseSessionInternal db,
+  private void commitIndexes(DatabaseSessionEmbedded db,
       final Map<String, FrontendTransactionIndexChanges> indexesToCommit) {
     for (final var changes : indexesToCommit.values()) {
       var index = changes.getIndex();
@@ -2049,7 +2048,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private void applyTxChanges(DatabaseSessionInternal session,
+  private void applyTxChanges(DatabaseSessionEmbedded session,
       FrontendTransactionIndexChangesPerKey changes, Index index)
       throws InvalidIndexEngineIdException {
     assert !(changes.key instanceof RID orid) || orid.isPersistent();
@@ -3230,7 +3229,7 @@ public abstract class AbstractStorage
 
 
   @Override
-  public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
+  public String getCollectionName(DatabaseSessionEmbedded database, int collectionId) {
     stateLock.readLock().lock();
     try {
 
@@ -3254,7 +3253,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final long getSize(DatabaseSessionInternal session) {
+  public final long getSize(DatabaseSessionEmbedded session) {
     try {
       try {
         long size = 0;
@@ -3341,7 +3340,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final void freeze(DatabaseSessionInternal db, final boolean throwException) {
+  public final void freeze(DatabaseSessionEmbedded db, final boolean throwException) {
     try {
       stateLock.readLock().lock();
       try {
@@ -3388,7 +3387,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final void release(DatabaseSessionInternal db) {
+  public final void release(DatabaseSessionEmbedded db) {
     try {
       for (final var indexEngine : indexEngines) {
         if (indexEngine instanceof FreezableStorageComponent) {
@@ -3420,7 +3419,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final void reload(DatabaseSessionInternal database) {
+  public final void reload(DatabaseSessionEmbedded database) {
     try {
       close(database);
       open(new ContextConfiguration());
@@ -3482,7 +3481,7 @@ public abstract class AbstractStorage
 
   @Override
   public final PhysicalPosition[] higherPhysicalPositions(
-      DatabaseSessionInternal session, final int currentCollectionId,
+      DatabaseSessionEmbedded session, final int currentCollectionId,
       final PhysicalPosition physicalPosition, int limit) {
     try {
       if (currentCollectionId == -1) {
@@ -3515,7 +3514,7 @@ public abstract class AbstractStorage
 
   @Override
   public final PhysicalPosition[] ceilingPhysicalPositions(
-      DatabaseSessionInternal session, final int collectionId,
+      DatabaseSessionEmbedded session, final int collectionId,
       final PhysicalPosition physicalPosition, int limit) {
     try {
       if (collectionId == -1) {
@@ -3548,7 +3547,7 @@ public abstract class AbstractStorage
 
   @Override
   public final PhysicalPosition[] lowerPhysicalPositions(
-      DatabaseSessionInternal session, final int currentCollectionId,
+      DatabaseSessionEmbedded session, final int currentCollectionId,
       final PhysicalPosition physicalPosition, int limit) {
     try {
       if (currentCollectionId == -1) {
@@ -3582,7 +3581,7 @@ public abstract class AbstractStorage
 
   @Override
   public final PhysicalPosition[] floorPhysicalPositions(
-      DatabaseSessionInternal session, final int collectionId,
+      DatabaseSessionEmbedded session, final int collectionId,
       final PhysicalPosition physicalPosition, int limit) {
     try {
       if (collectionId == -1) {
@@ -3941,7 +3940,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public boolean recordExists(DatabaseSessionInternal session, RID rid) {
+  public boolean recordExists(DatabaseSessionEmbedded session, RID rid) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "

@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
@@ -57,7 +57,7 @@ public class SQLFunctionFirst extends SQLFunctionConfigurableAbstract {
     return value;
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "first(<field>)";
   }
 }

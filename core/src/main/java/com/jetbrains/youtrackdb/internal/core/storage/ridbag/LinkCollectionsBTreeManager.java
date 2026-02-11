@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
@@ -29,7 +29,7 @@ import java.io.IOException;
 public interface LinkCollectionsBTreeManager {
   LinkBagPointer createBTree(
       int collectionId, AtomicOperation atomicOperation,
-      DatabaseSessionInternal session) throws IOException;
+      DatabaseSessionEmbedded session) throws IOException;
 
   IsolatedLinkBagBTree<RID, Integer> loadIsolatedBTree(LinkBagPointer collectionPointer);
 }

@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -167,8 +166,8 @@ public class SQLOrderByItem {
 
         var internal = ctx.getDatabaseSession();
         if (stringCollator == null) {
-          var language = (String) internal.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE);
-          var country = (String) internal.get(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY);
+          var language = (String) internal.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE);
+          var country = (String) internal.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY);
           Locale locale;
           if (language != null) {
             if (country != null) {

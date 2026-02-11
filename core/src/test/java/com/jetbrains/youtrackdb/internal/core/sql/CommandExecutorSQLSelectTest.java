@@ -28,9 +28,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
@@ -219,7 +217,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.commit();
   }
 
-  private static void initCollateOnLinked(DatabaseSession db) {
+  private static void initCollateOnLinked(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE CLASS CollateOnLinked");
     db.computeScript("sql", "CREATE PROPERTY CollateOnLinked.name String");
     db.computeScript("sql", "ALTER PROPERTY CollateOnLinked.name collate ci");
@@ -244,7 +242,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     });
   }
 
-  private static void initComplexFilterInSquareBrackets(DatabaseSession db) {
+  private static void initComplexFilterInSquareBrackets(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets1").close();
     db.computeScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets2").close();
 
@@ -262,7 +260,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initFilterAndOrderByTest(DatabaseSession db) {
+  private static void initFilterAndOrderByTest(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE CLASS FilterAndOrderByTest").close();
     db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
     db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
@@ -289,7 +287,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initMaxLongNumber(DatabaseSession db) {
+  private static void initMaxLongNumber(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE class MaxLongNumberTest").close();
 
     var tx = db.begin();
@@ -300,7 +298,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initLinkListSequence(DatabaseSession db) {
+  private static void initLinkListSequence(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE class LinkListSequence").close();
     db.computeScript("sql", "CREATE PROPERTY LinkListSequence.name STRING").close();
     db.computeScript("sql", "CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence")
@@ -331,7 +329,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initMatchesWithRegex(DatabaseSession db) {
+  private static void initMatchesWithRegex(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE class matchesstuff").close();
 
     var tx = db.begin();
@@ -339,7 +337,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initDistinctLimit(DatabaseSession db) {
+  private static void initDistinctLimit(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "CREATE class DistinctLimit").close();
 
     var tx = db.begin();
@@ -350,7 +348,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initDatesSet(DatabaseSession db) {
+  private static void initDatesSet(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
     db.computeScript("sql",
             "create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
@@ -361,7 +359,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.commit();
   }
 
-  private static void initMassiveOrderSkipLimit(DatabaseSessionInternal db) {
+  private static void initMassiveOrderSkipLimit(DatabaseSessionEmbedded db) {
     db.getMetadata().getSchema().createClass("MassiveOrderSkipLimit", 1);
     var fieldValue =
         "laskdf lkajsd flaksjdf laksjd flakjsd flkasjd flkajsd flkajsd flkajsd flkajsd flkajsd"
@@ -381,7 +379,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
   }
 
-  private static void initExpandSkipLimit(DatabaseSession db) {
+  private static void initExpandSkipLimit(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "create class ExpandSkipLimit ").close();
 
     for (var i = 0; i < 5; i++) {
@@ -1940,7 +1938,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     results.close();
   }
 
-  private long indexUsages(BasicDatabaseSession db) {
+  private long indexUsages(DatabaseSessionEmbedded db) {
     final long oldIndexUsage;
     try {
       oldIndexUsage = getProfilerInstance().getCounter(

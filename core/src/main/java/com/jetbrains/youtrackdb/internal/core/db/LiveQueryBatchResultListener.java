@@ -15,5 +15,5 @@ public interface LiveQueryBatchResultListener extends LiveQueryResultListener {
    * @param session the instance of the active datatabase connection where the live query operation
    *                 is being performed
    */
-  void onBatchEnd(DatabaseSession session);
+  void onBatchEnd(DatabaseSessionEmbedded session);
 }

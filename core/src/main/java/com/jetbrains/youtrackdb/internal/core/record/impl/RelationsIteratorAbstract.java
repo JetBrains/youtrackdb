@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.common.util.Resettable;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -24,7 +24,7 @@ public abstract class RelationsIteratorAbstract<E extends Entity, L extends Rela
   protected final String[] labels;
 
   @Nonnull
-  protected final DatabaseSessionInternal session;
+  protected final DatabaseSessionEmbedded session;
 
   @Nonnull
   private final Iterator<? extends Identifiable> iterator;
@@ -38,7 +38,7 @@ public abstract class RelationsIteratorAbstract<E extends Entity, L extends Rela
       @Nonnull final Iterator<? extends Identifiable> iterator,
       final Pair<Direction, String> connection,
       final String[] labels,
-      final int size, @Nonnull DatabaseSessionInternal session) {
+      final int size, @Nonnull DatabaseSessionEmbedded session) {
     this.iterator = iterator;
     this.multiValue = multiValue;
     this.size = size;

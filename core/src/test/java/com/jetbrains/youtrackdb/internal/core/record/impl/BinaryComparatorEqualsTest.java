@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
@@ -379,7 +379,7 @@ public class BinaryComparatorEqualsTest extends AbstractComparatorTest {
   }
 
   @Override
-  protected void testEquals(DatabaseSessionInternal db, PropertyTypeInternal sourceType,
+  protected void testEquals(DatabaseSessionEmbedded db, PropertyTypeInternal sourceType,
       PropertyTypeInternal destType) {
     try {
       Assert.assertTrue(comparator.isEqual(db, field(db, sourceType, 10), field(db, destType, 10)));

@@ -18,9 +18,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.security.symmetrickey;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -130,7 +128,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
 
   @Override
   public boolean isAllowed(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final Set<Identifiable> iAllowAll,
       final Set<Identifiable> iAllowOperation) {
     return delegate.isAllowed(session, iAllowAll, iAllowOperation);
@@ -138,12 +136,12 @@ public class SymmetricKeySecurity implements SecurityInternal {
 
 
   @Override
-  public SecurityUserImpl create(DatabaseSessionInternal session) {
+  public SecurityUserImpl create(DatabaseSessionEmbedded session) {
     return delegate.create(session);
   }
 
   @Override
-  public void load(DatabaseSessionInternal session) {
+  public void load(DatabaseSessionEmbedded session) {
     delegate.load(session);
   }
 
@@ -159,13 +157,13 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public SecurityUserImpl getUser(DatabaseSession session, final RID iUserId) {
+  public SecurityUserImpl getUser(DatabaseSessionEmbedded session, final RID iUserId) {
     return delegate.getUser(session, iUserId);
   }
 
   @Override
   public SecurityUserImpl createUser(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iUserName,
       final String iUserPassword,
       final String... iRoles) {
@@ -174,7 +172,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
 
   @Override
   public SecurityUserImpl createUser(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iUserName,
       final String iUserPassword,
       final Role... iRoles) {
@@ -182,81 +180,81 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public Role getRole(DatabaseSession session, final String iRoleName) {
+  public Role getRole(DatabaseSessionEmbedded session, final String iRoleName) {
     return delegate.getRole(session, iRoleName);
   }
 
   @Override
-  public Role getRole(DatabaseSession session, final Identifiable iRole) {
+  public Role getRole(DatabaseSessionEmbedded session, final Identifiable iRole) {
     return delegate.getRole(session, iRole);
   }
 
   @Override
   public Role createRole(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iRoleName) {
     return delegate.createRole(session, iRoleName);
   }
 
   @Override
   public Role createRole(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iRoleName,
       final Role iParent) {
     return delegate.createRole(session, iRoleName, iParent);
   }
 
   @Override
-  public List<EntityImpl> getAllUsers(DatabaseSession session) {
+  public List<EntityImpl> getAllUsers(DatabaseSessionEmbedded session) {
     return delegate.getAllUsers(session);
   }
 
   @Override
-  public List<EntityImpl> getAllRoles(DatabaseSession session) {
+  public List<EntityImpl> getAllRoles(DatabaseSessionEmbedded session) {
     return delegate.getAllRoles(session);
   }
 
   @Override
   public Map<String, ? extends SecurityPolicy> getSecurityPolicies(
-      DatabaseSession session, SecurityRole role) {
+      DatabaseSessionEmbedded session, SecurityRole role) {
     return delegate.getSecurityPolicies(session, role);
   }
 
   @Override
   public SecurityPolicy getSecurityPolicy(
-      DatabaseSession session, SecurityRole role, String resource) {
+      DatabaseSessionEmbedded session, SecurityRole role, String resource) {
     return delegate.getSecurityPolicy(session, role, resource);
   }
 
   @Override
   public void setSecurityPolicy(
-      DatabaseSessionInternal session, SecurityRole role, String resource,
+      DatabaseSessionEmbedded session, SecurityRole role, String resource,
       SecurityPolicyImpl policy) {
     delegate.setSecurityPolicy(session, role, resource, policy);
   }
 
   @Override
-  public SecurityPolicyImpl createSecurityPolicy(DatabaseSession session, String name) {
+  public SecurityPolicyImpl createSecurityPolicy(DatabaseSessionEmbedded session, String name) {
     return delegate.createSecurityPolicy(session, name);
   }
 
   @Override
-  public SecurityPolicyImpl getSecurityPolicy(DatabaseSession session, String name) {
+  public SecurityPolicyImpl getSecurityPolicy(DatabaseSessionEmbedded session, String name) {
     return delegate.getSecurityPolicy(session, name);
   }
 
   @Override
-  public void saveSecurityPolicy(DatabaseSession session, SecurityPolicyImpl policy) {
+  public void saveSecurityPolicy(DatabaseSessionEmbedded session, SecurityPolicyImpl policy) {
     delegate.saveSecurityPolicy(session, policy);
   }
 
   @Override
-  public void deleteSecurityPolicy(DatabaseSession session, String name) {
+  public void deleteSecurityPolicy(DatabaseSessionEmbedded session, String name) {
     delegate.deleteSecurityPolicy(session, name);
   }
 
   @Override
-  public void removeSecurityPolicy(DatabaseSession session, Role role, String resource) {
+  public void removeSecurityPolicy(DatabaseSessionEmbedded session, Role role, String resource) {
     delegate.removeSecurityPolicy(session, role, resource);
   }
 
@@ -265,22 +263,22 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public boolean dropUser(DatabaseSession session, final String iUserName) {
+  public boolean dropUser(DatabaseSessionEmbedded session, final String iUserName) {
     return delegate.dropUser(session, iUserName);
   }
 
   @Override
-  public boolean dropRole(DatabaseSession session, final String iRoleName) {
+  public boolean dropRole(DatabaseSessionEmbedded session, final String iRoleName) {
     return delegate.dropRole(session, iRoleName);
   }
 
   @Override
-  public long getVersion(DatabaseSession session) {
+  public long getVersion(DatabaseSessionEmbedded session) {
     return delegate.getVersion(session);
   }
 
   @Override
-  public void incrementVersion(DatabaseSession session) {
+  public void incrementVersion(DatabaseSessionEmbedded session) {
     delegate.incrementVersion(session);
   }
 

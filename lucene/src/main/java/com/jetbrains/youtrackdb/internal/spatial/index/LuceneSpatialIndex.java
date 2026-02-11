@@ -17,7 +17,7 @@ package com.jetbrains.youtrackdb.internal.spatial.index;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
@@ -87,7 +87,7 @@ public class LuceneSpatialIndex extends LuceneIndexNotUnique {
   }
 
   @Override
-  protected Object decodeKey(Object key, DatabaseSessionInternal session) {
+  protected Object decodeKey(Object key, DatabaseSessionEmbedded session) {
     if (key instanceof Geometry geom) {
       return shapeFactory.toEmbeddedEntity(geom, session);
     }

@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.operator;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -72,7 +72,7 @@ public class QueryOperatorNot extends QueryOperator {
 
   @Nullable
   @Override
-  public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getBeginRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     if (iLeft instanceof SQLFilterCondition) {
       final var beginRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
       final var endRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);
@@ -93,7 +93,7 @@ public class QueryOperatorNot extends QueryOperator {
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     if (iLeft instanceof SQLFilterCondition) {
       final var beginRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
       final var endRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);

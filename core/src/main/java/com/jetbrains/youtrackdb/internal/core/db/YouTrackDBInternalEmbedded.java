@@ -877,7 +877,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     }
     checkDatabaseName(name);
     try {
-      DatabaseSessionInternal db = openNoAuthenticate(name, user);
+      var db = openNoAuthenticate(name, user);
       for (var it = youTrack.getDbLifecycleListeners();
           it.hasNext(); ) {
         it.next().onDrop(db);
@@ -1187,13 +1187,13 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   public <X> X executeNoAuthorizationSync(
-      DatabaseSession database, DatabaseTask<X> task) {
+      DatabaseSessionEmbedded database, DatabaseTask<X> task) {
     var dbName = database.getDatabaseName();
     if (open) {
       try (var session = openNoAuthorization(dbName)) {
         return task.call(session);
       } finally {
-        ((DatabaseSessionEmbedded) database).activateOnCurrentThread();
+        database.activateOnCurrentThread();
       }
     } else {
       throw new DatabaseException(basePath.toString(), "YouTrackDB instance is closed");

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.List;
 
@@ -11,7 +11,7 @@ public class LinkListConverter extends AbstractCollectionConverter<List<Identifi
   }
 
   @Override
-  public List<Identifiable> convert(DatabaseSessionInternal session, List<Identifiable> value) {
+  public List<Identifiable> convert(DatabaseSessionEmbedded session, List<Identifiable> value) {
     final var result = session.newLinkList();
 
     final var callback =

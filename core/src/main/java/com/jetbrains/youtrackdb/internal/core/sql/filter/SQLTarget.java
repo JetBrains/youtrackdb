@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.filter;
 
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -148,7 +148,7 @@ public class SQLTarget extends BaseParser {
   }
 
   @SuppressWarnings("unchecked")
-  private boolean extractTargets(DatabaseSessionInternal session) {
+  private boolean extractTargets(DatabaseSessionEmbedded session) {
     parserSkipWhiteSpaces();
 
     if (parserIsEnded()) {

@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemVariable;
@@ -84,7 +84,7 @@ public class SQLFunctionUnionAll extends SQLFunctionMultiValueAbstract<Collectio
     }
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "unionAll(<field>*)";
   }
 }

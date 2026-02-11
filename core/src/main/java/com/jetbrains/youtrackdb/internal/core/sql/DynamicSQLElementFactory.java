@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
@@ -43,22 +43,22 @@ public class DynamicSQLElementFactory
 
 
   @Override
-  public void registerDefaultFunctions(DatabaseSessionInternal db) {
+  public void registerDefaultFunctions(DatabaseSessionEmbedded db) {
     // DO NOTHING
   }
 
   @Override
-  public Set<String> getFunctionNames(DatabaseSessionInternal session) {
+  public Set<String> getFunctionNames(DatabaseSessionEmbedded session) {
     return FUNCTIONS.keySet();
   }
 
   @Override
-  public boolean hasFunction(final String name, DatabaseSessionInternal session) {
+  public boolean hasFunction(final String name, DatabaseSessionEmbedded session) {
     return FUNCTIONS.containsKey(name);
   }
 
   @Override
-  public SQLFunction createFunction(final String name, DatabaseSessionInternal session)
+  public SQLFunction createFunction(final String name, DatabaseSessionEmbedded session)
       throws CommandExecutionException {
     final var obj = FUNCTIONS.get(name);
 

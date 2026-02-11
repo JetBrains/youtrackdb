@@ -46,18 +46,18 @@ public interface SessionListener {
   default void onAfterTxCommit(final Transaction transaction, @Nullable Map<RID, RID> ridMapping) {
   }
 
-  default void onClose(final DatabaseSession iDatabase) {
+  default void onClose(final DatabaseSessionEmbedded iDatabase) {
   }
 
-  default void onCreateClass(DatabaseSession iDatabase, SchemaClass iClass) {
+  default void onCreateClass(DatabaseSessionEmbedded iDatabase, SchemaClass iClass) {
   }
 
-  default void onDropClass(DatabaseSession iDatabase, SchemaClass iClass) {
+  default void onDropClass(DatabaseSessionEmbedded iDatabase, SchemaClass iClass) {
   }
 
-  default void onCommandStart(DatabaseSession database, ResultSet resultSet) {
+  default void onCommandStart(DatabaseSessionEmbedded database, ResultSet resultSet) {
   }
 
-  default void onCommandEnd(DatabaseSession database, ResultSet resultSet) {
+  default void onCommandEnd(DatabaseSessionEmbedded database, ResultSet resultSet) {
   }
 }

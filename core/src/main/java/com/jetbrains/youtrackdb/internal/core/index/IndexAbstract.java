@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManag
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -537,7 +536,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+  public boolean doRemove(DatabaseSessionEmbedded session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     return doRemove(storage, key, session);
@@ -560,7 +559,7 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public boolean doRemove(AbstractStorage storage, Object key,
-      DatabaseSessionInternal session)
+      DatabaseSessionEmbedded session)
       throws InvalidIndexEngineIdException {
     return storage.removeKeyFromIndex(indexId, key);
   }
@@ -768,7 +767,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
+  public Map<String, Object> getConfiguration(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     try {
       var map = new HashMap<String, Object>();
@@ -926,7 +925,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   private long[] indexCollection(
-      DatabaseSessionInternal session, final String collectionName,
+      DatabaseSessionEmbedded session, final String collectionName,
       final ProgressListener iProgressListener,
       long documentNum,
       long documentIndexed,
@@ -998,7 +997,7 @@ public abstract class IndexAbstract implements Index {
     rwLock.readLock().lock();
   }
 
-  protected void onIndexEngineChange(DatabaseSessionInternal session, final int indexId) {
+  protected void onIndexEngineChange(DatabaseSessionEmbedded session, final int indexId) {
     while (true) {
       try {
         storage.callIndexEngine(

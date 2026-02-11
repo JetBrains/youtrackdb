@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -779,7 +778,7 @@ public class EntityHelper {
   }
 
   @Nullable
-  public static Object getIdentifiableValue(@Nonnull DatabaseSessionInternal session,
+  public static Object getIdentifiableValue(@Nonnull DatabaseSessionEmbedded session,
       final Identifiable current,
       final String iFieldName) {
     if (iFieldName == null) {
@@ -1005,9 +1004,9 @@ public class EntityHelper {
 
   public static boolean hasSameContentItem(
       final Object iCurrent,
-      DatabaseSessionInternal iMyDb,
+      DatabaseSessionEmbedded iMyDb,
       final Object iOther,
-      final DatabaseSessionInternal iOtherDb,
+      final DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper) {
     if (iCurrent instanceof EntityImpl current) {
       if (iOther instanceof RID) {
@@ -1049,9 +1048,9 @@ public class EntityHelper {
    */
   public static boolean hasSameContentOf(
       final EntityImpl iCurrent,
-      final DatabaseSessionInternal iMyDb,
+      final DatabaseSessionEmbedded iMyDb,
       final EntityImpl iOther,
-      final DatabaseSessionInternal iOtherDb,
+      final DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper) {
     return hasSameContentOf(iCurrent, iMyDb, iOther, iOtherDb, ridMapper, true);
   }
@@ -1067,9 +1066,9 @@ public class EntityHelper {
   @SuppressWarnings("unchecked")
   public static boolean hasSameContentOf(
       final EntityImpl iCurrent,
-      final DatabaseSessionInternal iMyDb,
+      final DatabaseSessionEmbedded iMyDb,
       final EntityImpl iOther,
-      final DatabaseSessionInternal iOtherDb,
+      final DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper,
       final boolean iCheckAlsoIdentity) {
     if (iOther == null) {
@@ -1154,9 +1153,9 @@ public class EntityHelper {
   }
 
   public static boolean compareMaps(
-      DatabaseSessionInternal iMyDb,
+      DatabaseSessionEmbedded iMyDb,
       Map<Object, Object> myFieldValue,
-      DatabaseSessionInternal iOtherDb,
+      DatabaseSessionEmbedded iOtherDb,
       Map<Object, Object> otherFieldValue,
       RIDMapper ridMapper) {
     // CHECK IF THE ORDER IS RESPECTED
@@ -1192,9 +1191,9 @@ public class EntityHelper {
   }
 
   public static boolean compareCollections(
-      DatabaseSessionInternal iMyDb,
+      DatabaseSessionEmbedded iMyDb,
       Collection<?> myFieldValue,
-      DatabaseSessionInternal iOtherDb,
+      DatabaseSessionEmbedded iOtherDb,
       Collection<?> otherFieldValue,
       RIDMapper ridMapper) {
     if (myFieldValue.size() != otherFieldValue.size()) {
@@ -1214,9 +1213,9 @@ public class EntityHelper {
   }
 
   public static boolean compareSets(
-      DatabaseSessionInternal iMyDb,
+      DatabaseSessionEmbedded iMyDb,
       Set<?> myFieldValue,
-      DatabaseSessionInternal iOtherDb,
+      DatabaseSessionEmbedded iOtherDb,
       Set<?> otherFieldValue,
       RIDMapper ridMapper) {
     final var mySize = myFieldValue.size();
@@ -1282,9 +1281,9 @@ public class EntityHelper {
 
   private static boolean compareScalarValues(
       Object myValue,
-      DatabaseSessionInternal iMyDb,
+      DatabaseSessionEmbedded iMyDb,
       Object otherValue,
-      DatabaseSessionInternal iOtherDb,
+      DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper) {
     if (myValue == null && otherValue != null || myValue != null && otherValue == null) {
       return false;

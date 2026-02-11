@@ -30,9 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrackdb.internal.core.command.CommandRequest;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -88,14 +86,14 @@ public class CommandExecutorScript extends CommandExecutorAbstract
 
   @Override
   @SuppressWarnings("unchecked")
-  public CommandExecutorScript parse(DatabaseSessionInternal session,
+  public CommandExecutorScript parse(DatabaseSessionEmbedded session,
       final CommandRequest iRequest) {
     request = (CommandScript) iRequest;
     return this;
   }
 
   @Override
-  public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
+  public Object execute(DatabaseSessionEmbedded session, final Map<Object, Object> iArgs) {
     if (context == null) {
       context = new BasicCommandContext();
     }
@@ -123,7 +121,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     }
   }
 
-  private String preParse(DatabaseSessionInternal db, String parserText,
+  private String preParse(DatabaseSessionEmbedded db, String parserText,
       final Map<Object, Object> iArgs)
       throws ParseException {
     final var strict = db.getStorageInfo().getConfiguration().isStrictSql();
@@ -200,6 +198,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return false;
   }
 
+  @SuppressWarnings("deprecation")
   protected Object executeJsr223Script(
       final String language, final CommandContext iContext, final Map<Object, Object> iArgs) {
     var db = iContext.getDatabaseSession();
@@ -553,10 +552,9 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     }
   }
 
-  private Object executeCommand(final String lastCommand, final DatabaseSession db) {
-    var database = (DatabaseSessionInternal) db;
+  private Object executeCommand(final String lastCommand, final DatabaseSessionEmbedded db) {
     var result =
-        database
+        db
             .execute(lastCommand, toMap(parameters)).toList();
     return result;
   }

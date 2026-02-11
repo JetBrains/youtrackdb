@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.record.record;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -47,7 +47,7 @@ public interface DBRecord extends Identifiable, Element {
    * @return <code>true</code> if record is bound to the passed in session.
    * @see Transaction#load(Identifiable)
    */
-  boolean isNotBound(@Nonnull DatabaseSession session);
+  boolean isNotBound(@Nonnull DatabaseSessionEmbedded session);
 
   /**
    * Returns the record identity.
@@ -126,7 +126,7 @@ public interface DBRecord extends Identifiable, Element {
    * unloaded.
    */
   @Nullable
-  DatabaseSession getBoundedToSession();
+  DatabaseSessionEmbedded getBoundedToSession();
 
   boolean isBlob();
 

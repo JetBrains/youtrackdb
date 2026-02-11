@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.db.record.ridbag;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.DataContainer;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
@@ -87,13 +87,13 @@ public class LinkBag
   private int topThreshold;
   private int bottomThreshold;
 
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
 
   protected LinkBag() {
     session = null;
   }
 
-  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag source) {
+  public LinkBag(@Nonnull DatabaseSessionEmbedded session, final LinkBag source) {
     initThresholds(session);
     init();
     for (var identifiable : source) {
@@ -102,14 +102,14 @@ public class LinkBag
     this.session = session;
   }
 
-  public LinkBag(@Nonnull DatabaseSessionInternal session) {
+  public LinkBag(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
     initThresholds(session);
     init();
   }
 
 
-  public LinkBag(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
+  public LinkBag(@Nonnull DatabaseSessionEmbedded session, LinkBagDelegate delegate) {
     this.session = session;
     initThresholds(session);
     this.delegate = delegate;
@@ -282,7 +282,7 @@ public class LinkBag
     }
   }
 
-  protected void initThresholds(@Nonnull DatabaseSessionInternal session) {
+  protected void initThresholds(@Nonnull DatabaseSessionEmbedded session) {
     assert session.assertIfNotActive();
     var conf = session.getConfiguration();
     topThreshold =

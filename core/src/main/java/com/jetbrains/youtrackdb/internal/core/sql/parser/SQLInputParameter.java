@@ -3,7 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -181,7 +181,7 @@ public class SQLInputParameter extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
+  public Result serialize(DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
     result.setProperty("__class", getClass().getName());
     return result;

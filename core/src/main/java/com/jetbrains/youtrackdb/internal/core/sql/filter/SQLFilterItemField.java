@@ -23,9 +23,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
@@ -91,7 +89,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     }
   }
 
-  public SQLFilterItemField(DatabaseSessionInternal db, final String iName,
+  public SQLFilterItemField(DatabaseSessionEmbedded db, final String iName,
       final SchemaClass iClass) {
     this.name = IOUtils.getStringContent(iName);
     collate = getCollateForField(db, iClass, name);
@@ -150,7 +148,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   }
 
   @Nullable
-  public BinaryField getBinaryField(DatabaseSessionInternal session, final Identifiable iRecord) {
+  public BinaryField getBinaryField(DatabaseSessionEmbedded session, final Identifiable iRecord) {
     if (iRecord == null) {
       throw new CommandExecutionException(session,
           "expression item '" + name + "' cannot be resolved because current record is NULL");
@@ -183,7 +181,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   }
 
   @Override
-  public String getRoot(DatabaseSession session) {
+  public String getRoot(DatabaseSessionEmbedded session) {
     return name;
   }
 
@@ -257,7 +255,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
    * @return the collate, null if no collate is defined
    */
   @Nullable
-  public Collate getCollate(DatabaseSessionInternal session, Object object) {
+  public Collate getCollate(DatabaseSessionEmbedded session, Object object) {
     if (collate != null || operationsChain == null || !isFieldChain()) {
       return collate;
     }

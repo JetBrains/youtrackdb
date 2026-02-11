@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
@@ -470,7 +469,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   }
 
 
-  private static boolean matchesClass(DatabaseSessionInternal session, Identifiable identifiable,
+  private static boolean matchesClass(DatabaseSessionEmbedded session, Identifiable identifiable,
       SchemaClass oClass) {
     if (identifiable == null) {
       return false;
@@ -592,7 +591,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   }
 
   @Nullable
-  private static String getLowerSubclass(DatabaseSessionInternal session, String className1,
+  private static String getLowerSubclass(DatabaseSessionEmbedded session, String className1,
       String className2) {
     Schema schema = session.getMetadata().getSchema();
     var class1 = schema.getClass(className1);

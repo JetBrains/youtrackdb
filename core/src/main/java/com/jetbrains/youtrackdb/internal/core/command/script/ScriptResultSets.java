@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Collections;
 
 /**
@@ -17,7 +17,7 @@ public class ScriptResultSets {
    *
    * @return
    */
-  public static ScriptResultSet empty(DatabaseSessionInternal db) {
+  public static ScriptResultSet empty(DatabaseSessionEmbedded db) {
     return new ScriptResultSet(db, Collections.EMPTY_LIST.iterator(), null);
   }
 
@@ -26,7 +26,7 @@ public class ScriptResultSets {
    *
    * @return
    */
-  public static ScriptResultSet singleton(DatabaseSessionInternal db, Object entity,
+  public static ScriptResultSet singleton(DatabaseSessionEmbedded db, Object entity,
       ScriptTransformer transformer) {
     return new ScriptResultSet(db, Collections.singletonList(entity).iterator(), transformer);
   }

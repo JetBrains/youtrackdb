@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -34,12 +34,12 @@ public interface CommandResultListener {
    * @param iRecord Current record
    * @return True to continue the query, otherwise false
    */
-  boolean result(@Nonnull DatabaseSessionInternal session, Object iRecord);
+  boolean result(@Nonnull DatabaseSessionEmbedded session, Object iRecord);
 
   /**
    * Called at the end of processing. This is useful to clean-up local attributes.
    */
-  void end(@Nonnull DatabaseSessionInternal session);
+  void end(@Nonnull DatabaseSessionEmbedded session);
 
   @Nullable
   Object getResult();

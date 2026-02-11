@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
@@ -47,11 +47,11 @@ public class SequenceLibraryImpl {
   private final AtomicLong reloadNeeded = new AtomicLong();
   private final Lock lock = new ReentrantLock();
 
-  public static void create(DatabaseSessionInternal database) {
+  public static void create(DatabaseSessionEmbedded database) {
     init(database);
   }
 
-  public void load(final DatabaseSessionInternal session) {
+  public void load(final DatabaseSessionEmbedded session) {
     lock.lock();
     try {
       sequences.clear();
@@ -77,18 +77,18 @@ public class SequenceLibraryImpl {
     sequences.clear();
   }
 
-  public Set<String> getSequenceNames(DatabaseSessionInternal session) {
+  public Set<String> getSequenceNames(DatabaseSessionEmbedded session) {
     reloadIfNeeded(session);
     return sequences.keySet();
   }
 
-  public int getSequenceCount(DatabaseSessionInternal session) {
+  public int getSequenceCount(DatabaseSessionEmbedded session) {
     reloadIfNeeded(session);
     return sequences.size();
   }
 
   public DBSequence getSequence(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final String iName
   ) {
     reloadIfNeeded(session);
@@ -96,7 +96,7 @@ public class SequenceLibraryImpl {
   }
 
   public DBSequence createSequence(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final String iName,
       final SEQUENCE_TYPE sequenceType,
       final DBSequence.CreateParams params) {
@@ -118,7 +118,7 @@ public class SequenceLibraryImpl {
   }
 
   public void dropSequence(
-      final DatabaseSessionInternal session, final String iName) {
+      final DatabaseSessionEmbedded session, final String iName) {
     lock.lock();
     try {
       final var seq = getSequence(session, iName);
@@ -137,7 +137,7 @@ public class SequenceLibraryImpl {
     }
   }
 
-  public void onSequenceCreated(final DatabaseSessionInternal session, final EntityImpl entity) {
+  public void onSequenceCreated(final DatabaseSessionEmbedded session, final EntityImpl entity) {
     init(session);
 
     final var name = normalizeName(DBSequence.getSequenceName(entity));
@@ -174,7 +174,7 @@ public class SequenceLibraryImpl {
 
 
   public void onSequenceDropped(
-      final DatabaseSessionInternal session, final RID rid) {
+      final DatabaseSessionEmbedded session, final RID rid) {
     var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_SEQUENCES_MAP);
@@ -193,7 +193,7 @@ public class SequenceLibraryImpl {
     onSequenceLibraryUpdate(session);
   }
 
-  private static void init(final DatabaseSessionInternal session) {
+  private static void init(final DatabaseSessionEmbedded session) {
     if (session.getMetadata().getSchema().existsClass(DBSequence.CLASS_NAME)) {
       return;
     }
@@ -209,13 +209,13 @@ public class SequenceLibraryImpl {
     }
   }
 
-  private static void onSequenceLibraryUpdate(DatabaseSessionInternal session) {
+  private static void onSequenceLibraryUpdate(DatabaseSessionEmbedded session) {
     for (var one : session.getSharedContext().browseListeners()) {
       one.onSequenceLibraryUpdate(session, session.getDatabaseName());
     }
   }
 
-  private void reloadIfNeeded(DatabaseSessionInternal database) {
+  private void reloadIfNeeded(DatabaseSessionEmbedded database) {
     var reloadRequests = reloadNeeded.getAndSet(0);
     if (reloadRequests > 0) {
       load(database);

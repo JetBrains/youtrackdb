@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibrary;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryProxy;
@@ -150,7 +149,7 @@ public class MetadataDefault implements MetadataInternal {
     // ADD HERE THE CLOSE OF A PROXY OBJECT IF NEEDED
   }
 
-  protected DatabaseSessionInternal getDatabase() {
+  protected DatabaseSessionEmbedded getDatabase() {
     return database;
   }
 

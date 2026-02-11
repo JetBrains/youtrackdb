@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.common.util.PairIntegerObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -1358,7 +1357,7 @@ public class SelectExecutionPlanner {
   }
 
   private static IntArrayList classCollectionsFiltered(
-      DatabaseSessionInternal db, SchemaClass clazz, Set<String> filterCollections) {
+      DatabaseSessionEmbedded db, SchemaClass clazz, Set<String> filterCollections) {
     var ids = clazz.getPolymorphicCollectionIds();
     var filtered = new IntArrayList();
     for (var id : ids) {

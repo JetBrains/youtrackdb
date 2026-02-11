@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import java.util.HashMap;
@@ -29,7 +29,7 @@ public class ChangeSerializationHelper {
     return createChangeInstance(ByteSerializer.INSTANCE.deserializeLiteral(stream, offset), value);
   }
 
-  public static Map<RID, Change> deserializeChanges(DatabaseSessionInternal session,
+  public static Map<RID, Change> deserializeChanges(DatabaseSessionEmbedded session,
       final byte[] stream, int offset) {
     final var count = IntegerSerializer.deserializeLiteral(stream, offset);
     offset += IntegerSerializer.INT_SIZE;
@@ -55,7 +55,7 @@ public class ChangeSerializationHelper {
   }
 
   public static void serializeChanges(
-      DatabaseSessionInternal db, Map<RID, Change> changes, byte[] stream, int offset) {
+      DatabaseSessionEmbedded db, Map<RID, Change> changes, byte[] stream, int offset) {
     IntegerSerializer.serializeLiteral(changes.size(), stream, offset);
     offset += IntegerSerializer.INT_SIZE;
 

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.text;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
 import javax.annotation.Nullable;
@@ -41,7 +41,7 @@ public class SQLFunctionConcat extends SQLFunctionConfigurableAbstract {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "concat(<field>, [<delim>])";
   }
 

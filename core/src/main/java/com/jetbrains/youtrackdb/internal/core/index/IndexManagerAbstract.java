@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.resource.CloseableInStora
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -77,14 +76,14 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
       Map<String, Object> metadata,
       String algorithm);
 
-  public abstract void dropIndex(DatabaseSessionInternal session, final String iIndexName);
+  public abstract void dropIndex(DatabaseSessionEmbedded session, final String iIndexName);
 
-  public abstract void reload(DatabaseSessionInternal session);
+  public abstract void reload(DatabaseSessionEmbedded session);
 
 
-  public abstract void load(DatabaseSessionInternal session);
+  public abstract void load(DatabaseSessionEmbedded session);
 
-  public void getClassRawIndexes(DatabaseSessionInternal session,
+  public void getClassRawIndexes(DatabaseSessionEmbedded session,
       final String className, final Collection<Index> indexes) {
     final var propertyIndex = getIndexOnProperty(className);
 
@@ -102,7 +101,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
   public Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, final String className, Collection<String> fields) {
+      DatabaseSessionEmbedded session, final String className, Collection<String> fields) {
     final var multiKey = new MultiKey(fields);
 
     final var propertyIndex = getIndexOnProperty(className);
@@ -126,16 +125,16 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
 
   public Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, final String className, final String... fields) {
+      DatabaseSessionEmbedded session, final String className, final String... fields) {
     return getClassInvolvedIndexes(session, className, Arrays.asList(fields));
   }
 
-  public boolean areIndexed(DatabaseSessionInternal session, final String className,
+  public boolean areIndexed(DatabaseSessionEmbedded session, final String className,
       final String... fields) {
     return areIndexed(session, className, Arrays.asList(fields));
   }
 
-  public boolean areIndexed(DatabaseSessionInternal session, final String className,
+  public boolean areIndexed(DatabaseSessionEmbedded session, final String className,
       Collection<String> fields) {
     final var multiKey = new MultiKey(fields);
 
@@ -148,7 +147,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return propertyIndex.containsKey(multiKey) && !propertyIndex.get(multiKey).isEmpty();
   }
 
-  public Set<Index> getClassIndexes(DatabaseSessionInternal session, final String className) {
+  public Set<Index> getClassIndexes(DatabaseSessionEmbedded session, final String className) {
     final var coll = new HashSet<Index>(4);
     getClassIndexes(session, className, coll);
     return coll;
@@ -156,7 +155,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
   @Nullable
   public Index getClassIndex(
-      DatabaseSessionInternal session, String className, String indexName) {
+      DatabaseSessionEmbedded session, String className, String indexName) {
     className = className.toLowerCase();
 
     final var index = indexes.get(indexName);
@@ -169,7 +168,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return null;
   }
 
-  public void getClassIndexes(DatabaseSessionInternal session, final String className,
+  public void getClassIndexes(DatabaseSessionEmbedded session, final String className,
       final Collection<Index> indexes) {
     final var propertyIndex = getIndexOnProperty(className);
 

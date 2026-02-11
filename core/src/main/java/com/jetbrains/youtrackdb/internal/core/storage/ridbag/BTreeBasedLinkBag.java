@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -42,13 +42,13 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   private final LinkCollectionsBTreeManager collectionManager;
   private LinkBagPointer collectionPointer;
 
-  public BTreeBasedLinkBag(@Nonnull DatabaseSessionInternal session, int counterMaxValue) {
+  public BTreeBasedLinkBag(@Nonnull DatabaseSessionEmbedded session, int counterMaxValue) {
     super(session, counterMaxValue);
     collectionPointer = null;
     this.collectionManager = session.getBTreeCollectionManager();
   }
 
-  public BTreeBasedLinkBag(@Nonnull DatabaseSessionInternal session, LinkBagPointer linkBagPointer,
+  public BTreeBasedLinkBag(@Nonnull DatabaseSessionEmbedded session, LinkBagPointer linkBagPointer,
       int size,
       int counterMaxValue) {
     super(session, size, counterMaxValue);

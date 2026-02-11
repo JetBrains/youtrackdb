@@ -3,8 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -23,7 +22,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
-    DatabaseSession session = ctx == null ? null : ctx.getDatabaseSession();
+    var session = ctx == null ? null : ctx.getDatabaseSession();
 
     maxElementsAllowed =
         session == null
@@ -45,7 +44,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   @Nullable
   private Result filterMap(Result result, Set<RID> pastRids, Set<Result> pastItems,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (alreadyVisited(result, pastRids, pastItems)) {
       return null;
     } else {
@@ -55,7 +54,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   }
 
   private void markAsVisited(Result nextValue, Set<RID> pastRids, Set<Result> pastItems,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (nextValue.isEntity()) {
       var identity = nextValue.asEntityOrNull().getIdentity();
       var collection = identity.getCollectionId();

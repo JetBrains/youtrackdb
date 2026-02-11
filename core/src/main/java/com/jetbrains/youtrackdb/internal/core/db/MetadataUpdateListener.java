@@ -6,15 +6,15 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 
 public interface MetadataUpdateListener {
 
-  void onSchemaUpdate(DatabaseSessionInternal session, String databaseName, SchemaShared schema);
+  void onSchemaUpdate(DatabaseSessionEmbedded session, String databaseName, SchemaShared schema);
 
-  void onSequenceLibraryUpdate(DatabaseSessionInternal session, String databaseName);
+  void onSequenceLibraryUpdate(DatabaseSessionEmbedded session, String databaseName);
 
   void onStorageConfigurationUpdate(String databaseName,
       StorageConfiguration update);
 
-  void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
+  void onIndexManagerUpdate(DatabaseSessionEmbedded session, String databaseName,
       IndexManagerAbstract indexManager);
 
-  void onFunctionLibraryUpdate(DatabaseSessionInternal session, String databaseName);
+  void onFunctionLibraryUpdate(DatabaseSessionEmbedded session, String databaseName);
 }

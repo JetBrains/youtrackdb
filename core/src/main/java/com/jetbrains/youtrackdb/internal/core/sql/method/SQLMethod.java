@@ -16,7 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
@@ -53,7 +53,7 @@ public interface SQLMethod extends Comparable<SQLMethod> {
   /**
    * @return maximum number of arguments requiered by this method
    */
-  int getMaxParams(DatabaseSession session);
+  int getMaxParams(DatabaseSessionEmbedded session);
 
   /**
    * @param iCurrentRecord : current record

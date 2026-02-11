@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -17,7 +17,7 @@ public final class LinkConverter implements ValuesConverter<Identifiable> {
   }
 
   @Override
-  public Identifiable convert(DatabaseSessionInternal session, Identifiable value) {
+  public Identifiable convert(DatabaseSessionEmbedded session, Identifiable value) {
     final var rid = value.getIdentity();
     if (!rid.isPersistent()) {
       return value;

@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.ArrayList;
@@ -84,7 +84,7 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return NAME + "(<field>, <quantile> [,<quantile>*])";
   }
 

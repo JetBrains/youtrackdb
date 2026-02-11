@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
@@ -89,7 +89,7 @@ public interface SQLFunction {
    *
    * @return String , function name, never null or empty.
    */
-  String getName(DatabaseSession session);
+  String getName(DatabaseSessionEmbedded session);
 
   /**
    * Minimum number of parameter this function must have.
@@ -103,7 +103,7 @@ public interface SQLFunction {
    *
    * @return maximum number of parameters ??? -1 , negative or Integer.MAX_VALUE for unlimited ???
    */
-  int getMaxParams(DatabaseSession session);
+  int getMaxParams(DatabaseSessionEmbedded session);
 
   /**
    * Returns a convenient SQL String representation of the function.
@@ -118,7 +118,7 @@ public interface SQLFunction {
    *
    * @return String , never null.
    */
-  String getSyntax(DatabaseSession session);
+  String getSyntax(DatabaseSessionEmbedded session);
 
   /**
    * Only called when function aggregates results after all records have been passed to the

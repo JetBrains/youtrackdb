@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
@@ -143,7 +142,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return result.stream().collect(Collectors.toSet());
   }
 
-  protected static boolean evaluateExpression(DatabaseSessionInternal session, final Object iLeft,
+  protected static boolean evaluateExpression(DatabaseSessionEmbedded session, final Object iLeft,
       final Object iRight) {
     if (iRight instanceof InternalResultSet rsRight) {
       rsRight = rsRight.copy(session);
@@ -197,7 +196,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
-  private static boolean compareItems(DatabaseSessionInternal session, Object rightItem,
+  private static boolean compareItems(DatabaseSessionEmbedded session, Object rightItem,
       Object leftItem) {
     if (QueryOperatorEquals.equals(session, leftItem, rightItem)) {
       return true;

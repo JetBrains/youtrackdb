@@ -14,8 +14,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.CollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -30,12 +29,12 @@ public class BalancedCollectionSelectionStrategy implements CollectionSelectionS
   protected long lastCount = -1;
   protected int smallerCollectionId = -1;
 
-  public int getCollection(DatabaseSession session, final SchemaClass iClass,
+  public int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass,
       final EntityImpl entity) {
     return getCollection(session, iClass, iClass.getCollectionIds(), entity);
   }
 
-  public int getCollection(DatabaseSession session, final SchemaClass iClass, final int[] collections,
+  public int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass, final int[] collections,
       final EntityImpl entity) {
     if (collections.length == 1)
     // ONLY ONE: RETURN THE FIRST ONE
@@ -43,13 +42,12 @@ public class BalancedCollectionSelectionStrategy implements CollectionSelectionS
       return collections[0];
     }
 
-    var sessionInternal = (DatabaseSessionInternal) session;
     if (lastCount < 0 || System.currentTimeMillis() - lastCount > REFRESH_TIMEOUT) {
       // REFRESH COUNTERS
       var min = Long.MAX_VALUE;
 
       for (var collection : collections) {
-        final var count = sessionInternal.countCollectionElements(collection);
+        final var count = session.countCollectionElements(collection);
         if (count < min) {
           min = count;
           smallerCollectionId = collection;

@@ -23,7 +23,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Test;

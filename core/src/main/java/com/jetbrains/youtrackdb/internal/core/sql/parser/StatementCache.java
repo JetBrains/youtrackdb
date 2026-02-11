@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import java.io.ByteArrayInputStream;
@@ -58,7 +58,7 @@ public class StatementCache {
    *                  created through statement parsing
    * @return a statement executor from the cache
    */
-  public static SQLStatement get(String statement, DatabaseSessionInternal session) {
+  public static SQLStatement get(String statement, DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(statement, session);
     }
@@ -86,7 +86,7 @@ public class StatementCache {
    * @param session
    * @return the corresponding executor, taking it from the internal cache, if it exists
    */
-  public SQLStatement getCached(String statement, DatabaseSessionInternal session) {
+  public SQLStatement getCached(String statement, DatabaseSessionEmbedded session) {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return parse(statement, session);
     }
@@ -116,7 +116,7 @@ public class StatementCache {
    * @throws CommandSQLParsingException if the input parameter is not a valid SQL statement
    */
   @Nullable
-  protected static SQLStatement parse(String statement, DatabaseSessionInternal session)
+  protected static SQLStatement parse(String statement, DatabaseSessionEmbedded session)
       throws CommandSQLParsingException {
     try {
       InputStream is;

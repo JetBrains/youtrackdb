@@ -16,7 +16,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.fetch;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.FetchException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -29,50 +29,50 @@ public interface FetchContext {
 
   void onBeforeFetch(final EntityImpl iRootRecord) throws FetchException;
 
-  void onAfterFetch(DatabaseSessionInternal db, final EntityImpl iRootRecord) throws FetchException;
+  void onAfterFetch(DatabaseSessionEmbedded db, final EntityImpl iRootRecord) throws FetchException;
 
   void onBeforeArray(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final String iFieldName,
       final Object iUserObject,
       final Identifiable[] iArray)
       throws FetchException;
 
-  void onAfterArray(DatabaseSessionInternal db, final EntityImpl iRootRecord,
+  void onAfterArray(DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final String iFieldName,
       final Object iUserObject)
       throws FetchException;
 
   void onBeforeCollection(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final String iFieldName,
       final Object iUserObject,
       final Iterable<?> iterable)
       throws FetchException;
 
   void onAfterCollection(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord, final String iFieldName,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord, final String iFieldName,
       final Object iUserObject)
       throws FetchException;
 
-  void onBeforeMap(DatabaseSessionInternal db, final EntityImpl iRootRecord,
+  void onBeforeMap(DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final String iFieldName,
       final Object iUserObject)
       throws FetchException;
 
-  void onAfterMap(DatabaseSessionInternal db, final EntityImpl iRootRecord, final String iFieldName,
+  void onAfterMap(DatabaseSessionEmbedded db, final EntityImpl iRootRecord, final String iFieldName,
       final Object iUserObject)
       throws FetchException;
 
   void onBeforeDocument(
-      DatabaseSessionInternal db, final EntityImpl iRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRecord,
       final EntityImpl entity,
       final String iFieldName,
       final Object iUserObject)
       throws FetchException;
 
   void onAfterDocument(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final EntityImpl entity,
       final String iFieldName,
       final Object iUserObject)

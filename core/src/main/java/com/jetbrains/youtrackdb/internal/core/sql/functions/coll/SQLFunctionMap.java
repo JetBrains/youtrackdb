@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.HashMap;
 import java.util.Map;
@@ -93,7 +93,7 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
     return prepareResult(context);
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "map(<map>|[<key>,<value>]*)";
   }
 

@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
@@ -132,7 +131,7 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
-  public IndexRemote clear(DatabaseSessionInternal session) {
+  public IndexRemote clear(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
@@ -253,20 +252,20 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+  public void doPut(DatabaseSessionEmbedded session, AbstractStorage storage, Object key,
       RID rid) throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+  public boolean doRemove(DatabaseSessionEmbedded session, AbstractStorage storage,
       Object key, RID rid) throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public boolean doRemove(AbstractStorage storage, Object key,
-      DatabaseSessionInternal session)
+      DatabaseSessionEmbedded session)
       throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
@@ -306,7 +305,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
+  public Map<String, Object> getConfiguration(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 

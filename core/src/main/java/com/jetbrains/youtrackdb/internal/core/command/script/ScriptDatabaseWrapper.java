@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
@@ -33,9 +33,9 @@ import java.util.Map;
  */
 public class ScriptDatabaseWrapper {
 
-  protected DatabaseSessionInternal database;
+  protected DatabaseSessionEmbedded database;
 
-  public ScriptDatabaseWrapper(final DatabaseSessionInternal database) {
+  public ScriptDatabaseWrapper(final DatabaseSessionEmbedded database) {
     this.database = database;
   }
 

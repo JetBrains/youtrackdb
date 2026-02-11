@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.shape.legacy;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
@@ -23,7 +23,7 @@ import org.locationtech.spatial4j.shape.Shape;
  */
 public interface ShapeBuilderLegacy<T extends Shape> {
 
-  T makeShape(DatabaseSessionInternal session, CompositeKey key, SpatialContext ctx);
+  T makeShape(DatabaseSessionEmbedded session, CompositeKey key, SpatialContext ctx);
 
   boolean canHandle(CompositeKey key);
 }

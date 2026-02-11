@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
@@ -71,7 +70,7 @@ public class ScheduledEvent extends IdentityWrapper {
   /**
    * Creates a scheduled event object from a configuration.
    */
-  public ScheduledEvent(final EntityImpl entity, DatabaseSessionInternal session) {
+  public ScheduledEvent(final EntityImpl entity, DatabaseSessionEmbedded session) {
     super(entity);
     var functionEntity = entity.getEntity(PROP_FUNC);
 
@@ -102,7 +101,7 @@ public class ScheduledEvent extends IdentityWrapper {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionEmbedded session, @Nonnull EntityImpl entity) {
     entity.setProperty(PROP_NAME, name);
     entity.setProperty(PROP_RULE, rule);
 
@@ -251,7 +250,7 @@ public class ScheduledEvent extends IdentityWrapper {
       }
     }
 
-    private boolean executeEvent(DatabaseSessionInternal db) {
+    private boolean executeEvent(DatabaseSessionEmbedded db) {
       for (var retry = 0; retry < 10; ++retry) {
         try {
           try {

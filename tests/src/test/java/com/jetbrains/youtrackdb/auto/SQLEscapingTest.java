@@ -15,12 +15,12 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import org.testng.annotations.Test;
 
 @Test(groups = "sql-select")
 public class SQLEscapingTest extends BaseDBTest {
-  private DatabaseSessionInternal database;
+  private DatabaseSessionEmbedded database;
 
 
   // TODO re-enable this with new parser. this test was broken!!!

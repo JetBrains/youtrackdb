@@ -1,8 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
@@ -55,16 +54,16 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Nullable
   protected Identifiable identifiable;
   @Nullable
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
   @Nullable
   protected Relation<?> relation;
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session) {
+  public ResultInternal(@Nullable DatabaseSessionEmbedded session) {
     content = new HashMap<>();
     this.session = session;
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session,
+  public ResultInternal(@Nullable DatabaseSessionEmbedded session,
       @Nonnull Map<String, ?> data) {
     content = new HashMap<>();
     this.session = session;
@@ -74,12 +73,12 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session, @Nonnull Identifiable ident) {
+  public ResultInternal(@Nullable DatabaseSessionEmbedded session, @Nonnull Identifiable ident) {
     setIdentifiable(ident);
     this.session = session;
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session,
+  public ResultInternal(@Nullable DatabaseSessionEmbedded session,
       @Nonnull Relation<?> relation) {
     this.session = session;
     if (relation.isLightweight()) {
@@ -679,11 +678,11 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   @Nullable
   @Override
-  public DatabaseSession getBoundedToSession() {
+  public DatabaseSessionEmbedded getBoundedToSession() {
     return session;
   }
 
-  public void setSession(@Nullable DatabaseSessionInternal session) {
+  public void setSession(@Nullable DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -1366,13 +1365,13 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   @Nullable
-  public static Result toResult(@Nullable Object value, @Nonnull DatabaseSessionInternal session) {
+  public static Result toResult(@Nullable Object value, @Nonnull DatabaseSessionEmbedded session) {
     return toResult(value, session, null);
   }
 
   @Nullable
   public static Result toResult(@Nullable Object value,
-      @Nonnull DatabaseSessionInternal session, @Nullable String alias) {
+      @Nonnull DatabaseSessionEmbedded session, @Nullable String alias) {
     if (value instanceof Result result) {
       return result;
     }
@@ -1382,13 +1381,13 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   @Nullable
   public static ResultInternal toResultInternal(@Nullable Object value,
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     return toResultInternal(value, session, null);
   }
 
   @Nullable
   public static ResultInternal toResultInternal(@Nullable Object value,
-      @Nonnull DatabaseSessionInternal session, @Nullable String alias) {
+      @Nonnull DatabaseSessionEmbedded session, @Nullable String alias) {
     switch (value) {
       case null -> {
         return null;

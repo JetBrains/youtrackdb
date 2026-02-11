@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.geo;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
@@ -91,7 +91,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     return distance;
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "distance(<field-x>,<field-y>,<x-value>,<y-value>[,<unit>])";
   }
 }

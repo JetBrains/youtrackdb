@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.security;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -42,7 +41,7 @@ public interface SecuritySystem {
   // Some token-based authentication (e.g., SPNEGO tokens have the user's name embedded in the
   // service ticket).
   SecurityUser authenticate(
-      DatabaseSessionInternal session, final String username, final String password);
+      DatabaseSessionEmbedded session, final String username, final String password);
 
   // Used for generating the appropriate HTTP authentication mechanism. The chain of authenticators
   // is used for this.
@@ -63,7 +62,7 @@ public interface SecuritySystem {
   SecurityUser getSystemUser(final String username, final String dbName);
 
   // Walks through the list of Authenticators.
-  boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource);
 
   boolean isEnabled();
@@ -82,7 +81,7 @@ public interface SecuritySystem {
    * @param user    May be null or empty.
    */
   void log(
-      DatabaseSessionInternal session, final AuditingOperation operation,
+      DatabaseSessionEmbedded session, final AuditingOperation operation,
       final String dbName,
       SecurityUser user,
       final String message);
@@ -123,7 +122,7 @@ public interface SecuritySystem {
    * Some authenticators support maintaining a list of users and associated resources (and sometimes
    * passwords).
    */
-  SecurityUser getUser(final String username, DatabaseSessionInternal session);
+  SecurityUser getUser(final String username, DatabaseSessionEmbedded session);
 
   void onAfterDynamicPlugins(DatabaseSessionEmbedded session);
 
@@ -132,15 +131,15 @@ public interface SecuritySystem {
   }
 
   SecurityUser authenticateAndAuthorize(
-      DatabaseSessionInternal session, String iUserName, String iPassword,
+      DatabaseSessionEmbedded session, String iUserName, String iPassword,
       String iResourceToCheck);
 
-  SecurityUser authenticateServerUser(DatabaseSessionInternal session, String username,
+  SecurityUser authenticateServerUser(DatabaseSessionEmbedded session, String username,
       String password);
 
-  SecurityUser getServerUser(DatabaseSessionInternal session, String username);
+  SecurityUser getServerUser(DatabaseSessionEmbedded session, String username);
 
-  boolean isServerUserAuthorized(DatabaseSessionInternal session, String username,
+  boolean isServerUserAuthorized(DatabaseSessionEmbedded session, String username,
       String resource);
 
   YouTrackDBInternalEmbedded getContext();
@@ -151,7 +150,7 @@ public interface SecuritySystem {
 
   SecurityInternal newSecurity(String database);
 
-  SecurityUser authenticate(DatabaseSessionInternal session,
+  SecurityUser authenticate(DatabaseSessionEmbedded session,
       AuthenticationInfo authenticationInfo);
 
   TokenSign getTokenSign();

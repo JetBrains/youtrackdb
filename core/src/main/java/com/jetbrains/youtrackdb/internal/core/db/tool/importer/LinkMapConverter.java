@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.Map;
 
@@ -11,7 +11,7 @@ public class LinkMapConverter extends AbstractCollectionConverter<Map<String, Id
   }
 
   @Override
-  public Map<String, Identifiable> convert(DatabaseSessionInternal session,
+  public Map<String, Identifiable> convert(DatabaseSessionEmbedded session,
       Map<String, Identifiable> value) {
     var result = session.newLinkMap();
     var updated = false;

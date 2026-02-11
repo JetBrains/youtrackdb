@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -37,7 +37,7 @@ public class TestImportRewriteLinks {
       youTrackDb.create("testDB", DatabaseType.MEMORY,
           new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
       try (var session =
-          (DatabaseSessionInternal) youTrackDb.open("testDB", "admin",
+          youTrackDb.open("testDB", "admin",
               DbTestBase.ADMIN_PASSWORD)) {
         final Schema schema = session.getMetadata().getSchema();
 

@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -42,7 +42,7 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
       final Iterator<? extends Identifiable> iterator,
       final Pair<Direction, String> connection,
       final String[] iLabels,
-      final int iSize, @Nonnull DatabaseSessionInternal session) {
+      final int iSize, @Nonnull DatabaseSessionEmbedded session) {
     super(iSourceVertex, iMultiValue, iterator, connection, iLabels, iSize, session);
   }
 

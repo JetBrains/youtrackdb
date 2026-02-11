@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -24,7 +23,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
   }
 
   @Override
-  public SecurityUser authenticate(DatabaseSessionInternal session, AuthenticationInfo info) {
+  public SecurityUser authenticate(DatabaseSessionEmbedded session, AuthenticationInfo info) {
     if (info instanceof UserPasswordAuthInfo) {
       return authenticate(
           session,
@@ -52,7 +51,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
 
   @Nullable
   @Override
-  public SecurityUser authenticate(DatabaseSessionInternal session, String username,
+  public SecurityUser authenticate(DatabaseSessionEmbedded session, String username,
       String password) {
     if (session == null) {
       return null;
@@ -84,12 +83,12 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
 
   @Nullable
   @Override
-  public SecurityUser getUser(String username, DatabaseSessionInternal session) {
+  public SecurityUser getUser(String username, DatabaseSessionEmbedded session) {
     return null;
   }
 
   @Override
-  public boolean isAuthorized(DatabaseSessionInternal session, String username, String resource) {
+  public boolean isAuthorized(DatabaseSessionEmbedded session, String username, String resource) {
     return false;
   }
 

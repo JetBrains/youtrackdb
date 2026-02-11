@@ -7,7 +7,7 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import org.junit.After;
@@ -17,7 +17,7 @@ import org.junit.Test;
 public class TransactionChangesDetectionTest {
 
   private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
 
   @Before
   public void before() {

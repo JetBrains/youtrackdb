@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
@@ -231,7 +230,7 @@ public interface Index extends Comparable<Index> {
    *
    * @return An EntityImpl object containing all the index properties
    */
-  Map<String, Object> getConfiguration(DatabaseSessionInternal session);
+  Map<String, Object> getConfiguration(DatabaseSessionEmbedded session);
 
 
   IndexDefinition getDefinition();
@@ -546,15 +545,15 @@ public interface Index extends Comparable<Index> {
   Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes);
 
-  void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+  void doPut(DatabaseSessionEmbedded session, AbstractStorage storage, Object key,
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+  boolean doRemove(DatabaseSessionEmbedded session, AbstractStorage storage, Object key,
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session)
+  boolean doRemove(AbstractStorage storage, Object key, DatabaseSessionEmbedded session)
       throws InvalidIndexEngineIdException;
 
   Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);

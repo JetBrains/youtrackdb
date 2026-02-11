@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
@@ -70,7 +70,7 @@ public class SQLFunctionSet extends SQLFunctionMultiValueAbstract<Set<Object>> {
     return prepareResult(context);
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "set(<value>*)";
   }
 

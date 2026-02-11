@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
@@ -17,11 +17,11 @@ public class LightweightRelationImpl<T extends Entity> implements
   protected final T in;
 
   @Nonnull
-  protected final DatabaseSessionInternal session;
+  protected final DatabaseSessionEmbedded session;
 
   protected final String label;
 
-  public LightweightRelationImpl(@Nonnull DatabaseSessionInternal session,
+  public LightweightRelationImpl(@Nonnull DatabaseSessionEmbedded session,
       @Nullable T out, @Nullable T in,
       String label) {
     this.out = out;

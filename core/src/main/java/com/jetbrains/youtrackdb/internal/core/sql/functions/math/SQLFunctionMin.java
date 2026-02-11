@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Collection;
@@ -106,7 +106,7 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
         && !configuredParameters[0].toString().contains("$current"));
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "min(<field> [,<field>*])";
   }
 

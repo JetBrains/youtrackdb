@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -199,7 +198,7 @@ public class SQLGetInternalPropertyExpression extends SQLExpression {
   }
 
   @Override
-  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionEmbedded db, Entity currentRecord) {
     return true;
   }
 

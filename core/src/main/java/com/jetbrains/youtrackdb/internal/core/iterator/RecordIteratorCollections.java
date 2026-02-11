@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -45,11 +45,11 @@ public class RecordIteratorCollections<REC extends RecordAbstract>
   private boolean colIteratorsInitialized = false;
 
   @Nonnull
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
   private final int[] collectionIds;
 
   public RecordIteratorCollections(
-      @Nonnull final DatabaseSessionInternal session,
+      @Nonnull final DatabaseSessionEmbedded session,
       final int[] iCollectionIds,
       boolean forwardDirection) {
     RecordIteratorUtil.checkCollectionsAccess(session, iCollectionIds);

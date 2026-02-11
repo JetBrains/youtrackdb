@@ -17,7 +17,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -50,7 +50,7 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
     Schema schema = db.getMetadata().getSchema();
     var multiPoint = schema.createAbstractClass(getName(), superClass(db));
     multiPoint.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
@@ -58,7 +58,7 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public EmbeddedEntity toEmbeddedEntity(final JtsGeometry shape, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(final JtsGeometry shape, DatabaseSessionEmbedded session) {
     final var geom = (MultiPoint) shape.getGeom();
 
     var entity = session.newEmbeddedEntity(getName());

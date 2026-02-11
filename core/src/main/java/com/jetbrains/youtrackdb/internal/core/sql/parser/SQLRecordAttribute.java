@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -73,7 +73,7 @@ public class SQLRecordAttribute extends SimpleNode {
     this.name = name;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
+  public Result serialize(DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
     result.setProperty("name", name);
     return result;

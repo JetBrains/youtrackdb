@@ -18,7 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedCollection;
@@ -167,7 +167,7 @@ public class HelperClasses {
     return new String(bytes, offset, len, StandardCharsets.UTF_8);
   }
 
-  public static String stringFromBytesIntern(DatabaseSessionInternal session, final byte[] bytes,
+  public static String stringFromBytesIntern(DatabaseSessionEmbedded session, final byte[] bytes,
       final int offset, final int len) {
     try {
       var context = session.getSharedContext();
@@ -218,7 +218,7 @@ public class HelperClasses {
     return pointer;
   }
 
-  public static int writeOptimizedLink(DatabaseSessionInternal session, final BytesContainer bytes,
+  public static int writeOptimizedLink(DatabaseSessionEmbedded session, final BytesContainer bytes,
       Identifiable link) {
     var rid = link.getIdentity();
     if (!rid.isPersistent()) {
@@ -252,7 +252,7 @@ public class HelperClasses {
   }
 
   public static int writeLinkCollection(
-      DatabaseSessionInternal db, final BytesContainer bytes,
+      DatabaseSessionEmbedded db, final BytesContainer bytes,
       final Collection<Identifiable> value) {
     var pointer = bytes.alloc(1);
     VarIntSerializer.write(bytes, value.size());
@@ -294,7 +294,7 @@ public class HelperClasses {
     return pointer;
   }
 
-  public static int writeLinkMap(DatabaseSessionInternal db, final BytesContainer bytes,
+  public static int writeLinkMap(DatabaseSessionEmbedded db, final BytesContainer bytes,
       final Map<Object, Identifiable> map) {
     final var fullPos = bytes.alloc(1);
 
@@ -343,7 +343,7 @@ public class HelperClasses {
     VarIntSerializer.write(bytes, id.getCollectionPosition());
   }
 
-  public static RID readLinkOptimizedEmbedded(DatabaseSessionInternal db,
+  public static RID readLinkOptimizedEmbedded(DatabaseSessionEmbedded db,
       final BytesContainer bytes) {
     RID rid =
         new RecordId(VarIntSerializer.readAsInteger(bytes),
@@ -356,7 +356,7 @@ public class HelperClasses {
   }
 
   @Nullable
-  public static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
+  public static PropertyTypeInternal getLinkedType(DatabaseSessionEmbedded session,
       SchemaClass clazz,
       PropertyTypeInternal type, String key) {
     if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET

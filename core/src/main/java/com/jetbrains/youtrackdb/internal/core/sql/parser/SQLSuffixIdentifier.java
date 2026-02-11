@@ -5,7 +5,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.util.Resettable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -462,7 +462,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
+  public Result serialize(DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
     if (identifier != null) {
       result.setProperty("identifier", identifier.serialize(db));
@@ -492,7 +492,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return true;
   }
 
-  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionEmbedded db, Entity currentRecord) {
     if (identifier != null) {
       var transaction = db.getActiveTransaction();
       EntityImpl entity = transaction.load(currentRecord);

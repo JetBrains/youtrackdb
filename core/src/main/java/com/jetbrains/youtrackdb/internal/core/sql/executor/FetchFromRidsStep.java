@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -52,7 +51,7 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
   }
 
   @Override
-  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
+  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
     try {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("rids") != null) {

@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineException;
@@ -55,7 +54,7 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
 
   @Override
   protected SpatialStrategy createSpatialStrategy(
-      DatabaseSessionInternal db, IndexDefinition indexDefinition, Map<String, ?> metadata) {
+      DatabaseSessionEmbedded db, IndexDefinition indexDefinition, Map<String, ?> metadata) {
 
     return SpatialStrategyFactory.createStrategy(ctx, db, indexDefinition);
   }
@@ -120,7 +119,7 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   }
 
   @Override
-  public void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
       Object value) {
     if (key instanceof Result location) {
       openIfClosed(db.getStorage());
@@ -131,7 +130,7 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
 
   @Override
   public void update(
-      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
     throw new UnsupportedOperationException();
   }
@@ -147,7 +146,7 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   }
 
   @Override
-  public Document buildDocument(DatabaseSessionInternal session, Object key,
+  public Document buildDocument(DatabaseSessionEmbedded session, Object key,
       Identifiable value) {
     var transaction = session.getActiveTransaction();
     EntityImpl location = transaction.load(((Identifiable) key));

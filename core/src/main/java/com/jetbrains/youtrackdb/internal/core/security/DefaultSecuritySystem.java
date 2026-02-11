@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
@@ -121,7 +120,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  public static void createSystemRoles(DatabaseSessionInternal session) {
+  public static void createSystemRoles(DatabaseSessionEmbedded session) {
     session.executeInTx(
         transaction -> {
           var security = session.getMetadata().getSecurity();
@@ -234,7 +233,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   @Nullable
   @Override
   public SecurityUser authenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     try {
       for (var sa : enabledAuthenticators) {
         var principal = sa.authenticate(session, authenticationInfo);
@@ -254,7 +253,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   @Override
   @Nullable
   public SecurityUser authenticate(
-      DatabaseSessionInternal session, final String username, final String password) {
+      DatabaseSessionEmbedded session, final String username, final String password) {
     try {
       // It's possible for the username to be null or an empty string in the case of SPNEGO
       // Kerberos
@@ -286,7 +285,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   @Override
   @Nullable
-  public SecurityUser authenticateServerUser(DatabaseSessionInternal session,
+  public SecurityUser authenticateServerUser(DatabaseSessionEmbedded session,
       final String username,
       final String password) {
     var user = getServerUser(session, username);
@@ -440,13 +439,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
       return systemDb
           .query(
               (resultset, session) -> {
-                var sessionInternal = (DatabaseSessionInternal) session;
                 if (resultset != null && resultset.hasNext()) {
                   Identifiable identifiable = resultset.next().asEntity();
                   var transaction = session.getActiveTransaction();
-                  return new ImmutableUser(sessionInternal,
+                  return new ImmutableUser(session,
                       0,
-                      new SecuritySystemUserImpl(sessionInternal,
+                      new SecuritySystemUserImpl(session,
                           transaction.load(identifiable), dbName));
                 }
                 //noinspection ReturnOfNull
@@ -462,7 +460,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // This will first look for a user in the security.json "users" array and then check if a resource
   // matches.
   @Override
-  public boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  public boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     if (username == null || resource == null) {
       return false;
@@ -477,8 +475,9 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return false;
   }
 
+  @SuppressWarnings("deprecation")
   @Override
-  public boolean isServerUserAuthorized(DatabaseSessionInternal session, final String username,
+  public boolean isServerUserAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     final var user = getServerUser(session, username);
 
@@ -587,7 +586,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // OServerSecurity
   @Override
-  public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
+  public SecurityUser getUser(final String username, DatabaseSessionEmbedded session) {
     SecurityUser userCfg = null;
 
     // Walk through the list of OSecurityAuthenticators.
@@ -602,7 +601,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   @Override
-  public SecurityUser getServerUser(DatabaseSessionInternal session, final String username) {
+  public SecurityUser getServerUser(DatabaseSessionEmbedded session, final String username) {
     SecurityUser systemUser = null;
     // This will throw an IllegalArgumentException if iUserName is null or empty.
     // However, a null or empty iUserName is possible with some security implementations.
@@ -635,7 +634,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // SecuritySystem
   @Override
   public void log(
-      DatabaseSessionInternal session, final AuditingOperation operation,
+      DatabaseSessionEmbedded session, final AuditingOperation operation,
       final String dbName,
       SecurityUser user,
       final String message) {
@@ -1178,7 +1177,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   @Nullable
   @Override
   public SecurityUser authenticateAndAuthorize(
-      DatabaseSessionInternal session, String iUserName, String iPassword,
+      DatabaseSessionEmbedded session, String iUserName, String iPassword,
       String iResourceToCheck) {
     // Returns the authenticated username, if successful, otherwise null.
     var user = authenticate(null, iUserName, iPassword);

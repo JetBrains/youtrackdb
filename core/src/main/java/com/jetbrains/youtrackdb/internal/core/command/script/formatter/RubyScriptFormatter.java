@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.script.formatter;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import java.util.Scanner;
 
@@ -29,7 +29,7 @@ import java.util.Scanner;
 public class RubyScriptFormatter implements ScriptFormatter {
 
   @Override
-  public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
+  public String getFunctionDefinition(DatabaseSessionEmbedded session, final Function f) {
 
     final var fCode = new StringBuilder(1024);
     fCode.append("def ");
@@ -63,7 +63,7 @@ public class RubyScriptFormatter implements ScriptFormatter {
   }
 
   @Override
-  public String getFunctionInvoke(DatabaseSessionInternal session, final Function iFunction,
+  public String getFunctionInvoke(DatabaseSessionEmbedded session, final Function iFunction,
       final Object[] iArgs) {
     final var code = new StringBuilder(1024);
 

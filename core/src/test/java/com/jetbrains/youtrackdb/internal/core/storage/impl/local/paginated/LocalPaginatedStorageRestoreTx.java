@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -237,7 +236,7 @@ public class LocalPaginatedStorageRestoreTx {
     }
   }
 
-  private static void createSchema(DatabaseSessionInternal session) {
+  private static void createSchema(DatabaseSessionEmbedded session) {
     Schema schema = session.getMetadata().getSchema();
     var testOneClass = schema.createClass("TestOne");
 

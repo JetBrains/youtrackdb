@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.operator;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -93,13 +93,13 @@ public class LuceneNearOperator extends QueryTargetOperator {
 
   @Nullable
   @Override
-  public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getBeginRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 

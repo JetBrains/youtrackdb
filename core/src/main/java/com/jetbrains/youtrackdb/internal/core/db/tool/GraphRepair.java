@@ -3,8 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -40,7 +39,7 @@ public class GraphRepair {
   private StorageRecoverEventListener eventListener;
 
   public void repair(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options) {
     message(outputListener, "Repair of graph '" + graph.getURL() + "' is started ...\n");
@@ -72,7 +71,7 @@ public class GraphRepair {
   }
 
   public void check(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options) {
     message(outputListener, "Check of graph '" + graph.getURL() + "' is started...\n");
@@ -104,22 +103,21 @@ public class GraphRepair {
   }
 
   protected void repairEdges(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final RepairStats stats,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options,
       final boolean checkOnly) {
-    final var session = (DatabaseSessionInternal) graph;
-    session.executeInTx(
+    graph.executeInTx(
         transaction -> {
-          final Metadata metadata = session.getMetadata();
+          final Metadata metadata = graph.getMetadata();
           final Schema schema = metadata.getSchema();
 
           final var useVertexFieldsForEdgeLabels = true; // db.isUseVertexFieldsForEdgeLabels();
 
           final var edgeClass = schema.getClass(SchemaClass.EDGE_CLASS_NAME);
           if (edgeClass != null) {
-            final var countEdges = session.countClass(edgeClass.getName());
+            final var countEdges = graph.countClass(edgeClass.getName());
 
             var skipEdges = 0L;
             if (options != null && options.get("-skipEdges") != null) {
@@ -133,7 +131,7 @@ public class GraphRepair {
             var parsedEdges = 0L;
             final var beginTime = System.currentTimeMillis();
 
-            try (var edgeIterator = session.browseClass(edgeClass.getName())) {
+            try (var edgeIterator = graph.browseClass(edgeClass.getName())) {
               while (edgeIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
                 final var edge = edgeIterator.next();
                 if (!edge.isStatefulEdge()) {
@@ -181,7 +179,7 @@ public class GraphRepair {
                 } else {
                   EntityImpl outVertex;
                   try {
-                    var transaction1 = session.getActiveTransaction();
+                    var transaction1 = graph.getActiveTransaction();
                     outVertex = transaction1.load(out);
                   } catch (RecordNotFoundException e) {
                     outVertex = null;
@@ -231,7 +229,7 @@ public class GraphRepair {
 
                   EntityImpl inVertex;
                   try {
-                    var transaction1 = session.getActiveTransaction();
+                    var transaction1 = graph.getActiveTransaction();
                     inVertex = transaction1.load(in);
                   } catch (RecordNotFoundException e) {
                     inVertex = null;
@@ -309,18 +307,17 @@ public class GraphRepair {
   }
 
   protected void repairVertices(
-      final DatabaseSession session,
+      final DatabaseSessionEmbedded session,
       final RepairStats stats,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options,
       final boolean checkOnly) {
-    final var db = (DatabaseSessionInternal) session;
-    final Metadata metadata = db.getMetadata();
+    final Metadata metadata = session.getMetadata();
     final Schema schema = metadata.getSchema();
 
     final var vertexClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
     if (vertexClass != null) {
-      final var countVertices = db.countClass(vertexClass.getName());
+      final var countVertices = session.countClass(vertexClass.getName());
       session.executeInTx(
           transaction -> {
             var skipVertices = 0L;
@@ -333,7 +330,7 @@ public class GraphRepair {
             var parsedVertices = new long[]{0L};
             final var beginTime = System.currentTimeMillis();
 
-            try (var vertexIterator = db.browseClass(vertexClass.getName())) {
+            try (var vertexIterator = session.browseClass(vertexClass.getName())) {
               while (vertexIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
                 var vertex = vertexIterator.next();
                 parsedVertices[0]++;
@@ -374,7 +371,7 @@ public class GraphRepair {
                 for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
                   final var connection =
                       VertexEntityImpl.getConnection(
-                          db.getMetadata().getSchema(), Direction.BOTH, fieldName);
+                          session.getMetadata().getSchema(), Direction.BOTH, fieldName);
                   if (connection == null) {
                     continue;
                   }
@@ -383,7 +380,7 @@ public class GraphRepair {
                   if (fieldValue != null) {
                     switch (fieldValue) {
                       case Identifiable identifiable -> {
-                        if (isEdgeBroken(db,
+                        if (isEdgeBroken(session,
                             vertex,
                             fieldName,
                             connection.getKey(),
@@ -408,7 +405,7 @@ public class GraphRepair {
                         for (var it = coll.iterator(); it.hasNext(); ) {
                           final var o = it.next();
 
-                          if (isEdgeBroken(db,
+                          if (isEdgeBroken(session,
                               vertex, fieldName, connection.getKey(), (Identifiable) o,
                               stats)) {
                             vertexCorrupted = true;
@@ -438,7 +435,7 @@ public class GraphRepair {
                         }
                         for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
                           final var o = it.next();
-                          if (isEdgeBroken(db,
+                          if (isEdgeBroken(session,
                               vertex, fieldName, connection.getKey(), (Identifiable) o,
                               stats)) {
                             vertexCorrupted = true;
@@ -511,7 +508,7 @@ public class GraphRepair {
   }
 
   private boolean isEdgeBroken(
-      DatabaseSessionInternal session, final Identifiable vertex,
+      DatabaseSessionEmbedded session, final Identifiable vertex,
       final String fieldName,
       final Direction direction,
       final Identifiable edgeRID,

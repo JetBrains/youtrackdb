@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
 
 /**
@@ -31,20 +31,20 @@ public interface FreezableStorageComponent {
 
   /**
    * After this method finished it's execution, all threads that are going to perform data
-   * modifications in storage should wait till {@link #release(DatabaseSessionInternal)} method will
+   * modifications in storage should wait till {@link #release(DatabaseSessionEmbedded)} method will
    * be called. This method will wait till all ongoing modifications will be finished.
    *
    * @param db
    * @param throwException If <code>true</code> {@link ModificationOperationProhibitedException}
    *                       exception will be thrown on call of methods that requires storage
    *                       modification. Otherwise other threads will wait for
-   *                       {@link #release(DatabaseSessionInternal)} method call.
+   *                       {@link #release(DatabaseSessionEmbedded)} method call.
    */
-  void freeze(DatabaseSessionInternal db, boolean throwException);
+  void freeze(DatabaseSessionEmbedded db, boolean throwException);
 
   /**
    * After this method finished execution all threads that are waiting to perform data modifications
    * in storage will be awaken and will be allowed to continue their execution.
    */
-  void release(DatabaseSessionInternal db);
+  void release(DatabaseSessionEmbedded db);
 }

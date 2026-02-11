@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.exception;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.exception.ErrorCode;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 
 /**
@@ -22,7 +22,7 @@ public class LinksConsistencyException extends NeedRetryException implements Hig
     super(exception);
   }
 
-  public LinksConsistencyException(DatabaseSession session,
+  public LinksConsistencyException(DatabaseSessionEmbedded session,
       String message) {
     super(session.getDatabaseName(), message, ErrorCode.LINKS_CONSISTENCY_ERROR);
   }

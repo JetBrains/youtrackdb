@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.function;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFactory;
@@ -31,22 +31,22 @@ import java.util.Set;
 public class DatabaseFunctionFactory implements SQLFunctionFactory {
 
   @Override
-  public void registerDefaultFunctions(DatabaseSessionInternal db) {
+  public void registerDefaultFunctions(DatabaseSessionEmbedded db) {
     // DO NOTHING
   }
 
   @Override
-  public boolean hasFunction(final String name, DatabaseSessionInternal session) {
+  public boolean hasFunction(final String name, DatabaseSessionEmbedded session) {
     return session.getMetadata().getFunctionLibrary().getFunction(session, name) != null;
   }
 
   @Override
-  public Set<String> getFunctionNames(DatabaseSessionInternal session) {
+  public Set<String> getFunctionNames(DatabaseSessionEmbedded session) {
     return session.getMetadata().getFunctionLibrary().getFunctionNames();
   }
 
   @Override
-  public SQLFunction createFunction(final String name, DatabaseSessionInternal session)
+  public SQLFunction createFunction(final String name, DatabaseSessionEmbedded session)
       throws CommandExecutionException {
     final var f = session.getMetadata().getFunctionLibrary().getFunction(session, name);
     return new DatabaseFunction(f);

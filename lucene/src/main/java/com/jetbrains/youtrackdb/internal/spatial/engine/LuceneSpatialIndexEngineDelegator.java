@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
@@ -65,7 +64,7 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+  public void init(DatabaseSessionEmbedded session, IndexMetadata im) {
     if (delegate == null) {
       if (SchemaClass.INDEX_TYPE.SPATIAL.name().equalsIgnoreCase(im.getType())) {
         if (im.getIndexDefinition().getProperties().size() > 1) {
@@ -130,7 +129,7 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public void put(DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionEmbedded session, AtomicOperation atomicOperation, Object key,
       Object value) {
 
     try {
@@ -145,7 +144,7 @@ public class LuceneSpatialIndexEngineDelegator
 
   @Override
   public void update(
-      DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionEmbedded session, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
     try {
       delegate.update(session, atomicOperation, key, updater);
@@ -248,13 +247,13 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public Document buildDocument(DatabaseSessionInternal session, Object key,
+  public Document buildDocument(DatabaseSessionEmbedded session, Object key,
       Identifiable value) {
     return delegate.buildDocument(session, key, value);
   }
 
   @Override
-  public Query buildQuery(Object query, DatabaseSessionInternal session) {
+  public Query buildQuery(Object query, DatabaseSessionEmbedded session) {
     return delegate.buildQuery(query, session);
   }
 
@@ -325,12 +324,12 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public void freeze(DatabaseSessionInternal db, boolean throwException) {
+  public void freeze(DatabaseSessionEmbedded db, boolean throwException) {
     delegate.freeze(db, throwException);
   }
 
   @Override
-  public void release(DatabaseSessionInternal db) {
+  public void release(DatabaseSessionEmbedded db) {
     delegate.release(db);
   }
 

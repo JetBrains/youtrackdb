@@ -19,7 +19,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.builder;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -70,7 +70,7 @@ public class LuceneQueryBuilder {
       final IndexDefinition index,
       final Object key,
       final Map<String, ?> metadata,
-      final Analyzer analyzer, DatabaseSessionInternal session)
+      final Analyzer analyzer, DatabaseSessionEmbedded session)
       throws ParseException {
     final var query = constructQueryString(key);
     if (query.isEmpty()) {
@@ -92,7 +92,7 @@ public class LuceneQueryBuilder {
       final IndexDefinition index,
       final String query,
       final Map<String, ?> metadata,
-      final Analyzer queryAnalyzer, DatabaseSessionInternal session)
+      final Analyzer queryAnalyzer, DatabaseSessionEmbedded session)
       throws ParseException {
     String[] fields;
     if (index.isAutomatic()) {
@@ -118,7 +118,7 @@ public class LuceneQueryBuilder {
       final Map<String, ?> metadata,
       final Analyzer queryAnalyzer,
       final String[] fields,
-      final Map<String, PropertyTypeInternal> types, DatabaseSessionInternal session)
+      final Map<String, PropertyTypeInternal> types, DatabaseSessionEmbedded session)
       throws ParseException {
     @SuppressWarnings("unchecked") final var boost =
         Optional.ofNullable((Map<String, Number>) metadata.get("boost"))

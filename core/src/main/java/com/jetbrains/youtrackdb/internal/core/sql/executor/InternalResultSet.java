@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
@@ -20,16 +19,16 @@ public class InternalResultSet implements ResultSet {
   protected ExecutionPlan plan;
 
   @Nullable
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   private boolean closed = false;
 
-  public InternalResultSet(@Nullable DatabaseSessionInternal session) {
+  public InternalResultSet(@Nullable DatabaseSessionEmbedded session) {
     this.session = session;
     this.content = new ArrayList<>();
   }
 
-  public InternalResultSet(@Nullable DatabaseSessionInternal session,
+  public InternalResultSet(@Nullable DatabaseSessionEmbedded session,
       @Nonnull List<Result> content) {
     this.session = session;
     this.content = content;
@@ -96,7 +95,7 @@ public class InternalResultSet implements ResultSet {
   }
 
   @Nonnull
-  public InternalResultSet copy(@Nullable DatabaseSessionInternal session) {
+  public InternalResultSet copy(@Nullable DatabaseSessionEmbedded session) {
     assert this.session == null || this.session.assertIfNotActive();
     assert session == null || session.assertIfNotActive();
 
@@ -105,7 +104,7 @@ public class InternalResultSet implements ResultSet {
 
   @Nullable
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
 

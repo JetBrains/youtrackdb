@@ -67,12 +67,12 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   @Test
   public void testTimezone() {
 
-    session.set(BasicDatabaseSession.ATTRIBUTES.TIMEZONE, "Europe/Rome");
-    var newTimezone = session.get(BasicDatabaseSession.ATTRIBUTES.TIMEZONE);
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE, "Europe/Rome");
+    var newTimezone = session.get(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE);
     Assert.assertEquals("Europe/Rome", newTimezone);
 
-    session.set(BasicDatabaseSession.ATTRIBUTES.TIMEZONE, "foobar");
-    newTimezone = session.get(BasicDatabaseSession.ATTRIBUTES.TIMEZONE);
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE, "foobar");
+    newTimezone = session.get(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE);
     Assert.assertEquals("GMT", newTimezone);
   }
 

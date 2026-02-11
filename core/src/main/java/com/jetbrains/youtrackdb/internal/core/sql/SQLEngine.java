@@ -30,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
@@ -80,7 +79,7 @@ public class SQLEngine {
   private static volatile QueryOperator[] SORTED_OPERATORS = null;
   private static final ClassLoader youTrackDbClassLoader = SQLEngine.class.getClassLoader();
 
-  public static SQLStatement parse(String query, DatabaseSessionInternal db) {
+  public static SQLStatement parse(String query, DatabaseSessionEmbedded db) {
     return StatementCache.get(query, db);
   }
 
@@ -89,13 +88,13 @@ public class SQLEngine {
   }
 
 
-  public static List<SQLStatement> parseScript(String script, DatabaseSessionInternal db) {
+  public static List<SQLStatement> parseScript(String script, DatabaseSessionEmbedded db) {
     final InputStream is = new ByteArrayInputStream(script.getBytes());
     return parseScript(is, db);
   }
 
   public static List<SQLStatement> parseScript(InputStream script,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     try {
       final var osql = new YouTrackDBSql(script);
       return osql.parseScript();
@@ -160,7 +159,7 @@ public class SQLEngine {
    * @return Iterator of all function factories
    */
   public static Iterator<SQLFunctionFactory> getFunctionFactories(
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (FUNCTION_FACTORIES == null) {
       LOCK.lock();
 
@@ -303,7 +302,7 @@ public class SQLEngine {
    *
    * @return Set of all function names.
    */
-  public static Set<String> getFunctionNames(DatabaseSessionInternal session) {
+  public static Set<String> getFunctionNames(DatabaseSessionEmbedded session) {
     final Set<String> types = new HashSet<>();
     final var ite = getFunctionFactories(session);
     while (ite.hasNext()) {

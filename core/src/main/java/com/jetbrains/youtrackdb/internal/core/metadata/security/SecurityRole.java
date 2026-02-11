@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import java.io.Serializable;
@@ -20,15 +20,15 @@ public interface SecurityRole extends Serializable {
   boolean hasRule(final Rule.ResourceGeneric resourceGeneric, String resourceSpecific);
 
   SecurityRole addRule(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation);
 
   SecurityRole grant(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation);
 
   SecurityRole revoke(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation);
 
   @Deprecated
@@ -38,25 +38,25 @@ public interface SecurityRole extends Serializable {
   boolean hasRule(final String iResource);
 
   @Deprecated
-  SecurityRole addRule(DatabaseSession session, final String iResource, final int iOperation);
+  SecurityRole addRule(DatabaseSessionEmbedded session, final String iResource, final int iOperation);
 
   @Deprecated
-  SecurityRole grant(DatabaseSession session, final String iResource, final int iOperation);
+  SecurityRole grant(DatabaseSessionEmbedded session, final String iResource, final int iOperation);
 
   @Deprecated
-  SecurityRole revoke(DatabaseSession session, final String iResource, final int iOperation);
+  SecurityRole revoke(DatabaseSessionEmbedded session, final String iResource, final int iOperation);
 
-  String getName(DatabaseSession session);
+  String getName(DatabaseSessionEmbedded session);
 
   SecurityRole getParentRole();
 
- void setParentRole(DatabaseSession session, final SecurityRole iParent);
+ void setParentRole(DatabaseSessionEmbedded session, final SecurityRole iParent);
 
   Set<Rule> getRuleSet();
 
  Identifiable getIdentity();
 
- Map<String, SecurityPolicy> getPolicies(DatabaseSession session);
+ Map<String, SecurityPolicy> getPolicies(DatabaseSessionEmbedded session);
 
-  SecurityPolicy getPolicy(DatabaseSession session, String resource);
+  SecurityPolicy getPolicy(DatabaseSessionEmbedded session, String resource);
 }

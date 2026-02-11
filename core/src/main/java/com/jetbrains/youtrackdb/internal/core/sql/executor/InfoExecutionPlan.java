@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -33,7 +33,7 @@ public class InfoExecutionPlan implements ExecutionPlan {
 
   @Nonnull
   @Override
-  public Result toResult(@Nullable DatabaseSession session) {
+  public Result toResult(@Nullable DatabaseSessionEmbedded session) {
     return null;
   }
 

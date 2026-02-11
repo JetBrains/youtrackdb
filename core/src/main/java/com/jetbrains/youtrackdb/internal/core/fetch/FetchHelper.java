@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -64,7 +64,7 @@ public class FetchHelper {
   }
 
   public static void fetch(
-      DatabaseSessionInternal db, final DBRecord rootRecord,
+      DatabaseSessionEmbedded db, final DBRecord rootRecord,
       final Object userObject,
       final FetchPlan fetchPlan,
       final FetchListener listener,
@@ -120,7 +120,7 @@ public class FetchHelper {
   }
 
   public static void processRecordRidMap(
-      DatabaseSessionInternal db, final EntityImpl record,
+      DatabaseSessionEmbedded db, final EntityImpl record,
       final FetchPlan iFetchPlan,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -205,7 +205,7 @@ public class FetchHelper {
   }
 
   private static void fetchRidMap(
-      DatabaseSessionInternal db, final FetchPlan iFetchPlan,
+      DatabaseSessionEmbedded db, final FetchPlan iFetchPlan,
       final Object fieldValue,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -256,7 +256,7 @@ public class FetchHelper {
   }
 
   private static void fetchDocumentRidMap(
-      DatabaseSessionInternal db, final FetchPlan iFetchPlan,
+      DatabaseSessionEmbedded db, final FetchPlan iFetchPlan,
       Object fieldValue,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -276,7 +276,7 @@ public class FetchHelper {
 
   @SuppressWarnings("unchecked")
   private static void fetchCollectionRidMap(
-      DatabaseSessionInternal db, final FetchPlan iFetchPlan,
+      DatabaseSessionEmbedded db, final FetchPlan iFetchPlan,
       final Object fieldValue,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -304,7 +304,7 @@ public class FetchHelper {
   }
 
   private static void fetchArrayRidMap(
-      DatabaseSessionInternal db, final FetchPlan iFetchPlan,
+      DatabaseSessionEmbedded db, final FetchPlan iFetchPlan,
       final Object fieldValue,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -330,7 +330,7 @@ public class FetchHelper {
 
   @SuppressWarnings("unchecked")
   private static void fetchMapRidMap(
-      DatabaseSessionInternal db, final FetchPlan iFetchPlan,
+      DatabaseSessionEmbedded db, final FetchPlan iFetchPlan,
       Object fieldValue,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -354,7 +354,7 @@ public class FetchHelper {
   }
 
   private static void updateRidMap(
-      DatabaseSessionInternal db, final FetchPlan iFetchPlan,
+      DatabaseSessionEmbedded db, final FetchPlan iFetchPlan,
       final EntityImpl fieldValue,
       final int iCurrentLevel,
       final int iLevelFromRoot,
@@ -393,7 +393,7 @@ public class FetchHelper {
   }
 
   private static void processRecord(
-      DatabaseSessionInternal db, final EntityImpl record,
+      DatabaseSessionEmbedded db, final EntityImpl record,
       final Object userObject,
       final FetchPlan fetchPlan,
       final int currentLevel,
@@ -514,7 +514,7 @@ public class FetchHelper {
   }
 
   private static void process(
-      DatabaseSessionInternal db, final EntityImpl record,
+      DatabaseSessionEmbedded db, final EntityImpl record,
       final Object userObject,
       final FetchPlan fetchPlan,
       final int currentLevel,
@@ -647,7 +647,7 @@ public class FetchHelper {
   }
 
   private static void fetch(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final Object iUserObject,
       final FetchPlan iFetchPlan,
       final Object fieldValue,
@@ -732,7 +732,7 @@ public class FetchHelper {
 
   @SuppressWarnings("unchecked")
   private static void fetchMap(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final Object iUserObject,
       final FetchPlan iFetchPlan,
       Object fieldValue,
@@ -792,7 +792,7 @@ public class FetchHelper {
   }
 
   private static void fetchArray(
-      DatabaseSessionInternal db, final EntityImpl rootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl rootRecord,
       final Object iUserObject,
       final FetchPlan iFetchPlan,
       Object fieldValue,
@@ -842,7 +842,7 @@ public class FetchHelper {
 
   @SuppressWarnings("unchecked")
   private static void fetchCollection(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final Object iUserObject,
       final FetchPlan iFetchPlan,
       final Object fieldValue,
@@ -961,7 +961,7 @@ public class FetchHelper {
   }
 
   private static void fetchEntity(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final Object iUserObject,
       final FetchPlan iFetchPlan,
       final Identifiable fieldValue,

@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
@@ -138,7 +138,7 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
-  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session,
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session,
       RecordIdInternal identity,
       String fieldName, RID rid) {
     throw new UnsupportedOperationException();

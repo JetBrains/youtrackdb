@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.lucene.functions;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
@@ -51,7 +51,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   @Override
-  public String getName(DatabaseSession session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return LuceneSearchMoreLikeThisFunction.NAME;
   }
 
@@ -67,7 +67,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "SEARCH_MORE( [rids], [ metdatada {} ] )";
   }
 

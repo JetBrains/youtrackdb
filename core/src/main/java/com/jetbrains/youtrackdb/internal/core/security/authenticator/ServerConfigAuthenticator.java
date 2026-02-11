@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,18 +41,18 @@ public class ServerConfigAuthenticator extends SecurityAuthenticatorAbstract {
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
   public SecurityUser authenticate(
-      DatabaseSessionInternal session, final String username, final String password) {
+      DatabaseSessionEmbedded session, final String username, final String password) {
     return getSecurity().authenticateServerUser(session, username, password);
   }
 
   // SecurityAuthenticator
-  public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
+  public SecurityUser getUser(final String username, DatabaseSessionEmbedded session) {
     return getSecurity().getServerUser(session, username);
   }
 
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
-  public boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  public boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     return getSecurity().isServerUserAuthorized(session, username, resource);
   }

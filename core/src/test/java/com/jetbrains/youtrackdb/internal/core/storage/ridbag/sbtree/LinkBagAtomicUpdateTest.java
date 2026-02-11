@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.sbtree;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -1101,7 +1101,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
   }
 
   private static void deleteDocsForLevel(
-      DatabaseSessionInternal db,
+      DatabaseSessionEmbedded db,
       List<Integer> amountOfDeletedDocsPerLevel,
       int level,
       int levels,
@@ -1138,7 +1138,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
   }
 
   private static void addDocsForLevel(
-      DatabaseSessionInternal db,
+      DatabaseSessionEmbedded db,
       List<Integer> amountOfAddedDocsAfterSavePerLevel,
       int level,
       int levels,

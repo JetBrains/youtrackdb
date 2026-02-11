@@ -31,19 +31,19 @@ public abstract class DatabaseLifecycleListenerAbstract implements DatabaseLifec
   }
 
   @Override
-  public void onCreate(@Nonnull DatabaseSessionInternal session) {
+  public void onCreate(@Nonnull DatabaseSessionEmbedded session) {
   }
 
   @Override
-  public void onOpen(@Nonnull DatabaseSessionInternal session) {
+  public void onOpen(@Nonnull DatabaseSessionEmbedded session) {
   }
 
   @Override
-  public void onClose(@Nonnull DatabaseSessionInternal session) {
+  public void onClose(@Nonnull DatabaseSessionEmbedded session) {
   }
 
   @Override
-  public void onDrop(@Nonnull DatabaseSessionInternal session) {
+  public void onDrop(@Nonnull DatabaseSessionEmbedded session) {
   }
 
 }

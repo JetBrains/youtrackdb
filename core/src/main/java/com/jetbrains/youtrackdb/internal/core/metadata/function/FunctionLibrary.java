@@ -19,8 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.function;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Set;
 
 /**
@@ -30,13 +29,13 @@ public interface FunctionLibrary {
 
   Set<String> getFunctionNames();
 
-  Function getFunction(DatabaseSessionInternal db, String iName);
+  Function getFunction(DatabaseSessionEmbedded db, String iName);
 
   Function createFunction(String iName);
 
-  void dropFunction(DatabaseSession session, String iName);
+  void dropFunction(DatabaseSessionEmbedded session, String iName);
 
-  void dropFunction(DatabaseSession session, Function function);
+  void dropFunction(DatabaseSessionEmbedded session, Function function);
 
   @Deprecated
   void create();

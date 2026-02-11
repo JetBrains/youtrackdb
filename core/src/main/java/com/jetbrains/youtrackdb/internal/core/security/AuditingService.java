@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.io.IOException;
 import java.util.Map;
 
@@ -28,22 +28,22 @@ import java.util.Map;
  */
 public interface AuditingService extends SecurityComponent {
 
-  void changeConfig(DatabaseSessionInternal session, SecurityUser user,
+  void changeConfig(DatabaseSessionEmbedded session, SecurityUser user,
       final String databaseName,
       final Map<String, Object> cfg)
       throws IOException;
 
   Map<String, Object> getConfig(final String databaseName);
 
-  void log(DatabaseSessionInternal session, final AuditingOperation operation,
+  void log(DatabaseSessionEmbedded session, final AuditingOperation operation,
       final String message);
 
-  void log(DatabaseSessionInternal session, final AuditingOperation operation,
+  void log(DatabaseSessionEmbedded session, final AuditingOperation operation,
       SecurityUser user,
       final String message);
 
   void log(
-      DatabaseSessionInternal session, final AuditingOperation operation,
+      DatabaseSessionEmbedded session, final AuditingOperation operation,
       final String dbName,
       SecurityUser user,
       final String message);

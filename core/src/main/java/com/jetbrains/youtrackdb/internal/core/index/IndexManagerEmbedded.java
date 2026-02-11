@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -63,7 +62,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   @Override
-  public void load(DatabaseSessionInternal session) {
+  public void load(DatabaseSessionEmbedded session) {
     if (!autoRecreateIndexesAfterCrash(session)) {
       session.executeInTxInternal(transaction -> {
         acquireExclusiveLock(transaction);
@@ -82,7 +81,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   @Override
-  public void reload(DatabaseSessionInternal session) {
+  public void reload(DatabaseSessionEmbedded session) {
     session.executeInTxInternal(
         transaction -> {
           acquireExclusiveLock(transaction);
@@ -96,7 +95,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   public void addCollectionToIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String collectionName,
       final String indexName,
       boolean requireEmpty
@@ -128,7 +127,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     });
   }
 
-  public void removeCollectionFromIndex(DatabaseSessionInternal session,
+  public void removeCollectionFromIndex(DatabaseSessionEmbedded session,
       final String collectionName,
       final String indexName) {
     acquireSharedLock();
@@ -156,7 +155,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     });
   }
 
-  public void create(DatabaseSessionInternal session) {
+  public void create(DatabaseSessionEmbedded session) {
     var rid = session.computeInTxInternal(transaction -> {
       acquireExclusiveLock(transaction);
       try {
@@ -199,7 +198,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
 
-  protected void releaseExclusiveLock(DatabaseSessionInternal session, boolean notifyChanges) {
+  protected void releaseExclusiveLock(DatabaseSessionEmbedded session, boolean notifyChanges) {
     var val = writeLockNesting.decrementAndGet();
     try {
       if (val == 0) {
@@ -227,7 +226,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
 
-  void addIndexInternal(DatabaseSessionInternal session, FrontendTransaction transaction,
+  void addIndexInternal(DatabaseSessionEmbedded session, FrontendTransaction transaction,
       final Index index, boolean updateEntity) {
     acquireExclusiveLock(transaction);
     try {
@@ -442,7 +441,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
 
   private static Set<String> findCollectionsByIds(
-      int[] collectionIdsToIndex, DatabaseSessionInternal database) {
+      int[] collectionIdsToIndex, DatabaseSessionEmbedded database) {
     Set<String> collectionsToIndex = new HashSet<>();
     if (collectionIdsToIndex != null) {
       for (var collectionId : collectionIdsToIndex) {
@@ -459,7 +458,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   @Override
-  public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
+  public void dropIndex(DatabaseSessionEmbedded session, final String iIndexName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop an index inside a transaction");
     }
@@ -480,7 +479,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     });
   }
 
-  public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionInternal session) {
+  public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     try {
       return indexes.values().stream()
@@ -492,7 +491,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
 
-  public void recreateIndexes(DatabaseSessionInternal session) {
+  public void recreateIndexes(DatabaseSessionEmbedded session) {
     session.executeInTxInternal(transaction -> {
       acquireExclusiveLock(transaction);
       try {
@@ -537,7 +536,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
   }
 
-  public boolean autoRecreateIndexesAfterCrash(DatabaseSessionInternal session) {
+  public boolean autoRecreateIndexesAfterCrash(DatabaseSessionEmbedded session) {
     if (rebuildCompleted) {
       return false;
     }
@@ -552,7 +551,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
 
-  public void removeClassPropertyIndex(DatabaseSessionInternal session, final Index idx) {
+  public void removeClassPropertyIndex(DatabaseSessionEmbedded session, final Index idx) {
     session.executeInTxInternal(transaction -> {
       acquireExclusiveLock(transaction);
       try {

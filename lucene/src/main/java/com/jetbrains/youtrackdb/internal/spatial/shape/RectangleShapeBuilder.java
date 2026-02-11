@@ -17,7 +17,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.List;
 import org.locationtech.spatial4j.shape.Rectangle;
@@ -37,7 +37,7 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
 
     Schema schema = db.getMetadata().getSchema();
     var rectangle = schema.createAbstractClass(NAME, superClass(db));
@@ -63,7 +63,7 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   }
 
   @Override
-  public EmbeddedEntity toEmbeddedEntity(final Rectangle shape, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(final Rectangle shape, DatabaseSessionEmbedded session) {
     var entity = session.newEmbeddedEntity(NAME);
     entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
       {

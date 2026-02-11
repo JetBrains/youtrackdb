@@ -20,7 +20,7 @@ package com.jetbrains.youtrackdb.internal.lucene.tx;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.lucene.builder.LuceneIndexType;
@@ -62,7 +62,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
   }
 
   @Override
-  public void remove(DatabaseSessionInternal session, final Object key,
+  public void remove(DatabaseSessionEmbedded session, final Object key,
       final Identifiable value) {
     try {
       if (value == null) {

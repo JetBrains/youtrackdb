@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.lucene.functions;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -33,7 +33,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
   }
 
   @Override
-  public String getName(DatabaseSession session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return NAME;
   }
 
@@ -97,7 +97,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "SEARCH_INDEX( indexName, [ metdatada {} ] )";
   }
 

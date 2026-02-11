@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.operator;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -68,7 +68,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
+  public RID getBeginRidRange(DatabaseSessionEmbedded session, final Object iLeft,
       final Object iRight) {
     if (iLeft instanceof SQLFilterItemField
         && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
@@ -87,7 +87,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 

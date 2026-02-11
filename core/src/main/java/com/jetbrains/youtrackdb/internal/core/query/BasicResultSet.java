@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -31,7 +31,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
 
 
   @Nullable
-  BasicDatabaseSession<?, ?> getBoundToSession();
+  DatabaseSessionEmbedded getBoundToSession();
 
   /**
    * Returns the result set as a stream. IMPORTANT: the stream consumes the result set!
