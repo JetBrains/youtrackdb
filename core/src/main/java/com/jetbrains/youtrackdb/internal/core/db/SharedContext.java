@@ -210,7 +210,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       this.close();
       this.storage = storage2;
       this.init(storage2);
-      ((MetadataDefault) database.getMetadata()).init(this);
+      database.getMetadata().init(this);
       this.load(database);
     } finally {
       lock.unlock();

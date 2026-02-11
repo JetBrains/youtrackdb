@@ -97,7 +97,7 @@ public class SchedulerTest {
   public void eventSavedAndLoaded() throws Exception {
     var context = createContext();
     var db =
-        (DatabaseSessionEmbedded) context.open("test", "admin", NEW_ADMIN_PASSWORD);
+        context.open("test", "admin", NEW_ADMIN_PASSWORD);
     createLogEvent(db);
     db.close();
 
@@ -133,7 +133,7 @@ public class SchedulerTest {
         new LocalUserCredential("admin", NEW_ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var pool =
         youTrackDb.cachedPool("test", "admin", NEW_ADMIN_PASSWORD);
-    var db = (DatabaseSessionEmbedded) pool.acquire();
+    var db = pool.acquire();
 
     createLogEvent(db);
     youTrackDb.close();

@@ -62,7 +62,8 @@ public interface SecurityInternal {
    *                 "database.class.Person"
    * @return
    */
-  SecurityPolicy getSecurityPolicy(DatabaseSessionEmbedded session, SecurityRole role, String resource);
+  SecurityPolicy getSecurityPolicy(DatabaseSessionEmbedded session, SecurityRole role,
+      String resource);
 
   /**
    * Sets a security policy for a specific resource on a role

@@ -584,7 +584,7 @@ public class FrontendTransactionImpl implements
             .record();
         try {
           result.putAll(originalChangedRecordIdMap);
-          session.afterCommitOperations(true, result);
+          session.afterCommitOperations(result);
         } catch (Exception e) {
           LogManager.instance().error(this,
               "Error during after commit callback invocation", e);

@@ -131,6 +131,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
+  @SuppressWarnings("deprecation")
   public boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     if (username == null || resource == null) {

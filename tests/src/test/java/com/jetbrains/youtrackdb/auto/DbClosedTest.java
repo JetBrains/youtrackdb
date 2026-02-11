@@ -22,20 +22,20 @@ import org.testng.annotations.Test;
 public class DbClosedTest extends BaseDBTest {
 
   public void testDoubleDb() {
-    DatabaseSessionEmbedded db = acquireSession();
+    var db = acquireSession();
 
     // now I am getting another db instance
-    DatabaseSessionEmbedded dbAnother = acquireSession();
+    var dbAnother = acquireSession();
     dbAnother.close();
 
     db.close();
   }
 
   public void testDoubleDbWindowsPath() {
-    DatabaseSessionEmbedded db = acquireSession();
+    var db = acquireSession();
 
     // now I am getting another db instance
-    DatabaseSessionEmbedded dbAnother = acquireSession();
+    var dbAnother = acquireSession();
     dbAnother.close();
 
     db.close();
@@ -43,9 +43,9 @@ public class DbClosedTest extends BaseDBTest {
 
   @Test
   public void testRemoteConns() {
-        final var max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
+    final var max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
     for (var i = 0; i < max * 2; ++i) {
-      final DatabaseSessionEmbedded db = acquireSession();
+      final var db = acquireSession();
       db.close();
     }
   }

@@ -150,7 +150,8 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft, final Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft,
+      final Object iRight) {
     validate(iRight);
 
     validate(iRight);

@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -54,7 +54,7 @@ public class BTreeTestIT {
     AbstractStorage storage;
     try (var databaseDocumentTx = youTrackDB.open(dbName, "admin", "admin")) {
       storage =
-          (AbstractStorage) ((DatabaseSessionEmbedded) databaseDocumentTx).getStorage();
+          (AbstractStorage) databaseDocumentTx.getStorage();
     }
     singleValueTree = new BTree<>("singleBTree", ".sbt", ".nbt", storage);
     atomicOperationsManager = storage.getAtomicOperationsManager();

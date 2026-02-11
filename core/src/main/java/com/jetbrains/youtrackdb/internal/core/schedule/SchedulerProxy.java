@@ -39,12 +39,12 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
 
   @Override
   public void removeEvent(DatabaseSessionEmbedded session, final String eventName) {
-    delegate.removeEvent((DatabaseSessionEmbedded) session, eventName);
+    delegate.removeEvent(session, eventName);
   }
 
   @Override
   public void updateEvent(DatabaseSessionEmbedded session, final ScheduledEvent event) {
-    delegate.updateEvent((DatabaseSessionEmbedded) session, event);
+    delegate.updateEvent(session, event);
   }
 
   @Override

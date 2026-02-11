@@ -291,8 +291,10 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return resourceSpecific == null || rule.containsSpecificResource(resourceSpecific);
   }
 
+  @SuppressWarnings("DuplicatedCode")
   public Role addRule(
-      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     var rule = rules.get(resourceGeneric);
     if (rule == null) {
@@ -303,7 +305,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     rule.grantAccess(resourceSpecific, iOperation);
 
     rules.put(resourceGeneric, rule);
-    save((DatabaseSessionEmbedded) session);
+    save(session);
     return this;
   }
 
@@ -381,7 +383,8 @@ public class Role extends IdentityWrapper implements SecurityRole {
    * Grant a permission to the resource.
    */
   public Role grant(
-      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     var rule = rules.get(resourceGeneric);
 
@@ -393,7 +396,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     rule.grantAccess(resourceSpecific, iOperation);
 
     rules.put(resourceGeneric, rule);
-    save((DatabaseSessionEmbedded) session);
+    save(session);
     return this;
   }
 
@@ -401,7 +404,8 @@ public class Role extends IdentityWrapper implements SecurityRole {
    * Revoke a permission to the resource.
    */
   public Role revoke(
-      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     if (iOperation == PERMISSION_NONE) {
       return this;
@@ -417,7 +421,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     rule.revokeAccess(resourceSpecific, iOperation);
     rules.put(resourceGeneric, rule);
 
-    save((DatabaseSessionEmbedded) session);
+    save(session);
 
     return this;
   }

@@ -71,13 +71,12 @@ public class IfExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public @Nonnull Result toResult(@Nullable DatabaseSessionEmbedded db) {
-    var session = (DatabaseSessionEmbedded) db;
-    var result = new ResultInternal(session);
+    var result = new ResultInternal(db);
     result.setProperty("type", "IfExecutionPlan");
     result.setProperty("javaType", getClass().getName());
     result.setProperty("cost", getCost());
     result.setProperty("prettyPrint", prettyPrint(0, 2));
-    result.setProperty("steps", Collections.singletonList(step.toResult(session)));
+    result.setProperty("steps", Collections.singletonList(step.toResult(db)));
     return result;
   }
 

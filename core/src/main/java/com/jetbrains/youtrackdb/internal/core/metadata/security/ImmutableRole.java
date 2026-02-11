@@ -96,19 +96,22 @@ public class ImmutableRole implements SecurityRole {
   }
 
   public SecurityRole addRule(
-      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     throw new UnsupportedOperationException();
   }
 
   public SecurityRole grant(
-      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     throw new UnsupportedOperationException();
   }
 
   public Role revoke(
-      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     throw new UnsupportedOperationException();
   }

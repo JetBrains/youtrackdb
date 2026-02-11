@@ -24,7 +24,8 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
  */
 public interface CollectionSelectionStrategy {
 
-  int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass, final EntityImpl entity);
+  int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass,
+      final EntityImpl entity);
 
   int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass, int[] selection,
       final EntityImpl entity);

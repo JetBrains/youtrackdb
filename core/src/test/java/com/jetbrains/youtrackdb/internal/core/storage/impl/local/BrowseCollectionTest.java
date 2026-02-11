@@ -52,7 +52,7 @@ public class BrowseCollectionTest {
     var collection = db.getSchema().getClass("One").getCollectionIds()[0];
 
     var forwardBrowser =
-        ((AbstractStorage) ((DatabaseSessionEmbedded) db).getStorage())
+        ((AbstractStorage) db.getStorage())
             .browseCollection(collection, true);
 
     final var forwardPositions = new ArrayList<Long>();
@@ -67,7 +67,7 @@ public class BrowseCollectionTest {
     assertTrue(ArrayUtils.isSorted(forwardPositions.stream().mapToLong(Long::longValue).toArray()));
 
     var backwardBrowser =
-        ((AbstractStorage) ((DatabaseSessionEmbedded) db).getStorage())
+        ((AbstractStorage) db.getStorage())
             .browseCollection(collection, false);
     final var backwardPositions = new ArrayList<Long>();
     while (backwardBrowser.hasNext()) {

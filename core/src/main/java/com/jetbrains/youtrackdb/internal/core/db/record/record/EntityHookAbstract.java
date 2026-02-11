@@ -151,7 +151,7 @@ public abstract class EntityHookAbstract implements RecordHook {
     SchemaImmutableClass result = null;
     if (entity != null) {
       result = ((EntityImpl) entity).getImmutableSchemaClass(
-          (DatabaseSessionEmbedded) entity.getBoundedToSession());
+          entity.getBoundedToSession());
     }
     final SchemaClass clazz =
         result;

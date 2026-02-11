@@ -464,7 +464,8 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
   }
 
   protected static void computePrefetchFieldList(
-      DatabaseSessionEmbedded session, final SQLFilterCondition iCondition, final Set<String> iFields) {
+      DatabaseSessionEmbedded session, final SQLFilterCondition iCondition,
+      final Set<String> iFields) {
     var left = iCondition.getLeft();
     var right = iCondition.getRight();
     if (left instanceof SQLFilterItemField) {

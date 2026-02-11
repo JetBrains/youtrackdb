@@ -114,7 +114,7 @@ public interface RecordElement {
   @Nullable
   default DatabaseSessionEmbedded getSession() {
     if (this instanceof EntityImpl entity) {
-      return (DatabaseSessionEmbedded) entity.getBoundedToSession();
+      return entity.getBoundedToSession();
     }
 
     var owner = getOwnerEntity();

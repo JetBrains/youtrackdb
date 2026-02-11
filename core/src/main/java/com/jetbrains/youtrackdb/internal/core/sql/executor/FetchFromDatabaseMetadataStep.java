@@ -36,13 +36,17 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
     result.setProperty(
         "dateFormat", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.DATEFORMAT)));
     result.setProperty(
-        "dateTimeFormat", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.DATE_TIME_FORMAT)));
-    result.setProperty("timezone", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE)));
+        "dateTimeFormat",
+        String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.DATE_TIME_FORMAT)));
+    result.setProperty("timezone",
+        String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE)));
     result.setProperty(
         "localeCountry", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY)));
     result.setProperty(
-        "localeLanguage", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE)));
-    result.setProperty("charset", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.CHARSET)));
+        "localeLanguage",
+        String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE)));
+    result.setProperty("charset",
+        String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.CHARSET)));
     return result;
   }
 

@@ -32,7 +32,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   private final ScriptTransformer transformer;
   protected ConcurrentHashMap<String, ResourcePool<DatabaseSessionEmbedded, Context>>
       contextPools =
-      new ConcurrentHashMap<String, ResourcePool<DatabaseSessionEmbedded, Context>>();
+      new ConcurrentHashMap<>();
 
   public PolyglotScriptExecutor(final String language, ScriptTransformer scriptTransformer) {
     super("javascript".equalsIgnoreCase(language) ? "js" : language);
@@ -44,7 +44,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
         contextPools.computeIfAbsent(
             database.getDatabaseName(),
             (k) -> {
-              return new ResourcePool<DatabaseSessionEmbedded, Context>(
+              return new ResourcePool<>(
                   database.getConfiguration().getValueAsInteger(GlobalConfiguration.SCRIPT_POOL),
                   PolyglotScriptExecutor.this);
             });

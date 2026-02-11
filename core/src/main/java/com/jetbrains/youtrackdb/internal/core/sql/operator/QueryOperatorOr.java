@@ -88,7 +88,8 @@ public class QueryOperatorOr extends QueryOperator {
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft, final Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft,
+      final Object iRight) {
     final RID leftRange;
     final RID rightRange;
 

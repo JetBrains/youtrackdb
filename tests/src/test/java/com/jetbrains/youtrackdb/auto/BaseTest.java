@@ -197,7 +197,7 @@ public abstract class BaseTest {
   }
 
   protected Index getIndex(final String indexName) {
-    final DatabaseSessionEmbedded db = this.session;
+    final var db = this.session;
 
     return db.getSharedContext().getIndexManager().getIndex(indexName);
   }

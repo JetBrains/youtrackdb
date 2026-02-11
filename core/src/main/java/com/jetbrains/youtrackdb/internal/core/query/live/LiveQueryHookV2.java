@@ -167,7 +167,7 @@ public class LiveQueryHookV2 {
   }
 
   public static void notifyForTxChanges(DatabaseSessionEmbedded database) {
-    var ops = getOpsReference((DatabaseSessionEmbedded) database);
+    var ops = getOpsReference(database);
     if (ops.pendingOps.isEmpty()) {
       return;
     }
@@ -192,7 +192,7 @@ public class LiveQueryHookV2 {
           || Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
         return;
       }
-      var ops = getOpsReference((DatabaseSessionEmbedded) database);
+      var ops = getOpsReference(database);
       synchronized (ops.pendingOps) {
         ops.pendingOps.remove(database);
       }

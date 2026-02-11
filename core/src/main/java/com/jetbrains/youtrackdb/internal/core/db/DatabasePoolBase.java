@@ -98,19 +98,18 @@ public abstract class DatabasePoolBase extends Thread {
                     final String iKey,
                     final Object[] iAdditionalArgs,
                     final DatabaseSessionEmbedded iValue) {
-                  var session = (DatabaseSessionEmbedded) iValue;
                   if (((DatabasePooled) iValue).isUnderlyingOpen()) {
                     ((DatabasePooled) iValue).reuse(owner, iAdditionalArgs);
-                    if (session.getStorage().isClosed(session))
+                    if (iValue.getStorage().isClosed(iValue))
                     // STORAGE HAS BEEN CLOSED: REOPEN IT
                     {
-                      (session)
+                      iValue
                           .getStorage()
-                          .open(session,
+                          .open(iValue,
                               (String) iAdditionalArgs[0],
                               (String) iAdditionalArgs[1], new ContextConfiguration());
-                    } else if (!session.getCurrentUser()
-                        .checkPassword(session, (String) iAdditionalArgs[1])) {
+                    } else if (!iValue.getCurrentUser()
+                        .checkPassword(iValue, (String) iAdditionalArgs[1])) {
                       throw new SecurityAccessException(
                           iValue.getDatabaseName(),
                           "User or password not valid for database: '" + iValue.getDatabaseName()

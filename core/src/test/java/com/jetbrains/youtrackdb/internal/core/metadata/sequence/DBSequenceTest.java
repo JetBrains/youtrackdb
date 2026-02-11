@@ -44,8 +44,7 @@ public class DBSequenceTest {
     youTrackDB.create(
         DBSequenceTest.class.getSimpleName(), DatabaseType.MEMORY, "admin", "admin", "admin");
     db =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
+        youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
     sequences = db.getMetadata().getSequenceLibrary();
   }
 
@@ -204,8 +203,7 @@ public class DBSequenceTest {
       service.execute(
           () -> {
             var databaseDocument =
-                (DatabaseSessionEmbedded)
-                    youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
+                youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
             var mtSeq1 =
                 databaseDocument.getMetadata().getSequenceLibrary().getSequence("mtSeq");
 
@@ -244,8 +242,7 @@ public class DBSequenceTest {
         service.execute(
             () -> {
               var databaseDocument =
-                  (DatabaseSessionEmbedded)
-                      youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
+                  youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
               var mtSeq1 =
                   databaseDocument.getMetadata().getSequenceLibrary().getSequence("mtSeq");
 

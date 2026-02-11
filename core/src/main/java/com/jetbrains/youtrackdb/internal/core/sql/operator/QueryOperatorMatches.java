@@ -61,7 +61,8 @@ public class QueryOperatorMatches extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft, final Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft,
+      final Object iRight) {
     return null;
   }
 

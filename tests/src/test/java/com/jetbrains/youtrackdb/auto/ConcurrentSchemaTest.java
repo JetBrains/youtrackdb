@@ -45,7 +45,7 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     public Void call() {
       this.id = createClassThreadCounter.getAndIncrement();
       for (var i = 0; i < CYCLES; i++) {
-        DatabaseSessionEmbedded db = acquireSession();
+        var db = acquireSession();
         try {
           final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 
@@ -80,7 +80,7 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     public Void call() {
       this.id = dropClassThreadCounter.getAndIncrement();
       for (var i = 0; i < CYCLES; i++) {
-        DatabaseSessionEmbedded db = acquireSession();
+        var db = acquireSession();
         try {
           final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 

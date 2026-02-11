@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -72,7 +72,7 @@ public class BTreeTestIT {
     youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
 
     var databaseSession = youTrackDB.open(DB_NAME, "admin", "admin");
-    storage = (AbstractStorage) ((DatabaseSessionEmbedded) databaseSession).getStorage();
+    storage = (AbstractStorage) databaseSession.getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseSession.close();
   }

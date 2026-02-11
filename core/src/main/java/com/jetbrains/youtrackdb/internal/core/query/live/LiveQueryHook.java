@@ -107,7 +107,7 @@ public class LiveQueryHook {
 
   public static void notifyForTxChanges(DatabaseSessionEmbedded iDatabase) {
 
-    var ops = getOpsReference((DatabaseSessionEmbedded) iDatabase);
+    var ops = getOpsReference(iDatabase);
     if (ops.pendingOps.isEmpty()) {
       return;
     }
@@ -127,13 +127,14 @@ public class LiveQueryHook {
     }
   }
 
+  @SuppressWarnings("DuplicatedCode")
   public static void removePendingDatabaseOps(DatabaseSessionEmbedded iDatabase) {
     try {
       if (iDatabase.isClosed()
           || Boolean.FALSE.equals(iDatabase.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
         return;
       }
-      var ops = getOpsReference((DatabaseSessionEmbedded) iDatabase);
+      var ops = getOpsReference(iDatabase);
       synchronized (ops.pendingOps) {
         ops.pendingOps.remove(iDatabase);
       }
@@ -145,7 +146,7 @@ public class LiveQueryHook {
 
   public static void addOp(EntityImpl entity, byte iType, DatabaseSessionEmbedded database) {
     var db = database;
-    var ops = getOpsReference((DatabaseSessionEmbedded) db);
+    var ops = getOpsReference(db);
     if (!ops.queueThread.hasListeners()) {
       return;
     }

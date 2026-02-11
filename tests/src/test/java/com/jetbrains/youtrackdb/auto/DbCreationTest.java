@@ -91,20 +91,25 @@ public class DbCreationTest {
 
   @Test(dependsOnMethods = {"testDbOpenWithLastAsSlash"})
   public void testChangeLocale() {
-    try (var database = (DatabaseSessionEmbedded) youTrackDB.open(DB_NAME, "admin", "admin")) {
+    try (var database = youTrackDB.open(DB_NAME, "admin", "admin")) {
       database.execute(" ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage()).close();
       database.execute(" ALTER DATABASE LOCALE_COUNTRY  ?", Locale.GERMANY.getCountry()).close();
 
       Assert.assertEquals(
-          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE), Locale.GERMANY.getLanguage());
+          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE),
+          Locale.GERMANY.getLanguage());
       Assert.assertEquals(
-          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY), Locale.GERMANY.getCountry());
+          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY),
+          Locale.GERMANY.getCountry());
       database.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.ENGLISH.getCountry());
-      database.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE, Locale.ENGLISH.getLanguage());
+      database.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE,
+          Locale.ENGLISH.getLanguage());
       Assert.assertEquals(
-          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY), Locale.ENGLISH.getCountry());
+          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY),
+          Locale.ENGLISH.getCountry());
       Assert.assertEquals(
-          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE), Locale.ENGLISH.getLanguage());
+          database.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE),
+          Locale.ENGLISH.getLanguage());
     }
   }
 

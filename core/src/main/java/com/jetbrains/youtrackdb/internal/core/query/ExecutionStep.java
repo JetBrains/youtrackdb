@@ -33,7 +33,7 @@ public interface ExecutionStep {
 
   @Nonnull
   default Result toResult(@Nullable DatabaseSessionEmbedded session) {
-    var result = new ResultInternal((DatabaseSessionEmbedded) session);
+    var result = new ResultInternal(session);
     result.setProperty("name", getName());
     result.setProperty("type", getType());
     result.setProperty(InternalExecutionPlan.JAVA_TYPE, getClass().getName());

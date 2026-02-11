@@ -285,11 +285,11 @@ public class SecurityShared implements SecurityInternal {
     }
 
     EntityImpl result;
-    result = ((DatabaseSessionEmbedded) session).load(iRecordId);
+    result = session.load(iRecordId);
     if (!result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
       result = null;
     }
-    return new SecurityUserImpl((DatabaseSessionEmbedded) session, result);
+    return new SecurityUserImpl(session, result);
   }
 
   @Override
@@ -343,14 +343,13 @@ public class SecurityShared implements SecurityInternal {
   @Nullable
   public Role getRole(final DatabaseSessionEmbedded session, final Identifiable iRole) {
     try {
-      var sessionInternal = (DatabaseSessionEmbedded) session;
-      var transaction = sessionInternal.getActiveTransaction();
+      var transaction = session.getActiveTransaction();
       final EntityImpl entity = transaction.load(iRole);
       SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(sessionInternal);
+      clazz = entity.getImmutableSchemaClass(session);
 
       if (clazz != null && clazz.isRole()) {
-        return new Role(sessionInternal, entity);
+        return new Role(session, entity);
       }
     } catch (RecordNotFoundException rnf) {
       return null;
@@ -371,7 +370,7 @@ public class SecurityShared implements SecurityInternal {
           transaction.query("select from " + Role.CLASS_NAME + " where name = ? limit 1",
               iRoleName)) {
         if (result.hasNext()) {
-          return new Role((DatabaseSessionEmbedded) session,
+          return new Role(session,
               (EntityImpl) result.next().asEntity());
         }
       }
@@ -546,8 +545,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityPolicyImpl createSecurityPolicy(DatabaseSessionEmbedded session, String name) {
-    var sessionInternal = (DatabaseSessionEmbedded) session;
-    var elem = sessionInternal.newEntity(SecurityPolicy.CLASS_NAME);
+    var elem = session.newEntity(SecurityPolicy.CLASS_NAME);
     elem.setProperty("name", name);
     var policy = new SecurityPolicyImpl((EntityImpl) elem);
     saveSecurityPolicy(session, policy);
@@ -579,8 +577,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void saveSecurityPolicy(DatabaseSessionEmbedded session, SecurityPolicyImpl policy) {
-    var sessionInternal = (DatabaseSessionEmbedded) session;
-    policy.save(sessionInternal);
+    policy.save(session);
   }
 
   @Override
@@ -594,16 +591,16 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void removeSecurityPolicy(DatabaseSessionEmbedded session, Role role, String resource) {
-    var sessionInternal = (DatabaseSessionEmbedded) session;
     var calculatedResource = normalizeSecurityResource(session, resource);
     role.getPolicies(session).remove(calculatedResource);
-    role.save(sessionInternal);
+    role.save(session);
 
-    updateAllFilteredProperties(sessionInternal);
-    initPredicateSecurityOptimizations(sessionInternal);
+    updateAllFilteredProperties(session);
+    initPredicateSecurityOptimizations(session);
   }
 
-  private static String normalizeSecurityResource(DatabaseSessionEmbedded session, String resource) {
+  private static String normalizeSecurityResource(DatabaseSessionEmbedded session,
+      String resource) {
     return resource; // TODO
   }
 
@@ -1124,7 +1121,7 @@ public class SecurityShared implements SecurityInternal {
       try (var result =
           transaction.query("select from OUser where name = ? limit 1", iUserName)) {
         if (result.hasNext()) {
-          return new SecurityUserImpl((DatabaseSessionEmbedded) session,
+          return new SecurityUserImpl(session,
               (EntityImpl) result.next().asEntity());
         }
       }
@@ -1218,11 +1215,10 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void incrementVersion(final DatabaseSessionEmbedded session) {
-    var sessionInternal = (DatabaseSessionEmbedded) session;
     version.incrementAndGet();
     securityPredicateCache.clear();
-    updateAllFilteredProperties(sessionInternal);
-    initPredicateSecurityOptimizations(sessionInternal);
+    updateAllFilteredProperties(session);
+    initPredicateSecurityOptimizations(session);
   }
 
   protected void initPredicateSecurityOptimizations(DatabaseSessionEmbedded session) {
@@ -1508,7 +1504,6 @@ public class SecurityShared implements SecurityInternal {
       return true;
     }
 
-    var sessionInternal = session;
     if (record instanceof Entity) {
       SchemaImmutableClass clazz = null;
       if (record != null) {
@@ -1537,7 +1532,7 @@ public class SecurityShared implements SecurityInternal {
 
       var predicate =
           SecurityEngine.getPredicateForSecurityResource(
-              sessionInternal,
+              session,
               this,
               "database.class.`" + ((EntityImpl) record).getSchemaClassName() + "`",
               SecurityPolicy.Scope.READ);
@@ -1575,12 +1570,11 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
-      var sessionInternal = session;
       SQLBooleanExpression beforePredicate = null;
       if (className != null) {
         beforePredicate =
             SecurityEngine.getPredicateForSecurityResource(
-                sessionInternal,
+                session,
                 this,
                 "database.class.`" + className + "`",
                 SecurityPolicy.Scope.BEFORE_UPDATE);
@@ -1588,7 +1582,7 @@ public class SecurityShared implements SecurityInternal {
 
       // TODO avoid calculating original valueif not needed!!!
 
-      var originalRecord = calculateOriginalValue(record, sessionInternal);
+      var originalRecord = calculateOriginalValue(record, session);
       if (!SecurityEngine.evaluateSecuirtyPolicyPredicate(
           session, beforePredicate, originalRecord)) {
         return false;
@@ -1598,7 +1592,7 @@ public class SecurityShared implements SecurityInternal {
       if (className != null) {
         predicate =
             SecurityEngine.getPredicateForSecurityResource(
-                sessionInternal,
+                session,
                 this,
                 "database.class.`" + className + "`",
                 SecurityPolicy.Scope.AFTER_UPDATE);
@@ -1843,12 +1837,11 @@ public class SecurityShared implements SecurityInternal {
 
   public boolean couldHaveActivePredicateSecurityRoles(DatabaseSessionEmbedded session,
       String className) {
-    var sessionInternal = (DatabaseSessionEmbedded) session;
-    if (sessionInternal.getCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       return false;
     }
     if (roleHasPredicateSecurityForClass != null) {
-      for (var role : sessionInternal.getCurrentUser().getRoles()) {
+      for (var role : session.getCurrentUser().getRoles()) {
         var roleMap = roleHasPredicateSecurityForClass.get(role.getName(session));
         if (roleMap == null) {
           return false; // TODO hierarchy...?

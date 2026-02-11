@@ -40,7 +40,7 @@ public class ConcurrentQueriesTest extends BaseDBTest {
     @Override
     public Void call() {
       for (var i = 0; i < CYCLES; i++) {
-        try (DatabaseSessionEmbedded db = acquireSession()) {
+        try (var db = acquireSession()) {
           for (var retry = 0; retry < MAX_RETRIES; ++retry) {
             try {
               db.executeInTx(transaction -> {

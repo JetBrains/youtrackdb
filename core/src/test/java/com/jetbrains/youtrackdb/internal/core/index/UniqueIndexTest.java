@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Triple;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -210,7 +210,7 @@ public class UniqueIndexTest extends DbTestBase {
       final var a1 = tx.newEntity(aClass);
       final var a2 = tx.newEntity(aClass);
 
-      final var bag1 = new LinkBag((DatabaseSessionEmbedded) tx.getDatabaseSession());
+      final var bag1 = new LinkBag(tx.getDatabaseSession());
       bag1.add(b.getIdentity());
       a1.setProperty("bLinks", bag1);
 
@@ -223,7 +223,7 @@ public class UniqueIndexTest extends DbTestBase {
       final var a1 = tx.loadEntity(ids.value.key);
       final var a2 = tx.loadEntity(ids.value.value);
 
-      final var bag2 = new LinkBag((DatabaseSessionEmbedded) tx.getDatabaseSession());
+      final var bag2 = new LinkBag(tx.getDatabaseSession());
       bag2.add(b.getIdentity());
       a2.setProperty("bLinks", bag2);
 

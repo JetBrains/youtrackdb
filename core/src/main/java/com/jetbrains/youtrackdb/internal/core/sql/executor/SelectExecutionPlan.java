@@ -88,8 +88,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public @Nonnull Result toResult(@Nullable DatabaseSessionEmbedded db) {
-    var session = (DatabaseSessionEmbedded) db;
-    var result = new ResultInternal(session);
+    var result = new ResultInternal(db);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
     result.setProperty("cost", getCost());
@@ -98,7 +97,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
         "steps",
         steps == null ? null
             : steps.stream().map(x ->
-                x.toResult(session)).collect(Collectors.toList()));
+                x.toResult(db)).collect(Collectors.toList()));
     return result;
   }
 

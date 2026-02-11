@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -40,7 +40,7 @@ public class StorageEncryptionTestIT {
       youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(), DatabaseType.DISK,
           config,
           "admin", "admin", "admin");
-      try (var session = (DatabaseSessionEmbedded) youTrackDB.open(
+      try (var session = youTrackDB.open(
           StorageEncryptionTestIT.class.getSimpleName(), "admin",
           "admin")) {
         final var schema = session.getSchema();
@@ -112,7 +112,7 @@ public class StorageEncryptionTestIT {
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             config)) {
       try (final var session =
-          (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
+          youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
               "admin", "admin")) {
         final var indexManager = session.getSharedContext().getIndexManager();
         final var treeIndex = indexManager.getIndex("EncryptedTree");
@@ -162,7 +162,7 @@ public class StorageEncryptionTestIT {
                   "T1JJRU5UREJfSVNfQ09PTA==")
               .build();
       try (var session =
-          (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
+          youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
               "admin", "admin",
               youTrackDBConfig)) {
         final var schema = session.getSchema();

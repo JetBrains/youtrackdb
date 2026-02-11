@@ -295,7 +295,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public boolean isNotBound(@Nonnull DatabaseSessionEmbedded session) {
-    assert ((DatabaseSessionEmbedded) session).assertIfNotActive();
+    assert session.assertIfNotActive();
     return this.session != session || this.status != STATUS.LOADED;
   }
 

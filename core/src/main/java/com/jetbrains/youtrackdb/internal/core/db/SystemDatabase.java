@@ -78,7 +78,7 @@ public class SystemDatabase {
       @Nonnull final BiFunction<ResultSet, DatabaseSessionEmbedded, R> callback, final String sql,
       final Object... args) {
     // BYPASS SECURITY
-    try (final DatabaseSessionEmbedded session = openSystemDatabaseSession()) {
+    try (final var session = openSystemDatabaseSession()) {
       return session.computeInTx(transaction -> {
         try (var result = transaction.query(sql, args)) {
           return callback.apply(result, session);
@@ -103,7 +103,7 @@ public class SystemDatabase {
         type = DatabaseType.MEMORY;
       }
       context.create(SYSTEM_DB_NAME, null, null, type, config);
-      try (var session = (DatabaseSessionEmbedded) context.openNoAuthorization(SYSTEM_DB_NAME)) {
+      try (var session = context.openNoAuthorization(SYSTEM_DB_NAME)) {
         DefaultSecuritySystem.createSystemRoles(session);
       }
     }

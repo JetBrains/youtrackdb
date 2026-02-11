@@ -26,7 +26,7 @@ public class SessionPoolTest {
         new LocalUserCredential("admin", PASSWORD, PredefinedLocalRole.ADMIN));
     final SessionPool pool =
         new SessionPoolImpl((YouTrackDBImpl) youTrackDb, "test", "admin", PASSWORD);
-    var db = (DatabaseSessionEmbedded) pool.acquire();
+    var db = pool.acquire();
     db.executeInTx(
         transaction -> db.newEntity());
     db.close();

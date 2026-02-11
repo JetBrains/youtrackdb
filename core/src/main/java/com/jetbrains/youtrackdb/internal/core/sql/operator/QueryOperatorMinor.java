@@ -73,7 +73,8 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft, final Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft,
+      final Object iRight) {
     if (iLeft instanceof SQLFilterItemField
         && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof RID) {

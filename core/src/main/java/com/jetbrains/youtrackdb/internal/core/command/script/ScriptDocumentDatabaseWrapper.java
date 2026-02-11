@@ -195,7 +195,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public byte getRecordType() {
-    return session.getRecordType();
+    return DatabaseSessionEmbedded.getRecordType();
   }
 
   public <RET extends DBRecord> RET load(RID iRecordId) {

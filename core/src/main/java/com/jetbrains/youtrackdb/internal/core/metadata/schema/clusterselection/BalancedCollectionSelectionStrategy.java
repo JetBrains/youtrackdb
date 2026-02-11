@@ -42,13 +42,12 @@ public class BalancedCollectionSelectionStrategy implements CollectionSelectionS
       return collections[0];
     }
 
-    var sessionInternal = (DatabaseSessionEmbedded) session;
     if (lastCount < 0 || System.currentTimeMillis() - lastCount > REFRESH_TIMEOUT) {
       // REFRESH COUNTERS
       var min = Long.MAX_VALUE;
 
       for (var collection : collections) {
-        final var count = sessionInternal.countCollectionElements(collection);
+        final var count = session.countCollectionElements(collection);
         if (count < min) {
           min = count;
           smallerCollectionId = collection;

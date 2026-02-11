@@ -83,7 +83,7 @@ public class DateConversionTestCase extends DbTestBase {
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temporal")) {
       ctx.create("test", DatabaseType.MEMORY,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
-      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
+      try (var session = ctx.open("test", "admin", "adminpwd")) {
 
         var format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));

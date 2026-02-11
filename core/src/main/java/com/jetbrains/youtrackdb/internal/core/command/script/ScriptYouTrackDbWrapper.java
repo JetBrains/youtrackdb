@@ -43,11 +43,6 @@ public class ScriptYouTrackDbWrapper {
       throw new ConfigurationException("No database instance found in context");
     }
 
-    if (db instanceof DatabaseSessionEmbedded) {
-      return new ScriptDocumentDatabaseWrapper((DatabaseSessionEmbedded) db);
-    }
-
-    throw new ConfigurationException(db.getDatabaseName(),
-        "No valid database instance found in context: " + db + ", class: " + db.getClass());
+    return new ScriptDocumentDatabaseWrapper(db);
   }
 }

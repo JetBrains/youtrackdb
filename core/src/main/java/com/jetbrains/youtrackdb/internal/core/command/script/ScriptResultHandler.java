@@ -28,5 +28,6 @@ import javax.script.ScriptEngine;
  */
 public interface ScriptResultHandler {
 
-  Object handle(Object result, ScriptEngine engine, Bindings binding, DatabaseSessionEmbedded database);
+  Object handle(Object result, ScriptEngine engine, Bindings binding,
+      DatabaseSessionEmbedded database);
 }

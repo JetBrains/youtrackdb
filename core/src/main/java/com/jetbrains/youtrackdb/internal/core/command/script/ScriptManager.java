@@ -155,7 +155,7 @@ public class ScriptManager {
           "Cannot find script formatter for the language '" + iFunction.getLanguage() + "'");
     }
 
-    return formatter.getFunctionDefinition((DatabaseSessionEmbedded) session, iFunction);
+    return formatter.getFunctionDefinition(session, iFunction);
   }
 
   public String getFunctionInvoke(DatabaseSessionEmbedded session, final Function iFunction,
@@ -173,7 +173,7 @@ public class ScriptManager {
   /**
    * Formats the library of functions for a language.
    *
-   * @param session        Current database instance
+   * @param session   Current database instance
    * @param iLanguage Language as filter
    * @return String containing all the functions
    */
@@ -325,7 +325,8 @@ public class ScriptManager {
     return binding;
   }
 
-  private void bindInjectors(ScriptEngine engine, Bindings binding, DatabaseSessionEmbedded database) {
+  private void bindInjectors(ScriptEngine engine, Bindings binding,
+      DatabaseSessionEmbedded database) {
     for (var i : injections) {
       i.bind(engine, binding, database);
     }

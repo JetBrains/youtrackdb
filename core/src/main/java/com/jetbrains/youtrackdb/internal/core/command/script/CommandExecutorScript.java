@@ -198,6 +198,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return false;
   }
 
+  @SuppressWarnings("deprecation")
   protected Object executeJsr223Script(
       final String language, final CommandContext iContext, final Map<Object, Object> iArgs) {
     var db = iContext.getDatabaseSession();
@@ -552,9 +553,8 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   }
 
   private Object executeCommand(final String lastCommand, final DatabaseSessionEmbedded db) {
-    var database = (DatabaseSessionEmbedded) db;
     var result =
-        database
+        db
             .execute(lastCommand, toMap(parameters)).toList();
     return result;
   }

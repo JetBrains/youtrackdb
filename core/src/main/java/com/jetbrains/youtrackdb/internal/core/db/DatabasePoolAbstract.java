@@ -173,7 +173,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
       if (pool == null)
       // CREATE A NEW ONE
       {
-        pool = new ReentrantResourcePool<String, DatabaseSessionEmbedded>(maxSize, this);
+        pool = new ReentrantResourcePool<>(maxSize, this);
       }
 
       // PUT IN THE POOL MAP ONLY IF AUTHENTICATION SUCCEED
@@ -217,14 +217,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   public int getAvailableConnections(final String url, final String userName) {
-    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
-    final ReentrantResourcePool<String, DatabaseSessionEmbedded> pool;
-    lock();
-    try {
-      pool = pools.get(dbPooledName);
-    } finally {
-      unlock();
-    }
+    var pool = getPool(url, userName);
     if (pool == null) {
       return 0;
     }
@@ -233,19 +226,23 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   }
 
   public int getConnectionsInCurrentThread(final String url, final String userName) {
-    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
-    final ReentrantResourcePool<String, DatabaseSessionEmbedded> pool;
-    lock();
-    try {
-      pool = pools.get(dbPooledName);
-    } finally {
-      unlock();
-    }
+    var pool = getPool(url, userName);
     if (pool == null) {
       return 0;
     }
 
     return pool.getConnectionsInCurrentThread(url);
+  }
+
+  private ReentrantResourcePool<String, DatabaseSessionEmbedded> getPool(
+      final String url, final String userName) {
+    final var dbPooledName = IOUtils.getUnixFileName(userName + "@" + url);
+    lock();
+    try {
+      return pools.get(dbPooledName);
+    } finally {
+      unlock();
+    }
   }
 
   public void release(final DatabaseSessionEmbedded iDatabase) {
@@ -325,12 +322,12 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
 
       if (pool != null) {
         for (var db : pool.getResources()) {
-          final var stg = ((DatabaseSessionEmbedded) db).getStorage();
+          final var stg = db.getStorage();
           if (stg != null && stg.getStatus() == Storage.STATUS.OPEN) {
             try {
               LogManager.instance()
                   .debug(this, "Closing pooled database '%s'...", logger, db.getDatabaseName());
-              ((DatabaseSessionEmbedded) db).activateOnCurrentThread();
+              db.activateOnCurrentThread();
               ((DatabasePooled) db).forceClose();
               LogManager.instance().debug(this, "OK", logger, db.getDatabaseName());
             } catch (Exception e) {

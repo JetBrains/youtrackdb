@@ -111,7 +111,7 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public @Nonnull Result toResult(@Nullable DatabaseSessionEmbedded session) {
-    var result = new ResultInternal((DatabaseSessionEmbedded) session);
+    var result = new ResultInternal(session);
 
     result.setProperty("type", "ScriptExecutionPlan");
     result.setProperty("javaType", getClass().getName());

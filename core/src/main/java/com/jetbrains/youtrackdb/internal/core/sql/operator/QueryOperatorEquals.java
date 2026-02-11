@@ -194,7 +194,8 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
   }
 
   @Override
-  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft, final Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft,
+      final Object iRight) {
     return getBeginRidRange(session, iLeft, iRight);
   }
 

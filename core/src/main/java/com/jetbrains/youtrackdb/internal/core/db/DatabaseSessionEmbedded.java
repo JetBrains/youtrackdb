@@ -79,7 +79,6 @@ import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
@@ -176,6 +175,7 @@ import org.slf4j.LoggerFactory;
 public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     implements AutoCloseable, QueryLifecycleListener {
 
+  @SuppressWarnings("unused")
   public enum STATUS {
     OPEN,
     CLOSED,
@@ -201,6 +201,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       TimeRate writeRollbackTransactions
   ) {
 
+    @SuppressWarnings("unused")
     public static TransactionMeters NOOP = new TransactionMeters(
         TimeRate.NOOP,
         TimeRate.NOOP,
@@ -567,6 +568,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
+  @SuppressWarnings("unused")
   public DatabaseSessionEmbedded setCustom(final String name, final Object iValue) {
     assert assertIfNotActive();
 
@@ -1287,6 +1289,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
+  @SuppressWarnings("unused")
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
 
@@ -1605,7 +1608,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return false;
   }
 
-  public void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids) {
+  public void afterCommitOperations(Map<RID, RID> updatedRids) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {
@@ -1915,6 +1918,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.addCollection(this, iCollectionName, iParameters);
   }
 
+  @SuppressWarnings("unused")
   public int addCollection(final String iCollectionName, final int iRequestedId) {
     assert assertIfNotActive();
 
@@ -1923,12 +1927,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
+  @SuppressWarnings("unused")
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
 
     return getStorageInfo().getRecordConflictStrategy();
   }
 
+  @SuppressWarnings("unused")
   public DatabaseSessionEmbedded setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
 
@@ -1939,6 +1945,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return this;
   }
 
+  @SuppressWarnings("unused")
   public DatabaseSessionEmbedded setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
 
@@ -1948,6 +1955,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return this;
   }
 
+  @SuppressWarnings("unused")
   public long getCollectionRecordSizeByName(final String collectionName) {
     assert assertIfNotActive();
 
@@ -2055,6 +2063,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.dropCollection(this, iCollectionName);
   }
 
+  @SuppressWarnings("unused")
   public boolean dropCollection(final int collectionId) {
     assert assertIfNotActive();
 
@@ -2323,6 +2332,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
+  @SuppressWarnings("unused")
   public String getCollectionRecordConflictStrategy(int collectionId) {
     assert assertIfNotActive();
 
@@ -2366,6 +2376,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return count;
   }
 
+  @SuppressWarnings("unused")
   public void truncateClass(String name) {
     assert assertIfNotActive();
     truncateClass(name, true);
@@ -2453,7 +2464,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  public byte getRecordType() {
+  public static byte getRecordType() {
     return recordType;
   }
 
@@ -2525,6 +2536,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return user;
   }
 
+  @SuppressWarnings("unused")
+  @Nullable
   public String getCurrentUserName() {
     var user = getCurrentUser();
     if (user == null) {
@@ -2579,6 +2592,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
+  @SuppressWarnings("unused")
   public boolean isMVCC() {
     assert assertIfNotActive();
     return true;
@@ -2587,6 +2601,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
+  @SuppressWarnings("unused")
   public DatabaseSessionEmbedded setMVCC(boolean mvcc) {
     throw new UnsupportedOperationException();
   }
@@ -2734,6 +2749,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
   }
 
+  @Nullable
   public ContextConfiguration getConfiguration() {
     assert assertIfNotActive();
     if (getStorageInfo() != null) {
@@ -2797,6 +2813,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
+  @Nullable
   public String getCollectionNameById(final int iCollectionId) {
     if (iCollectionId < 0) {
       return null;
@@ -2913,6 +2930,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return componentsFactory.binarySerializerFactory;
   }
 
+  @SuppressWarnings("unused")
   public void setPrefetchRecords(boolean prefetchRecords) {
     assert assertIfNotActive();
 
@@ -2921,6 +2939,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     this.prefetchRecords = prefetchRecords;
   }
 
+  @SuppressWarnings("unused")
   public boolean isPrefetchRecords() {
     assert assertIfNotActive();
 
@@ -3005,6 +3024,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
+  @SuppressWarnings("UnusedReturnValue")
   public int begin(FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
 
@@ -3136,6 +3156,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new RecordIteratorClass(this, className, iPolymorphic, forwardDirection);
   }
 
+  @SuppressWarnings("unused")
   public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
     assert assertIfNotActive();
 
@@ -3361,6 +3382,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
+  @SuppressWarnings("unused")
   public CurrentStorageComponentsFactory getStorageVersions() {
     assert assertIfNotActive();
     return componentsFactory;
@@ -3381,6 +3403,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     this.serializer = serializer;
   }
 
+  @SuppressWarnings("unused")
   public void resetInitialization() {
     assert assertIfNotActive();
 
@@ -3418,6 +3441,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * @return <code>true</code> if database is obtained from the pool and <code>false</code>
    * otherwise.
    */
+  @SuppressWarnings("unused")
   public boolean isPooled() {
     return false;
   }
@@ -3476,6 +3500,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
+  // Called via assert, always returns true (throws otherwise)
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
 
@@ -3549,18 +3574,21 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
+  @SuppressWarnings("unused")
   public Map<String, ResultSet> getActiveQueries() {
     assert assertIfNotActive();
 
     return activeQueries;
   }
 
+  @SuppressWarnings("unused")
   public ResultSet getActiveQuery(String id) {
     assert assertIfNotActive();
 
     return activeQueries.get(id);
   }
 
+  @SuppressWarnings("unused")
   public boolean isCollectionEdge(int collection) {
     assert assertIfNotActive();
 
@@ -3568,6 +3596,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return clazz != null && clazz.isEdgeType();
   }
 
+  @SuppressWarnings("unused")
   public boolean isCollectionVertex(int collection) {
     assert assertIfNotActive();
 
@@ -3598,6 +3627,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     executeInTxBatchesInternal(iterator, consumer::accept);
   }
 
+  @SuppressWarnings("unused")
   public <T, X extends Exception> void executeInTxBatches(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     executeInTxBatchesInternal(stream, consumer::accept);
@@ -3636,6 +3666,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
+  @SuppressWarnings("unused")
   public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3644,6 +3675,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
+  @SuppressWarnings("unused")
   public <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3677,6 +3709,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
+  @SuppressWarnings("unused")
   public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3684,6 +3717,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     forEachInTx(iterable.iterator(), consumer);
   }
 
+  @SuppressWarnings("unused")
   public <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3751,6 +3785,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         consumer);
   }
 
+  @SuppressWarnings("unused")
   public <T, X extends Exception> void executeInTxBatches(
       Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -4453,11 +4488,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   // --- Default methods migrated from DatabaseSessionEmbedded ---
 
+  @SuppressWarnings("unused")
   public ResultSet computeSQLScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     return computeScript("sql", script, args);
   }
 
+  @SuppressWarnings("unused")
   public ResultSet computeGremlinScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     return computeScript("gremlin", script, args);
@@ -4473,17 +4510,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     executeScript("sql", script, args);
   }
 
+  @SuppressWarnings("unused")
   public void executeGremlinScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("gremlin", script, args);
   }
 
+  @SuppressWarnings("unused")
   public ResultSet computeSQLScript(String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     return computeScript("sql", script, args);
   }
 
-  public ResultSet computeGremlinScript(String language, String script, Map<String, ?> args) {
+  @SuppressWarnings("unused")
+  public ResultSet computeGremlinScript(String script, Map<String, ?> args) {
     return computeScript("gremlin", script, args);
   }
 
@@ -4492,11 +4532,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     computeScript(language, script, args).close();
   }
 
+  @SuppressWarnings("unused")
   public void executeSQLScript(String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("sql", script, args);
   }
 
+  @SuppressWarnings("unused")
   public void executeGremlinScript(String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("gremlin", script, args);
@@ -4504,8 +4546,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   // --- Default methods migrated from DatabaseSessionEmbedded ---
 
+  @SuppressWarnings("unused")
   @Nullable
-  public <R> R transaction(Function<Transaction, R> action) throws Exception {
+  public <R> R transaction(Function<Transaction, R> action) {
     return computeInTx(action::apply);
   }
 
@@ -4515,10 +4558,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   // --- Default methods migrated from DatabaseSessionEmbedded ---
 
+  @SuppressWarnings("unused")
   public void realClose() {
     throw new UnsupportedOperationException();
   }
 
+  @SuppressWarnings("unused")
   public void reuse() {
     throw new UnsupportedOperationException();
   }
@@ -4641,12 +4686,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       superclassInstances = new SchemaClass[superclasses.length];
       for (var i = 0; i < superclasses.length; i++) {
         var superclass = superclasses[i];
-        var superclazz = schema.getClass(superclass);
-        if (superclazz == null) {
+        var superClass = schema.getClass(superclass);
+        if (superClass == null) {
           throw new SchemaException(
               getDatabaseName(), "Class " + superclass + " does not exist");
         }
-        superclassInstances[i] = superclazz;
+        superclassInstances[i] = superClass;
       }
     }
     var result = schema.getClass(className);
@@ -4669,12 +4714,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       superclassInstances = new SchemaClass[superclasses.length];
       for (var i = 0; i < superclasses.length; i++) {
         var superclass = superclasses[i];
-        var superclazz = schema.getClass(superclass);
-        if (superclazz == null) {
+        var superClass = schema.getClass(superclass);
+        if (superClass == null) {
           throw new SchemaException(
               getDatabaseName(), "Class " + superclass + " does not exist");
         }
-        superclassInstances[i] = superclazz;
+        superclassInstances[i] = superClass;
       }
     }
     var result = schema.getClass(className);

@@ -49,7 +49,7 @@ public class InfoExecutionStep implements ExecutionStep {
   @Nonnull
   @Override
   public Result toResult(DatabaseSessionEmbedded session) {
-    return new ResultInternal((DatabaseSessionEmbedded) session);
+    return new ResultInternal(session);
   }
 
   public void setName(String name) {

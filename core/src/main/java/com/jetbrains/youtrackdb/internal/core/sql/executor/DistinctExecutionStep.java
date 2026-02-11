@@ -22,7 +22,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
-    DatabaseSessionEmbedded session = ctx == null ? null : ctx.getDatabaseSession();
+    var session = ctx == null ? null : ctx.getDatabaseSession();
 
     maxElementsAllowed =
         session == null

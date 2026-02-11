@@ -439,13 +439,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
       return systemDb
           .query(
               (resultset, session) -> {
-                var sessionInternal = (DatabaseSessionEmbedded) session;
                 if (resultset != null && resultset.hasNext()) {
                   Identifiable identifiable = resultset.next().asEntity();
                   var transaction = session.getActiveTransaction();
-                  return new ImmutableUser(sessionInternal,
+                  return new ImmutableUser(session,
                       0,
-                      new SecuritySystemUserImpl(sessionInternal,
+                      new SecuritySystemUserImpl(session,
                           transaction.load(identifiable), dbName));
                 }
                 //noinspection ReturnOfNull
@@ -476,6 +475,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return false;
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public boolean isServerUserAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {

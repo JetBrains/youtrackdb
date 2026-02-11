@@ -84,7 +84,7 @@ public class SQLFunctionDijkstraTest {
     v4 = tx.load(v4);
 
     var context = new BasicCommandContext();
-    context.setDatabaseSession((DatabaseSessionEmbedded) session);
+    context.setDatabaseSession(session);
 
     final List<Vertex> result =
         functionDijkstra.execute(

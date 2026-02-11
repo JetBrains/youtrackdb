@@ -34,8 +34,8 @@ public class QueryStats {
     if (val != null) {
       return val;
     }
-    if (database != null && database instanceof DatabaseSessionEmbedded db) {
-      var idx = db.getSharedContext().getIndexManager().getIndex(indexName);
+    if (database != null) {
+      var idx = database.getSharedContext().getIndexManager().getIndex(indexName);
       if (idx != null
           && idx.isUnique()
           && (idx.getDefinition().getProperties().size() == params)

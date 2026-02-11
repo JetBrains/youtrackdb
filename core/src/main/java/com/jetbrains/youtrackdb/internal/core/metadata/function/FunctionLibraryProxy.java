@@ -66,11 +66,11 @@ public class FunctionLibraryProxy extends ProxedResource<FunctionLibraryImpl>
 
   @Override
   public void dropFunction(DatabaseSessionEmbedded session, Function function) {
-    delegate.dropFunction((DatabaseSessionEmbedded) session, function);
+    delegate.dropFunction(session, function);
   }
 
   @Override
   public void dropFunction(DatabaseSessionEmbedded session, String iName) {
-    delegate.dropFunction((DatabaseSessionEmbedded) session, iName);
+    delegate.dropFunction(session, iName);
   }
 }
