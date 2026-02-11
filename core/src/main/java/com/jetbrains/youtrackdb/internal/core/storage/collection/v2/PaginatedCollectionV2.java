@@ -46,7 +46,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -60,7 +59,7 @@ import javax.annotation.Nullable;
  */
 public final class PaginatedCollectionV2 extends PaginatedCollection {
 
-  // max chunk size - nex page pointer - first record flag
+  // max chunk size - next page pointer - first record flag
   private static final int MAX_ENTRY_SIZE =
       CollectionPage.MAX_RECORD_SIZE - ByteSerializer.BYTE_SIZE - LongSerializer.LONG_SIZE;
 
@@ -68,6 +67,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   private static final int STATE_ENTRY_INDEX = 0;
   private static final int BINARY_VERSION = 3;
+
+  /// Size of the per-record metadata header that precedes the actual record content.
+  /// Layout: {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B]}.
+  private static final int METADATA_SIZE =
+      ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE;
 
   private static final int PAGE_INDEX_OFFSET = 16;
   private static final int RECORD_POSITION_MASK = 0xFFFF;
@@ -333,6 +337,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
+  /// Creates a new record in the collection. The record is serialized into one or more page
+  /// chunks with the collection position embedded in the metadata header, then the position map
+  /// is updated to point to the entry-point chunk.
+  ///
+  /// The collection position is determined before serialization so it can be embedded in the
+  /// record's metadata header. If {@code allocatedPosition} is provided (pre-allocated via
+  /// {@link #allocatePosition}), its position is reused; otherwise a new position is allocated
+  /// via {@link CollectionPositionMapV2#allocate}. In both cases, after serialization the
+  /// position map is updated with the final page location via
+  /// {@link CollectionPositionMapV2#update}.
   @Override
   public PhysicalPosition createRecord(
       final byte[] content,
@@ -345,12 +359,23 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
+            // Determine the collection position before serialization so it can be
+            // embedded in the record's metadata header.
+            final long collectionPosition;
+            if (allocatedPosition != null) {
+              collectionPosition = allocatedPosition.collectionPosition;
+            } else {
+              collectionPosition = collectionPositionMap.allocate(atomicOperation);
+            }
+            assert collectionPosition >= 0;
+
             final var result =
                 serializeRecord(
                     content,
                     calculateCollectionEntrySize(content.length),
                     recordType,
                     recordVersion,
+                    collectionPosition,
                     -1,
                     atomicOperation,
                     entrySize -> findNewPageToWrite(atomicOperation, entrySize),
@@ -372,19 +397,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
             updateCollectionState(1, content.length, atomicOperation);
 
-            final long collectionPosition;
-            if (allocatedPosition != null) {
-              collectionPositionMap.update(
-                  allocatedPosition.collectionPosition,
-                  new CollectionPositionMapBucket.PositionEntry(
-                      nextPageIndex, nextPageOffset, recordVersion),
-                  atomicOperation);
-              collectionPosition = allocatedPosition.collectionPosition;
-            } else {
-              collectionPosition =
-                  collectionPositionMap.add(
-                      nextPageIndex, nextPageOffset, recordVersion, atomicOperation);
-            }
+            // Both pre-allocated and freshly allocated positions use update() here:
+            // allocate() reserves a slot without page coordinates; update() fills them in.
+            collectionPositionMap.update(
+                collectionPosition,
+                new CollectionPositionMapBucket.PositionEntry(
+                    nextPageIndex, nextPageOffset, recordVersion),
+                atomicOperation);
             return createPhysicalPosition(recordType, collectionPosition, recordVersion);
           } finally {
             releaseExclusiveLock();
@@ -421,11 +440,34 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return page;
   }
 
+  /// Serializes a record entry into one or more page chunks, writing them backward from the
+  /// tail of the entry toward the head. Each chunk is stored on a page obtained from
+  /// {@code pageSupplier}. The chunks form a singly-linked list via next-page pointers: the
+  /// first chunk written (tail) has {@code nextPagePointer = -1}, and each subsequent chunk
+  /// points to the previously written one. The last chunk written becomes the entry point
+  /// (head of the chain, first to be read).
+  ///
+  /// <p>The entry layout is:
+  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B][actualContent: NB]}.
+  /// Each chunk additionally carries a first-record flag (1B) and a next-page pointer (8B).
+  ///
+  /// @param content        the raw record bytes
+  /// @param len            total entry size (metadata + content), or remaining bytes when
+  ///                       continuing a partially written entry
+  /// @param collectionPosition logical position embedded in the metadata header
+  /// @param nextRecordPointer  initial next-page pointer ({@code -1} for a new entry, or a
+  ///                           page pointer when continuing from a previous serialization)
+  /// @param pageSupplier   provides a {@link CollectionPage} with at least the requested
+  ///                       free space; may return {@code null} if no page is available
+  /// @param pagePostProcessor called after each chunk is written (typically closes the page)
+  /// @return {@code int[3]}: {@code [pageIndex, pageOffset, remainingBytes]}. When
+  ///         {@code remainingBytes > 0}, the caller must continue serialization on new pages
   private int[] serializeRecord(
       final byte[] content,
       final int len,
       final byte recordType,
       final int recordVersion,
+      final long collectionPosition,
       final long nextRecordPointer,
       final AtomicOperation atomicOperation,
       final Int2ObjectFunction<CollectionPage> pageSupplier,
@@ -454,7 +496,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
           final var pair =
               serializeEntryChunk(
-                  content, pageChunkSize, bytesToWrite, nextRecordPointers, recordType);
+                  content, pageChunkSize, bytesToWrite, nextRecordPointers, recordType,
+                  collectionPosition);
           final var chunk = pair.first;
 
           final var cacheEntry = page.getCacheEntry();
@@ -490,24 +533,53 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return new int[]{nextPageIndex, nextPageOffset, 0};
   }
 
+  /// Builds a single chunk of a serialized record entry. The chunk layout is:
+  /// {@code [data] [firstRecordFlag: 1B] [nextPagePointer: 8B]}, where {@code data} contains
+  /// a portion of the entry bytes (content and/or metadata) written from the end backward.
+  ///
+  /// <p>The entry data is written in reverse order across chunks: the last bytes of actual
+  /// content are written first (in the tail chunk), and the metadata header is written last
+  /// (in the entry-point chunk). This reverse order, combined with the forward read-order
+  /// concatenation of chunk data, reassembles the original entry layout:
+  /// {@code [recordType][contentSize][collectionPosition][actualContent]}.
+  ///
+  /// <p><b>Metadata split prevention:</b> if the remaining metadata does not fully fit in the
+  /// available space after content, the chunk is shrunk to hold only the content portion.
+  /// This guarantees that metadata is never split across two chunks, which would corrupt the
+  /// reassembled byte order during reading (since chunks are written backward but read forward).
+  ///
+  /// <p>The first-record flag is set to 1 only on the entry-point chunk (the chunk that
+  /// completes the entire entry, i.e., {@code written == bytesToWrite}).
+  ///
+  /// @param recordContent     the raw record bytes (actual content only, no metadata)
+  /// @param chunkSize         maximum size of the chunk byte array to produce
+  /// @param bytesToWrite      total remaining entry bytes (metadata + content) to be written
+  /// @param nextPagePointer   pointer to the next chunk in the chain ({@code -1} for the tail)
+  /// @param recordType        record type byte stored in the metadata header
+  /// @param collectionPosition logical position stored in the metadata header
+  /// @return a pair of (chunk byte array, number of entry bytes written in this chunk)
   private static RawPairObjectInteger<byte[]> serializeEntryChunk(
       final byte[] recordContent,
       final int chunkSize,
       final int bytesToWrite,
       final long nextPagePointer,
-      final byte recordType) {
-    final var chunk = new byte[chunkSize];
+      final byte recordType,
+      final long collectionPosition) {
+    var chunk = new byte[chunkSize];
     var offset = chunkSize - LongSerializer.LONG_SIZE;
 
+    // Write next-page pointer at the end of the chunk.
     LongSerializer.INSTANCE.serializeNative(nextPagePointer, chunk, offset);
 
     var written = 0;
-    // entry - entry size - record type
-    final var contentSize = bytesToWrite - IntegerSerializer.INT_SIZE - ByteSerializer.BYTE_SIZE;
-    // skip first record flag
-    final var firstRecordOffset = --offset;
+    // Compute how many actual content bytes remain (total entry bytes minus metadata header).
+    final var contentSize = bytesToWrite - METADATA_SIZE;
+    // Reserve one byte for the first-record flag just before the next-page pointer.
+    var firstRecordOffset = --offset;
 
-    // there are records data to write
+    // Write actual content bytes from the end of recordContent backward. This places the
+    // tail of the content closest to the first-record flag, and the head of the content
+    // (or metadata) at the lowest addresses.
     if (contentSize > 0) {
       final var contentToWrite = Math.min(contentSize, offset);
       System.arraycopy(
@@ -519,61 +591,50 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       written = contentToWrite;
     }
 
+    // Space remaining for metadata, after content + first-record flag + next-page pointer.
     var spaceLeft = chunkSize - written - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
 
     if (spaceLeft > 0) {
-      final var spaceToWrite = bytesToWrite - written;
-      assert spaceToWrite <= IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE;
+      final var metadataToWrite = bytesToWrite - written;
+      assert metadataToWrite <= METADATA_SIZE;
 
-      // we need to write only record type
-      if (spaceToWrite == 1) {
-        chunk[0] = recordType;
-        chunk[firstRecordOffset] = 1;
-        written++;
+      if (metadataToWrite <= spaceLeft) {
+        // All remaining metadata fits — build the full metadata array and copy the
+        // relevant suffix (for intermediate chunks that write the tail of metadata)
+        // or the entire array (for the entry-point chunk that writes all metadata).
+        final var metadata = new byte[METADATA_SIZE];
+        metadata[0] = recordType;
+        IntegerSerializer.serializeNative(
+            recordContent.length, metadata, ByteSerializer.BYTE_SIZE);
+        LongSerializer.INSTANCE.serializeNative(
+            collectionPosition, metadata,
+            ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
+
+        final var metadataOffset = METADATA_SIZE - metadataToWrite;
+        System.arraycopy(
+            metadata, metadataOffset, chunk, spaceLeft - metadataToWrite, metadataToWrite);
+        written += metadataToWrite;
       } else {
-        // at least part of record size and record type has to be written
-        // record size and record type can be written at once
-        if (spaceLeft == IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE) {
-          chunk[0] = recordType;
-          IntegerSerializer.serializeNative(
-              recordContent.length, chunk, ByteSerializer.BYTE_SIZE);
-          chunk[firstRecordOffset] = 1;
-
-          written += IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE;
-        } else {
-          final var recordSizePart = spaceToWrite - ByteSerializer.BYTE_SIZE;
-          assert recordSizePart <= IntegerSerializer.INT_SIZE;
-
-          if (recordSizePart == IntegerSerializer.INT_SIZE
-              && spaceLeft == IntegerSerializer.INT_SIZE) {
-            IntegerSerializer.serializeNative(recordContent.length, chunk, 0);
-            written += IntegerSerializer.INT_SIZE;
-          } else {
-            final var byteOrder = ByteOrder.nativeOrder();
-            if (byteOrder == ByteOrder.LITTLE_ENDIAN) {
-              for (var sizeOffset = (recordSizePart - 1) << 3;
-                  sizeOffset >= 0 && spaceLeft > 0;
-                  sizeOffset -= 8, spaceLeft--, written++) {
-                final var sizeByte = (byte) (0xFF & (recordContent.length >> sizeOffset));
-                chunk[spaceLeft - 1] = sizeByte;
-              }
-            } else {
-              for (var sizeOffset = (IntegerSerializer.INT_SIZE - recordSizePart) << 3;
-                  sizeOffset < IntegerSerializer.INT_SIZE & spaceLeft > 0;
-                  sizeOffset += 8, spaceLeft--, written++) {
-                final var sizeByte = (byte) (0xFF & (recordContent.length >> sizeOffset));
-                chunk[spaceLeft - 1] = sizeByte;
-              }
-            }
-
-            if (spaceLeft > 0) {
-              chunk[0] = recordType;
-              chunk[firstRecordOffset] = 1;
-              written++;
-            }
-          }
-        }
+        // Not enough room for all remaining metadata. To prevent metadata from being
+        // split across chunks (which would corrupt the read-order assembly), shrink
+        // the chunk to hold only the content written so far. The metadata will be
+        // written entirely in a subsequent (larger) chunk.
+        final var shrunkSize = written + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
+        final var shrunkChunk = new byte[shrunkSize];
+        System.arraycopy(chunk, offset - written, shrunkChunk, 0, written);
+        LongSerializer.INSTANCE.serializeNative(
+            nextPagePointer, shrunkChunk, shrunkSize - LongSerializer.LONG_SIZE);
+        chunk = shrunkChunk;
+        firstRecordOffset = written;
       }
+    }
+
+    assert written <= bytesToWrite;
+
+    // The entry-point chunk is the last one written and the first one read. Mark it with
+    // the first-record flag so the read path can identify a valid record head.
+    if (written == bytesToWrite) {
+      chunk[firstRecordOffset] = 1;
     }
 
     return new RawPairObjectInteger<>(chunk, written);
@@ -610,14 +671,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return pageIndex;
   }
 
+  /// Computes the total entry size from the raw content size by adding the metadata header:
+  /// {@code recordType (1B) + contentSize (4B) + collectionPosition (8B)}.
   private static int calculateCollectionEntrySize(final int contentSize) {
-    // content + record type + content size
-    return contentSize + ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE;
+    return contentSize + METADATA_SIZE;
   }
 
+  /// Inverse of {@link #calculateCollectionEntrySize}: strips the metadata header to recover
+  /// the raw content size.
   private static int calculateContentSizeFromCollectionEntrySize(final int contentSize) {
-    // content + record type + content size
-    return contentSize - ByteSerializer.BYTE_SIZE - IntegerSerializer.INT_SIZE;
+    return contentSize - METADATA_SIZE;
   }
 
   private static int calculateChunkSize(final int entrySize) {
@@ -654,6 +717,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
   }
 
+  /// Reads and reassembles a record from its chunk chain. Starting from the entry-point chunk
+  /// (identified by {@code pageIndex} / {@code recordPosition}), follows next-page pointers
+  /// until the tail chunk ({@code nextPagePointer == -1}). Each chunk's data portion
+  /// (everything except the first-record flag and next-page pointer) is collected, then
+  /// concatenated in read order to reconstruct the original entry:
+  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B][actualContent: NB]}.
+  ///
+  /// <p>After reassembly, the metadata header is parsed and the embedded
+  /// {@code collectionPosition} is verified against the expected value (via assertion).
   @Nonnull
   private RawBuffer internalReadRecord(
       final long collectionPosition,
@@ -716,6 +788,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
     }
 
+    // Parse the metadata header: [recordType: 1B][contentSize: 4B][collectionPosition: 8B].
     var fullContentPosition = 0;
 
     final var recordType = fullContent[fullContentPosition];
@@ -725,6 +798,17 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         IntegerSerializer.deserializeNative(fullContent, fullContentPosition);
     fullContentPosition += IntegerSerializer.INT_SIZE;
 
+    assert readContentSize >= 0
+        : "Negative content size in record #" + id + ":" + collectionPosition;
+    // Verify that the collection position embedded in the record matches the expected one.
+    assert assertPositionConsistency(collectionPosition,
+        LongSerializer.INSTANCE.deserializeNative(fullContent, fullContentPosition));
+    fullContentPosition += LongSerializer.LONG_SIZE;
+
+    // Extract the actual record content that follows the metadata header.
+    assert fullContentPosition + readContentSize <= fullContent.length
+        : "Content size " + readContentSize + " exceeds assembled data length "
+        + fullContent.length + " at offset " + fullContentPosition;
     var recordContent =
         Arrays.copyOfRange(fullContent, fullContentPosition, fullContentPosition + readContentSize);
 
@@ -782,6 +866,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 atomicOperation.addDeletedRecordPosition(
                     id, cacheEntry.getPageIndex(), recordPosition);
                 assert content != null;
+
+                // On the first chunk (entry point), verify the embedded collection position.
+                assert removedContentSize != 0
+                    || assertFirstChunkPositionConsistency(content, collectionPosition);
+
                 removeRecordSize = calculateContentSizeFromCollectionEntrySize(content.length);
 
                 maxRecordSize = localPage.getMaxRecordSize();
@@ -811,6 +900,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
+  /// Updates an existing record in-place. The old record's chunk chain is deleted and its
+  /// pages are reused for the new content where possible. If the old pages do not provide
+  /// enough space, additional pages are allocated. The same {@code collectionPosition} is
+  /// embedded in the new record's metadata header.
   @Override
   public void updateRecord(
       final long collectionPosition,
@@ -830,6 +923,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   new RecordId(id, collectionPosition));
             }
 
+            // Walk the old record's chunk chain, deleting each chunk and collecting
+            // the pages for reuse during serialization of the new content.
             var oldContentSize = 0;
             var nextPageIndex = (int) positionEntry.getPageIndex();
             var nextRecordPosition = positionEntry.getRecordPosition();
@@ -855,6 +950,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               storedPages.add(page);
             }
 
+            // Serialize the new content, first trying to reuse the old record's pages
+            // (iterated in reverse to match the backward serialization order).
             final var reverseIterator =
                 storedPages.listIterator(storedPages.size());
             var result =
@@ -863,6 +960,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                     calculateCollectionEntrySize(content.length),
                     recordType,
                     recordVersion,
+                    collectionPosition,
                     -1,
                     atomicOperation,
                     entrySize -> {
@@ -893,6 +991,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               page.getCacheEntry().close();
             }
 
+            // If the reused pages did not have enough space for the entire new record,
+            // continue serialization on freshly allocated pages, chaining from the
+            // previously written chunks.
             if (result[2] != 0) {
               result =
                   serializeRecord(
@@ -900,6 +1001,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       result[2],
                       recordType,
                       recordVersion,
+                      collectionPosition,
                       createPagePointer(nextPageIndex, nextRecordPosition),
                       atomicOperation,
                       entrySize -> findNewPageToWrite(atomicOperation, entrySize),
@@ -923,6 +1025,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             assert result[2] == 0;
             updateCollectionState(0, content.length - oldContentSize, atomicOperation);
 
+            // Update the position map only if the entry-point location or version changed.
+            // If the new record landed on the same page/offset, a version-only update
+            // avoids rewriting the full position entry.
             if (nextPageIndex != positionEntry.getPageIndex()
                 || nextRecordPosition != positionEntry.getRecordPosition()) {
               collectionPositionMap.update(
@@ -930,7 +1035,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   new CollectionPositionMapBucket.PositionEntry(
                       nextPageIndex, nextRecordPosition, recordVersion),
                   atomicOperation);
-            } else if (recordVersion != positionEntry.getRecordVersion()) {
+            } else if (recordVersion != versionToInt(positionEntry.getRecordVersion())) {
               collectionPositionMap.updateVersion(
                   collectionPosition, recordVersion, atomicOperation);
             }
@@ -1027,7 +1132,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           physicalPosition.collectionPosition = position.collectionPosition;
 
           assert assertVersionConsistency(
-              versionToInt(positionEntry.getRecordVersion()),
+              physicalPosition.recordVersion,
               localPage.getRecordVersion(recordPosition));
 
           return physicalPosition;
@@ -1485,6 +1590,37 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               + " page=" + pageVersion);
     }
     return true;
+  }
+
+  /// Verifies that the collection position stored in the serialized record matches the expected
+  /// collection position. Must only be called within {@code assert} statements.
+  @SuppressWarnings("SameReturnValue")
+  private static boolean assertPositionConsistency(
+      long expectedPosition, long storedPosition) {
+    if (expectedPosition != storedPosition) {
+      throw new AssertionError(
+          "Collection position mismatch: expected=" + expectedPosition
+              + " stored=" + storedPosition);
+    }
+    return true;
+  }
+
+  /// Validates the entry-point chunk of a record: verifies that the chunk is large enough to
+  /// contain the full metadata header and that the stored collection position matches.
+  /// Must only be called within {@code assert} statements.
+  @SuppressWarnings("SameReturnValue")
+  private static boolean assertFirstChunkPositionConsistency(
+      byte[] chunkContent, long expectedPosition) {
+    final var dataLen =
+        chunkContent.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
+    if (dataLen < METADATA_SIZE) {
+      throw new AssertionError(
+          "Entry-point chunk too small for metadata: dataLen=" + dataLen
+              + " required=" + METADATA_SIZE);
+    }
+    final var storedPosition = LongSerializer.INSTANCE.deserializeNative(
+        chunkContent, ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
+    return assertPositionConsistency(expectedPosition, storedPosition);
   }
 
   /// Safely narrows a {@code long} record version to {@code int}. Throws if the value does not
