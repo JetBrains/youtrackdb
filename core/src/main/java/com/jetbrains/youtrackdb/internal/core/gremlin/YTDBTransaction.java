@@ -6,11 +6,11 @@ import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetrics
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
@@ -196,13 +196,18 @@ public final class YTDBTransaction extends AbstractTransaction {
   @Override
   protected void fireOnCommit() {
     this.transactionListeners.forEach(c -> c.accept(Status.COMMIT));
-    this.queryMetricsListener = QueryMetricsListener.NO_OP;
-    this.transactionMetricsListener = TransactionMetricsListener.NO_OP;
+    clearMonitoringState();
   }
 
   @Override
   protected void fireOnRollback() {
     this.transactionListeners.forEach(c -> c.accept(Status.ROLLBACK));
+    clearMonitoringState();
+  }
+
+  private void clearMonitoringState() {
+    this.trackingId = null;
+    this.queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
     this.queryMetricsListener = QueryMetricsListener.NO_OP;
     this.transactionMetricsListener = TransactionMetricsListener.NO_OP;
   }
@@ -218,6 +223,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   /// Set the tracking ID for this transaction that can be obtained from the QueryDetails inside the
   /// listener. If null, YTDB will generate its own tracking ID.
   public YTDBTransaction withTrackingId(@Nonnull String trackingId) {
+    Objects.requireNonNull(trackingId);
     this.trackingId = trackingId;
     return this;
   }
@@ -226,27 +232,29 @@ public final class YTDBTransaction extends AbstractTransaction {
   /// timestamps and lower precision of durations. Exact mode uses precise timestamp values but is
   /// heavier performance-wise.
   public YTDBTransaction withQueryMonitoringMode(@Nonnull QueryMonitoringMode mode) {
+    Objects.requireNonNull(mode);
     this.queryMonitoringMode = mode;
     return this;
   }
 
   /// Register a query metrics listener for this transaction. Supported only when YouTrackDB is run
   /// in embedded mode.
-  public YTDBTransaction withQueryListener(QueryMetricsListener listener) {
+  public YTDBTransaction withQueryListener(@Nonnull QueryMetricsListener listener) {
+    Objects.requireNonNull(listener);
     this.queryMetricsListener = listener;
     return this;
   }
 
   /// Register a metrics listener for this transaction. Supported only when YouTrackDB is run in
   /// embedded mode.
-  public YTDBTransaction withTransactionListener(TransactionMetricsListener listener) {
+  public YTDBTransaction withTransactionListener(@Nonnull TransactionMetricsListener listener) {
+    Objects.requireNonNull(listener);
     this.transactionMetricsListener = listener;
     return this;
   }
 
-  public boolean isMonitoringEnabled() {
-    return queryMetricsListener != QueryMetricsListener.NO_OP ||
-        transactionMetricsListener != TransactionMetricsListener.NO_OP;
+  public boolean isQueryMetricsEnabled() {
+    return queryMetricsListener != QueryMetricsListener.NO_OP;
   }
 
   public @Nonnull QueryMonitoringMode getQueryMonitoringMode() {
@@ -255,7 +263,7 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   public @Nonnull String getTrackingId() {
     return trackingId != null ? trackingId :
-        String.valueOf(activeSession.getActiveTransaction().getId());
+        String.valueOf(getDatabaseSession().getActiveTransaction().getId());
   }
 
   public QueryMetricsListener getQueryMetricsListener() {

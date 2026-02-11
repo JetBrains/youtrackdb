@@ -7,8 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.FinalizationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
-import org.apache.tinkerpop.gremlin.structure.Graph;
 
 /// TinkerPop strategy that adds a special metrics step for query monitoring.
 public class YTDBQueryMetricsStrategy
@@ -34,7 +32,7 @@ public class YTDBQueryMetricsStrategy
     }
 
     final var ytdbTx = ((YTDBTransaction) ytdbGraph.tx());
-    if (!ytdbTx.isMonitoringEnabled()) {
+    if (!ytdbTx.isQueryMetricsEnabled()) {
       return;
     }
 
