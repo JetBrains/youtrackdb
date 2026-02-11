@@ -802,10 +802,6 @@ public final class CollectionPage extends DurablePage {
     return getLongValue(entryIndexPosition + IntegerSerializer.INT_SIZE);
   }
 
-  public void updateVersionAt(int entryIndexPosition, long version) {
-    setLongValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
-  }
-
   public static int computePointerPosition(int position) {
     return PAGE_INDEXES_OFFSET + INDEX_ITEM_SIZE * position;
   }

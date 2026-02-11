@@ -4103,7 +4103,8 @@ public abstract class AbstractStorage
         collection.updateRecord(
             rid.getCollectionPosition(), content, newRecordVersion, recordType, atomicOperation);
       } else {
-        collection.updateRecordVersion(rid.getCollectionPosition(), atomicOperation);
+        collection.updateRecordVersion(
+            rid.getCollectionPosition(), newRecordVersion, atomicOperation);
       }
 
       if (logger.isDebugEnabled()) {
