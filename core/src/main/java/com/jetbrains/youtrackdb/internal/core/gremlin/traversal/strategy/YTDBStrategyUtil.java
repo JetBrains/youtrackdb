@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
+package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
@@ -12,10 +12,21 @@ public final class YTDBStrategyUtil {
   private YTDBStrategyUtil() {
   }
 
+  @SuppressWarnings("unchecked")
+  public static <T> @Nullable T getConfigValue(
+      YTDBQueryConfigParam param, Admin<?, ?> traversal
+  ) {
+    final var strategy = traversal.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
+    if (strategy == null) {
+      return null;
+    }
+    return (T) strategy.getOptions().get(param.name());
+  }
+
   /// Check if traversal should be executed as a polymorphic query. Returns null if there is no
   /// underlying graph object.
   @Nullable
-  static Boolean isPolymorphic(Admin<?, ?> traversal) {
+  public static Boolean isPolymorphic(Admin<?, ?> traversal) {
     final var graph = traversal.getGraph().orElse(null);
     if (graph == null) {
       return null;
@@ -24,7 +35,7 @@ public final class YTDBStrategyUtil {
     final var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
 
-    final Boolean value = YTDBQueryConfigParam.polymorphicQuery.getValue(traversal);
+    final Boolean value = getConfigValue(YTDBQueryConfigParam.polymorphicQuery, traversal);
     if (value != null) {
       return value;
     }
