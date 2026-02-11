@@ -78,6 +78,7 @@ jobs:
               page++;
             }
             core.info(`PR has ${commits.length} commits`);
+            core.setOutput('commit_count', String(commits.length));
 
             // Find open fix PRs for this source PR
             const searchPattern = `qodana-claude-fix-pr${prNumber}-`;
@@ -182,6 +183,13 @@ jobs:
           SARIF_FILE="${{ runner.temp }}/qodana/results/qodana.sarif.json"
           FILTERED_FILE="${{ runner.temp }}/filtered-findings.json"
 
+          # Default to 0 (treated as multi-commit) if pr-management failed
+          COMMIT_COUNT="${{ steps.pr-management.outputs.commit_count }}"
+          if ! [[ "${COMMIT_COUNT:-0}" =~ ^[0-9]+$ ]]; then
+            COMMIT_COUNT=0
+          fi
+          COMMIT_COUNT="${COMMIT_COUNT:-0}"
+
           if [[ ! -f "$SARIF_FILE" ]]; then
             echo "SARIF file not found at $SARIF_FILE"
             echo "has_findings=false" >> "$GITHUB_OUTPUT"
@@ -189,42 +197,68 @@ jobs:
             exit 0
           fi
 
-          # Determine diff base
-          LAST_SHA="${{ steps.pr-management.outputs.last_processed_sha }}"
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          echo "=== Baseline Comparison ==="
+          echo "Baseline report: .github/workflows/qodana.sarif.json"
+          echo "Generated report: $SARIF_FILE"
+          echo "PR commit count: $COMMIT_COUNT"
+          echo ""
 
-          if [[ -n "$LAST_SHA" ]]; then
-            # Resolve short SHA to full commit SHA
-            FULL_SHA=$(git rev-parse --verify "${LAST_SHA}^{commit}" 2>/dev/null || true)
-            if [[ -n "$FULL_SHA" ]]; then
-              DIFF_BASE="$FULL_SHA"
-              echo "Using last processed commit as diff base: $DIFF_BASE"
+          # The Qodana scan uses --baseline to compare the baseline report
+          # (.github/workflows/qodana.sarif.json) with the generated one.
+          # Findings marked baselineState=="new" are issues present in the
+          # generated report but absent from the baseline — i.e. truly new issues.
+
+          ALLOWED_SEVERITIES='["Critical","High","Moderate"]'
+
+          # Log findings with null baselineState (defensive: Qodana should always
+          # set this field when --baseline is used, but we track nulls for debugging)
+          NULL_BASELINE_COUNT=$(jq '[.runs[]?.results[]? | select(.baselineState == null)] | length' "$SARIF_FILE")
+          if [[ "$NULL_BASELINE_COUNT" -gt 0 ]]; then
+            echo "WARNING: $NULL_BASELINE_COUNT finding(s) have null baselineState (included as new)"
+          fi
+
+          # Determine changed-file filter: null means "all files" (single-commit),
+          # a JSON array means "restrict to these files" (multi-commit).
+          if [[ "$COMMIT_COUNT" -eq 1 ]]; then
+            echo "Single-commit PR: fixing ALL new findings from baseline comparison"
+            echo "(no changed-file filtering applied)"
+            CHANGED_FILES_JSON='null'
+          else
+            echo "Multi-commit PR: fixing only new findings in recently changed files"
+
+            LAST_SHA="${{ steps.pr-management.outputs.last_processed_sha }}"
+            BASE_REF="${{ github.event.pull_request.base.ref }}"
+
+            if [[ -n "$LAST_SHA" ]]; then
+              FULL_SHA=$(git rev-parse --verify "${LAST_SHA}^{commit}" 2>/dev/null || true)
+              if [[ -n "$FULL_SHA" ]]; then
+                DIFF_BASE="$FULL_SHA"
+                echo "Using last processed commit as diff base: $DIFF_BASE"
+              else
+                DIFF_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
+                echo "Last processed SHA not in history, using merge-base: $DIFF_BASE"
+              fi
             else
               DIFF_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
-              echo "Last processed SHA not in history, using merge-base: $DIFF_BASE"
+              echo "No last processed SHA, using merge-base: $DIFF_BASE"
             fi
-          else
-            DIFF_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
-            echo "No last processed SHA, using merge-base: $DIFF_BASE"
+
+            CHANGED_FILES=$(git diff --name-only "$DIFF_BASE" HEAD)
+            if [[ -z "$CHANGED_FILES" ]]; then
+              echo "No changed files found"
+              echo "has_findings=false" >> "$GITHUB_OUTPUT"
+              echo "finding_count=0" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))')
           fi
 
-          # Get changed files
-          CHANGED_FILES=$(git diff --name-only "$DIFF_BASE" HEAD)
-          if [[ -z "$CHANGED_FILES" ]]; then
-            echo "No changed files found"
-            echo "has_findings=false" >> "$GITHUB_OUTPUT"
-            echo "finding_count=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-
-          # Build jq filter array from changed files
-          CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))')
-
-          # Filter SARIF: keep only new Critical/High/Moderate findings in changed files
-          ALLOWED_SEVERITIES='["Critical","High","Moderate"]'
+          # Unified jq filter: when $changed is null, all files pass;
+          # when $changed is an array, only matching files pass.
           jq --argjson changed "$CHANGED_FILES_JSON" \
              --argjson severities "$ALLOWED_SEVERITIES" '
             [
@@ -235,7 +269,7 @@ jobs:
               | .locations[]?
               | .physicalLocation.artifactLocation.uri as $uri
               | select($uri != null)
-              | select($changed | any(. as $f | $uri == $f or ($uri | endswith("/" + $f))))
+              | select($changed == null or ($changed | any(. as $f | $uri == $f or ($uri | endswith("/" + $f)))))
               | {
                   ruleId: $result.ruleId,
                   level: $result.level,
@@ -251,6 +285,8 @@ jobs:
           ' "$SARIF_FILE" > "$FILTERED_FILE"
 
           COUNT=$(jq 'length' "$FILTERED_FILE")
+          echo ""
+          echo "=== Results ==="
           echo "Filtered findings: $COUNT"
 
           if [[ "$COUNT" -eq 0 ]]; then
@@ -411,7 +447,13 @@ jobs:
           HAS_FIXES: ${{ steps.push-fixes.outputs.has_fixes }}
           FIX_BRANCH: ${{ steps.push-fixes.outputs.fix_branch }}
           FINDING_COUNT: ${{ steps.filter-sarif.outputs.finding_count }}
+          COMMIT_COUNT: ${{ steps.pr-management.outputs.commit_count }}
         run: |
+          COMMIT_COUNT="${COMMIT_COUNT:-0}"
+          if ! [[ "$COMMIT_COUNT" =~ ^[0-9]+$ ]]; then
+            COMMIT_COUNT=0
+          fi
+
           {
             echo "## Qodana Claude Fix Summary"
             echo ""
@@ -419,12 +461,21 @@ jobs:
             if [[ "$HAS_NEW_COMMITS" != "true" ]]; then
               echo "No new commits to process (fix PR already exists for current HEAD)."
             elif [[ "$HAS_FINDINGS" != "true" ]]; then
-              echo "No new Qodana findings in changed files."
+              if [[ "$COMMIT_COUNT" -eq 1 ]]; then
+                echo "No new Qodana findings compared to baseline (single-commit PR, all files checked)."
+              else
+                echo "No new Qodana findings in changed files (multi-commit PR)."
+              fi
             elif [[ "$HAS_FIXES" != "true" ]]; then
               echo "Claude Code did not produce any fixes."
             else
               echo "Created fix branch: \`${FIX_BRANCH}\`"
               echo ""
               echo "Findings processed: **${FINDING_COUNT}**"
+              if [[ "$COMMIT_COUNT" -eq 1 ]]; then
+                echo "Mode: single-commit PR (all new findings from baseline comparison)"
+              else
+                echo "Mode: multi-commit PR (new findings in changed files only)"
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
