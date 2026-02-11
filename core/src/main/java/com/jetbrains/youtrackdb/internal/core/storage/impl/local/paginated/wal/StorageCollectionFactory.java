@@ -46,7 +46,9 @@ public final class StorageCollectionFactory {
           "Version 0 of collection is not supported with given configuration");
       case 1 -> throw new IllegalStateException(
           "Version 1 of collection is not supported with given configuration");
-      case 2 -> new PaginatedCollectionV2(name, storage);
+      case 2 -> throw new IllegalStateException(
+          "Version 2 of collection is not supported with given configuration");
+      case 3 -> new PaginatedCollectionV2(name, storage);
       default ->
           throw new IllegalStateException("Invalid binary version of collection " + binaryVersion);
     };
@@ -59,14 +61,11 @@ public final class StorageCollectionFactory {
       final String dataExtension,
       final String cpmExtension,
       final String fsmExtension) {
-    return switch (binaryVersion) {
-      case 0 -> throw new IllegalStateException(
-          "Version 0 of collection is not supported with given configuration");
-      case 1 -> throw new IllegalStateException(
-          "Version 1 of collection is not supported with given configuration");
-      case 2 -> new PaginatedCollectionV2(name, dataExtension, cpmExtension, fsmExtension, storage);
-      default ->
-          throw new IllegalStateException("Invalid binary version of collection " + binaryVersion);
-    };
+    if (binaryVersion != 3) {
+      throw new IllegalStateException(
+          "Binary version " + binaryVersion
+              + " of collection is not supported, only version 3 is supported");
+    }
+    return new PaginatedCollectionV2(name, dataExtension, cpmExtension, fsmExtension, storage);
   }
 }

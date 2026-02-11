@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary;
 
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinaryTypeSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BooleanSerializer;
@@ -60,11 +59,9 @@ public class BinarySerializerFactory {
    */
   public static final int TYPE_IDENTIFIER_SIZE = 1;
 
-  public static final byte CURRENT_BINARY_FORMAT_VERSION = 13;
+  public static final byte CURRENT_BINARY_FORMAT_VERSION = 14;
 
   private final Byte2ObjectArrayMap<BinarySerializer<?>> serializerIdMap = new Byte2ObjectArrayMap<>();
-  private final Byte2ObjectArrayMap<Class<? extends BinarySerializer>> serializerClassesIdMap =
-      new Byte2ObjectArrayMap<>();
   private final EnumMap<PropertyTypeInternal, BinarySerializer<?>> serializerTypeMap = new EnumMap<>(
       PropertyTypeInternal.class);
 
@@ -105,7 +102,6 @@ public class BinarySerializerFactory {
     factory.registerSerializer(BinaryTypeSerializer.INSTANCE, PropertyTypeInternal.BINARY);
     factory.registerSerializer(DecimalSerializer.INSTANCE, PropertyTypeInternal.DECIMAL);
 
-
     factory.registerSerializer(CompactedLinkSerializer.INSTANCE, null);
     factory.registerSerializer(UTF8Serializer.INSTANCE, null);
     factory.registerSerializer(MultiValueEntrySerializer.INSTANCE, null);
@@ -132,17 +128,6 @@ public class BinarySerializerFactory {
     }
   }
 
-  @SuppressWarnings({"rawtypes"})
-  public void registerSerializer(final byte iId,
-      final Class<? extends BinarySerializer> iClass) {
-    if (serializerClassesIdMap.containsKey(iId)) {
-      throw new IllegalStateException(
-          "Serializer with id " + iId + " has been already registered.");
-    }
-
-    serializerClassesIdMap.put(iId, iClass);
-  }
-
   /**
    * Obtain OBinarySerializer instance by it's id.
    *
@@ -150,23 +135,7 @@ public class BinarySerializerFactory {
    * @return OBinarySerializer instance.
    */
   public BinarySerializer<?> getObjectSerializer(final byte identifier) {
-    var impl = serializerIdMap.get(identifier);
-    if (impl == null) {
-      final var cls = serializerClassesIdMap.get(identifier);
-      if (cls != null) {
-        try {
-          impl = cls.newInstance();
-        } catch (Exception e) {
-          LogManager.instance()
-              .error(
-                  this,
-                  "Cannot create an instance of class %s invoking the empty constructor",
-                  e,
-                  cls);
-        }
-      }
-    }
-    return impl;
+    return serializerIdMap.get(identifier);
   }
 
   /**

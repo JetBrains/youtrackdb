@@ -1596,6 +1596,114 @@ public abstract class LocalPaginatedCollectionAbstract {
   }
 
   @Test
+  public void testUpdateRecordVersionSetsExactVersion() throws IOException {
+    var record = new byte[]{1, 2, 3, 4, 5};
+    final var initialVersion = 2;
+
+    final var physicalPosition =
+        atomicOperationsManager.calculateInsideAtomicOperation(
+            atomicOperation ->
+                paginatedCollection.createRecord(
+                    record, initialVersion, (byte) 1, null, atomicOperation));
+
+    // Verify initial version
+    var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
+    Assert.assertEquals(initialVersion, rawBuffer.version());
+
+    // Update version to a specific value (not just +1)
+    final var targetVersion = 42;
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation ->
+            paginatedCollection.updateRecordVersion(
+                physicalPosition.collectionPosition, targetVersion, atomicOperation));
+
+    // Verify version was set to the exact value, not just incremented
+    rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
+    Assert.assertEquals(targetVersion, rawBuffer.version());
+
+    // Content and type should be unchanged
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(record);
+    Assert.assertEquals(1, rawBuffer.recordType());
+  }
+
+  @Test
+  public void testUpdateRecordVersionReflectedInGetPhysicalPosition() throws IOException {
+    var record = new byte[]{10, 20, 30};
+    final var initialVersion = 1;
+
+    final var physicalPosition =
+        atomicOperationsManager.calculateInsideAtomicOperation(
+            atomicOperation ->
+                paginatedCollection.createRecord(
+                    record, initialVersion, (byte) 1, null, atomicOperation));
+
+    final var targetVersion = 99;
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation ->
+            paginatedCollection.updateRecordVersion(
+                physicalPosition.collectionPosition, targetVersion, atomicOperation));
+
+    // Verify getPhysicalPosition also returns the updated version
+    var pos = new PhysicalPosition();
+    pos.collectionPosition = physicalPosition.collectionPosition;
+    pos = paginatedCollection.getPhysicalPosition(pos);
+
+    Assert.assertNotNull(pos);
+    Assert.assertEquals(targetVersion, pos.recordVersion);
+  }
+
+  @Test
+  public void testUpdateRecordVersionMultipleTimes() throws IOException {
+    var record = new byte[]{1, 2, 3};
+    final var initialVersion = 1;
+
+    final var physicalPosition =
+        atomicOperationsManager.calculateInsideAtomicOperation(
+            atomicOperation ->
+                paginatedCollection.createRecord(
+                    record, initialVersion, (byte) 1, null, atomicOperation));
+
+    // Update version multiple times
+    for (var v = 10; v <= 50; v += 10) {
+      final var version = v;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation ->
+              paginatedCollection.updateRecordVersion(
+                  physicalPosition.collectionPosition, version, atomicOperation));
+
+      var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
+      Assert.assertEquals(version, rawBuffer.version());
+    }
+  }
+
+  @Test
+  public void testUpdateRecordVersionRollback() throws IOException {
+    var record = new byte[]{5, 6, 7};
+    final var initialVersion = 3;
+
+    final var physicalPosition =
+        atomicOperationsManager.calculateInsideAtomicOperation(
+            atomicOperation ->
+                paginatedCollection.createRecord(
+                    record, initialVersion, (byte) 1, null, atomicOperation));
+
+    // Update version inside a rolled-back transaction
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> {
+            paginatedCollection.updateRecordVersion(
+                physicalPosition.collectionPosition, 100, atomicOperation);
+            throw new RollbackException();
+          });
+    } catch (RollbackException ignore) {
+    }
+
+    // Version should still be the initial one
+    var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
+    Assert.assertEquals(initialVersion, rawBuffer.version());
+  }
+
+  @Test
   public void testGetPhysicalPosition() throws IOException {
     final var records = 10000;
 
