@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(ls *)",
+      "Bash(cat *)",
       "Bash(grep *)",
       "Bash(find *)",
       "Bash(pwd)",
@@ -14,6 +15,7 @@
       "Bash(wc *)",
       "Bash(sort *)",
       "Bash(diff *)",
+      "Bash(echo *)",
       "Bash(java *-version*)",
       "Bash(node *-v*)",
       "Bash(git *status*)",
@@ -32,6 +34,12 @@
       "Bash(git *checkout*)",
       "Bash(git *restore*)",
       "Bash(git *rm*)",
+      "Bash(npm install*)",
+      "Bash(npm run *)",
+      "Bash(npm *lint*)",
+      "Bash(npm *test*)",
+      "Bash(pytest *)",
+      "Bash(cargo *test*)",
       "Bash(mvn *)",
       "Bash(gradle *)",
       "Bash(./mvnw *)",
