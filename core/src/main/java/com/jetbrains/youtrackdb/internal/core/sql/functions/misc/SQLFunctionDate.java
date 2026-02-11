@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -104,7 +104,7 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
     return false;
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "date([<date-as-string>] [,<format>] [,<timezone>])";
   }
 

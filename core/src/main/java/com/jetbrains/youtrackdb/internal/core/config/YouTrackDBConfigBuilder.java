@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.config;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import java.util.Map;
 import javax.annotation.Nonnull;

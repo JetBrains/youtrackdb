@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
@@ -42,7 +42,7 @@ public interface EmbeddedTrackedMultiValue<K, V> extends TrackedMultiValue<K, V>
     if ((value instanceof Collection<?>) || (value instanceof Map<?, ?>)) {
       throw new SchemaException(
           "Cannot add a non embedded collection to a embedded data container. Please use "
-              + DatabaseSession.class.getName() +
+              + DatabaseSessionEmbedded.class.getName() +
               " factory methods instead : "
               + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
     }

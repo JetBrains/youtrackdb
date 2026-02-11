@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
@@ -20,7 +20,7 @@ public class SchemaClassSecurityTest {
 
   private static final String DB_NAME = SchemaClassSecurityTest.class.getSimpleName();
   private static YouTrackDBImpl youTrackDB;
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   @BeforeClass
   public static void beforeClass() {

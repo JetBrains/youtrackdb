@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
@@ -36,7 +36,7 @@ public class SecuritySystemUserImpl extends SecurityUserImpl {
   /**
    * dbName is the name of the source database and is used for filtering roles.
    */
-  public SecuritySystemUserImpl(DatabaseSessionInternal session, final EntityImpl source,
+  public SecuritySystemUserImpl(DatabaseSessionEmbedded session, final EntityImpl source,
       final String dbName) {
     super(session, source);
 
@@ -45,14 +45,14 @@ public class SecuritySystemUserImpl extends SecurityUserImpl {
   }
 
   @Override
-  public SecurityUserImpl addRole(DatabaseSessionInternal session, SecurityRole role) {
+  public SecurityUserImpl addRole(DatabaseSessionEmbedded session, SecurityRole role) {
     super.addRole(session, role);
     populateSystemRoles(session);
     return this;
   }
 
   @Override
-  public boolean removeRole(DatabaseSessionInternal session, String roleName) {
+  public boolean removeRole(DatabaseSessionEmbedded session, String roleName) {
     var result = super.removeRole(session, roleName);
 
     if (result) {
@@ -72,7 +72,7 @@ public class SecuritySystemUserImpl extends SecurityUserImpl {
     return Collections.unmodifiableSet(systemRoles);
   }
 
-  private void populateSystemRoles(DatabaseSessionInternal databaseSession) {
+  private void populateSystemRoles(DatabaseSessionEmbedded databaseSession) {
     systemRoles.clear();
 
     for (var role : roles) {

@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.ArrayList;
@@ -49,8 +48,8 @@ public class InfoExecutionStep implements ExecutionStep {
 
   @Nonnull
   @Override
-  public Result toResult(DatabaseSession session) {
-    return new ResultInternal((DatabaseSessionInternal) session);
+  public Result toResult(DatabaseSessionEmbedded session) {
+    return new ResultInternal((DatabaseSessionEmbedded) session);
   }
 
   public void setName(String name) {

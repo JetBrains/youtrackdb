@@ -3,8 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -40,7 +39,7 @@ public class GraphRepair {
   private StorageRecoverEventListener eventListener;
 
   public void repair(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options) {
     message(outputListener, "Repair of graph '" + graph.getURL() + "' is started ...\n");
@@ -72,7 +71,7 @@ public class GraphRepair {
   }
 
   public void check(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options) {
     message(outputListener, "Check of graph '" + graph.getURL() + "' is started...\n");
@@ -104,12 +103,12 @@ public class GraphRepair {
   }
 
   protected void repairEdges(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final RepairStats stats,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options,
       final boolean checkOnly) {
-    final var session = (DatabaseSessionInternal) graph;
+    final var session = (DatabaseSessionEmbedded) graph;
     session.executeInTx(
         transaction -> {
           final Metadata metadata = session.getMetadata();
@@ -309,12 +308,12 @@ public class GraphRepair {
   }
 
   protected void repairVertices(
-      final DatabaseSession session,
+      final DatabaseSessionEmbedded session,
       final RepairStats stats,
       final CommandOutputListener outputListener,
       final Map<String, List<String>> options,
       final boolean checkOnly) {
-    final var db = (DatabaseSessionInternal) session;
+    final var db = (DatabaseSessionEmbedded) session;
     final Metadata metadata = db.getMetadata();
     final Schema schema = metadata.getSchema();
 
@@ -511,7 +510,7 @@ public class GraphRepair {
   }
 
   private boolean isEdgeBroken(
-      DatabaseSessionInternal session, final Identifiable vertex,
+      DatabaseSessionEmbedded session, final Identifiable vertex,
       final String fieldName,
       final Direction direction,
       final Identifiable edgeRID,

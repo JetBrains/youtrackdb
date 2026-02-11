@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -133,7 +133,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
   }
 
   private static Object copy(final EntityImpl entity,
-      final Object[] iFieldNames, DatabaseSessionInternal session) {
+      final Object[] iFieldNames, DatabaseSessionEmbedded session) {
     var result = new ResultInternal(session);
     for (var iFieldName : iFieldNames) {
       if (iFieldName != null) {
@@ -163,7 +163,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
   }
 
   private static Object copy(final Map map,
-      final Object[] iFieldNames, DatabaseSessionInternal session) {
+      final Object[] iFieldNames, DatabaseSessionEmbedded session) {
     final var entity = new ResultInternal(session);
     for (var iFieldName : iFieldNames) {
       if (iFieldName != null) {

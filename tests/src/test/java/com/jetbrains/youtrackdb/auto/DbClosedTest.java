@@ -16,26 +16,26 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import org.testng.annotations.Test;
 
 public class DbClosedTest extends BaseDBTest {
 
   public void testDoubleDb() {
-    DatabaseSession db = acquireSession();
+    DatabaseSessionEmbedded db = acquireSession();
 
     // now I am getting another db instance
-    DatabaseSession dbAnother = acquireSession();
+    DatabaseSessionEmbedded dbAnother = acquireSession();
     dbAnother.close();
 
     db.close();
   }
 
   public void testDoubleDbWindowsPath() {
-    DatabaseSession db = acquireSession();
+    DatabaseSessionEmbedded db = acquireSession();
 
     // now I am getting another db instance
-    DatabaseSession dbAnother = acquireSession();
+    DatabaseSessionEmbedded dbAnother = acquireSession();
     dbAnother.close();
 
     db.close();
@@ -45,7 +45,7 @@ public class DbClosedTest extends BaseDBTest {
   public void testRemoteConns() {
         final var max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
     for (var i = 0; i < max * 2; ++i) {
-      final DatabaseSession db = acquireSession();
+      final DatabaseSessionEmbedded db = acquireSession();
       db.close();
     }
   }

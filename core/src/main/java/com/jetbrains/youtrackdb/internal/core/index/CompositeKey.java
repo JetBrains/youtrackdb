@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
@@ -198,7 +198,7 @@ public class CompositeKey
   }
 
   @Override
-  public EntityImpl toEntity(DatabaseSessionInternal db) {
+  public EntityImpl toEntity(DatabaseSessionEmbedded db) {
     final var entity = db.newEmbeddedEntity();
     for (var i = 0; i < keys.size(); i++) {
       entity.setProperty("key" + i, keys.get(i));

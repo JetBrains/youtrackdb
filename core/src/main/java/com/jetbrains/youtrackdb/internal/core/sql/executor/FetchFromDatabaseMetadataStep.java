@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -34,15 +34,15 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
     result.setProperty("user",
         db.getCurrentUser() == null ? null : db.getCurrentUser().getName(db));
     result.setProperty(
-        "dateFormat", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.DATEFORMAT)));
+        "dateFormat", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.DATEFORMAT)));
     result.setProperty(
-        "dateTimeFormat", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.DATE_TIME_FORMAT)));
-    result.setProperty("timezone", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.TIMEZONE)));
+        "dateTimeFormat", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.DATE_TIME_FORMAT)));
+    result.setProperty("timezone", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE)));
     result.setProperty(
-        "localeCountry", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY)));
+        "localeCountry", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY)));
     result.setProperty(
-        "localeLanguage", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE)));
-    result.setProperty("charset", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.CHARSET)));
+        "localeLanguage", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE)));
+    result.setProperty("charset", String.valueOf(db.get(DatabaseSessionEmbedded.ATTRIBUTES.CHARSET)));
     return result;
   }
 

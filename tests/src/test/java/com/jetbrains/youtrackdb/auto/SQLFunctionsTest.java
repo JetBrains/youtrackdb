@@ -21,7 +21,7 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -400,7 +400,7 @@ public class SQLFunctionsTest extends BaseDBTest {
             "bigger",
             new SQLFunctionAbstract("bigger", 2, 2) {
               @Override
-              public String getSyntax(DatabaseSession session) {
+              public String getSyntax(DatabaseSessionEmbedded session) {
                 return "bigger(<first>, <second>)";
               }
 

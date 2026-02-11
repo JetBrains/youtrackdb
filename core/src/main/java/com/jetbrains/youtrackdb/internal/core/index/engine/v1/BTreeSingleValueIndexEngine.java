@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerial
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
@@ -52,7 +51,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
+  public void init(DatabaseSessionEmbedded session, IndexMetadata metadata) {
   }
 
   @Override

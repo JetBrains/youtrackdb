@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.filter;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandPredicate;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
@@ -458,14 +457,14 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     rootCondition = iCondition;
   }
 
-  protected void optimize(DatabaseSession session) {
+  protected void optimize(DatabaseSessionEmbedded session) {
     if (rootCondition != null) {
       computePrefetchFieldList(session, rootCondition, new HashSet<>());
     }
   }
 
   protected static void computePrefetchFieldList(
-      DatabaseSession session, final SQLFilterCondition iCondition, final Set<String> iFields) {
+      DatabaseSessionEmbedded session, final SQLFilterCondition iCondition, final Set<String> iFields) {
     var left = iCondition.getLeft();
     var right = iCondition.getRight();
     if (left instanceof SQLFilterItemField) {

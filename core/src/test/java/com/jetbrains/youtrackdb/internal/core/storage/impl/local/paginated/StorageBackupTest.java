@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -501,7 +501,7 @@ public class StorageBackupTest {
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.create(dbName, DatabaseType.DISK,
         new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
+    var db = (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
@@ -597,7 +597,7 @@ public class StorageBackupTest {
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.create(dbName, DatabaseType.DISK,
         new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
-    var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
+    var db = (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");

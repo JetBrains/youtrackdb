@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -13,7 +13,7 @@ public class EdgeIterable extends RelationsIterable<Vertex, EdgeInternal> {
   protected EdgeIterable(@Nonnull Vertex sourceEntity,
       Pair<Direction, String> connection,
       String[] labels,
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nonnull Iterable<? extends Identifiable> iterable,
       int size, Object multiValue) {
     super(sourceEntity, connection, labels, session, iterable, size, multiValue);

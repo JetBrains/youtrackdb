@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 
 /**
@@ -19,7 +19,7 @@ public abstract class AbstractCollectionConverter<T> implements ValuesConverter<
     void add(Object item);
   }
 
-  protected boolean convertSingleValue(DatabaseSessionInternal db, final Object item,
+  protected boolean convertSingleValue(DatabaseSessionEmbedded db, final Object item,
       ResultCallback result, boolean updated) {
     if (item == null) {
       result.add(null);

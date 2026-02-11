@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.api.exception;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import java.io.Serial;
@@ -37,7 +37,7 @@ public class RecordNotFoundException extends CoreException implements HighLevelE
     this.rid = exception.rid;
   }
 
-  public RecordNotFoundException(DatabaseSession session, final RID iRID) {
+  public RecordNotFoundException(DatabaseSessionEmbedded session, final RID iRID) {
     this(session != null ? session.getDatabaseName() : null, iRID);
   }
 

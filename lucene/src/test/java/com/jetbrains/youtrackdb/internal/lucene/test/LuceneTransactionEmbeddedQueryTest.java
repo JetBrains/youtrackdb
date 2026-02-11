@@ -18,7 +18,7 @@
 
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -52,7 +52,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     Assert.assertEquals(0, vertices.stream().count());
   }
 
-  private static void createSchema(DatabaseSession db) {
+  private static void createSchema(DatabaseSessionEmbedded db) {
     final var c1 = db.getSchema().createVertexClass("C1");
     c1.createProperty("p1", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     c1.createIndex("C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});

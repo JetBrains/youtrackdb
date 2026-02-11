@@ -14,7 +14,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
@@ -24,9 +24,9 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
  */
 public interface CollectionSelectionStrategy {
 
-  int getCollection(DatabaseSession session, final SchemaClass iClass, final EntityImpl entity);
+  int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass, final EntityImpl entity);
 
-  int getCollection(DatabaseSession session, final SchemaClass iClass, int[] selection,
+  int getCollection(DatabaseSessionEmbedded session, final SchemaClass iClass, int[] selection,
       final EntityImpl entity);
 
   String getName();

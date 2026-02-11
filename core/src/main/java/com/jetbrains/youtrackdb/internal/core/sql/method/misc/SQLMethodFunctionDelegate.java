@@ -17,7 +17,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionRuntime;
@@ -42,7 +42,7 @@ public class SQLMethodFunctionDelegate extends AbstractSQLMethod {
   }
 
   @Override
-  public int getMaxParams(DatabaseSession session) {
+  public int getMaxParams(DatabaseSessionEmbedded session) {
     final var max = func.getFunction().getMaxParams(session);
     return max == -1 ? -1 : max - 1;
   }

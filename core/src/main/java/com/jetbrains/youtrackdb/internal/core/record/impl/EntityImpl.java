@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -1179,7 +1178,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * All tree based ridbags are partitioned by collections, so if we move entity to another
    * collection we need to copy ridbags to avoid inconsistency.
    */
-  private static Object copyRidBagIfNecessary(DatabaseSessionInternal seession, Object value,
+  private static Object copyRidBagIfNecessary(DatabaseSessionEmbedded seession, Object value,
       boolean sameCollection) {
     if (sameCollection) {
       return value;
@@ -1577,7 +1576,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateProperty(
-      DatabaseSessionInternal session, ImmutableSchema schema, EntityImpl iRecord,
+      DatabaseSessionEmbedded session, ImmutableSchema schema, EntityImpl iRecord,
       ImmutableSchemaProperty p)
       throws ValidationException {
     iRecord.checkForBinding();
@@ -1857,7 +1856,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLinkCollection(
-      DatabaseSessionInternal db, ImmutableSchema schema,
+      DatabaseSessionEmbedded db, ImmutableSchema schema,
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
@@ -1880,7 +1879,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private static void validateType(DatabaseSessionInternal session, final SchemaProperty p,
+  private static void validateType(DatabaseSessionEmbedded session, final SchemaProperty p,
       final Object value) {
     if (value != null) {
       try {
@@ -1914,7 +1913,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLink(
-      ImmutableSchema schema, @Nonnull DatabaseSessionInternal session, final SchemaProperty p,
+      ImmutableSchema schema, @Nonnull DatabaseSessionEmbedded session, final SchemaProperty p,
       final Object propertyValue, boolean allowNull) {
     if (propertyValue == null) {
       if (allowNull) {
@@ -1973,7 +1972,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private static void validateEmbedded(@Nonnull DatabaseSessionInternal session,
+  private static void validateEmbedded(@Nonnull DatabaseSessionEmbedded session,
       final SchemaProperty p,
       final Object propertyValue) {
     if (propertyValue == null) {
@@ -2483,12 +2482,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
 
   private void updatePropertyFromNonTypedMapValue(Object value,
-      DatabaseSessionInternal session, String key) {
+      DatabaseSessionEmbedded session, String key) {
     value = convertMapValue(session, value);
     setPropertyInternal(key, value);
   }
 
-  private Object convertMapValue(DatabaseSessionInternal session, Object value) {
+  private Object convertMapValue(DatabaseSessionEmbedded session, Object value) {
     if (value instanceof Map<?, ?>) {
       var mapValue = (Map<String, ?>) value;
 
@@ -2553,7 +2552,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return value;
   }
 
-  private void updateEmbeddedFromMapValue(Object value, DatabaseSessionInternal session,
+  private void updateEmbeddedFromMapValue(Object value, DatabaseSessionEmbedded session,
       String key) {
     Entity embedded;
     if (value instanceof Map<?, ?> mapValue) {
@@ -2567,7 +2566,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setPropertyInternal(key, embedded);
   }
 
-  private void updateEmbeddedMapFromMapValue(DatabaseSessionInternal session,
+  private void updateEmbeddedMapFromMapValue(DatabaseSessionEmbedded session,
       Object value, String key) {
     if (value instanceof Map<?, ?> mapValue) {
       var embeddedMap = new EntityEmbeddedMapImpl<>(this);
@@ -2582,7 +2581,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private void updateEmbeddedSetFromMapValue(DatabaseSessionInternal session,
+  private void updateEmbeddedSetFromMapValue(DatabaseSessionEmbedded session,
       Object value, String key) {
     if (value instanceof Collection<?> collection) {
       var embeddedSet = new EntityEmbeddedSetImpl<>(this);
@@ -2596,7 +2595,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private void updateEmbeddedListFromMapValue(DatabaseSessionInternal session,
+  private void updateEmbeddedListFromMapValue(DatabaseSessionEmbedded session,
       Object value, String key) {
     if (value instanceof Collection<?> collection) {
       var embeddedList = new EntityEmbeddedListImpl<>(this);
@@ -2633,7 +2632,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private void updateLinkBagFromMapValue(Object value, DatabaseSessionInternal session,
+  private void updateLinkBagFromMapValue(Object value, DatabaseSessionEmbedded session,
       String key) {
     if (value instanceof Collection<?> collection) {
       var linkBag = new LinkBag(session);
@@ -3528,7 +3527,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nullable
   public SchemaImmutableClass getImmutableSchemaClass(
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     if (this.session != null && this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
@@ -3580,7 +3579,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForBinding();
     if (!isEmbedded()) {
       throw new IllegalStateException(
-          "Only embedded entities (created using DatabaseSession.newEmbeddedEntity) can have an owner");
+          "Only embedded entities (created using DatabaseSessionEmbedded.newEmbeddedEntity) can have an owner");
     }
     var owner = getOwner();
     if (owner != null && !owner.equals(iOwner)) {
@@ -3925,7 +3924,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private void fetchClassName(DatabaseSessionInternal session) {
+  private void fetchClassName(DatabaseSessionEmbedded session) {
     if (recordId.getCollectionId() >= 0) {
       final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
       if (schema != null) {
@@ -4070,7 +4069,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  public void checkClass(DatabaseSessionInternal session) {
+  public void checkClass(DatabaseSessionEmbedded session) {
     checkForBinding();
     if (className == null) {
       fetchClassName(session);
@@ -4098,7 +4097,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @SuppressWarnings("unchecked")
   @Nullable
   private static <RET> RET convertField(
-      @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
+      @Nonnull DatabaseSessionEmbedded session, @Nonnull final EntityImpl entity,
       @Nonnull final String fieldName,
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,

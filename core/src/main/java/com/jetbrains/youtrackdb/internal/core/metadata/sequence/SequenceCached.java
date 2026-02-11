@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -45,7 +45,7 @@ public class SequenceCached extends DBSequence {
     cacheStart = cacheEnd = getValue(entity);
   }
 
-  public SequenceCached(DatabaseSessionInternal db, CreateParams params, @Nonnull String name) {
+  public SequenceCached(DatabaseSessionEmbedded db, CreateParams params, @Nonnull String name) {
     super(db, params, name);
 
     if (params == null) {
@@ -111,13 +111,13 @@ public class SequenceCached extends DBSequence {
   }
 
   @Override
-  public long next(DatabaseSessionInternal db)
+  public long next(DatabaseSessionEmbedded db)
       throws SequenceLimitReachedException, DatabaseException {
     checkSecurity(db);
     return nextWork(db);
   }
 
-  private void checkSecurity(DatabaseSessionInternal db) {
+  private void checkSecurity(DatabaseSessionEmbedded db) {
     var transaction = db.getActiveTransaction();
     db
         .checkSecurity(
@@ -127,7 +127,7 @@ public class SequenceCached extends DBSequence {
   }
 
   @Override
-  public long nextWork(DatabaseSessionInternal session) throws SequenceLimitReachedException {
+  public long nextWork(DatabaseSessionEmbedded session) throws SequenceLimitReachedException {
     return callRetry(session,
         (db, entity) -> {
           var orderType = getOrderType(entity);
@@ -195,12 +195,12 @@ public class SequenceCached extends DBSequence {
   }
 
   @Override
-  protected long currentWork(DatabaseSessionInternal session) {
+  protected long currentWork(DatabaseSessionEmbedded session) {
     return this.cacheStart;
   }
 
   @Override
-  public long resetWork(DatabaseSessionInternal session) {
+  public long resetWork(DatabaseSessionEmbedded session) {
     return callRetry(session,
         (db, entity) -> {
           var newValue = getStart(entity);

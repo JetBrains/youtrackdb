@@ -20,9 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.record;
 
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
@@ -296,14 +294,14 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   @Override
-  public boolean isNotBound(@Nonnull DatabaseSession session) {
-    assert ((DatabaseSessionInternal) session).assertIfNotActive();
+  public boolean isNotBound(@Nonnull DatabaseSessionEmbedded session) {
+    assert ((DatabaseSessionEmbedded) session).assertIfNotActive();
     return this.session != session || this.status != STATUS.LOADED;
   }
 
   @Override
   @Nonnull
-  public DatabaseSessionInternal getSession() {
+  public DatabaseSessionEmbedded getSession() {
     assert session.assertIfNotActive();
     return session;
   }
@@ -501,7 +499,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Nullable
   @Override
-  public DatabaseSession getBoundedToSession() {
+  public DatabaseSessionEmbedded getBoundedToSession() {
     assert session.assertIfNotActive();
     return session;
   }

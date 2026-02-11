@@ -3,7 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -98,7 +98,7 @@ public class SQLSkip extends SimpleNode {
     return result;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
+  public Result serialize(DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
     if (num != null) {
       result.setProperty("num", num.serialize(db));

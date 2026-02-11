@@ -17,7 +17,7 @@ public interface SessionPool extends AutoCloseable {
   String getUserName();
 
   /// Represents session pool as TinkerPop graph, if you want to achieve the highest level of
-  /// performance, it is recommended to use [DatabaseSession#asGraph()] instead.
+  /// performance, it is recommended to use [DatabaseSessionEmbedded#asGraph()] instead.
   ///
   /// This method is implemented only for the embedded version of the database.
   YTDBGraph asGraph();

@@ -19,7 +19,7 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -202,7 +202,7 @@ public class PostponedEngineStartTest {
 
 
         @Override
-        public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
+        public String getCollectionName(DatabaseSessionEmbedded database, int collectionId) {
           return null;
         }
 
@@ -218,7 +218,7 @@ public class PostponedEngineStartTest {
 
         @Override
         public void open(
-            DatabaseSessionInternal remote, String iUserName, String iUserPassword,
+            DatabaseSessionEmbedded remote, String iUserName, String iUserPassword,
             ContextConfiguration contextConfiguration) {
         }
 
@@ -232,7 +232,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public void reload(DatabaseSessionInternal database) {
+        public void reload(DatabaseSessionEmbedded database) {
         }
 
         @Override
@@ -240,15 +240,15 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public void close(DatabaseSessionInternal session) {
+        public void close(DatabaseSessionEmbedded session) {
         }
 
         @Override
-        public void close(DatabaseSessionInternal database, boolean iForce) {
+        public void close(DatabaseSessionEmbedded database, boolean iForce) {
         }
 
         @Override
-        public boolean isClosed(DatabaseSessionInternal database) {
+        public boolean isClosed(DatabaseSessionEmbedded database) {
           return false;
         }
 
@@ -258,12 +258,12 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean recordExists(DatabaseSessionInternal session, RID rid) {
+        public boolean recordExists(DatabaseSessionEmbedded session, RID rid) {
           return false;
         }
 
         @Override
-        public RecordMetadata getRecordMetadata(DatabaseSessionInternal session, RID rid) {
+        public RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session, RID rid) {
           return null;
         }
 
@@ -292,7 +292,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public int addCollection(DatabaseSessionInternal database, String iCollectionName,
+        public int addCollection(DatabaseSessionEmbedded database, String iCollectionName,
             Object... iParameters) {
           return 0;
         }
@@ -303,18 +303,18 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public int addCollection(DatabaseSessionInternal database, String iCollectionName,
+        public int addCollection(DatabaseSessionEmbedded database, String iCollectionName,
             int iRequestedId) {
           return 0;
         }
 
         @Override
-        public boolean dropCollection(DatabaseSessionInternal session, String iCollectionName) {
+        public boolean dropCollection(DatabaseSessionEmbedded session, String iCollectionName) {
           return false;
         }
 
         @Override
-        public boolean dropCollection(DatabaseSessionInternal database, int iId) {
+        public boolean dropCollection(DatabaseSessionEmbedded database, int iId) {
           return false;
         }
 
@@ -344,41 +344,41 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int iCollectionId) {
+        public long count(DatabaseSessionEmbedded session, int iCollectionId) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int iCollectionId,
+        public long count(DatabaseSessionEmbedded session, int iCollectionId,
             boolean countTombstones) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int[] iCollectionIds) {
+        public long count(DatabaseSessionEmbedded session, int[] iCollectionIds) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int[] iCollectionIds,
+        public long count(DatabaseSessionEmbedded session, int[] iCollectionIds,
             boolean countTombstones) {
           return 0;
         }
 
         @Override
-        public long getSize(DatabaseSessionInternal session) {
+        public long getSize(DatabaseSessionEmbedded session) {
           return 0;
         }
 
         @Override
-        public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session,
+        public AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session,
             RecordIdInternal identity,
             String fieldName, RID rid) {
           return null;
         }
 
         @Override
-        public long countRecords(DatabaseSessionInternal session) {
+        public long countRecords(DatabaseSessionEmbedded session) {
           return 0;
         }
 
@@ -413,28 +413,28 @@ public class PostponedEngineStartTest {
 
         @Override
         public PhysicalPosition[] higherPhysicalPositions(
-            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            DatabaseSessionEmbedded session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] lowerPhysicalPositions(
-            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            DatabaseSessionEmbedded session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] ceilingPhysicalPositions(
-            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            DatabaseSessionEmbedded session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] floorPhysicalPositions(
-            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            DatabaseSessionEmbedded session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }

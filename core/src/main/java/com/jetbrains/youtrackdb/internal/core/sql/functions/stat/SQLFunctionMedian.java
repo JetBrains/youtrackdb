@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Computes the median for a field. Nulls are ignored in the calculation.
@@ -36,7 +36,7 @@ public class SQLFunctionMedian extends SQLFunctionPercentile {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return NAME + "(<field>)";
   }
 }

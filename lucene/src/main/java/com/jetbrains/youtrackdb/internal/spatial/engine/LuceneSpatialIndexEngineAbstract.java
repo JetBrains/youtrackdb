@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
@@ -77,13 +76,13 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
   }
 
   @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+  public void init(DatabaseSessionEmbedded session, IndexMetadata im) {
     super.init(session, im);
     strategy = createSpatialStrategy(session, im.getIndexDefinition(), im.getMetadata());
   }
 
   protected abstract SpatialStrategy createSpatialStrategy(
-      DatabaseSessionInternal db, IndexDefinition indexDefinition, Map<String, ?> metadata);
+      DatabaseSessionEmbedded db, IndexDefinition indexDefinition, Map<String, ?> metadata);
 
   @Override
   public IndexWriter createIndexWriter(Directory directory) throws IOException {
@@ -171,13 +170,13 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
   }
 
   @Override
-  public Document buildDocument(DatabaseSessionInternal session, Object key,
+  public Document buildDocument(DatabaseSessionEmbedded session, Object key,
       Identifiable value) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Query buildQuery(Object query, DatabaseSessionInternal session) {
+  public Query buildQuery(Object query, DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 

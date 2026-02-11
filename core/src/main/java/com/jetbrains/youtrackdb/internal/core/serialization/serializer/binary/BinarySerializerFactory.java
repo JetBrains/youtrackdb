@@ -37,7 +37,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.NullSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
@@ -115,7 +115,7 @@ public class BinarySerializerFactory {
     return factory;
   }
 
-  public static BinarySerializerFactory getInstance(@Nonnull DatabaseSessionInternal session) {
+  public static BinarySerializerFactory getInstance(@Nonnull DatabaseSessionEmbedded session) {
     return session.getSerializerFactory();
   }
 

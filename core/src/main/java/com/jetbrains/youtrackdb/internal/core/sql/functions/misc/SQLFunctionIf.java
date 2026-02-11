@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import javax.annotation.Nullable;
@@ -105,7 +105,7 @@ public class SQLFunctionIf extends SQLFunctionAbstract {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "if(<field|value|expression>, <return_value_if_true> [,<return_value_if_false>])";
   }
 }

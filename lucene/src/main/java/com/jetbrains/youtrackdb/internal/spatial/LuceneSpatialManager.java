@@ -15,7 +15,7 @@ package com.jetbrains.youtrackdb.internal.spatial;
 
 import static com.jetbrains.youtrackdb.internal.spatial.shape.ShapeBuilder.BASE_CLASS;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.spatial.shape.ShapeBuilder;
 
 /**
@@ -29,11 +29,11 @@ public class LuceneSpatialManager {
     this.shapeBuilder = shapeBuilder;
   }
 
-  public void init(DatabaseSessionInternal db) {
+  public void init(DatabaseSessionEmbedded db) {
     internalInit(db);
   }
 
-  private void internalInit(DatabaseSessionInternal db) {
+  private void internalInit(DatabaseSessionEmbedded db) {
     if (db.getMetadata().getSchema().getClass(BASE_CLASS) == null) {
       db.getMetadata().getSchema().createAbstractClass(BASE_CLASS);
       shapeBuilder.initClazz(db);

@@ -34,8 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.command.script.formatter.SQLScript
 import com.jetbrains.youtrackdb.internal.core.command.script.formatter.ScriptFormatter;
 import com.jetbrains.youtrackdb.internal.core.command.script.js.JSScriptEngineFactory;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformerImpl;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
@@ -148,7 +147,7 @@ public class ScriptManager {
     customExecutors.forEachRemaining(e -> e.registerExecutor(this, commandManager));
   }
 
-  public String getFunctionDefinition(DatabaseSession session, final Function iFunction) {
+  public String getFunctionDefinition(DatabaseSessionEmbedded session, final Function iFunction) {
     final var formatter =
         formatters.get(iFunction.getLanguage().toLowerCase(Locale.ENGLISH));
     if (formatter == null) {
@@ -156,10 +155,10 @@ public class ScriptManager {
           "Cannot find script formatter for the language '" + iFunction.getLanguage() + "'");
     }
 
-    return formatter.getFunctionDefinition((DatabaseSessionInternal) session, iFunction);
+    return formatter.getFunctionDefinition((DatabaseSessionEmbedded) session, iFunction);
   }
 
-  public String getFunctionInvoke(DatabaseSessionInternal session, final Function iFunction,
+  public String getFunctionInvoke(DatabaseSessionEmbedded session, final Function iFunction,
       final Object[] iArgs) {
     final var formatter =
         formatters.get(iFunction.getLanguage().toLowerCase(Locale.ENGLISH));
@@ -179,7 +178,7 @@ public class ScriptManager {
    * @return String containing all the functions
    */
   @Nullable
-  public String getLibrary(final DatabaseSessionInternal session, final String iLanguage) {
+  public String getLibrary(final DatabaseSessionEmbedded session, final String iLanguage) {
     if (session == null)
     // NO DB = NO LIBRARY
     {
@@ -246,7 +245,7 @@ public class ScriptManager {
    * @return ScriptEngine instance with the function library already parsed
    * @see #releaseDatabaseEngine(String, String, ScriptEngine)
    */
-  public ScriptEngine acquireDatabaseEngine(final DatabaseSessionInternal db,
+  public ScriptEngine acquireDatabaseEngine(final DatabaseSessionEmbedded db,
       final String language) {
     var dbManager = dbManagers.get(db.getDatabaseName());
     if (dbManager == null) {
@@ -270,7 +269,7 @@ public class ScriptManager {
    * @param iLanguage     Script language
    * @param iDatabaseName Database name
    * @param poolEntry     Pool entry to free
-   * @see #acquireDatabaseEngine(DatabaseSessionInternal, String)
+   * @see #acquireDatabaseEngine(DatabaseSessionEmbedded, String)
    */
   public void releaseDatabaseEngine(
       final String iLanguage, final String iDatabaseName, final ScriptEngine poolEntry) {
@@ -290,7 +289,7 @@ public class ScriptManager {
   public Bindings bindContextVariables(
       ScriptEngine engine,
       final Bindings binding,
-      final DatabaseSessionInternal db,
+      final DatabaseSessionEmbedded db,
       final CommandContext iContext,
       final Map<Object, Object> iArgs) {
 
@@ -309,7 +308,7 @@ public class ScriptManager {
   public Bindings bind(
       ScriptEngine scriptEngine,
       final Bindings binding,
-      final DatabaseSessionInternal db,
+      final DatabaseSessionEmbedded db,
       final CommandContext iContext,
       final Map<Object, Object> iArgs) {
 
@@ -326,7 +325,7 @@ public class ScriptManager {
     return binding;
   }
 
-  private void bindInjectors(ScriptEngine engine, Bindings binding, DatabaseSession database) {
+  private void bindInjectors(ScriptEngine engine, Bindings binding, DatabaseSessionEmbedded database) {
     for (var i : injections) {
       i.bind(engine, binding, database);
     }
@@ -342,7 +341,7 @@ public class ScriptManager {
     }
   }
 
-  private void bindLegacyDatabaseAndUtil(Bindings binding, DatabaseSessionInternal db) {
+  private void bindLegacyDatabaseAndUtil(Bindings binding, DatabaseSessionEmbedded db) {
     if (db != null) {
       // BIND FIXED VARIABLES
       //      binding.put("db", new ScriptDocumentDatabaseWrapper(db));
@@ -351,7 +350,7 @@ public class ScriptManager {
     binding.put("util", new FunctionUtilWrapper());
   }
 
-  private void bindDatabase(Bindings binding, DatabaseSessionInternal db) {
+  private void bindDatabase(Bindings binding, DatabaseSessionEmbedded db) {
     if (db != null) {
       binding.put("db", new ScriptDatabaseWrapper(db));
     }
@@ -542,7 +541,7 @@ public class ScriptManager {
       Object result,
       ScriptEngine engine,
       Bindings binding,
-      DatabaseSession database) {
+      DatabaseSessionEmbedded database) {
     var handler = handlers.get(language);
     if (handler != null) {
       return handler.handle(result, engine, binding, database);

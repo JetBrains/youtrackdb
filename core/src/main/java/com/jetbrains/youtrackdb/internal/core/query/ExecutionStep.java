@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.List;
@@ -33,8 +32,8 @@ public interface ExecutionStep {
   }
 
   @Nonnull
-  default Result toResult(@Nullable DatabaseSession session) {
-    var result = new ResultInternal((DatabaseSessionInternal) session);
+  default Result toResult(@Nullable DatabaseSessionEmbedded session) {
+    var result = new ResultInternal((DatabaseSessionEmbedded) session);
     result.setProperty("name", getName());
     result.setProperty("type", getType());
     result.setProperty(InternalExecutionPlan.JAVA_TYPE, getClass().getName());

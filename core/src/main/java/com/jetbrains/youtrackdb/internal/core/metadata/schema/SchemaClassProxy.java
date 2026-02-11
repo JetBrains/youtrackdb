@@ -1,9 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -42,13 +40,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields) {
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
     return delegate.getInvolvedIndexesInternal(this.session, fields);
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
     return delegate.getInvolvedIndexesInternal(this.session, fields);
@@ -78,13 +76,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indices) {
+  public void getIndexesInternal(DatabaseSessionEmbedded session, Collection<Index> indices) {
     assert this.session.assertIfNotActive();
     delegate.getIndexesInternal(this.session, indices);
   }
 
   @Override
-  public long count(DatabaseSessionInternal session) {
+  public long count(DatabaseSessionEmbedded session) {
     assert this.session.assertIfNotActive();
     return delegate.count(this.session);
   }
@@ -96,7 +94,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public long count(DatabaseSessionInternal session, boolean isPolymorphic) {
+  public long count(DatabaseSessionEmbedded session, boolean isPolymorphic) {
     assert this.session.assertIfNotActive();
     return delegate.count(this.session, isPolymorphic);
   }
@@ -110,14 +108,14 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       String... fields) {
     assert this.session.assertIfNotActive();
     return delegate.getClassInvolvedIndexesInternal(this.session, fields);
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
     return delegate.getClassInvolvedIndexesInternal(this.session, fields);
@@ -130,7 +128,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Index getClassIndex(DatabaseSessionInternal session, String name) {
+  public Index getClassIndex(DatabaseSessionEmbedded session, String name) {
     assert this.session.assertIfNotActive();
     return delegate.getClassIndex(this.session, name);
   }
@@ -144,39 +142,39 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
+  public Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
     return delegate.getInvolvedIndexes(this.session, fields);
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+  public Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
     return delegate.getInvolvedIndexes(this.session, fields);
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
     return delegate.getClassInvolvedIndexes(this.session, fields);
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
     return delegate.getClassInvolvedIndexes(this.session, fields);
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
+  public boolean areIndexed(DatabaseSessionEmbedded session, Collection<String> fields) {
     assert this.session.assertIfNotActive();
     return delegate.areIndexed(this.session, fields);
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, String... fields) {
+  public boolean areIndexed(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
     return delegate.areIndexed(this.session, fields);
   }
@@ -578,7 +576,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
 

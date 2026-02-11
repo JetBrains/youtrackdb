@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 
@@ -27,7 +27,7 @@ public class RecordIteratorUtil {
 
   /// Check whether the current user is allowed to access the specified collection.
   public static void checkCollectionAccess(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final int collectionId) {
     if (session.getStorage().isSystemCollection(collectionId)) {
       checkSystemCollectionAccess(session);
@@ -36,7 +36,7 @@ public class RecordIteratorUtil {
 
   /// Check whether the current user is allowed to access the specified collections.
   public static void checkCollectionsAccess(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final int[] collectionIds
   ) {
     for (var collectionId : collectionIds) {
@@ -47,7 +47,7 @@ public class RecordIteratorUtil {
     }
   }
 
-  private static void checkSystemCollectionAccess(final DatabaseSessionInternal session) {
+  private static void checkSystemCollectionAccess(final DatabaseSessionEmbedded session) {
     final var dbUser = session.getCurrentUser();
     if (dbUser != null) {
       dbUser.allow(session, Rule.ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_READ);

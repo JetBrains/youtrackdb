@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -42,7 +42,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
 
   public TraverseRecordProcess(
       final Traverse iCommand, final Identifiable iTarget, TraversePath parentPath,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     super(iCommand, iTarget, session);
     this.path = parentPath.append(iTarget);
   }

@@ -12,7 +12,7 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.HashSet;
@@ -203,7 +203,7 @@ public class MultipleDBTest extends BaseDBTest {
     }
   }
 
-  private static String getDbId(DatabaseSessionInternal db) {
+  private static String getDbId(DatabaseSessionEmbedded db) {
     return db.getURL();
   }
 }

@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -706,7 +706,7 @@ public class SQLUpdateTest extends BaseDBTest {
   }
 
   private void checkUpdatedDoc(
-      DatabaseSession database, String expectedCity, String expectedGender) {
+      DatabaseSessionEmbedded database, String expectedCity, String expectedGender) {
     database.executeInTx(transaction -> {
       var result = transaction.query("select * from Person where name = 'Raf'");
       var oDoc = result.next();

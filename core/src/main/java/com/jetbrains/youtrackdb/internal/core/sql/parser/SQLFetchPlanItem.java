@@ -2,7 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -129,7 +129,7 @@ public class SQLFetchPlanItem extends SimpleNode {
     return result;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
+  public Result serialize(DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
     result.setProperty("star", star);
     if (leftDepth != null) {

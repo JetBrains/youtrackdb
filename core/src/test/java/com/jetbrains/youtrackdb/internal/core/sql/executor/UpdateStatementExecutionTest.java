@@ -6,7 +6,7 @@ import static org.junit.Assert.assertEquals;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
@@ -29,7 +29,7 @@ public class UpdateStatementExecutionTest {
   @Rule
   public TestName name = new TestName();
 
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   private String className;
   private YouTrackDBImpl youTrackDB;

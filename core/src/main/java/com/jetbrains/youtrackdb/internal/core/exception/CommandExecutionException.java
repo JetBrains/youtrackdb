@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 public class CommandExecutionException extends CoreException {
 
@@ -35,7 +35,7 @@ public class CommandExecutionException extends CoreException {
     super(dbName, message);
   }
 
-  public CommandExecutionException(BasicDatabaseSession<?, ?> session, String message) {
+  public CommandExecutionException(DatabaseSessionEmbedded session, String message) {
     super(session, message);
   }
 }

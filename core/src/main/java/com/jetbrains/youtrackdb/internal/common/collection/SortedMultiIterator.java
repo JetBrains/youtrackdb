@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.common.collection;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
@@ -40,9 +40,9 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
   private final List<T> heads = new ArrayList<T>();
 
   private int status = STATUS_INIT;
-  private final DatabaseSessionInternal db;
+  private final DatabaseSessionEmbedded db;
 
-  public SortedMultiIterator(@Nonnull DatabaseSessionInternal db, SQLOrderBy orderBy) {
+  public SortedMultiIterator(@Nonnull DatabaseSessionEmbedded db, SQLOrderBy orderBy) {
     this.db = db;
     this.orderBy = orderBy;
   }

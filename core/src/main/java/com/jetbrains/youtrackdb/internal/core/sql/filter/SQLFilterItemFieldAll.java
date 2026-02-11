@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.filter;
 
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
@@ -40,7 +39,7 @@ public class SQLFilterItemFieldAll extends SQLFilterItemFieldMultiAbstract {
   }
 
   @Override
-  public String getRoot(DatabaseSession session) {
+  public String getRoot(DatabaseSessionEmbedded session) {
     return FULL_NAME;
   }
 

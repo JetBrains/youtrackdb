@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -65,9 +65,9 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
   private boolean transactionDirty = false;
 
   @Nonnull
-  private final WeakReference<DatabaseSessionInternal> session;
+  private final WeakReference<DatabaseSessionEmbedded> session;
 
-  public EntityLinkMapIml(@Nonnull DatabaseSessionInternal session) {
+  public EntityLinkMapIml(@Nonnull DatabaseSessionEmbedded session) {
     this.session = new WeakReference<>(session);
     this.keySizeLimit = DEFAULT_KEY_SIZE_LIMIT;
     this.map = new HashMap<>();
@@ -75,7 +75,7 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
     this.reverseMap = new HashMap<>();
   }
 
-  public EntityLinkMapIml(int size, @Nonnull DatabaseSessionInternal session) {
+  public EntityLinkMapIml(int size, @Nonnull DatabaseSessionEmbedded session) {
     this.map = new HashMap<>(size);
     this.encodedKeys = new HashMap<>(size);
     this.reverseMap = new HashMap<>(size);
@@ -230,7 +230,7 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
 
   @Nullable
   @Override
-  public DatabaseSessionInternal getSession() {
+  public DatabaseSessionEmbedded getSession() {
     return session.get();
   }
 

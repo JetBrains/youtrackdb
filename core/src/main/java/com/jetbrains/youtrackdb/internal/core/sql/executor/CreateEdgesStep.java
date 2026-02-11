@@ -4,7 +4,6 @@ import com.google.common.collect.Streams;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -185,7 +184,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     return Stream.empty();
   }
 
-  public Result mapTo(DatabaseSessionInternal session, Vertex currentFrom,
+  public Result mapTo(DatabaseSessionEmbedded session, Vertex currentFrom,
       Index uniqueIndex, Object obj) {
     var currentTo = asVertex(session, obj);
     EdgeInternal edgeToUpdate = null;
@@ -234,7 +233,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     return null;
   }
 
-  private static Vertex asVertex(DatabaseSessionInternal session, Object currentFrom) {
+  private static Vertex asVertex(DatabaseSessionEmbedded session, Object currentFrom) {
     if (currentFrom instanceof RID) {
       var transaction = session.getActiveTransaction();
       currentFrom = transaction.load(((RID) currentFrom));

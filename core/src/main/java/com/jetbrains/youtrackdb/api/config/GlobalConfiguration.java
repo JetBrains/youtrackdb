@@ -1023,7 +1023,7 @@ public enum GlobalConfiguration {
   TX_BATCH_SIZE(
       "youtrackdb.tx.batchSize",
       "Size of the single batch by default in case of call to the"
-          + " DatabaseSession#executeInTxBatches call. 1_000 by default.",
+          + " DatabaseSessionEmbedded#executeInTxBatches call. 1_000 by default.",
       Integer.class,
       1_000),
 

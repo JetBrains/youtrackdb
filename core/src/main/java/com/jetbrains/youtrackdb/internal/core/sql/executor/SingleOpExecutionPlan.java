@@ -2,8 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -89,8 +88,8 @@ public class SingleOpExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
-    var result = new ResultInternal((DatabaseSessionInternal) session);
+  public @Nonnull Result toResult(@Nullable DatabaseSessionEmbedded session) {
+    var result = new ResultInternal((DatabaseSessionEmbedded) session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty("javaType", getClass().getName());
     result.setProperty("stmText", statement.toString());

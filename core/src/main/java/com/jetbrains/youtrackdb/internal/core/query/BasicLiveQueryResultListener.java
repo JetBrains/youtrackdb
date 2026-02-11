@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -20,7 +20,7 @@ import javax.annotation.Nonnull;
 /// @see YouTrackDB#live(String, String, String, String, BasicLiveQueryResultListener, Map)
 /// @see YouTrackDB#live(String, String, String, String, BasicLiveQueryResultListener, Object...)
 /// @see LiveQueryMonitor#unSubscribe()
-public interface BasicLiveQueryResultListener<S extends BasicDatabaseSession<R, ?>, R extends BasicResult> {
+public interface BasicLiveQueryResultListener<S extends DatabaseSessionEmbedded, R extends BasicResult> {
 
   /// Method is called by the database when the record satisfied by the query conditions is
   /// created.

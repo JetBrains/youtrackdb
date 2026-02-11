@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -65,7 +65,7 @@ public class CartesianProductStep extends AbstractExecutionStep {
         .onClose((context) -> finalStream.close());
   }
 
-  private static Result produceResult(DatabaseSessionInternal db, Result[] path) {
+  private static Result produceResult(DatabaseSessionEmbedded db, Result[] path) {
 
     var nextRecord = new ResultInternal(db);
 

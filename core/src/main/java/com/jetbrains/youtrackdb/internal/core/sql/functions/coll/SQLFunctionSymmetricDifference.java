@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Collection;
 import java.util.HashSet;
@@ -107,7 +107,7 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
     return super.getResult();
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "difference(<field>*)";
   }
 }

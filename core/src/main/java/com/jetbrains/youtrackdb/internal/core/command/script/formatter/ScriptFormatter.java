@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.command.script.formatter;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 
 /**
@@ -28,8 +28,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
  */
 public interface ScriptFormatter {
 
-  String getFunctionDefinition(DatabaseSessionInternal session, Function iFunction);
+  String getFunctionDefinition(DatabaseSessionEmbedded session, Function iFunction);
 
-  String getFunctionInvoke(DatabaseSessionInternal session, Function iFunction,
+  String getFunctionInvoke(DatabaseSessionEmbedded session, Function iFunction,
       final Object[] iArgs);
 }

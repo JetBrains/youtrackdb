@@ -20,12 +20,11 @@ package com.jetbrains.youtrackdb.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -79,11 +78,11 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
 
   public class LuceneInsert implements Runnable {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool<DatabaseSessionEmbedded> pool;
     private final int cycle;
     private final int commitBuf;
 
-    public LuceneInsert(SessionPool<DatabaseSession> pool, int cycle) {
+    public LuceneInsert(SessionPool<DatabaseSessionEmbedded> pool, int cycle) {
       this.pool = pool;
       this.cycle = cycle;
 
@@ -114,9 +113,9 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
   public class LuceneReader implements Runnable {
 
     private final int cycle;
-    private final SessionPool<DatabaseSession> pool;
+    private final SessionPool<DatabaseSessionEmbedded> pool;
 
-    public LuceneReader(SessionPool<DatabaseSession> pool, int cycle) {
+    public LuceneReader(SessionPool<DatabaseSessionEmbedded> pool, int cycle) {
       this.pool = pool;
       this.cycle = cycle;
     }
@@ -124,7 +123,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
     @Override
     public void run() {
 
-      final var db = (DatabaseSessionInternal) pool.acquire();
+      final var db = (DatabaseSessionEmbedded) pool.acquire();
       db.activateOnCurrentThread();
       var schema = db.getMetadata().getSchema();
       schema.getClassInternal("City").getClassIndex(session, "City.name");

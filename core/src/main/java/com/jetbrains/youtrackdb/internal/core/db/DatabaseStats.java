@@ -16,7 +16,7 @@ public class DatabaseStats {
   public long minRidbagPrefetchTimeMs;
   public long maxRidbagPrefetchTimeMs;
 
-  public Result toResult(@Nonnull DatabaseSessionInternal db) {
+  public Result toResult(@Nonnull DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
 
     result.setProperty("loadedRecords", loadedRecords);

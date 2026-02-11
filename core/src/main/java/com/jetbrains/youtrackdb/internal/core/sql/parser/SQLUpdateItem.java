@@ -3,7 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
@@ -174,7 +174,7 @@ public class SQLUpdateItem extends SimpleNode {
 
 
   @Nullable
-  private Object initSchemafullCollections(DatabaseSessionInternal session, ResultInternal entity,
+  private Object initSchemafullCollections(DatabaseSessionEmbedded session, ResultInternal entity,
       String propName) {
     if (!entity.isEntity()) {
       return null;
@@ -212,7 +212,7 @@ public class SQLUpdateItem extends SimpleNode {
 
   @Nullable
   private static SchemaClass calculateLinkedTypeForThisItem(ResultInternal result,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (result.isEntity()) {
       var entity = (EntityImpl) result.asEntityOrNull();
 
@@ -306,7 +306,7 @@ public class SQLUpdateItem extends SimpleNode {
 
   @Nullable
   public static Object cleanPropertyValue(@Nullable Object newValue,
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nullable SchemaProperty schemaProperty) {
     if (newValue == null) {
       return null;

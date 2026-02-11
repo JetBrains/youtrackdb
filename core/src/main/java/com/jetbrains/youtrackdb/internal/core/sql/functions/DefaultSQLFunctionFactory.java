@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.coll.SQLFunctionDifference;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.coll.SQLFunctionDistinct;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.coll.SQLFunctionFirst;
@@ -79,7 +79,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.functions.text.SQLFunctionForm
 public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate {
 
   @Override
-  public void registerDefaultFunctions(DatabaseSessionInternal db) {
+  public void registerDefaultFunctions(DatabaseSessionEmbedded db) {
     // MISC FUNCTIONS
     register(SQLFunctionAverage.NAME, SQLFunctionAverage.class);
     register(SQLFunctionCoalesce.NAME, new SQLFunctionCoalesce());

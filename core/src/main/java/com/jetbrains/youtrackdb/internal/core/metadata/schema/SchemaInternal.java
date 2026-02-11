@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -22,7 +22,7 @@ public interface SchemaInternal extends Schema {
   ImmutableSchema makeSnapshot();
 
   Set<SchemaClass> getClassesRelyOnCollection(final String iCollectionName,
-      DatabaseSessionInternal session);
+      DatabaseSessionEmbedded session);
 
   CollectionSelectionFactory getCollectionSelectionFactory();
 

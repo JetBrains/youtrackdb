@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.s
 
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -105,7 +104,7 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public static void fieldTypeToString(
-      DatabaseSessionInternal session, final StringWriter iBuffer, PropertyTypeInternal iType,
+      DatabaseSessionEmbedded session, final StringWriter iBuffer, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return;
@@ -536,7 +535,7 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public static void simpleValueToStream(
-      DatabaseSessionInternal session, final StringWriter iBuffer, final PropertyTypeInternal iType,
+      DatabaseSessionEmbedded session, final StringWriter iBuffer, final PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null || iType == null) {
       return;
@@ -635,7 +634,7 @@ public abstract class RecordSerializerStringAbstract {
       DatabaseSessionEmbedded session, String iContent, RecordAbstract iRecord, String[] iFields);
 
   public StringWriter toString(
-      DatabaseSessionInternal db, final DBRecord iRecord, final StringWriter iOutput,
+      DatabaseSessionEmbedded db, final DBRecord iRecord, final StringWriter iOutput,
       final String iFormat) {
     return toString(db, iRecord, iOutput, iFormat, true);
   }
@@ -651,14 +650,14 @@ public abstract class RecordSerializerStringAbstract {
     return fromString(db, new String(iSource, StandardCharsets.UTF_8), iRecord, iFields);
   }
 
-  public byte[] toStream(DatabaseSessionInternal session, final RecordAbstract iRecord) {
+  public byte[] toStream(DatabaseSessionEmbedded session, final RecordAbstract iRecord) {
     return toString(session, iRecord, new StringWriter(2048), null, true)
         .toString()
         .getBytes(StandardCharsets.UTF_8);
   }
 
   protected abstract StringWriter toString(
-      DatabaseSessionInternal session, final DBRecord iRecord,
+      DatabaseSessionEmbedded session, final DBRecord iRecord,
       final StringWriter iOutput,
       final String iFormat,
       boolean autoDetectCollectionType);

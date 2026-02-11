@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.HashMap;
@@ -20,7 +19,7 @@ public abstract class SQLFunctionFactoryTemplate implements SQLFunctionFactory {
     functions = new HashMap<>();
   }
 
-  protected void register(DatabaseSession session, final SQLFunction function) {
+  protected void register(DatabaseSessionEmbedded session, final SQLFunction function) {
     functions.put(function.getName(session).toLowerCase(Locale.ENGLISH), function);
   }
 
@@ -29,17 +28,17 @@ public abstract class SQLFunctionFactoryTemplate implements SQLFunctionFactory {
   }
 
   @Override
-  public boolean hasFunction(final String name, DatabaseSessionInternal session) {
+  public boolean hasFunction(final String name, DatabaseSessionEmbedded session) {
     return functions.containsKey(name);
   }
 
   @Override
-  public Set<String> getFunctionNames(DatabaseSessionInternal session) {
+  public Set<String> getFunctionNames(DatabaseSessionEmbedded session) {
     return functions.keySet();
   }
 
   @Override
-  public SQLFunction createFunction(final String name, DatabaseSessionInternal session)
+  public SQLFunction createFunction(final String name, DatabaseSessionEmbedded session)
       throws CommandExecutionException {
     final var obj = functions.get(name);
 

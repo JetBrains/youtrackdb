@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
@@ -30,7 +30,7 @@ public class ImmutableUser implements SecurityUser {
   private final RID rid;
   private final String userType;
 
-  public ImmutableUser(DatabaseSessionInternal session, long version, SecurityUser user) {
+  public ImmutableUser(DatabaseSessionEmbedded session, long version, SecurityUser user) {
     this.version = version;
     this.name = user.getName(session);
     this.password = user.getPassword(session);
@@ -43,11 +43,11 @@ public class ImmutableUser implements SecurityUser {
     }
   }
 
-  public ImmutableUser(DatabaseSessionInternal session, String name, String userType) {
+  public ImmutableUser(DatabaseSessionEmbedded session, String name, String userType) {
     this(session, name, "", userType, null);
   }
 
-  public ImmutableUser(DatabaseSessionInternal session, String name, String password,
+  public ImmutableUser(DatabaseSessionEmbedded session, String name, String password,
       String userType, SecurityRole role) {
     this.version = 0;
     this.name = name;
@@ -67,7 +67,7 @@ public class ImmutableUser implements SecurityUser {
   }
 
   public SecurityRole allow(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
       final int iOperation) {
     if (roles.isEmpty()) {
@@ -95,7 +95,7 @@ public class ImmutableUser implements SecurityUser {
 
   @Nullable
   public SecurityRole checkIfAllowed(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
       final int iOperation) {
     for (var r : roles) {
@@ -115,7 +115,7 @@ public class ImmutableUser implements SecurityUser {
   }
 
   public boolean isRuleDefined(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific) {
     for (var r : roles) {
       if (r == null) {
@@ -135,7 +135,7 @@ public class ImmutableUser implements SecurityUser {
 
   @Override
   @Deprecated
-  public SecurityRole allow(DatabaseSessionInternal session, String iResource, int iOperation) {
+  public SecurityRole allow(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -149,7 +149,7 @@ public class ImmutableUser implements SecurityUser {
 
   @Override
   @Deprecated
-  public SecurityRole checkIfAllowed(DatabaseSessionInternal session, String iResource,
+  public SecurityRole checkIfAllowed(DatabaseSessionEmbedded session, String iResource,
       int iOperation) {
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
@@ -164,7 +164,7 @@ public class ImmutableUser implements SecurityUser {
 
   @Override
   @Deprecated
-  public boolean isRuleDefined(DatabaseSessionInternal session, String iResource) {
+  public boolean isRuleDefined(DatabaseSessionEmbedded session, String iResource) {
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -176,31 +176,31 @@ public class ImmutableUser implements SecurityUser {
     return isRuleDefined(session, resourceGeneric, resourceSpecific);
   }
 
-  public boolean checkPassword(DatabaseSessionInternal session, final String iPassword) {
+  public boolean checkPassword(DatabaseSessionEmbedded session, final String iPassword) {
     return SecurityManager.checkPassword(iPassword, password);
   }
 
-  public String getName(DatabaseSessionInternal session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
-  public SecurityUserImpl setName(DatabaseSessionInternal session, final String iName) {
+  public SecurityUserImpl setName(DatabaseSessionEmbedded session, final String iName) {
     throw new UnsupportedOperationException();
   }
 
-  public String getPassword(DatabaseSessionInternal session) {
+  public String getPassword(DatabaseSessionEmbedded session) {
     return password;
   }
 
-  public SecurityUserImpl setPassword(DatabaseSessionInternal session, final String iPassword) {
+  public SecurityUserImpl setPassword(DatabaseSessionEmbedded session, final String iPassword) {
     throw new UnsupportedOperationException();
   }
 
-  public STATUSES getAccountStatus(DatabaseSessionInternal session) {
+  public STATUSES getAccountStatus(DatabaseSessionEmbedded session) {
     return status;
   }
 
-  public void setAccountStatus(DatabaseSessionInternal session, STATUSES accountStatus) {
+  public void setAccountStatus(DatabaseSessionEmbedded session, STATUSES accountStatus) {
     throw new UnsupportedOperationException();
   }
 
@@ -208,19 +208,19 @@ public class ImmutableUser implements SecurityUser {
     return Collections.unmodifiableSet(roles);
   }
 
-  public SecurityUserImpl addRole(DatabaseSessionInternal session, final String iRole) {
+  public SecurityUserImpl addRole(DatabaseSessionEmbedded session, final String iRole) {
     throw new UnsupportedOperationException();
   }
 
-  public SecurityUserImpl addRole(DatabaseSessionInternal session, final SecurityRole iRole) {
+  public SecurityUserImpl addRole(DatabaseSessionEmbedded session, final SecurityRole iRole) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean removeRole(DatabaseSessionInternal session, final String iRoleName) {
+  public boolean removeRole(DatabaseSessionEmbedded session, final String iRoleName) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean hasRole(DatabaseSessionInternal session, final String iRoleName,
+  public boolean hasRole(DatabaseSessionEmbedded session, final String iRoleName,
       final boolean iIncludeInherited) {
     for (final SecurityRole role : roles) {
       if (role.getName(session).equals(iRoleName)) {

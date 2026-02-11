@@ -17,7 +17,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.operator;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
@@ -103,7 +103,7 @@ public class LuceneOperatorUtil {
   }
 
   public static boolean checkIndexExistence(
-      DatabaseSessionInternal session, final SchemaClassInternal iSchemaClass,
+      DatabaseSessionEmbedded session, final SchemaClassInternal iSchemaClass,
       final IndexSearchResult result) {
     if (!iSchemaClass.areIndexed(session, result.fields())) {
       return false;

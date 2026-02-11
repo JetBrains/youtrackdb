@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 public class TransactionException extends CoreException implements HighLevelException {
 
@@ -28,7 +28,7 @@ public class TransactionException extends CoreException implements HighLevelExce
     super(exception);
   }
 
-  public TransactionException(BasicDatabaseSession<?, ?> session, String message) {
+  public TransactionException(DatabaseSessionEmbedded session, String message) {
     super(session, message);
   }
 

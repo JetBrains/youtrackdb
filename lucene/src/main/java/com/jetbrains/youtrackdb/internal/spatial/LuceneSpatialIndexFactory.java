@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexFactory;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
@@ -122,20 +121,20 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   }
 
   @Override
-  public void onCreate(@Nonnull DatabaseSessionInternal session) {
+  public void onCreate(@Nonnull DatabaseSessionEmbedded session) {
     spatialManager.init(session);
   }
 
   @Override
-  public void onOpen(@Nonnull DatabaseSessionInternal session) {
+  public void onOpen(@Nonnull DatabaseSessionEmbedded session) {
   }
 
   @Override
-  public void onClose(@Nonnull DatabaseSessionInternal session) {
+  public void onClose(@Nonnull DatabaseSessionEmbedded session) {
   }
 
   @Override
-  public void onDrop(final @Nonnull DatabaseSessionInternal session) {
+  public void onDrop(final @Nonnull DatabaseSessionEmbedded session) {
     try {
       if (session.isClosed()) {
         return;

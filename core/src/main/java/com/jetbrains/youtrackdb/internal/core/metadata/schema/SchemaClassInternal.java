@@ -2,8 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl.decodeClassName;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -20,9 +19,9 @@ public interface SchemaClassInternal extends SchemaClass {
 
   int getCollectionForNewInstance(final EntityImpl entity);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session, String... fields);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       final Collection<String> fields);
 
   SchemaProperty createProperty(
@@ -41,24 +40,24 @@ public interface SchemaClassInternal extends SchemaClass {
 
   String getStreamableName();
 
-  void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indices);
+  void getIndexesInternal(DatabaseSessionEmbedded session, Collection<Index> indices);
 
-  long count(DatabaseSessionInternal session);
+  long count(DatabaseSessionEmbedded session);
 
   void truncate();
 
-  long count(DatabaseSessionInternal session, final boolean isPolymorphic);
+  long count(DatabaseSessionEmbedded session, final boolean isPolymorphic);
 
   SchemaPropertyInternal getPropertyInternal(String propertyName);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session, String... fields);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       final Collection<String> fields);
 
   Set<Index> getClassIndexesInternal();
 
-  Index getClassIndex(DatabaseSessionInternal session, final String name);
+  Index getClassIndex(DatabaseSessionEmbedded session, final String name);
 
   SchemaClass set(final ATTRIBUTES attribute, final Object value);
 
@@ -74,7 +73,7 @@ public interface SchemaClassInternal extends SchemaClass {
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, Collection<String> fields);
+  Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session, Collection<String> fields);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -86,9 +85,9 @@ public interface SchemaClassInternal extends SchemaClass {
    * @param session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @see #getInvolvedIndexes(DatabaseSessionInternal, Collection)
+   * @see #getInvolvedIndexes(DatabaseSessionEmbedded, Collection)
    */
-  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields);
+  Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session, String... fields);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -100,15 +99,15 @@ public interface SchemaClassInternal extends SchemaClass {
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, Collection<String> fields);
+  Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session, Collection<String> fields);
 
   /**
    * @param session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @see #getClassInvolvedIndexes(DatabaseSessionInternal, Collection)
+   * @see #getClassInvolvedIndexes(DatabaseSessionEmbedded, Collection)
    */
-  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields);
+  Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session, String... fields);
 
   /**
    * Indicates whether given fields are contained as first key fields in class indexes. Order of
@@ -119,15 +118,15 @@ public interface SchemaClassInternal extends SchemaClass {
    * @param fields  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    */
-  boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields);
+  boolean areIndexed(DatabaseSessionEmbedded session, Collection<String> fields);
 
   /**
    * @param session
    * @param fields  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
-   * @see #areIndexed(DatabaseSessionInternal, Collection)
+   * @see #areIndexed(DatabaseSessionEmbedded, Collection)
    */
-  boolean areIndexed(DatabaseSessionInternal session, String... fields);
+  boolean areIndexed(DatabaseSessionEmbedded session, String... fields);
 
   /**
    * @return All indexes for given class, not the inherited ones.
@@ -142,7 +141,7 @@ public interface SchemaClassInternal extends SchemaClass {
   SchemaClassImpl getImplementation();
 
 
-  DatabaseSession getBoundToSession();
+  DatabaseSessionEmbedded getBoundToSession();
 
   default List<PropertyTypeInternal> extractFieldTypes(final String[] fieldNames) {
     final List<PropertyTypeInternal> types = new ArrayList<>(fieldNames.length);

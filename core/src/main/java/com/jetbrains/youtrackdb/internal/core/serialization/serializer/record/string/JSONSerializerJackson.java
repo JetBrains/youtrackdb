@@ -30,7 +30,7 @@ import com.fasterxml.jackson.databind.type.MapType;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -157,14 +157,14 @@ public class JSONSerializerJackson {
   }
 
   public RecordAbstract fromString(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nonnull String source
   ) {
     return fromStringWithMetadata(session, source, null, false).first();
   }
 
   public RecordAbstract fromString(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nonnull String source,
       @Nullable RecordAbstract record
   ) {
@@ -173,7 +173,7 @@ public class JSONSerializerJackson {
 
   @Nonnull
   public RawPair<RecordAbstract, RecordMetadata> fromStringWithMetadata(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nonnull String source,
       @Nullable RecordAbstract record,
       boolean ignoreRid
@@ -197,7 +197,7 @@ public class JSONSerializerJackson {
 
   @Nonnull
   private RawPair<RecordAbstract, RecordMetadata> recordFromJson(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nullable RecordAbstract record,
       @Nonnull JsonParser jsonParser,
       boolean ignoreRid
@@ -245,7 +245,7 @@ public class JSONSerializerJackson {
   }
 
   private RecordAbstract createRecordFromJsonAfterMetadata(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       RecordAbstract record,
       RecordMetadata recordMetaData,
       JsonParser jsonParser,
@@ -347,7 +347,7 @@ public class JSONSerializerJackson {
     return record;
   }
 
-  private void parseProperties(DatabaseSessionInternal session, RecordAbstract record,
+  private void parseProperties(DatabaseSessionEmbedded session, RecordAbstract record,
       RecordMetadata recordMetaData, JsonParser jsonParser) throws IOException {
     JsonToken token;
     token = jsonParser.currentToken();
@@ -374,7 +374,7 @@ public class JSONSerializerJackson {
 
   @Nullable
   private RecordMetadata parseRecordMetadata(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nullable JsonParser jsonParser,
       @Nullable String defaultClassName,
       Byte defaultRecordType,
@@ -606,7 +606,7 @@ public class JSONSerializerJackson {
   }
 
   private void parseProperty(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Map<String, String> fieldTypes,
       RecordAbstract record,
       JsonParser jsonParser,
@@ -683,7 +683,7 @@ public class JSONSerializerJackson {
   }
 
   public StringWriter toString(
-      DatabaseSessionInternal session, final DBRecord record,
+      DatabaseSessionEmbedded session, final DBRecord record,
       final StringWriter output,
       final String format) {
     try (var jsonGenerator = jsonFactory.createGenerator(output)) {
@@ -697,7 +697,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  public void recordToJson(DatabaseSessionInternal session, DBRecord record,
+  public void recordToJson(DatabaseSessionEmbedded session, DBRecord record,
       JsonGenerator jsonGenerator,
       @Nullable String format) {
     try {
@@ -710,7 +710,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  private void recordToJson(DatabaseSessionInternal session, DBRecord record,
+  private void recordToJson(DatabaseSessionEmbedded session, DBRecord record,
       JsonGenerator jsonGenerator,
       FormatSettings formatSettings) throws IOException {
     jsonGenerator.writeStartObject();
@@ -746,7 +746,7 @@ public class JSONSerializerJackson {
     jsonGenerator.writeString(rid.toString());
   }
 
-  private static void writeMetadata(@Nonnull DatabaseSessionInternal session,
+  private static void writeMetadata(@Nonnull DatabaseSessionEmbedded session,
       JsonGenerator jsonGenerator,
       RecordAbstract record, FormatSettings formatSettings)
       throws IOException {
@@ -930,7 +930,7 @@ public class JSONSerializerJackson {
     return entity.getPropertyTypeInternal(fieldName);
   }
 
-  private void serializeValue(DatabaseSessionInternal session, JsonGenerator jsonGenerator,
+  private void serializeValue(DatabaseSessionEmbedded session, JsonGenerator jsonGenerator,
       Object propertyValue,
       FormatSettings formatSettings)
       throws IOException {
@@ -1016,7 +1016,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  public void serializeEmbeddedMap(DatabaseSessionInternal session,
+  public void serializeEmbeddedMap(DatabaseSessionEmbedded session,
       JsonGenerator jsonGenerator,
       Map<String, ?> trackedMap, String format) {
     try {
@@ -1029,7 +1029,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  private void serializeEmbeddedMap(DatabaseSessionInternal db, JsonGenerator jsonGenerator,
+  private void serializeEmbeddedMap(DatabaseSessionEmbedded db, JsonGenerator jsonGenerator,
       FormatSettings formatSettings,
       Map<String, ?> trackedMap) throws IOException {
     jsonGenerator.writeStartObject();
@@ -1042,7 +1042,7 @@ public class JSONSerializerJackson {
 
   @Nullable
   private Object parseValue(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nullable final EntityImpl entity,
       @Nonnull JsonParser jsonParser,
       @Nullable PropertyTypeInternal type,
@@ -1119,7 +1119,7 @@ public class JSONSerializerJackson {
     };
   }
 
-  private RecordElement parseAnyList(@Nonnull DatabaseSessionInternal session,
+  private RecordElement parseAnyList(@Nonnull DatabaseSessionEmbedded session,
       @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
       @Nullable SchemaProperty schemaProperty) throws IOException {
 
@@ -1140,7 +1140,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  private RecordElement parseObjectOrMap(@Nonnull DatabaseSessionInternal session,
+  private RecordElement parseObjectOrMap(@Nonnull DatabaseSessionEmbedded session,
       @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
       @Nullable SchemaProperty schemaProperty) throws IOException {
     var recordMetaData =
@@ -1195,7 +1195,7 @@ public class JSONSerializerJackson {
   }
 
   @Nonnull
-  private EmbeddedEntityImpl parseEmbeddedEntity(@Nonnull DatabaseSessionInternal db,
+  private EmbeddedEntityImpl parseEmbeddedEntity(@Nonnull DatabaseSessionEmbedded db,
       @Nonnull JsonParser jsonParser, @Nullable RecordMetadata metadata,
       SchemaProperty schemaProperty) throws IOException {
 
@@ -1229,7 +1229,7 @@ public class JSONSerializerJackson {
   }
 
   private EntityEmbeddedMapImpl<Object> parseEmbeddedMap(
-      @Nonnull DatabaseSessionInternal session,
+      @Nonnull DatabaseSessionEmbedded session,
       @Nullable EntityImpl entity,
       @Nonnull JsonParser jsonParser,
       @Nullable EntityEmbeddedMapImpl<Object> map,
@@ -1295,7 +1295,7 @@ public class JSONSerializerJackson {
   }
 
   private EntityEmbeddedListImpl<Object> parseEmbeddedList(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       EntityImpl entity,
       JsonParser jsonParser,
       @Nullable EntityEmbeddedListImpl<Object> list,
@@ -1316,7 +1316,7 @@ public class JSONSerializerJackson {
     return list;
   }
 
-  private EntityEmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionInternal session,
+  private EntityEmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionEmbedded session,
       EntityImpl entity,
       JsonParser jsonParser, SchemaProperty schemaProperty) throws IOException {
     var list = new EntityEmbeddedSetImpl<>(entity);

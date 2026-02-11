@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.command.script.transformer.result;
 
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
@@ -20,7 +20,7 @@ public class MapTransformer implements ResultTransformer<Map<Object, Object>> {
   }
 
   @Override
-  public Result transform(DatabaseSessionInternal db, Map<Object, Object> element) {
+  public Result transform(DatabaseSessionEmbedded db, Map<Object, Object> element) {
     var internal = new ResultInternal(db);
     element.forEach(
         (key, val) -> {

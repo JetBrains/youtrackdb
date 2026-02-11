@@ -18,10 +18,10 @@
 
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Before;
@@ -88,7 +88,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
 
   public class LuceneInsertThread implements Runnable {
 
-    private DatabaseSession db;
+    private DatabaseSessionEmbedded db;
     private int cycle = 0;
     private final int commitBuf = 500;
 
@@ -121,7 +121,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
   public class LuceneReadThread implements Runnable {
 
     private final int cycle;
-    private DatabaseSessionInternal databaseDocumentTx;
+    private DatabaseSessionEmbedded databaseDocumentTx;
 
     public LuceneReadThread(int cycle) {
       this.cycle = cycle;

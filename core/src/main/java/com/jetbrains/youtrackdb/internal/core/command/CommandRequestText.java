@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.command;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 
 /**
@@ -35,5 +34,5 @@ public interface CommandRequestText extends CommandRequestInternal {
   CommandRequestText fromStream(DatabaseSessionEmbedded session, byte[] bytes,
       RecordSerializerNetwork serializer);
 
-  byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer);
+  byte[] toStream(DatabaseSessionEmbedded session, RecordSerializerNetwork serializer);
 }

@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
@@ -139,7 +139,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+  public void init(DatabaseSessionEmbedded session, IndexMetadata im) {
     this.indexDefinition = im.getIndexDefinition();
     this.metadata = im.getMetadata();
 
@@ -201,7 +201,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
         && System.currentTimeMillis() - lastAccess.get() > closeAfterInterval;
   }
 
-  private void checkCollectionIndex(DatabaseSessionInternal session,
+  private void checkCollectionIndex(DatabaseSessionEmbedded session,
       IndexDefinition indexDefinition) {
     var fields = indexDefinition.getProperties();
 
@@ -625,7 +625,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public synchronized void freeze(DatabaseSessionInternal db, boolean throwException) {
+  public synchronized void freeze(DatabaseSessionEmbedded db, boolean throwException) {
     try {
       closeNRT();
       cancelCommitTask();
@@ -636,7 +636,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void release(DatabaseSessionInternal db) {
+  public void release(DatabaseSessionEmbedded db) {
     try {
       close();
       reOpen(db.getStorage());

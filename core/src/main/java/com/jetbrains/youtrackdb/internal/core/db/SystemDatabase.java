@@ -50,7 +50,7 @@ public class SystemDatabase {
   }
 
   /**
-   * Opens the System Database and returns an DatabaseSessionInternal object. The caller is
+   * Opens the System Database and returns an DatabaseSessionEmbedded object. The caller is
    * responsible for retrieving any ThreadLocal-stored database before openSystemDatabase() is
    * called and restoring it after the database is closed.
    */
@@ -64,7 +64,7 @@ public class SystemDatabase {
   }
 
   public <R> R execute(
-      @Nonnull final BiFunction<ResultSet, DatabaseSession, R> callback, final String sql,
+      @Nonnull final BiFunction<ResultSet, DatabaseSessionEmbedded, R> callback, final String sql,
       final Object... args) {
     // BYPASS SECURITY
     try (final var session = openSystemDatabaseSession()) {
@@ -75,10 +75,10 @@ public class SystemDatabase {
   }
 
   public <R> R query(
-      @Nonnull final BiFunction<ResultSet, DatabaseSession, R> callback, final String sql,
+      @Nonnull final BiFunction<ResultSet, DatabaseSessionEmbedded, R> callback, final String sql,
       final Object... args) {
     // BYPASS SECURITY
-    try (final DatabaseSession session = openSystemDatabaseSession()) {
+    try (final DatabaseSessionEmbedded session = openSystemDatabaseSession()) {
       return session.computeInTx(transaction -> {
         try (var result = transaction.query(sql, args)) {
           return callback.apply(result, session);
@@ -103,7 +103,7 @@ public class SystemDatabase {
         type = DatabaseType.MEMORY;
       }
       context.create(SYSTEM_DB_NAME, null, null, type, config);
-      try (var session = (DatabaseSessionInternal) context.openNoAuthorization(SYSTEM_DB_NAME)) {
+      try (var session = (DatabaseSessionEmbedded) context.openNoAuthorization(SYSTEM_DB_NAME)) {
         DefaultSecuritySystem.createSystemRoles(session);
       }
     }

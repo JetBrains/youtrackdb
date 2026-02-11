@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.cache.WeakValueHashMap;
@@ -62,6 +63,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
@@ -72,13 +74,16 @@ import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedExcept
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -169,7 +174,39 @@ import org.slf4j.LoggerFactory;
 
 
 public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
-    implements DatabaseSessionInternal, QueryLifecycleListener {
+    implements AutoCloseable, QueryLifecycleListener {
+
+  public enum STATUS {
+    OPEN,
+    CLOSED,
+    IMPORTING
+  }
+
+  public enum ATTRIBUTES {
+    DATEFORMAT,
+    DATE_TIME_FORMAT,
+    TIMEZONE,
+    LOCALE_COUNTRY,
+    LOCALE_LANGUAGE,
+    CHARSET,
+  }
+
+  public enum ATTRIBUTES_INTERNAL {
+    VALIDATION
+  }
+
+  public record TransactionMeters(
+      TimeRate totalTransactions,
+      TimeRate writeTransactions,
+      TimeRate writeRollbackTransactions
+  ) {
+
+    public static TransactionMeters NOOP = new TransactionMeters(
+        TimeRate.NOOP,
+        TimeRate.NOOP,
+        TimeRate.NOOP
+    );
+  }
 
   private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
 
@@ -444,7 +481,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public void set(final ATTRIBUTES iAttribute, final Object iValue) {
     assert assertIfNotActive();
 
@@ -531,8 +567,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
-  public DatabaseSession setCustom(final String name, final Object iValue) {
+  public DatabaseSessionEmbedded setCustom(final String name, final Object iValue) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -555,7 +590,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * Returns a copy of current database if it's open. The returned instance can be used by another
    * thread without affecting current instance. The database copy is not set in thread local.
    */
-  @Override
   public DatabaseSessionEmbedded copy() {
     assertIfNotActive();
 
@@ -579,7 +613,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return database;
   }
 
-  @Override
   public boolean isClosed() {
     return status == STATUS.CLOSED || storage.isClosed(this);
   }
@@ -600,18 +633,15 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     hooks.clear();
   }
 
-  @Override
   public Storage getStorage() {
     return storage;
   }
 
-  @Override
   public StorageInfo getStorageInfo() {
     return storage;
   }
 
 
-  @Override
   public ResultSet query(String query, Object... args) {
     checkOpenness();
 
@@ -645,12 +675,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args) {
     return query(query, true, args);
   }
 
-  @Override
   public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     assert assertIfNotActive();
@@ -690,17 +718,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public ResultSet execute(String query, Object... args) {
     return executeInternal(query, null, args);
   }
 
-  @Override
   public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     return executeInternal(query, null, args);
   }
 
-  @Override
   public ResultSet execute(SQLStatement statement, Map<?, ?> args) {
     return executeInternal(null, statement, args);
   }
@@ -760,7 +785,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public ResultSet computeScript(String language, String script, Object... args) {
     assert assertIfNotActive();
 
@@ -813,7 +837,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     result.addLifecycleListener(this);
   }
 
-  @Override
   public ResultSet computeScript(String language, String script, Map<String, ?> args) {
     assert assertIfNotActive();
 
@@ -901,7 +924,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public void addBlobCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
 
@@ -916,7 +938,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     getMetadata().getSchema().addBlobCollection(id);
   }
 
-  @Override
   public Blob newBlob(byte[] bytes) {
     assert assertIfNotActive();
 
@@ -931,7 +952,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return blob;
   }
 
-  @Override
   public Blob newBlob() {
     assert assertIfNotActive();
 
@@ -953,7 +973,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * @param className the name of class that should be used as a class of created entity.
    * @return new instance of entity.
    */
-  @Override
   public EntityImpl newInstance(final String className) {
     assert assertIfNotActive();
 
@@ -984,7 +1003,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return entity;
   }
 
-  @Override
   public EntityImpl newInternalInstance() {
     assert assertIfNotActive();
 
@@ -1004,7 +1022,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return entity;
   }
 
-  @Override
   public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
@@ -1103,7 +1120,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return edge;
   }
 
-  @Override
   public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
     assert assertIfNotActive();
 
@@ -1121,7 +1137,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (StatefulEdge) addEdgeInternal(from, to, type, true);
   }
 
-  @Override
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
     assert assertIfNotActive();
 
@@ -1140,7 +1155,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
-  @Override
   public RecordAbstract executeReadRecord(
       @Nonnull RecordIdInternal rid,
       @Nullable RawBuffer prefetchedBuffer,
@@ -1273,7 +1287,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
 
@@ -1288,7 +1301,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return addEdgeInternal(from, to, iClassName, true);
   }
 
-  @Override
   public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
     assert assertIfNotActive();
 
@@ -1297,7 +1309,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
   }
 
-  @Override
   public Vertex newVertex(final String className) {
     assert assertIfNotActive();
 
@@ -1322,7 +1333,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return vertex;
   }
 
-  @Override
   public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
     assert assertIfNotActive();
 
@@ -1331,7 +1341,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EmbeddedEntityImpl(schemaClass, this);
   }
 
-  @Override
   public EmbeddedEntity newEmbeddedEntity() {
     assert assertIfNotActive();
 
@@ -1353,14 +1362,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public void setNoTxMode() {
     if (!(currentTx instanceof FrontendTransactionNoTx)) {
       currentTx = new FrontendTransactionNoTx(this);
     }
   }
 
-  @Override
   public FrontendTransaction begin() {
     assert assertIfNotActive();
 
@@ -1406,7 +1413,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    *
    * @param record record to delete
    */
-  @Override
   public void delete(@Nonnull DBRecord record) {
     assert assertIfNotActive();
 
@@ -1415,7 +1421,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     record.delete();
   }
 
-  @Override
   public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -1447,7 +1452,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.BEFORE_CREATE, recordAbstract);
   }
 
-  @Override
   public void afterCreateOperations(RecordAbstract recordAbstract) {
     assert assertIfNotActive();
 
@@ -1470,7 +1474,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
   }
 
-  @Override
   public void beforeUpdateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -1501,7 +1504,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.BEFORE_UPDATE, recordAbstract);
   }
 
-  @Override
   public void afterUpdateOperations(RecordAbstract recordAbstract) {
     assert assertIfNotActive();
 
@@ -1521,7 +1523,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
   }
 
-  @Override
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
       String collectionName) {
     assert assertIfNotActive();
@@ -1546,7 +1547,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.BEFORE_DELETE, recordAbstract);
   }
 
-  @Override
   public void afterDeleteOperations(RecordAbstract recordAbstract) {
     assert assertIfNotActive();
 
@@ -1568,7 +1568,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.AFTER_DELETE, recordAbstract);
   }
 
-  @Override
   public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
 
@@ -1583,7 +1582,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getUuid();
   }
 
-  @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
 
@@ -1607,7 +1605,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return false;
   }
 
-  @Override
   public void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids) {
     assert assertIfNotActive();
 
@@ -1683,7 +1680,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
     assert assertIfNotActive();
 
@@ -1720,7 +1716,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   }
 
-  @Override
   public String getCollectionName(final @Nonnull DBRecord record) {
     assert assertIfNotActive();
 
@@ -1756,7 +1751,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public boolean executeExists(@Nonnull RID rid) {
     assert assertIfNotActive();
 
@@ -1802,7 +1796,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void checkSecurity(
       final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
@@ -1835,7 +1828,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void checkSecurity(
       final ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1856,7 +1848,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void checkSecurity(
       final ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1871,7 +1862,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         iOperation);
   }
 
-  @Override
   @Deprecated
   public void checkSecurity(final String iResource, final int iOperation) {
     assert assertIfNotActive();
@@ -1889,7 +1879,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkSecurity(resourceGeneric, resourceSpecific, iOperation);
   }
 
-  @Override
   @Deprecated
   public void checkSecurity(
       final String iResourceGeneric, final int iOperation, final Object iResourceSpecific) {
@@ -1906,7 +1895,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkSecurity(resourceGeneric, iOperation, iResourceSpecific);
   }
 
-  @Override
   @Deprecated
   public void checkSecurity(
       final String iResourceGeneric, final int iOperation, final Object... iResourcesSpecific) {
@@ -1919,7 +1907,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkSecurity(resourceGeneric, iOperation, iResourcesSpecific);
   }
 
-  @Override
   public int addCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
 
@@ -1928,7 +1915,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.addCollection(this, iCollectionName, iParameters);
   }
 
-  @Override
   public int addCollection(final String iCollectionName, final int iRequestedId) {
     assert assertIfNotActive();
 
@@ -1937,14 +1923,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
-  @Override
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
 
     return getStorageInfo().getRecordConflictStrategy();
   }
 
-  @Override
   public DatabaseSessionEmbedded setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
 
@@ -1955,7 +1939,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return this;
   }
 
-  @Override
   public DatabaseSessionEmbedded setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
 
@@ -1965,7 +1948,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return this;
   }
 
-  @Override
   public long getCollectionRecordSizeByName(final String collectionName) {
     assert assertIfNotActive();
 
@@ -1981,7 +1963,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public long getCollectionRecordSizeById(final int collectionId) {
     assert assertIfNotActive();
 
@@ -2000,7 +1981,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public long countCollectionElements(int iCollectionId, boolean countTombstones) {
     assert assertIfNotActive();
 
@@ -2018,7 +1998,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     assert assertIfNotActive();
 
@@ -2035,7 +2014,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public long countCollectionElements(final String iCollectionName) {
     assert assertIfNotActive();
 
@@ -2050,7 +2028,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.count(this, collectionId);
   }
 
-  @Override
   public boolean dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
 
@@ -2078,7 +2055,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.dropCollection(this, iCollectionName);
   }
 
-  @Override
   public boolean dropCollection(final int collectionId) {
     assert assertIfNotActive();
 
@@ -2116,7 +2092,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return dropCollectionInternal(collectionId);
   }
 
-  @Override
   public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
 
@@ -2125,7 +2100,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.dropCollection(this, collectionId);
   }
 
-  @Override
   public long getSize() {
     assert assertIfNotActive();
 
@@ -2134,7 +2108,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getSize(this);
   }
 
-  @Override
   public DatabaseStats getStats() {
     assert assertIfNotActive();
     var stats = new DatabaseStats();
@@ -2151,7 +2124,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return stats;
   }
 
-  @Override
   public void resetRecordLoadStats() {
     assert assertIfNotActive();
     this.loadedRecordsCount = 0L;
@@ -2163,7 +2135,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     this.maxRidbagPrefetchMs = 0L;
   }
 
-  @Override
   public String backup(final Path path) {
     assert assertIfNotActive();
 
@@ -2182,7 +2153,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.fullBackup(path);
   }
 
-  @Override
   public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
@@ -2198,7 +2168,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
-  @Override
   public TimeZone getDatabaseTimeZone() {
     assert assertIfNotActive();
 
@@ -2207,7 +2176,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getConfiguration().getTimeZone();
   }
 
-  @Override
   public RecordMetadata getRecordMetadata(final RID rid) {
     assert assertIfNotActive();
 
@@ -2219,7 +2187,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void freeze(final boolean throwException) {
     assert assertIfNotActive();
 
@@ -2247,7 +2214,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void freeze() {
     assert assertIfNotActive();
     freeze(false);
@@ -2256,7 +2222,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void release() {
     assert assertIfNotActive();
 
@@ -2296,13 +2261,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
     return storage.getLinkCollectionsBtreeCollectionManager();
   }
 
-  @Override
   public void reload() {
     assert assertIfNotActive();
 
@@ -2315,14 +2278,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     storage.reload(this);
   }
 
-  @Override
   public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
 
     this.storage.commit(transaction);
   }
 
-  @Override
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
       return;
@@ -2362,7 +2323,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public String getCollectionRecordConflictStrategy(int collectionId) {
     assert assertIfNotActive();
 
@@ -2371,7 +2331,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getCollectionRecordConflictStrategy(collectionId);
   }
 
-  @Override
   public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
     assert assertIfNotActive();
 
@@ -2380,7 +2339,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getCollectionsIds(filterCollections);
   }
 
-  @Override
   public long truncateClass(String name, boolean polimorfic) {
     assert assertIfNotActive();
 
@@ -2408,13 +2366,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return count;
   }
 
-  @Override
   public void truncateClass(String name) {
     assert assertIfNotActive();
     truncateClass(name, true);
   }
 
-  @Override
   public long truncateCollectionInternal(String collectionName) {
     assert assertIfNotActive();
 
@@ -2444,26 +2400,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public void truncateCollection(String collectionName) {
     assert assertIfNotActive();
 
     truncateCollectionInternal(collectionName);
   }
 
-  @Override
   public TransactionMeters transactionMeters() {
     return transactionMeters;
   }
 
-  @Override
   public void callOnOpenListeners() {
     assert assertIfNotActive();
 
     wakeupOnOpenDbLifecycleListeners();
   }
 
-  @Override
   public void callOnCloseListeners() {
     assert assertIfNotActive();
 
@@ -2501,7 +2453,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public byte getRecordType() {
     return recordType;
   }
@@ -2509,7 +2460,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public long countCollectionElements(final int[] iCollectionIds) {
     assert assertIfNotActive();
     return countCollectionElements(iCollectionIds, false);
@@ -2518,7 +2468,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public long countCollectionElements(final int iCollectionId) {
     assert assertIfNotActive();
     return countCollectionElements(iCollectionId, false);
@@ -2527,7 +2476,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public MetadataDefault getMetadata() {
     assert assertIfNotActive();
     checkOpenness();
@@ -2538,7 +2486,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public boolean isRetainRecords() {
     assert assertIfNotActive();
     return retainRecords;
@@ -2547,8 +2494,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
-  public DatabaseSession setRetainRecords(boolean retainRecords) {
+  public DatabaseSessionEmbedded setRetainRecords(boolean retainRecords) {
     assert assertIfNotActive();
     this.retainRecords = retainRecords;
     return this;
@@ -2565,7 +2511,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void setInternal(final ATTRIBUTES iAttribute, final Object iValue) {
     set(iAttribute, iValue);
   }
@@ -2573,7 +2518,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public SecurityUser getCurrentUser() {
     assert assertIfNotActive();
 
@@ -2581,7 +2525,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return user;
   }
 
-  @Override
   public String getCurrentUserName() {
     var user = getCurrentUser();
     if (user == null) {
@@ -2594,7 +2537,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void setUser(final SecurityUser user) {
     assert assertIfNotActive();
     if (user instanceof SecurityUserImpl) {
@@ -2610,7 +2552,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public void reloadUser() {
     assert assertIfNotActive();
 
@@ -2638,7 +2579,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public boolean isMVCC() {
     assert assertIfNotActive();
     return true;
@@ -2647,8 +2587,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
-  public DatabaseSession setMVCC(boolean mvcc) {
+  public DatabaseSessionEmbedded setMVCC(boolean mvcc) {
     throw new UnsupportedOperationException();
   }
 
@@ -2657,7 +2596,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    *
    * @return
    */
-  @Override
   public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
 
@@ -2673,7 +2611,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
 
@@ -2687,14 +2624,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public LocalRecordCache getLocalCache() {
     return localCache;
   }
 
 
   @Nonnull
-  @Override
   public RID refreshRid(@Nonnull RID rid) {
     if (rid.isPersistent()) {
       return rid;
@@ -2713,7 +2648,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public List<RecordHook> getHooks() {
     assert assertIfNotActive();
 
@@ -2722,7 +2656,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return Collections.unmodifiableList(hooks);
   }
 
-  @Override
   public void deleteInternal(@Nonnull RecordAbstract record) {
     assert assertIfNotActive();
 
@@ -2765,7 +2698,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * @param type   Hook type. Define when hook is called.
    * @param record Record received in the callback
    */
-  @Override
   public void callbackHooks(final TYPE type, final RecordAbstract record) {
     assert assertIfNotActive();
     if (record == null || hooks.isEmpty() || record.getIdentity().getCollectionId() == 0) {
@@ -2789,7 +2721,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public boolean isValidationEnabled() {
     assert assertIfNotActive();
     return (Boolean) get(ATTRIBUTES_INTERNAL.VALIDATION);
@@ -2798,13 +2729,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void setValidationEnabled(final boolean iEnabled) {
     assert assertIfNotActive();
     set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
   }
 
-  @Override
   public ContextConfiguration getConfiguration() {
     assert assertIfNotActive();
     if (getStorageInfo() != null) {
@@ -2818,32 +2747,27 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     internalClose(false);
   }
 
-  @Override
   public STATUS getStatus() {
 
     return status;
   }
 
-  @Override
   public String getDatabaseName() {
 
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
   }
 
 
-  @Override
   public String getURL() {
     return url != null ? url : getStorageInfo().getURL();
   }
 
-  @Override
   public int getCollections() {
     assert assertIfNotActive();
 
     return getStorageInfo().getCollections();
   }
 
-  @Override
   public boolean existsCollection(final String iCollectionName) {
     assert assertIfNotActive();
 
@@ -2853,7 +2777,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
-  @Override
   public Collection<String> getCollectionNames() {
     assert assertIfNotActive();
 
@@ -2862,7 +2785,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo().getCollectionNames();
   }
 
-  @Override
   public int getCollectionIdByName(final String iCollectionName) {
     if (iCollectionName == null) {
       return -1;
@@ -2875,7 +2797,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
-  @Override
   public String getCollectionNameById(final int iCollectionId) {
     if (iCollectionId < 0) {
       return null;
@@ -2888,7 +2809,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getStorageInfo().getPhysicalCollectionNameById(iCollectionId);
   }
 
-  @Override
   public Object setProperty(final String iName, final Object iValue) {
     assert assertIfNotActive();
 
@@ -2901,7 +2821,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public Object getProperty(final String iName) {
     assert assertIfNotActive();
 
@@ -2910,7 +2829,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return properties.get(iName.toLowerCase(Locale.ENGLISH));
   }
 
-  @Override
   public Iterator<Entry<String, Object>> getProperties() {
     assert assertIfNotActive();
 
@@ -2919,7 +2837,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return properties.entrySet().iterator();
   }
 
-  @Override
   public Object get(final ATTRIBUTES iAttribute) {
     assert assertIfNotActive();
 
@@ -2939,7 +2856,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     };
   }
 
-  @Override
   public Object get(ATTRIBUTES_INTERNAL attribute) {
     assert assertIfNotActive();
 
@@ -2958,7 +2874,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public FrontendTransaction getTransactionInternal() {
     assert assertIfNotActive();
     return currentTx;
@@ -2969,7 +2884,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    *
    * @return the schema of the database
    */
-  @Override
   public Schema getSchema() {
     assert assertIfNotActive();
     return getMetadata().getSchema();
@@ -2978,7 +2892,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Nonnull
   @SuppressWarnings("unchecked")
-  @Override
   public <RET extends DBRecord> RET load(final RID recordId) {
     assert assertIfNotActive();
 
@@ -2987,7 +2900,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (RET) currentTx.loadRecord(recordId);
   }
 
-  @Override
   public boolean exists(RID rid) {
     assert assertIfNotActive();
 
@@ -2996,13 +2908,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return currentTx.exists(rid);
   }
 
-  @Override
   public BinarySerializerFactory getSerializerFactory() {
     assert assertIfNotActive();
     return componentsFactory.binarySerializerFactory;
   }
 
-  @Override
   public void setPrefetchRecords(boolean prefetchRecords) {
     assert assertIfNotActive();
 
@@ -3011,7 +2921,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     this.prefetchRecords = prefetchRecords;
   }
 
-  @Override
   public boolean isPrefetchRecords() {
     assert assertIfNotActive();
 
@@ -3021,7 +2930,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
 
@@ -3097,7 +3005,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public int begin(FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
 
@@ -3130,20 +3037,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * Creates a new EntityImpl.
    */
-  @Override
   public EntityImpl newInstance() {
     assert assertIfNotActive();
     return newInstance(Entity.DEFAULT_CLASS_NAME);
   }
 
 
-  @Override
   public Entity newEntity() {
     assert assertIfNotActive();
     return newInstance(Entity.DEFAULT_CLASS_NAME);
   }
 
-  @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     assert assertIfNotActive();
 
@@ -3153,7 +3057,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (T) JSONSerializerJackson.INSTANCE.fromString(this, json);
   }
 
-  @Override
   public Entity createOrLoadEntityFromJson(String json) {
     assert assertIfNotActive();
 
@@ -3168,19 +3071,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     throw new DatabaseException(getDatabaseName(), "The record is not an entity");
   }
 
-  @Override
   public Entity newEntity(String className) {
     assert assertIfNotActive();
     return newInstance(className);
   }
 
-  @Override
   public Entity newEntity(SchemaClass clazz) {
     assert assertIfNotActive();
     return newInstance(clazz.getName());
   }
 
-  @Override
   public Vertex newVertex(SchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
@@ -3190,7 +3090,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
@@ -3200,7 +3099,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newStatefulEdge(from, to, type.getName());
   }
 
-  @Override
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
     assert assertIfNotActive();
     return newLightweightEdge(from, to, type.getName());
@@ -3210,7 +3108,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public RecordIteratorClass browseClass(final @Nonnull String className) {
     assert assertIfNotActive();
     return browseClass(className, true);
@@ -3219,13 +3116,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public RecordIteratorClass browseClass(
       final @Nonnull String className, final boolean iPolymorphic) {
     return browseClass(className, iPolymorphic, true);
   }
 
-  @Override
   public RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
       boolean forwardDirection) {
     assert assertIfNotActive();
@@ -3241,7 +3136,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new RecordIteratorClass(this, className, iPolymorphic, forwardDirection);
   }
 
-  @Override
   public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
     assert assertIfNotActive();
 
@@ -3255,7 +3149,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
       final String iCollectionName) {
     assert assertIfNotActive();
@@ -3269,7 +3162,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public Iterable<SessionListener> getListeners() {
     assert assertIfNotActive();
     return getListenersCopy();
@@ -3278,7 +3170,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * Returns the number of the records of the class iClassName.
    */
-  @Override
   public long countClass(final String iClassName) {
     assert assertIfNotActive();
     return countClass(iClassName, true);
@@ -3288,7 +3179,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * Returns the number of the records of the class iClassName considering also sub classes if
    * polymorphic is true.
    */
-  @Override
   public long countClass(final String iClassName, final boolean iPolymorphic) {
     assert assertIfNotActive();
 
@@ -3354,7 +3244,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public Map<RID, RID> commit() {
     assert assertIfNotActive();
 
@@ -3459,7 +3348,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
   public void rollback() {
     assert assertIfNotActive();
 
@@ -3473,13 +3361,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public CurrentStorageComponentsFactory getStorageVersions() {
     assert assertIfNotActive();
     return componentsFactory;
   }
 
-  @Override
   public RecordSerializer getSerializer() {
     assert assertIfNotActive();
     return serializer;
@@ -3490,13 +3376,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    *
    * @param serializer the serializer to set.
    */
-  @Override
   public void setSerializer(RecordSerializer serializer) {
     assert assertIfNotActive();
     this.serializer = serializer;
   }
 
-  @Override
   public void resetInitialization() {
     assert assertIfNotActive();
 
@@ -3512,7 +3396,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     initialized = false;
   }
 
-  @Override
   public void checkSecurity(final int operation, final Identifiable record, String collection) {
     assert assertIfNotActive();
 
@@ -3535,7 +3418,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * @return <code>true</code> if database is obtained from the pool and <code>false</code>
    * otherwise.
    */
-  @Override
   public boolean isPooled() {
     return false;
   }
@@ -3551,12 +3433,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * Activates current database instance on current thread.
    */
-  @Override
   public void activateOnCurrentThread() {
     activeSession.set(true);
   }
 
-  @Override
   public boolean isActiveOnCurrentThread() {
     var isActive = activeSession.get();
     return isActive != null && isActive;
@@ -3596,7 +3476,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
 
@@ -3607,21 +3486,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return true;
   }
 
-  @Override
   public int[] getBlobCollectionIds() {
     assert assertIfNotActive();
     return getMetadata().getSchema().getBlobCollections().toIntArray();
   }
 
 
-  @Override
   public SharedContext getSharedContext() {
     assert assertIfNotActive();
     return sharedContext;
   }
 
 
-  @Override
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
 
@@ -3667,28 +3543,24 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     getListeners().forEach((it) -> it.onCommandEnd(this, removed));
   }
 
-  @Override
   public void closeActiveQueries() {
     for (var rs : new ArrayList<>(activeQueries.values())) {
       rs.close();
     }
   }
 
-  @Override
   public Map<String, ResultSet> getActiveQueries() {
     assert assertIfNotActive();
 
     return activeQueries;
   }
 
-  @Override
   public ResultSet getActiveQuery(String id) {
     assert assertIfNotActive();
 
     return activeQueries.get(id);
   }
 
-  @Override
   public boolean isCollectionEdge(int collection) {
     assert assertIfNotActive();
 
@@ -3696,7 +3568,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return clazz != null && clazz.isEdgeType();
   }
 
-  @Override
   public boolean isCollectionVertex(int collection) {
     assert assertIfNotActive();
 
@@ -3705,7 +3576,33 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
+  public <X extends Exception> void executeInTx(
+      @Nonnull TxConsumer<Transaction, X> code) throws X {
+    executeInTxInternal(code::accept);
+  }
+
+  @Nullable
+  public <R, X extends Exception> R computeInTx(
+      TxFunction<Transaction, R, X> supplier) throws X {
+    return computeInTxInternal(supplier::apply);
+  }
+
+  public <T, X extends Exception> void executeInTxBatches(
+      @Nonnull Iterator<T> iterator, int batchSize,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    executeInTxBatchesInternal(iterator, batchSize, consumer::accept);
+  }
+
+  public <T, X extends Exception> void executeInTxBatches(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    executeInTxBatchesInternal(iterator, consumer::accept);
+  }
+
+  public <T, X extends Exception> void executeInTxBatches(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    executeInTxBatchesInternal(stream, consumer::accept);
+  }
+
   public <X extends Exception> void executeInTxInternal(
       @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
     if (currentTx.getStatus() == TXSTATUS.COMMITTING ||
@@ -3724,13 +3621,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public <T, X extends Exception> void executeInTxBatches(
       Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     executeInTxBatches(iterable.iterator(), batchSize, consumer);
   }
 
-  @Override
   public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3741,7 +3636,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3750,7 +3644,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3761,7 +3654,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     var ok = false;
@@ -3785,7 +3677,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3793,7 +3684,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     forEachInTx(iterable.iterator(), consumer);
   }
 
-  @Override
   public <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3817,7 +3707,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public <T, X extends Exception> void executeInTxBatchesInternal(
       @Nonnull Iterator<T> iterator, int batchSize,
       TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
@@ -3843,7 +3732,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public <T, X extends Exception> void executeInTxBatchesInternal(
       Iterator<T> iterator, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3854,7 +3742,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         consumer);
   }
 
-  @Override
   public <T, X extends Exception> void executeInTxBatches(
       Iterable<T> iterable, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3864,7 +3751,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         consumer);
   }
 
-  @Override
   public <T, X extends Exception> void executeInTxBatches(
       Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3875,7 +3761,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
       TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3886,7 +3771,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public <R, X extends Exception> R computeInTxInternal(TxFunction<FrontendTransaction, R, X> code)
       throws X {
     assert assertIfNotActive();
@@ -3901,7 +3785,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Override
   public int activeTxCount() {
     assert assertIfNotActive();
 
@@ -3911,7 +3794,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return transaction.amountOfNestedTxs();
   }
 
-  @Override
   public <T> EmbeddedList<T> newEmbeddedList() {
     assert assertIfNotActive();
 
@@ -3920,7 +3802,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityEmbeddedListImpl<>();
   }
 
-  @Override
   public <T> EmbeddedList<T> newEmbeddedList(int size) {
     assert assertIfNotActive();
 
@@ -3929,7 +3810,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityEmbeddedListImpl<>(size);
   }
 
-  @Override
   public <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
     assert assertIfNotActive();
 
@@ -3939,7 +3819,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(list, this);
   }
 
-  @Override
   public EmbeddedList<String> newEmbeddedList(String[] source) {
     assert assertIfNotActive();
 
@@ -3950,7 +3829,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Date> newEmbeddedList(Date[] source) {
     assert assertIfNotActive();
 
@@ -3961,7 +3839,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
     assert assertIfNotActive();
 
@@ -3974,7 +3851,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Short> newEmbeddedList(short[] source) {
     assert assertIfNotActive();
 
@@ -3987,7 +3863,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Integer> newEmbeddedList(int[] source) {
     assert assertIfNotActive();
 
@@ -4000,7 +3875,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Long> newEmbeddedList(long[] source) {
     assert assertIfNotActive();
 
@@ -4013,7 +3887,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Float> newEmbeddedList(float[] source) {
     assert assertIfNotActive();
 
@@ -4026,7 +3899,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Double> newEmbeddedList(double[] source) {
     assert assertIfNotActive();
 
@@ -4039,7 +3911,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
     assert assertIfNotActive();
 
@@ -4052,7 +3923,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return trackedList;
   }
 
-  @Override
   public LinkList newLinkList() {
     assert assertIfNotActive();
 
@@ -4061,7 +3931,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityLinkListImpl(this);
   }
 
-  @Override
   public LinkList newLinkList(int size) {
     assert assertIfNotActive();
 
@@ -4070,7 +3939,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityLinkListImpl(this, size);
   }
 
-  @Override
   public LinkList newLinkList(Collection<? extends Identifiable> source) {
     assert assertIfNotActive();
 
@@ -4081,7 +3949,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return list;
   }
 
-  @Override
   public <T> EmbeddedSet<T> newEmbeddedSet() {
     assert assertIfNotActive();
 
@@ -4090,7 +3957,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityEmbeddedSetImpl<>();
   }
 
-  @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
     assert assertIfNotActive();
 
@@ -4099,7 +3965,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityEmbeddedSetImpl<>(size);
   }
 
-  @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
     assert assertIfNotActive();
 
@@ -4109,7 +3974,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(set, this);
   }
 
-  @Override
   public LinkSet newLinkSet() {
     assert assertIfNotActive();
 
@@ -4119,7 +3983,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     assert assertIfNotActive();
 
@@ -4130,7 +3993,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return linkSet;
   }
 
-  @Override
   public <V> EmbeddedMap<V> newEmbeddedMap() {
     assert assertIfNotActive();
 
@@ -4139,7 +4001,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityEmbeddedMapImpl<>();
   }
 
-  @Override
   public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
     assert assertIfNotActive();
 
@@ -4148,7 +4009,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityEmbeddedMapImpl<>(size);
   }
 
-  @Override
   public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
     assert assertIfNotActive();
 
@@ -4158,7 +4018,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (EmbeddedMap<V>) PropertyTypeInternal.EMBEDDEDMAP.copy(map, this);
   }
 
-  @Override
   public LinkMap newLinkMap() {
     assert assertIfNotActive();
 
@@ -4167,7 +4026,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityLinkMapIml(this);
   }
 
-  @Override
   public LinkMap newLinkMap(int size) {
     assert assertIfNotActive();
 
@@ -4176,7 +4034,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityLinkMapIml(size, this);
   }
 
-  @Override
   public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
     assert assertIfNotActive();
 
@@ -4188,7 +4045,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nonnull
-  @Override
   public FrontendTransaction getActiveTransaction() {
     assert assertIfNotActive();
 
@@ -4202,7 +4058,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
-  @Override
   public FrontendTransaction getActiveTransactionOrNull() {
     assert assertIfNotActive();
 
@@ -4594,5 +4449,260 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void enableLinkConsistencyCheck() {
     this.ensureLinkConsistency = true;
+  }
+
+  // --- Default methods migrated from DatabaseSessionEmbedded ---
+
+  public ResultSet computeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("sql", script, args);
+  }
+
+  public ResultSet computeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("gremlin", script, args);
+  }
+
+  public void executeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  public void executeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
+
+  public void executeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
+  }
+
+  public ResultSet computeSQLScript(String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("sql", script, args);
+  }
+
+  public ResultSet computeGremlinScript(String language, String script, Map<String, ?> args) {
+    return computeScript("gremlin", script, args);
+  }
+
+  public void executeScript(String language, String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  public void executeSQLScript(String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
+
+  public void executeGremlinScript(String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
+  }
+
+  // --- Default methods migrated from DatabaseSessionEmbedded ---
+
+  @Nullable
+  public <R> R transaction(Function<Transaction, R> action) throws Exception {
+    return computeInTx(action::apply);
+  }
+
+  public boolean isTxActive() {
+    return activeTxCount() > 0;
+  }
+
+  // --- Default methods migrated from DatabaseSessionEmbedded ---
+
+  public void realClose() {
+    throw new UnsupportedOperationException();
+  }
+
+  public void reuse() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nullable
+  public <RET extends DBRecord> RET loadOrNull(RID recordId) {
+    try {
+      return load(recordId);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  @Nonnull
+  public Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+    if (record instanceof Entity element) {
+      return element;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not an entity, but a "
+            + record.getClass().getSimpleName());
+  }
+
+  @Nonnull
+  public Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+    if (record instanceof Vertex vertex) {
+      return vertex;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not a vertex, but a "
+            + record.getClass().getSimpleName());
+  }
+
+  @Nonnull
+  public StatefulEdge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+
+    if (record instanceof StatefulEdge edge) {
+      return edge;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not an edge, but a "
+            + record.getClass().getSimpleName());
+  }
+
+  @Nonnull
+  public Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+
+    if (record instanceof Blob blob) {
+      return blob;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not a blob, but a "
+            + record.getClass().getSimpleName());
+  }
+
+  public Vertex newVertex() {
+    return newVertex("V");
+  }
+
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+    return newStatefulEdge(from, to, "E");
+  }
+
+  public void command(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    execute(query, args).close();
+  }
+
+  public void command(String query, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    execute(query, args).close();
+  }
+
+  public void command(
+      com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement statement,
+      Map<?, ?> args) throws CommandSQLParsingException, CommandExecutionException {
+    execute(statement, args).close();
+  }
+
+  public SchemaClassInternal getClassInternal(String className) {
+    var schema = getMetadata().getSchemaInternal();
+    return schema.getClassInternal(className);
+  }
+
+  public SchemaClass createVertexClass(String className) throws SchemaException {
+    return createClass(className, SchemaClass.VERTEX_CLASS_NAME);
+  }
+
+  public SchemaClass createEdgeClass(String className) {
+    var edgeClass = createClass(className, SchemaClass.EDGE_CLASS_NAME);
+
+    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
+
+    return edgeClass;
+  }
+
+  public SchemaClass createLightweightEdgeClass(String className) {
+    return createAbstractClass(className, SchemaClass.EDGE_CLASS_NAME);
+  }
+
+  public SchemaClass getClass(String className) {
+    var schema = getSchema();
+    return schema.getClass(className);
+  }
+
+  public SchemaClass createClass(String className, String... superclasses)
+      throws SchemaException {
+    var schema = getSchema();
+    SchemaClass[] superclassInstances = null;
+    if (superclasses != null) {
+      superclassInstances = new SchemaClass[superclasses.length];
+      for (var i = 0; i < superclasses.length; i++) {
+        var superclass = superclasses[i];
+        var superclazz = schema.getClass(superclass);
+        if (superclazz == null) {
+          throw new SchemaException(
+              getDatabaseName(), "Class " + superclass + " does not exist");
+        }
+        superclassInstances[i] = superclazz;
+      }
+    }
+    var result = schema.getClass(className);
+    if (result != null) {
+      throw new SchemaException(
+          getDatabaseName(), "Class " + className + " already exists");
+    }
+    if (superclassInstances == null) {
+      return schema.createClass(className);
+    } else {
+      return schema.createClass(className, superclassInstances);
+    }
+  }
+
+  public SchemaClass createAbstractClass(String className, String... superclasses)
+      throws SchemaException {
+    var schema = getSchema();
+    SchemaClass[] superclassInstances = null;
+    if (superclasses != null) {
+      superclassInstances = new SchemaClass[superclasses.length];
+      for (var i = 0; i < superclasses.length; i++) {
+        var superclass = superclasses[i];
+        var superclazz = schema.getClass(superclass);
+        if (superclazz == null) {
+          throw new SchemaException(
+              getDatabaseName(), "Class " + superclass + " does not exist");
+        }
+        superclassInstances[i] = superclazz;
+      }
+    }
+    var result = schema.getClass(className);
+    if (result != null) {
+      throw new SchemaException(
+          getDatabaseName(), "Class " + className + " already exists");
+    }
+    if (superclassInstances == null) {
+      return schema.createAbstractClass(className);
+    } else {
+      return schema.createAbstractClass(className, superclassInstances);
+    }
+  }
+
+  public SchemaClass createClassIfNotExist(String className, String... superclasses)
+      throws SchemaException {
+    var schema = getSchema();
+
+    var result = schema.getClass(className);
+    if (result == null) {
+      result = createClass(className, superclasses);
+    }
+
+    return result;
+  }
+
+  public Index getIndex(String indexName) {
+    var indexManager = getSharedContext().getIndexManager();
+    return indexManager.getIndex(indexName);
   }
 }

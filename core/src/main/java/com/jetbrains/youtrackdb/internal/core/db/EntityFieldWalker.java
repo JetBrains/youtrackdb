@@ -38,7 +38,7 @@ import java.util.Set;
  * collections also will be visited.
  *
  * <p>Fields values can be updated/converted too. If method {@link
- * EntityPropertiesVisitor#visitField(DatabaseSessionInternal, PropertyTypeInternal, PropertyTypeInternal, Object)}
+ * EntityPropertiesVisitor#visitField(DatabaseSessionEmbedded, PropertyTypeInternal, PropertyTypeInternal, Object)}
  * will return new value original value will be updated but returned result will not be visited by
  * {@link EntityPropertiesVisitor} instance.
  *
@@ -54,7 +54,7 @@ import java.util.Set;
 public class EntityFieldWalker {
 
   public EntityImpl walkDocument(
-      DatabaseSessionInternal session, EntityImpl entity, EntityPropertiesVisitor fieldWalker) {
+      DatabaseSessionEmbedded session, EntityImpl entity, EntityPropertiesVisitor fieldWalker) {
     final Set<EntityImpl> walked = Collections.newSetFromMap(new IdentityHashMap<>());
 
     if (entity.getIdentity().isValidPosition()) {
@@ -68,7 +68,7 @@ public class EntityFieldWalker {
   }
 
   private void walkDocument(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       EntityImpl entity,
       EntityPropertiesVisitor fieldWalker,
       Set<EntityImpl> walked) {
@@ -157,7 +157,7 @@ public class EntityFieldWalker {
   }
 
   private void walkMap(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Map map,
       PropertyTypeInternal fieldType,
       EntityPropertiesVisitor fieldWalker,
@@ -173,7 +173,7 @@ public class EntityFieldWalker {
   }
 
   private void walkIterable(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Iterable iterable,
       PropertyTypeInternal fieldType,
       EntityPropertiesVisitor fieldWalker,

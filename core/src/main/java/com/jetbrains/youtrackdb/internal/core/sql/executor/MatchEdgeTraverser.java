@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -72,7 +72,7 @@ public class MatchEdgeTraverser {
     return result;
   }
 
-  protected static Object toResult(DatabaseSessionInternal db, Identifiable nextElement) {
+  protected static Object toResult(DatabaseSessionEmbedded db, Identifiable nextElement) {
     return new ResultInternal(db, nextElement);
   }
 

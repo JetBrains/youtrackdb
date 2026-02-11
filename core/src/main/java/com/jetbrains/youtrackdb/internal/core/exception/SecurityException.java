@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Generic Security exception. Used in cryptography.
@@ -35,7 +35,7 @@ public class SecurityException extends CoreException implements HighLevelExcepti
     super(dbName, message);
   }
 
-  public SecurityException(BasicDatabaseSession<?, ?> session, final String message) {
+  public SecurityException(DatabaseSessionEmbedded session, final String message) {
     super(session != null ? session.getDatabaseName() : null, message);
   }
 

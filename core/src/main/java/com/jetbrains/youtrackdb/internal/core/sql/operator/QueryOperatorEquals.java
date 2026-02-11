@@ -21,8 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.operator;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -47,7 +46,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
     super("=", 5, false);
   }
 
-  public static boolean equals(DatabaseSessionInternal session, final Object iLeft,
+  public static boolean equals(DatabaseSessionEmbedded session, final Object iLeft,
       final Object iRight,
       PropertyTypeInternal type) {
     if (type == null) {
@@ -58,7 +57,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
     return equals(session, left, right);
   }
 
-  public static boolean equals(@Nullable DatabaseSessionInternal session, Object iLeft,
+  public static boolean equals(@Nullable DatabaseSessionEmbedded session, Object iLeft,
       Object iRight) {
 
     if (iLeft instanceof Collection<?> col && !(iRight instanceof Collection<?>)
@@ -165,7 +164,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
+  public RID getBeginRidRange(DatabaseSessionEmbedded session, final Object iLeft,
       final Object iRight) {
     if (iLeft instanceof SQLFilterItemField
         && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
@@ -195,7 +194,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
   }
 
   @Override
-  public RID getEndRidRange(DatabaseSession session, final Object iLeft, final Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, final Object iLeft, final Object iRight) {
     return getBeginRidRange(session, iLeft, iRight);
   }
 

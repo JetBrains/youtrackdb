@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.command;
 
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -43,7 +43,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
   protected Map<Object, Object> parameters;
   protected CommandContext context;
 
-  public CommandExecutorAbstract init(DatabaseSessionInternal db,
+  public CommandExecutorAbstract init(DatabaseSessionEmbedded db,
       final CommandRequestText iRequest) {
     db.checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_READ);
     parserText = iRequest.getText().trim();
@@ -99,7 +99,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
   }
 
   @Override
-  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionEmbedded session) {
     return Collections.EMPTY_SET;
   }
 

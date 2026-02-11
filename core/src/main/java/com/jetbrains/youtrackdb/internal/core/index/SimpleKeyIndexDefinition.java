@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -134,7 +134,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
 
   @Nonnull
   @Override
-  public EmbeddedMap<Object> toMap(DatabaseSessionInternal session) {
+  public EmbeddedMap<Object> toMap(DatabaseSessionEmbedded session) {
     var map = session.newEmbeddedMap();
     serializeToMap(map, session);
     return map;
@@ -171,7 +171,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionEmbedded session) {
     final List<String> keyTypeNames = session.newEmbeddedList(keyTypes.length);
 
     for (final var keyType : keyTypes) {

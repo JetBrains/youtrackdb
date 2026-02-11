@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  *
  */
 public interface ValuesConverter<T> {
 
-  T convert(DatabaseSessionInternal session, T value);
+  T convert(DatabaseSessionEmbedded session, T value);
 }

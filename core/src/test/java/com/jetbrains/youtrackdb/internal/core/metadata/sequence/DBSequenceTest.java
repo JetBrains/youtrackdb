@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
@@ -25,7 +25,7 @@ public class DBSequenceTest {
 
   private static YouTrackDBImpl youTrackDB;
 
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
   private SequenceLibrary sequences;
 
   @BeforeClass
@@ -44,7 +44,7 @@ public class DBSequenceTest {
     youTrackDB.create(
         DBSequenceTest.class.getSimpleName(), DatabaseType.MEMORY, "admin", "admin", "admin");
     db =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
     sequences = db.getMetadata().getSequenceLibrary();
   }
@@ -204,7 +204,7 @@ public class DBSequenceTest {
       service.execute(
           () -> {
             var databaseDocument =
-                (DatabaseSessionInternal)
+                (DatabaseSessionEmbedded)
                     youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
             var mtSeq1 =
                 databaseDocument.getMetadata().getSequenceLibrary().getSequence("mtSeq");
@@ -244,7 +244,7 @@ public class DBSequenceTest {
         service.execute(
             () -> {
               var databaseDocument =
-                  (DatabaseSessionInternal)
+                  (DatabaseSessionEmbedded)
                       youTrackDB.open(DBSequenceTest.class.getSimpleName(), "admin", "admin");
               var mtSeq1 =
                   databaseDocument.getMetadata().getSequenceLibrary().getSequence("mtSeq");

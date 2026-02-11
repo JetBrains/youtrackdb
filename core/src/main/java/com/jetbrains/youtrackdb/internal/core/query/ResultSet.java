@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -441,7 +441,7 @@ public interface ResultSet extends BasicResultSet<Result> {
 
   @Override
   @Nullable
-  DatabaseSession getBoundToSession();
+  DatabaseSessionEmbedded getBoundToSession();
 
   @Nullable
   ExecutionPlan getExecutionPlan();

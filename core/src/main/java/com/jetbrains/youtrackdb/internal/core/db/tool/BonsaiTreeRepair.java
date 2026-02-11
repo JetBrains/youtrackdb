@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public class BonsaiTreeRepair {
 
-  public static void repairDatabaseRidbags(DatabaseSessionInternal db,
+  public static void repairDatabaseRidbags(DatabaseSessionEmbedded db,
       CommandOutputListener outputListener) {
     message(outputListener, "Repair of ridbags is started ...\n");
 

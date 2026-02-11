@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
 import com.jetbrains.youtrackdb.internal.common.types.Binary;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -1321,7 +1320,7 @@ public abstract class StringSerializerHelper {
     return buffer.toString();
   }
 
-  public static SchemaClass getRecordClassName(DatabaseSessionInternal session, final String iValue,
+  public static SchemaClass getRecordClassName(DatabaseSessionEmbedded session, final String iValue,
       SchemaClass iLinkedClass) {
     // EXTRACT THE CLASS NAME
     final var classSeparatorPos =

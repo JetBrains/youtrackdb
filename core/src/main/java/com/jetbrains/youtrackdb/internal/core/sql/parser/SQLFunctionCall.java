@@ -3,7 +3,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -173,7 +172,7 @@ public final class SQLFunctionCall extends SimpleNode {
     }
   }
 
-  private static void validateFunctionParams(DatabaseSession session, SQLFunction function,
+  private static void validateFunctionParams(DatabaseSessionEmbedded session, SQLFunction function,
       int paramsCount) {
     if (function.getMaxParams(session) == -1 || function.getMaxParams(session) > 0) {
       if (paramsCount < function.getMinParams()

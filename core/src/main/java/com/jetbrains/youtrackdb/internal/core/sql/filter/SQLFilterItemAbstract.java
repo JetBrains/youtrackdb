@@ -23,9 +23,7 @@ import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -169,7 +167,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     }
   }
 
-  public abstract String getRoot(DatabaseSession session);
+  public abstract String getRoot(DatabaseSessionEmbedded session);
 
   public Object transformValue(
       final Result iRecord, @Nonnull final CommandContext iContext, Object ioResult) {
@@ -207,7 +205,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
       final String iRoot);
 
   @Nullable
-  protected static Collate getCollateForField(DatabaseSessionInternal session,
+  protected static Collate getCollateForField(DatabaseSessionEmbedded session,
       final SchemaClass iClass,
       final String iFieldName) {
     if (iClass != null) {
@@ -219,7 +217,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     return null;
   }
 
-  public String asString(DatabaseSession session) {
+  public String asString(DatabaseSessionEmbedded session) {
     final var buffer = new StringBuilder(128);
     final var root = getRoot(session);
     if (root != null) {

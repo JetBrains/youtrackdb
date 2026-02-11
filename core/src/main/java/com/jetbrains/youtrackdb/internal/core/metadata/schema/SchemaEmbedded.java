@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -321,13 +320,13 @@ public class SchemaEmbedded extends SchemaShared {
     return result;
   }
 
-  private int[] createCollections(DatabaseSessionInternal session, final String iClassName) {
+  private int[] createCollections(DatabaseSessionEmbedded session, final String iClassName) {
     return createCollections(
         session, iClassName, session.getStorageInfo().getConfiguration().getMinimumCollections());
   }
 
   protected int[] createCollections(
-      DatabaseSessionInternal session, String className, int minimumCollections) {
+      DatabaseSessionEmbedded session, String className, int minimumCollections) {
     className = className.toLowerCase(Locale.ENGLISH);
 
     int[] collectionIds;
@@ -360,7 +359,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   private static String getNextAvailableCollectionName(
-      DatabaseSessionInternal session, final String className) {
+      DatabaseSessionEmbedded session, final String className) {
     for (var i = 1; ; ++i) {
       final var collectionName = className + "_" + i;
       if (session.getCollectionIdByName(collectionName) < 0)
@@ -516,7 +515,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
-  private static void deleteCollection(final DatabaseSessionInternal session,
+  private static void deleteCollection(final DatabaseSessionEmbedded session,
       final int collectionId) {
     final var collectionName = session.getCollectionNameById(collectionId);
     if (collectionName != null) {
@@ -542,11 +541,11 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   @Override
-  public void checkEmbedded(DatabaseSessionInternal session) {
+  public void checkEmbedded(DatabaseSessionEmbedded session) {
   }
 
   void addCollectionForClass(
-      DatabaseSessionInternal session, final int collectionId, final SchemaClassImpl cls) {
+      DatabaseSessionEmbedded session, final int collectionId, final SchemaClassImpl cls) {
     acquireSchemaWriteLock(session);
     try {
       if (collectionId < 0) {
@@ -571,7 +570,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
 
-  void removeCollectionForClass(DatabaseSessionInternal session, int collectionId) {
+  void removeCollectionForClass(DatabaseSessionEmbedded session, int collectionId) {
     acquireSchemaWriteLock(session);
     try {
       if (collectionId < 0) {

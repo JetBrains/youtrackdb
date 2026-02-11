@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.EntityHookAbstract;
@@ -47,7 +47,7 @@ public class DbListenerTest extends BaseDBTest {
 
     final Map<Entity, List<String>> changes = new HashMap<>();
 
-    public DocumentChangeListener(final DatabaseSession db) {
+    public DocumentChangeListener(final DatabaseSessionEmbedded db) {
       db.registerHook(
           new EntityHookAbstract() {
 
@@ -93,7 +93,7 @@ public class DbListenerTest extends BaseDBTest {
     }
 
     @Override
-    public void onClose(DatabaseSession iDatabase) {
+    public void onClose(DatabaseSessionEmbedded iDatabase) {
       onClose++;
     }
   }

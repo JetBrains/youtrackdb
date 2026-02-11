@@ -98,7 +98,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
             });
   }
 
-  public void load(DatabaseSessionInternal database) {
+  public void load(DatabaseSessionEmbedded database) {
     if (loaded) {
       return;
     }
@@ -145,7 +145,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   }
 
 
-  public void reload(DatabaseSessionInternal database) {
+  public void reload(DatabaseSessionEmbedded database) {
     lock.lock();
     try {
       schema.reload(database);
@@ -204,7 +204,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     }
   }
 
-  public void reInit(AbstractStorage storage2, DatabaseSessionInternal database) {
+  public void reInit(AbstractStorage storage2, DatabaseSessionEmbedded database) {
     lock.lock();
     try {
       this.close();

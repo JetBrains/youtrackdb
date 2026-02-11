@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query.collection.links;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -32,7 +32,7 @@ import java.util.Map;
 /// ```
 ///
 /// Link map cannot be instantiated directly, instead you should use factory methods either in
-/// [DatabaseSession] or in [Transaction] or in [Entity] objects.
+/// [DatabaseSessionEmbedded] or in [Transaction] or in [Entity] objects.
 ///
 /// @see BasicResult#getLinkMap(String)
 public interface LinkMap extends Map<String, Identifiable> {

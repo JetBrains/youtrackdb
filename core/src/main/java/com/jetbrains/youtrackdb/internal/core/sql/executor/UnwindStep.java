@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -44,11 +44,11 @@ public class UnwindStep extends AbstractExecutionStep {
     return resultSet.flatMap((res, res2) -> fetchNextResults(db, res));
   }
 
-  private ExecutionStream fetchNextResults(DatabaseSessionInternal db, Result res) {
+  private ExecutionStream fetchNextResults(DatabaseSessionEmbedded db, Result res) {
     return ExecutionStream.resultIterator(unwind(db, res, unwindFields).iterator());
   }
 
-  private static Collection<Result> unwind(DatabaseSessionInternal db, final Result entity,
+  private static Collection<Result> unwind(DatabaseSessionEmbedded db, final Result entity,
       final List<String> unwindFields) {
     final List<Result> result = new ArrayList<>();
 

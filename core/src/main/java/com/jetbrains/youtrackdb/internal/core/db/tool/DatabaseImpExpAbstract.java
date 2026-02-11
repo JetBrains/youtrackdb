@@ -20,13 +20,13 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.List;
 
 /**
  * Abstract class for import/export of database and data in general.
  */
-public abstract class DatabaseImpExpAbstract<S extends BasicDatabaseSession<?, ?>> extends DatabaseTool<S> {
+public abstract class DatabaseImpExpAbstract<S extends DatabaseSessionEmbedded> extends DatabaseTool<S> {
 
   protected static final String DEFAULT_EXT = ".json";
   protected String fileName;
@@ -67,7 +67,7 @@ public abstract class DatabaseImpExpAbstract<S extends BasicDatabaseSession<?, ?
     this.listener = listener;
   }
 
-  public BasicDatabaseSession<?, ?> getDatabase() {
+  public DatabaseSessionEmbedded getDatabase() {
     return session;
   }
 

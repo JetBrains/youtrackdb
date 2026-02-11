@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.api.exception;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 
@@ -41,7 +41,7 @@ public class RecordDuplicatedException extends CoreException implements HighLeve
   }
 
   public RecordDuplicatedException(
-      DatabaseSessionInternal db, final String message, final String indexName, final RID iRid,
+      DatabaseSessionEmbedded db, final String message, final String indexName, final RID iRid,
       Object key) {
     super(db, message);
     this.indexName = indexName;

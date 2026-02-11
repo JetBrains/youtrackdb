@@ -19,7 +19,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -44,7 +44,7 @@ public class LuceneInheritanceQueryTest extends BaseLuceneTest {
     session.commit();
   }
 
-  protected static void createSchema(DatabaseSessionInternal db) {
+  protected static void createSchema(DatabaseSessionEmbedded db) {
     final var c1 = db.createVertexClass("C1");
     c1.createProperty("name", PropertyType.STRING);
     c1.createIndex("C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});

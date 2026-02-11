@@ -39,16 +39,16 @@ public interface DatabaseLifecycleListener {
     return PRIORITY.LAST;
   }
 
-  default void onCreate(@Nonnull DatabaseSessionInternal session) {
+  default void onCreate(@Nonnull DatabaseSessionEmbedded session) {
   }
 
-  default void onOpen(@Nonnull DatabaseSessionInternal session) {
+  default void onOpen(@Nonnull DatabaseSessionEmbedded session) {
   }
 
-  default void onClose(@Nonnull DatabaseSessionInternal session) {
+  default void onClose(@Nonnull DatabaseSessionEmbedded session) {
   }
 
-  default void onDrop(@Nonnull DatabaseSessionInternal session) {
+  default void onDrop(@Nonnull DatabaseSessionEmbedded session) {
   }
 
   @Deprecated

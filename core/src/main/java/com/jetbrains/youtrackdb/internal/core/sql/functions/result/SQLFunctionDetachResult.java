@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.result;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
@@ -25,7 +25,7 @@ public class SQLFunctionDetachResult extends SQLFunctionAbstract {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "detach()";
   }
 }

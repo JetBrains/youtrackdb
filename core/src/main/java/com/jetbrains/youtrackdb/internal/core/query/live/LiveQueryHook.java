@@ -23,8 +23,7 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_LIVE
 
 import com.jetbrains.youtrackdb.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -40,7 +39,7 @@ public class LiveQueryHook {
 
   public static class LiveQueryOps implements CloseableInStorage {
 
-    protected Map<DatabaseSession, List<RecordOperation>> pendingOps = new ConcurrentHashMap<>();
+    protected Map<DatabaseSessionEmbedded, List<RecordOperation>> pendingOps = new ConcurrentHashMap<>();
     private LiveQueryQueueThread queueThread = new LiveQueryQueueThread();
     private final Object threadLock = new Object();
 
@@ -60,12 +59,12 @@ public class LiveQueryHook {
     }
   }
 
-  public static LiveQueryOps getOpsReference(DatabaseSessionInternal db) {
+  public static LiveQueryOps getOpsReference(DatabaseSessionEmbedded db) {
     return db.getSharedContext().getLiveQueryOps();
   }
 
   public static Integer subscribe(
-      Integer token, LiveQueryListener iListener, DatabaseSessionInternal db) {
+      Integer token, LiveQueryListener iListener, DatabaseSessionEmbedded db) {
     if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       LogManager.instance()
           .warn(
@@ -86,7 +85,7 @@ public class LiveQueryHook {
     return ops.queueThread.subscribe(token, iListener);
   }
 
-  public static void unsubscribe(Integer id, DatabaseSessionInternal db) {
+  public static void unsubscribe(Integer id, DatabaseSessionEmbedded db) {
     if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       LogManager.instance()
           .warn(
@@ -106,9 +105,9 @@ public class LiveQueryHook {
     }
   }
 
-  public static void notifyForTxChanges(DatabaseSession iDatabase) {
+  public static void notifyForTxChanges(DatabaseSessionEmbedded iDatabase) {
 
-    var ops = getOpsReference((DatabaseSessionInternal) iDatabase);
+    var ops = getOpsReference((DatabaseSessionEmbedded) iDatabase);
     if (ops.pendingOps.isEmpty()) {
       return;
     }
@@ -128,13 +127,13 @@ public class LiveQueryHook {
     }
   }
 
-  public static void removePendingDatabaseOps(DatabaseSession iDatabase) {
+  public static void removePendingDatabaseOps(DatabaseSessionEmbedded iDatabase) {
     try {
       if (iDatabase.isClosed()
           || Boolean.FALSE.equals(iDatabase.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
         return;
       }
-      var ops = getOpsReference((DatabaseSessionInternal) iDatabase);
+      var ops = getOpsReference((DatabaseSessionEmbedded) iDatabase);
       synchronized (ops.pendingOps) {
         ops.pendingOps.remove(iDatabase);
       }
@@ -144,9 +143,9 @@ public class LiveQueryHook {
     }
   }
 
-  public static void addOp(EntityImpl entity, byte iType, DatabaseSession database) {
+  public static void addOp(EntityImpl entity, byte iType, DatabaseSessionEmbedded database) {
     var db = database;
-    var ops = getOpsReference((DatabaseSessionInternal) db);
+    var ops = getOpsReference((DatabaseSessionEmbedded) db);
     if (!ops.queueThread.hasListeners()) {
       return;
     }

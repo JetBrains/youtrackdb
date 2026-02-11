@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import javax.script.Bindings;
 import javax.script.ScriptEngine;
 
@@ -28,5 +28,5 @@ import javax.script.ScriptEngine;
  */
 public interface ScriptResultHandler {
 
-  Object handle(Object result, ScriptEngine engine, Bindings binding, DatabaseSession database);
+  Object handle(Object result, ScriptEngine engine, Bindings binding, DatabaseSessionEmbedded database);
 }

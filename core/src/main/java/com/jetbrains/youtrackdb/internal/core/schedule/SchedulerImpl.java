@@ -18,8 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.schedule;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -61,7 +60,7 @@ public class SchedulerImpl {
     this.youtrackDB = youtrackDB;
   }
 
-  public void scheduleEvent(DatabaseSession session, final ScheduledEvent event) {
+  public void scheduleEvent(DatabaseSessionEmbedded session, final ScheduledEvent event) {
     if (events.putIfAbsent(event.getName(), event) == null) {
       var database = session.getDatabaseName();
       event.schedule(database, "admin", youtrackDB);
@@ -90,7 +89,7 @@ public class SchedulerImpl {
         eventEntity.getProperty(ScheduledEvent.PROP_NAME));
   }
 
-  public void onEventDropped(DatabaseSessionInternal session, RID rid) {
+  public void onEventDropped(DatabaseSessionEmbedded session, RID rid) {
     var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
 
     @SuppressWarnings("unchecked")
@@ -99,7 +98,7 @@ public class SchedulerImpl {
     removeEventInternal(eventName);
   }
 
-  public void removeEvent(DatabaseSessionInternal session, final String eventName) {
+  public void removeEvent(DatabaseSessionEmbedded session, final String eventName) {
     LogManager.instance().debug(this, "Removing scheduled event '%s'...", logger, eventName);
 
     final var event = removeEventInternal(eventName);
@@ -115,7 +114,7 @@ public class SchedulerImpl {
     }
   }
 
-  public void updateEvent(DatabaseSessionInternal session, final ScheduledEvent event) {
+  public void updateEvent(DatabaseSessionEmbedded session, final ScheduledEvent event) {
     final var oldEvent = events.remove(event.getName());
     if (oldEvent != null) {
       oldEvent.interrupt();
@@ -137,7 +136,7 @@ public class SchedulerImpl {
     return events.get(name);
   }
 
-  public void load(DatabaseSessionInternal session) {
+  public void load(DatabaseSessionEmbedded session) {
     if (session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from " + ScheduledEvent.CLASS_NAME)) {
@@ -157,7 +156,7 @@ public class SchedulerImpl {
     events.clear();
   }
 
-  public static void create(DatabaseSessionInternal database) {
+  public static void create(DatabaseSessionEmbedded database) {
     if (database
         .getMetadata()
         .getImmutableSchemaSnapshot()
@@ -206,7 +205,7 @@ public class SchedulerImpl {
     entity.setProperty(ScheduledEvent.PROP_STATUS, STATUS.STOPPED.name());
   }
 
-  public void preHandleUpdateScheduleInTx(DatabaseSessionInternal session, EntityImpl entity) {
+  public void preHandleUpdateScheduleInTx(DatabaseSessionEmbedded session, EntityImpl entity) {
     try {
       final String schedulerName = entity.getProperty(ScheduledEvent.PROP_NAME);
       var event = getEvent(schedulerName);
@@ -240,7 +239,7 @@ public class SchedulerImpl {
     }
   }
 
-  public void postHandleUpdateScheduleAfterTxCommit(DatabaseSessionInternal session,
+  public void postHandleUpdateScheduleAfterTxCommit(DatabaseSessionEmbedded session,
       EntityImpl entity) {
     try {
       var tx = session.getTransactionInternal();

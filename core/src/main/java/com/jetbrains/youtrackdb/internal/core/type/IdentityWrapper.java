@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.type;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -33,7 +33,7 @@ public abstract class IdentityWrapper implements Identifiable {
 
   private final @Nonnull RID rid;
 
-  public IdentityWrapper(DatabaseSessionInternal sessionInternal, final String iClassName) {
+  public IdentityWrapper(DatabaseSessionEmbedded sessionInternal, final String iClassName) {
     var entity = sessionInternal.newEntity(iClassName);
     rid = entity.getIdentity();
   }
@@ -42,7 +42,7 @@ public abstract class IdentityWrapper implements Identifiable {
     rid = entity.getIdentity();
   }
 
-  protected abstract void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity);
+  protected abstract void toEntity(@Nonnull DatabaseSessionEmbedded db, @Nonnull EntityImpl entity);
 
   @Override
   public int compareTo(@Nonnull Identifiable o) {
@@ -55,12 +55,12 @@ public abstract class IdentityWrapper implements Identifiable {
     return rid;
   }
 
-  public void save(DatabaseSessionInternal db) {
+  public void save(DatabaseSessionEmbedded db) {
     var entity = db.loadEntity(rid);
     toEntity(db, (EntityImpl) entity);
   }
 
-  public void delete(DatabaseSessionInternal db) {
+  public void delete(DatabaseSessionEmbedded db) {
     try {
       var entity = db.loadEntity(rid);
       db.delete(entity);

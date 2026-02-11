@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -48,7 +48,7 @@ public class FreeSpaceMapTestIT {
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     final var databaseDocumentTx =
-        (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
+        (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin");
 
     storage = (AbstractStorage) databaseDocumentTx.getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();

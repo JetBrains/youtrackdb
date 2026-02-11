@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.functions;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
@@ -52,7 +52,7 @@ public class STGeomFromGeoJSONFunction extends SQLFunctionAbstract {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "";
   }
 }

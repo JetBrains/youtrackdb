@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.RetryQueryException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -96,7 +95,7 @@ public class Function extends IdentityWrapper {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionEmbedded session, @Nonnull EntityImpl entity) {
     entity.setProperty(NAME_PROPERTY, name);
     entity.setProperty(CODE_PROPERTY, code);
     entity.setProperty(LANGUAGE_PROPERTY, language);

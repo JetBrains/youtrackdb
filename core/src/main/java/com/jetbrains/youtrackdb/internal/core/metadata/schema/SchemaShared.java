@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
@@ -186,7 +185,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
-  public ImmutableSchema makeSnapshot(DatabaseSessionInternal session) {
+  public ImmutableSchema makeSnapshot(DatabaseSessionEmbedded session) {
     var snapshot = this.snapshot;
 
     if (snapshot == null) {
@@ -227,7 +226,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return collectionSelectionFactory;
   }
 
-  public int countClasses(DatabaseSessionInternal session) {
+  public int countClasses(DatabaseSessionEmbedded session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
     acquireSchemaReadLock();
@@ -305,9 +304,9 @@ public abstract class SchemaShared implements CloseableInStorage {
       SchemaClassImpl... superClasses);
 
 
-  public abstract void checkEmbedded(DatabaseSessionInternal session);
+  public abstract void checkEmbedded(DatabaseSessionEmbedded session);
 
-  void checkCollectionCanBeAdded(DatabaseSessionInternal session, int collectionId,
+  void checkCollectionCanBeAdded(DatabaseSessionEmbedded session, int collectionId,
       SchemaClassImpl cls) {
     acquireSchemaReadLock();
     try {
@@ -349,7 +348,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   /**
    * Reloads the schema inside a storage's shared lock.
    */
-  public void reload(DatabaseSessionInternal session) {
+  public void reload(DatabaseSessionEmbedded session) {
     lock.writeLock().lock();
     try {
       session.executeInTx(
@@ -410,16 +409,16 @@ public abstract class SchemaShared implements CloseableInStorage {
     lock.readLock().unlock();
   }
 
-  public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
+  public void acquireSchemaWriteLock(DatabaseSessionEmbedded session) {
     lock.writeLock().lock();
     modificationCounter.increment();
   }
 
-  public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
+  public void releaseSchemaWriteLock(DatabaseSessionEmbedded session) {
     releaseSchemaWriteLock(session, true);
   }
 
-  public void releaseSchemaWriteLock(DatabaseSessionInternal session, final boolean iSave) {
+  public void releaseSchemaWriteLock(DatabaseSessionEmbedded session, final boolean iSave) {
     int count;
     try {
       if (modificationCounter.intValue() == 1) {
@@ -449,7 +448,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   void changeClassName(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String oldName,
       final String newName,
       final SchemaClassImpl cls) {
@@ -483,7 +482,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   /**
    * Binds EntityImpl to POJO.
    */
-  public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
+  public void fromStream(DatabaseSessionEmbedded session, EntityImpl entity) {
     lock.writeLock().lock();
     modificationCounter.increment();
     try {
@@ -611,7 +610,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   /**
    * Binds POJO to EntityImpl.
    */
-  public EntityImpl toStream(@Nonnull DatabaseSessionInternal session) {
+  public EntityImpl toStream(@Nonnull DatabaseSessionEmbedded session) {
     lock.readLock().lock();
     try {
       EntityImpl entity = session.load(identity);
@@ -641,7 +640,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public Collection<SchemaClassImpl> getClasses(DatabaseSessionInternal session) {
+  public Collection<SchemaClassImpl> getClasses(DatabaseSessionEmbedded session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
     acquireSchemaReadLock();
     try {
@@ -652,7 +651,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public Set<SchemaClassImpl> getClassesRelyOnCollection(
-      DatabaseSessionInternal session, final String collectionName) {
+      DatabaseSessionEmbedded session, final String collectionName) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
     acquireSchemaReadLock();
@@ -671,7 +670,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public SchemaShared load(DatabaseSessionInternal session) {
+  public SchemaShared load(DatabaseSessionEmbedded session) {
 
     lock.writeLock().lock();
     try {
@@ -692,7 +691,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public void create(final DatabaseSessionInternal session) {
+  public void create(final DatabaseSessionEmbedded session) {
     lock.writeLock().lock();
     try {
       var entity = session.computeInTx(transaction -> session.newInternalInstance());
@@ -738,7 +737,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public GlobalProperty createGlobalProperty(
-      DatabaseSessionInternal session, final String name, final PropertyTypeInternal type,
+      DatabaseSessionEmbedded session, final String name, final PropertyTypeInternal type,
       final Integer id) {
 
     acquireSchemaWriteLock(session);
@@ -783,7 +782,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return global;
   }
 
-  private void saveInternal(DatabaseSessionInternal session) {
+  private void saveInternal(DatabaseSessionEmbedded session) {
 
     var tx = session.getTransactionInternal();
     if (tx.isActive()) {
@@ -813,7 +812,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public int addBlobCollection(DatabaseSessionInternal session, int collectionId) {
+  public int addBlobCollection(DatabaseSessionEmbedded session, int collectionId) {
     acquireSchemaWriteLock(session);
     try {
       checkCollectionCanBeAdded(session, collectionId, null);
@@ -824,7 +823,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return collectionId;
   }
 
-  public void removeBlobCollection(DatabaseSessionInternal session, String collectionName) {
+  public void removeBlobCollection(DatabaseSessionEmbedded session, String collectionName) {
     acquireSchemaWriteLock(session);
     try {
       var collectionId = getCollectionId(session, collectionName);
@@ -834,7 +833,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  protected static int getCollectionId(DatabaseSessionInternal session, final String stringValue) {
+  protected static int getCollectionId(DatabaseSessionEmbedded session, final String stringValue) {
     int clId;
     try {
       clId = Integer.parseInt(stringValue);

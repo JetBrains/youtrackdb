@@ -18,7 +18,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -40,7 +40,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
 
     Schema schema = db.getMetadata().getSchema();
     var point = schema.createAbstractClass(NAME, superClass(db));
@@ -74,7 +74,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   }
 
   @Override
-  public EmbeddedEntity toEmbeddedEntity(final Point shape, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(final Point shape, DatabaseSessionEmbedded session) {
     var entity = session.newEmbeddedEntity(NAME);
     entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
           {
@@ -87,7 +87,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
 
   @Override
   protected EmbeddedEntity toEmbeddedEntity(Point parsed, Geometry geometry,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinate().getZ())) {
       return toEmbeddedEntity(parsed, session);
     }

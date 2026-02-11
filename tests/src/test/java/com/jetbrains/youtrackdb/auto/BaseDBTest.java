@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
@@ -55,18 +54,18 @@ public abstract class BaseDBTest extends BaseTest {
     return (DatabaseSessionEmbedded) youTrackDB.open(dbName, user, password);
   }
 
-  protected List<Result> executeQuery(String sql, DatabaseSessionInternal db,
+  protected List<Result> executeQuery(String sql, DatabaseSessionEmbedded db,
       Object... args) {
     return db.query(sql, args).stream()
         .toList();
   }
 
-  protected static List<Result> executeQuery(String sql, DatabaseSessionInternal db, Map args) {
+  protected static List<Result> executeQuery(String sql, DatabaseSessionEmbedded db, Map args) {
     return db.query(sql, args).stream()
         .toList();
   }
 
-  protected static List<Result> executeQuery(String sql, DatabaseSessionInternal db) {
+  protected static List<Result> executeQuery(String sql, DatabaseSessionEmbedded db) {
     try (var rs = db.query(sql)) {
       return rs.stream()
           .toList();

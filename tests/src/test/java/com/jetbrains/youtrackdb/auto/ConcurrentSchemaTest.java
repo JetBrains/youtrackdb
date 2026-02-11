@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.test.ConcurrentTestHelper;
 import com.jetbrains.youtrackdb.internal.test.TestFactory;
 import java.util.concurrent.Callable;
@@ -45,7 +45,7 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     public Void call() {
       this.id = createClassThreadCounter.getAndIncrement();
       for (var i = 0; i < CYCLES; i++) {
-        DatabaseSession db = acquireSession();
+        DatabaseSessionEmbedded db = acquireSession();
         try {
           final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 
@@ -80,7 +80,7 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     public Void call() {
       this.id = dropClassThreadCounter.getAndIncrement();
       for (var i = 0; i < CYCLES; i++) {
-        DatabaseSession db = acquireSession();
+        DatabaseSessionEmbedded db = acquireSession();
         try {
           final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 

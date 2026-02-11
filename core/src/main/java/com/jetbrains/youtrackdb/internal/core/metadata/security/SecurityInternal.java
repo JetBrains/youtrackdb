@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -17,41 +15,41 @@ import java.util.Set;
 public interface SecurityInternal {
 
   boolean isAllowed(
-      DatabaseSessionInternal session, Set<Identifiable> iAllowAll,
+      DatabaseSessionEmbedded session, Set<Identifiable> iAllowAll,
       Set<Identifiable> iAllowOperation);
 
   SecurityUser authenticate(DatabaseSessionEmbedded session, String iUsername,
       String iUserPassword);
 
   SecurityUserImpl createUser(
-      DatabaseSessionInternal session, String iUserName, String iUserPassword, String[] iRoles);
+      DatabaseSessionEmbedded session, String iUserName, String iUserPassword, String[] iRoles);
 
   SecurityUserImpl createUser(
-      DatabaseSessionInternal session, String iUserName, String iUserPassword, Role[] iRoles);
+      DatabaseSessionEmbedded session, String iUserName, String iUserPassword, Role[] iRoles);
 
   SecurityUser authenticate(DatabaseSessionEmbedded session, Token authToken);
 
   Role createRole(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       String iRoleName,
       Role iParent);
 
   Role createRole(
-      DatabaseSessionInternal session, String iRoleName);
+      DatabaseSessionEmbedded session, String iRoleName);
 
   SecurityUser getUser(DatabaseSessionEmbedded session, String iUserName);
 
-  SecurityUserImpl getUser(DatabaseSession session, RID userId);
+  SecurityUserImpl getUser(DatabaseSessionEmbedded session, RID userId);
 
-  Role getRole(DatabaseSession session, String iRoleName);
+  Role getRole(DatabaseSessionEmbedded session, String iRoleName);
 
-  Role getRole(DatabaseSession session, Identifiable iRoleRid);
+  Role getRole(DatabaseSessionEmbedded session, Identifiable iRoleRid);
 
-  List<EntityImpl> getAllUsers(DatabaseSession session);
+  List<EntityImpl> getAllUsers(DatabaseSessionEmbedded session);
 
-  List<EntityImpl> getAllRoles(DatabaseSession session);
+  List<EntityImpl> getAllRoles(DatabaseSessionEmbedded session);
 
-  Map<String, ? extends SecurityPolicy> getSecurityPolicies(DatabaseSession session,
+  Map<String, ? extends SecurityPolicy> getSecurityPolicies(DatabaseSessionEmbedded session,
       SecurityRole role);
 
   /**
@@ -64,7 +62,7 @@ public interface SecurityInternal {
    *                 "database.class.Person"
    * @return
    */
-  SecurityPolicy getSecurityPolicy(DatabaseSession session, SecurityRole role, String resource);
+  SecurityPolicy getSecurityPolicy(DatabaseSessionEmbedded session, SecurityRole role, String resource);
 
   /**
    * Sets a security policy for a specific resource on a role
@@ -76,7 +74,7 @@ public interface SecurityInternal {
    * @param policy   The security policy
    */
   void setSecurityPolicy(
-      DatabaseSessionInternal session, SecurityRole role, String resource,
+      DatabaseSessionEmbedded session, SecurityRole role, String resource,
       SecurityPolicyImpl policy);
 
   /**
@@ -86,13 +84,13 @@ public interface SecurityInternal {
    * @param name    the policy name
    * @return
    */
-  SecurityPolicyImpl createSecurityPolicy(DatabaseSession session, String name);
+  SecurityPolicyImpl createSecurityPolicy(DatabaseSessionEmbedded session, String name);
 
-  SecurityPolicyImpl getSecurityPolicy(DatabaseSession session, String name);
+  SecurityPolicyImpl getSecurityPolicy(DatabaseSessionEmbedded session, String name);
 
-  void saveSecurityPolicy(DatabaseSession session, SecurityPolicyImpl policy);
+  void saveSecurityPolicy(DatabaseSessionEmbedded session, SecurityPolicyImpl policy);
 
-  void deleteSecurityPolicy(DatabaseSession session, String name);
+  void deleteSecurityPolicy(DatabaseSessionEmbedded session, String name);
 
   /**
    * Removes security policy bound to a role for a specific resource
@@ -102,19 +100,19 @@ public interface SecurityInternal {
    * @param resource the string representation of the security resource, eg.
    *                 "database.class.Person"
    */
-  void removeSecurityPolicy(DatabaseSession session, Role role, String resource);
+  void removeSecurityPolicy(DatabaseSessionEmbedded session, Role role, String resource);
 
-  boolean dropUser(DatabaseSession session, String iUserName);
+  boolean dropUser(DatabaseSessionEmbedded session, String iUserName);
 
-  boolean dropRole(DatabaseSession session, String iRoleName);
+  boolean dropRole(DatabaseSessionEmbedded session, String iRoleName);
 
-  long getVersion(DatabaseSession session);
+  long getVersion(DatabaseSessionEmbedded session);
 
-  void incrementVersion(DatabaseSession session);
+  void incrementVersion(DatabaseSessionEmbedded session);
 
-  SecurityUserImpl create(DatabaseSessionInternal session);
+  SecurityUserImpl create(DatabaseSessionEmbedded session);
 
-  void load(DatabaseSessionInternal session);
+  void load(DatabaseSessionEmbedded session);
 
   void close();
 

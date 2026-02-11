@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -25,7 +24,7 @@ public class ImmutableRole implements SecurityRole {
   private final RID rid;
   private final Map<String, SecurityPolicy> policies;
 
-  public ImmutableRole(DatabaseSessionInternal session, SecurityRole role) {
+  public ImmutableRole(DatabaseSessionEmbedded session, SecurityRole role) {
     if (role.getParentRole() == null) {
       this.parentRole = null;
     } else {
@@ -97,19 +96,19 @@ public class ImmutableRole implements SecurityRole {
   }
 
   public SecurityRole addRule(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation) {
     throw new UnsupportedOperationException();
   }
 
   public SecurityRole grant(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation) {
     throw new UnsupportedOperationException();
   }
 
   public Role revoke(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric, String resourceSpecific,
       final int iOperation) {
     throw new UnsupportedOperationException();
   }
@@ -143,21 +142,21 @@ public class ImmutableRole implements SecurityRole {
   }
 
   @Override
-  public SecurityRole addRule(DatabaseSession session, String iResource, int iOperation) {
+  public SecurityRole addRule(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SecurityRole grant(DatabaseSession session, String iResource, int iOperation) {
+  public SecurityRole grant(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SecurityRole revoke(DatabaseSession session, String iResource, int iOperation) {
+  public SecurityRole revoke(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     throw new UnsupportedOperationException();
   }
 
-  public String getName(DatabaseSession session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
@@ -165,7 +164,7 @@ public class ImmutableRole implements SecurityRole {
     return parentRole;
   }
 
-  public void setParentRole(DatabaseSession session, final SecurityRole iParent) {
+  public void setParentRole(DatabaseSessionEmbedded session, final SecurityRole iParent) {
     throw new UnsupportedOperationException();
   }
 
@@ -184,13 +183,13 @@ public class ImmutableRole implements SecurityRole {
   }
 
   @Override
-  public Map<String, SecurityPolicy> getPolicies(DatabaseSession session) {
+  public Map<String, SecurityPolicy> getPolicies(DatabaseSessionEmbedded session) {
     return policies;
   }
 
   @Nullable
   @Override
-  public SecurityPolicy getPolicy(DatabaseSession session, String resource) {
+  public SecurityPolicy getPolicy(DatabaseSessionEmbedded session, String resource) {
     if (policies == null) {
       return null;
     }

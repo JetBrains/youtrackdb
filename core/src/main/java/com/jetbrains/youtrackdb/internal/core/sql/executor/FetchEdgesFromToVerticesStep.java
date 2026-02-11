@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -80,7 +80,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return new MultipleExecutionStream(res);
   }
 
-  private ExecutionStream createResultSet(DatabaseSessionInternal db, Set<RID> toList,
+  private ExecutionStream createResultSet(DatabaseSessionEmbedded db, Set<RID> toList,
       Object val) {
     return ExecutionStream.resultIterator(
         StreamSupport.stream(FetchEdgesFromToVerticesStep.loadNextResults(db, val).spliterator(),
@@ -92,7 +92,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
   }
 
   @Nullable
-  private Set<RID> loadTo(DatabaseSessionInternal session) {
+  private Set<RID> loadTo(DatabaseSessionEmbedded session) {
     Object toValues = null;
 
     toValues = ctx.getVariable(toAlias);
@@ -140,14 +140,14 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return (Iterator<?>) fromValues;
   }
 
-  private boolean filterResult(DatabaseSessionInternal db, Edge edge, Set<RID> toList) {
+  private boolean filterResult(DatabaseSessionEmbedded db, Edge edge, Set<RID> toList) {
     if (toList == null || toList.contains(edge.getTo().getIdentity())) {
       return matchesClass(db, edge) && matchesCollection(edge);
     }
     return true;
   }
 
-  private static Iterable<Edge> loadNextResults(DatabaseSessionInternal session, Object from) {
+  private static Iterable<Edge> loadNextResults(DatabaseSessionEmbedded session, Object from) {
     if (from instanceof Result result && result.isEntity()) {
       from = result.asEntityOrNull();
     }
@@ -177,7 +177,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return false;
   }
 
-  private boolean matchesClass(DatabaseSessionInternal db, Edge edge) {
+  private boolean matchesClass(DatabaseSessionEmbedded db, Edge edge) {
     if (targetClass == null) {
       return true;
     }

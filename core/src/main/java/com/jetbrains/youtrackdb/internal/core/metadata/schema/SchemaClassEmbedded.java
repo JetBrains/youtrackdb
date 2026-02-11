@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -25,7 +25,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   @Override
   public SchemaPropertyImpl addProperty(
-      DatabaseSessionInternal session, final String propertyName,
+      DatabaseSessionEmbedded session, final String propertyName,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType,
       final SchemaClassImpl linkedClass,
@@ -65,7 +65,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void setCustom(DatabaseSessionInternal session, final String name,
+  public void setCustom(DatabaseSessionEmbedded session, final String name,
       final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -78,7 +78,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void clearCustom(DatabaseSessionInternal session) {
+  public void clearCustom(DatabaseSessionEmbedded session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -89,7 +89,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void clearCustomInternal(DatabaseSessionInternal session) {
+  protected void clearCustomInternal(DatabaseSessionEmbedded session) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
@@ -101,7 +101,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void removeBaseClassInternal(DatabaseSessionInternal session,
+  public void removeBaseClassInternal(DatabaseSessionEmbedded session,
       final SchemaClassImpl baseClass) {
     acquireSchemaWriteLock(session);
     try {
@@ -121,7 +121,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void addSuperClass(DatabaseSessionInternal session,
+  public void addSuperClass(DatabaseSessionEmbedded session,
       final SchemaClassImpl superClass) {
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -129,7 +129,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     addSuperClassInternal(session, superClass);
   }
 
-  public void addSuperClassInternal(DatabaseSessionInternal session,
+  public void addSuperClassInternal(DatabaseSessionEmbedded session,
       final SchemaClassImpl superClass) {
 
     acquireSchemaWriteLock(session);
@@ -169,7 +169,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void removeSuperClass(DatabaseSessionInternal session, SchemaClassImpl superClass) {
+  public void removeSuperClass(DatabaseSessionEmbedded session, SchemaClassImpl superClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
     try {
@@ -180,7 +180,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void removeSuperClassInternal(DatabaseSessionInternal session,
+  protected void removeSuperClassInternal(DatabaseSessionEmbedded session,
       final SchemaClassImpl superClass) {
     acquireSchemaWriteLock(session);
     try {
@@ -208,7 +208,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void setSuperClasses(DatabaseSessionInternal session,
+  public void setSuperClasses(DatabaseSessionEmbedded session,
       final List<SchemaClassImpl> classes) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     if (classes != null) {
@@ -226,7 +226,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
 
   @Override
-  protected void setSuperClassesInternal(DatabaseSessionInternal session,
+  protected void setSuperClassesInternal(DatabaseSessionEmbedded session,
       final List<SchemaClassImpl> classes, boolean validateIndexes) {
     if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType()) {
       if (!classes.contains(owner.getClass(SchemaClass.EDGE_CLASS_NAME))) {
@@ -271,7 +271,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void setName(DatabaseSessionInternal session, final String name) {
+  public void setName(DatabaseSessionEmbedded session, final String name) {
     if (getName().equals(name)) {
       return;
     }
@@ -301,7 +301,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setNameInternal(DatabaseSessionInternal session, final String name) {
+  protected void setNameInternal(DatabaseSessionEmbedded session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
     try {
@@ -321,7 +321,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   public SchemaPropertyImpl addPropertyInternal(
-      DatabaseSessionInternal session, final String name,
+      DatabaseSessionEmbedded session, final String name,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType,
       final SchemaClassImpl linkedClass,
@@ -382,7 +382,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
 
   @Override
-  public void setStrictMode(DatabaseSessionInternal session, final boolean isStrict) {
+  public void setStrictMode(DatabaseSessionEmbedded session, final boolean isStrict) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -394,7 +394,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   }
 
-  protected void setStrictModeInternal(DatabaseSessionInternal session, final boolean iStrict) {
+  protected void setStrictModeInternal(DatabaseSessionEmbedded session, final boolean iStrict) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -408,7 +408,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void setDescription(DatabaseSessionInternal session, String iDescription) {
+  public void setDescription(DatabaseSessionEmbedded session, String iDescription) {
     if (iDescription != null) {
       iDescription = iDescription.trim();
       if (iDescription.isEmpty()) {
@@ -425,7 +425,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setDescriptionInternal(DatabaseSessionInternal session,
+  protected void setDescriptionInternal(DatabaseSessionEmbedded session,
       final String iDescription) {
     acquireSchemaWriteLock(session);
     try {
@@ -437,7 +437,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
+  public void dropProperty(DatabaseSessionEmbedded session, final String propertyName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
@@ -457,7 +457,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   protected void dropPropertyInternal(
-      DatabaseSessionInternal session, final String iPropertyName) {
+      DatabaseSessionEmbedded session, final String iPropertyName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
@@ -478,7 +478,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  public void setOverSize(DatabaseSessionInternal session, final float overSize) {
+  public void setOverSize(DatabaseSessionEmbedded session, final float overSize) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
     try {
@@ -488,7 +488,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setOverSizeInternal(DatabaseSessionInternal session, final float overSize) {
+  protected void setOverSizeInternal(DatabaseSessionEmbedded session, final float overSize) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
     try {
@@ -501,7 +501,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void setAbstract(DatabaseSessionInternal session, boolean isAbstract) {
+  public void setAbstract(DatabaseSessionEmbedded session, boolean isAbstract) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -512,7 +512,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setCustomInternal(DatabaseSessionInternal session, final String name,
+  protected void setCustomInternal(DatabaseSessionEmbedded session, final String name,
       final String value) {
     acquireSchemaWriteLock(session);
     try {
@@ -531,7 +531,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setAbstractInternal(DatabaseSessionInternal database, final boolean isAbstract) {
+  protected void setAbstractInternal(DatabaseSessionEmbedded database, final boolean isAbstract) {
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(database);
@@ -585,7 +585,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  private void tryDropCollection(DatabaseSessionInternal session, final int collectionId) {
+  private void tryDropCollection(DatabaseSessionEmbedded session, final int collectionId) {
     if (name.toLowerCase(Locale.ENGLISH).equals(session.getCollectionNameById(collectionId))) {
       // DROP THE DEFAULT COLLECTION CALLED WITH THE SAME NAME ONLY IF EMPTY
       if (session.countCollectionElements(collectionId) == 0) {
@@ -594,7 +594,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void addCollectionIdInternal(DatabaseSessionInternal session, final int collectionId) {
+  protected void addCollectionIdInternal(DatabaseSessionEmbedded session, final int collectionId) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
@@ -625,7 +625,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void addPolymorphicCollectionId(DatabaseSessionInternal session, int collectionId) {
+  protected void addPolymorphicCollectionId(DatabaseSessionEmbedded session, int collectionId) {
     if (Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0) {
       return;
     }
@@ -643,7 +643,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId,
+  protected void addCollectionIdToIndexes(DatabaseSessionEmbedded session, int iId,
       boolean requireEmpty) {
     var collectionName = session.getCollectionNameById(iId);
     final List<String> indexesToAdd = new ArrayList<>();

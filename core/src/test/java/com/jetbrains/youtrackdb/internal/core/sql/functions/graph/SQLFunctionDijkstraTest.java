@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -21,7 +20,7 @@ public class SQLFunctionDijkstraTest {
 
   private static final String PASSWORD = "adminpwd";
   private YouTrackDBImpl youTrackDB;
-  private DatabaseSession session;
+  private DatabaseSessionEmbedded session;
 
   private Vertex v1;
   private Vertex v2;

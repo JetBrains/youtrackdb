@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
@@ -128,7 +128,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
     session.commit();
   }
 
-  protected static Entity newCity(DatabaseSession db, String name, final Double longitude,
+  protected static Entity newCity(DatabaseSessionEmbedded db, String name, final Double longitude,
       final Double latitude) {
     return db.computeInTx(transaction -> {
       var location = transaction.newEmbeddedEntity("OPoint");

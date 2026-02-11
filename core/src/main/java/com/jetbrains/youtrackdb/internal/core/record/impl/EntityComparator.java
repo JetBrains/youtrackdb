@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.text.Collator;
 import java.util.Comparator;
@@ -48,9 +48,9 @@ public class EntityComparator implements Comparator<Identifiable> {
     collator =
         Collator.getInstance(
             new Locale(
-                db.get(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY)
+                db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY)
                     + "_"
-                    + db.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE)));
+                    + db.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE)));
   }
 
   @Override

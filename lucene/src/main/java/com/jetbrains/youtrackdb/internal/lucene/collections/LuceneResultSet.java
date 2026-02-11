@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.lucene.engine.LuceneIndexEngine;
@@ -69,14 +69,14 @@ public class LuceneResultSet implements Set<Identifiable> {
   private long deletedMatchCount = 0;
 
   private boolean closed = false;
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
 
-  protected LuceneResultSet(DatabaseSessionInternal session) {
+  protected LuceneResultSet(DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
   public LuceneResultSet(
-      DatabaseSessionInternal session, final LuceneIndexEngine engine,
+      DatabaseSessionEmbedded session, final LuceneIndexEngine engine,
       final LuceneQueryContext queryContext,
       final Map<String, ?> metadata) {
     this.engine = engine;

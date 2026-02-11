@@ -3,7 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -57,7 +57,7 @@ public class SQLGrantStatement extends SQLSimpleExecStatement {
     return ExecutionStream.singleton(result);
   }
 
-  protected int toPrivilege(String privilegeName, DatabaseSessionInternal session) {
+  protected int toPrivilege(String privilegeName, DatabaseSessionEmbedded session) {
     int privilege;
     if ("CREATE".equals(privilegeName)) {
       privilege = Role.PERMISSION_CREATE;

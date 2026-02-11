@@ -21,7 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -31,10 +30,10 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 public interface EntitySerializer {
 
-  void serialize(DatabaseSessionInternal session, EntityImpl entity, BytesContainer bytes);
+  void serialize(DatabaseSessionEmbedded session, EntityImpl entity, BytesContainer bytes);
 
   int serializeValue(
-      DatabaseSessionInternal db, BytesContainer bytes,
+      DatabaseSessionEmbedded db, BytesContainer bytes,
       Object value,
       PropertyTypeInternal type,
       PropertyTypeInternal linkedType,
@@ -51,7 +50,7 @@ public interface EntitySerializer {
       RecordElement owner);
 
   BinaryField deserializeField(
-      DatabaseSessionInternal db, BytesContainer bytes,
+      DatabaseSessionEmbedded db, BytesContainer bytes,
       SchemaClass iClass,
       String iFieldName,
       boolean embedded,
@@ -67,6 +66,6 @@ public interface EntitySerializer {
    * @param reference TODO
    * @param embedded
    */
-  String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
+  String[] getFieldNames(DatabaseSessionEmbedded session, EntityImpl reference,
       BytesContainer iBytes, boolean embedded);
 }

@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -51,7 +51,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
   private boolean transactionDirty = false;
 
   @Nonnull
-  private final WeakReference<DatabaseSessionInternal> session;
+  private final WeakReference<DatabaseSessionEmbedded> session;
 
   private final SimpleMultiValueTracker<Integer, Identifiable> tracker = new SimpleMultiValueTracker<>(
       this);
@@ -81,13 +81,13 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     this.session = new WeakReference<>(sourceRecord.getSession());
   }
 
-  public EntityLinkListImpl(DatabaseSessionInternal session) {
+  public EntityLinkListImpl(DatabaseSessionEmbedded session) {
     this.list = new ArrayList<>();
     tracker.enable();
     this.session = new WeakReference<>(session);
   }
 
-  public EntityLinkListImpl(DatabaseSessionInternal session, int size) {
+  public EntityLinkListImpl(DatabaseSessionEmbedded session, int size) {
     this.list = new ArrayList<>(size);
     tracker.enable();
     this.session = new WeakReference<>(session);
@@ -96,7 +96,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
 
   @Nullable
   @Override
-  public DatabaseSessionInternal getSession() {
+  public DatabaseSessionEmbedded getSession() {
     return this.session.get();
   }
 

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import javax.annotation.Nonnull;
 
@@ -35,7 +35,7 @@ public interface SecurityPolicy {
 
   String getExecuteRule();
 
-  default String get(Scope scope, @Nonnull DatabaseSessionInternal session) {
+  default String get(Scope scope, @Nonnull DatabaseSessionEmbedded session) {
     return switch (scope) {
       case CREATE -> getCreateRule();
       case READ -> getReadRule();

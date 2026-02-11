@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
@@ -98,7 +97,7 @@ public class SchedulerTest {
   public void eventSavedAndLoaded() throws Exception {
     var context = createContext();
     var db =
-        (DatabaseSessionInternal) context.open("test", "admin", NEW_ADMIN_PASSWORD);
+        (DatabaseSessionEmbedded) context.open("test", "admin", NEW_ADMIN_PASSWORD);
     createLogEvent(db);
     db.close();
 
@@ -134,7 +133,7 @@ public class SchedulerTest {
         new LocalUserCredential("admin", NEW_ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
     final var pool =
         youTrackDb.cachedPool("test", "admin", NEW_ADMIN_PASSWORD);
-    var db = (DatabaseSessionInternal) pool.acquire();
+    var db = (DatabaseSessionEmbedded) pool.acquire();
 
     createLogEvent(db);
     youTrackDb.close();
@@ -235,7 +234,7 @@ public class SchedulerTest {
     return youTrackDB;
   }
 
-  private static void createLogEvent(DatabaseSessionInternal db) {
+  private static void createLogEvent(DatabaseSessionEmbedded db) {
     var func = createFunction(db);
 
     db.executeInTx(transaction -> {
@@ -251,7 +250,7 @@ public class SchedulerTest {
     });
   }
 
-  private static Function createFunction(DatabaseSessionInternal db) {
+  private static Function createFunction(DatabaseSessionEmbedded db) {
     db.getMetadata().getSchema().createClass("scheduler_log");
 
     return db.computeInTx(
@@ -294,7 +293,7 @@ public class SchedulerTest {
     }
 
     @Override
-    public DatabaseSessionInternal getThreadDatabase() {
+    public DatabaseSessionEmbedded getThreadDatabase() {
       return context.cachedPool(database, username, password).acquire();
     }
   }

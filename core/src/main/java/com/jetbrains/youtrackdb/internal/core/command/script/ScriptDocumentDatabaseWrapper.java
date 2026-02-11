@@ -19,10 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.STATUS;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.STATUS;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -47,9 +46,9 @@ import java.util.Map.Entry;
 @Deprecated
 public class ScriptDocumentDatabaseWrapper {
 
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
 
-  public ScriptDocumentDatabaseWrapper(final DatabaseSessionInternal session) {
+  public ScriptDocumentDatabaseWrapper(final DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -175,7 +174,7 @@ public class ScriptDocumentDatabaseWrapper {
     return session.getCollectionNameById(iCollectionId);
   }
 
-  public DatabaseSession setMVCC(boolean iValue) {
+  public DatabaseSessionEmbedded setMVCC(boolean iValue) {
     return session.setMVCC(iValue);
   }
 
@@ -235,7 +234,7 @@ public class ScriptDocumentDatabaseWrapper {
     return session.isRetainRecords();
   }
 
-  public DatabaseSession setRetainRecords(boolean iValue) {
+  public DatabaseSessionEmbedded setRetainRecords(boolean iValue) {
     return session.setRetainRecords(iValue);
   }
 

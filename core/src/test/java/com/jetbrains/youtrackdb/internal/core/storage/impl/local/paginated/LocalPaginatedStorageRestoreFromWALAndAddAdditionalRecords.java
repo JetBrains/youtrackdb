@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
@@ -247,7 +246,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
         });
   }
 
-  private void createSchema(DatabaseSessionInternal session) {
+  private void createSchema(DatabaseSessionEmbedded session) {
     Schema schema = session.getMetadata().getSchema();
     var testOneClass = schema.createClass("TestOne");
 

@@ -21,8 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.util;
 
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -31,18 +30,18 @@ import java.util.TimeZone;
 
 public class DateHelper {
 
-  public static Calendar getDatabaseCalendar(final DatabaseSessionInternal session) {
+  public static Calendar getDatabaseCalendar(final DatabaseSessionEmbedded session) {
     return Calendar.getInstance(getDatabaseTimeZone(session));
   }
 
-  public static TimeZone getDatabaseTimeZone(final BasicDatabaseSession<?,?> session) {
+  public static TimeZone getDatabaseTimeZone(final DatabaseSessionEmbedded session) {
     if (session != null && !session.isClosed()) {
       return session.getDatabaseTimeZone();
     }
     return TimeZone.getDefault();
   }
 
-  public static DateFormat getDateFormatInstance(final DatabaseSessionInternal session) {
+  public static DateFormat getDateFormatInstance(final DatabaseSessionEmbedded session) {
     if (session != null && !session.isClosed()) {
       return session.getStorageInfo().getConfiguration().getDateFormatInstance();
     } else {
@@ -52,7 +51,7 @@ public class DateHelper {
     }
   }
 
-  public static String getDateFormat(final DatabaseSessionInternal session) {
+  public static String getDateFormat(final DatabaseSessionEmbedded session) {
     if (session != null && !session.isClosed()) {
       return session.getStorageInfo().getConfiguration().getDateFormat();
     } else {
@@ -61,7 +60,7 @@ public class DateHelper {
   }
 
 
-  public static DateFormat getDateTimeFormatInstance(final DatabaseSessionInternal db) {
+  public static DateFormat getDateTimeFormatInstance(final DatabaseSessionEmbedded db) {
     if (db != null && !db.isClosed()) {
       return db.getStorageInfo().getConfiguration().getDateTimeFormatInstance();
     } else {
@@ -71,7 +70,7 @@ public class DateHelper {
     }
   }
 
-  public static String getDateTimeFormat(final DatabaseSessionInternal db) {
+  public static String getDateTimeFormat(final DatabaseSessionEmbedded db) {
     if (db != null && !db.isClosed()) {
       return db.getStorageInfo().getConfiguration().getDateTimeFormat();
     } else {

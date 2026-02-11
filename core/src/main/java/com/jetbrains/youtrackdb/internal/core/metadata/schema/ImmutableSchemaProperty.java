@@ -20,8 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -77,7 +76,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
 
   private int hashCode;
 
-  public ImmutableSchemaProperty(@Nonnull DatabaseSessionInternal session,
+  public ImmutableSchemaProperty(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaPropertyImpl property,
       SchemaImmutableClass owner) {
     name = property.getName();
@@ -218,7 +217,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     this.allIndexes = property.getAllIndexesInternal(session);
   }
 
-  private <T> T safeConvert(DatabaseSessionInternal session, Object value, Class<T> target,
+  private <T> T safeConvert(DatabaseSessionEmbedded session, Object value, Class<T> target,
       String type) {
     T mc;
     try {
@@ -500,7 +499,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
 
   @Nullable
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return null;
   }
 

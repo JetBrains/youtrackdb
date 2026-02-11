@@ -24,7 +24,7 @@ public class DatabaseMetadataUpdateListenerTest {
   private static final String ADMIN_PASSWORD = "adminpwd";
 
   private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
   private int configCount;
   private int sequenceCount;
   private int schemaCount;
@@ -47,26 +47,26 @@ public class DatabaseMetadataUpdateListenerTest {
         new MetadataUpdateListener() {
 
           @Override
-          public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName,
+          public void onSchemaUpdate(DatabaseSessionEmbedded session, String databaseName,
               SchemaShared schema) {
             schemaCount++;
             assertNotNull(schema);
           }
 
           @Override
-          public void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
+          public void onIndexManagerUpdate(DatabaseSessionEmbedded session, String databaseName,
               IndexManagerAbstract indexManager) {
             indexManagerUpdateCount++;
             assertNotNull(indexManager);
           }
 
           @Override
-          public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String database) {
+          public void onFunctionLibraryUpdate(DatabaseSessionEmbedded session, String database) {
             functionCount++;
           }
 
           @Override
-          public void onSequenceLibraryUpdate(DatabaseSessionInternal session,
+          public void onSequenceLibraryUpdate(DatabaseSessionEmbedded session,
               String databaseName) {
             sequenceCount++;
           }
@@ -104,7 +104,7 @@ public class DatabaseMetadataUpdateListenerTest {
 
   @Test
   public void testIndexConfigurationUpdate() {
-    session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMAN);
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMAN);
     assertEquals(1, configCount);
   }
 

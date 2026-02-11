@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 public class SerializationException extends CoreException {
 
@@ -35,7 +35,7 @@ public class SerializationException extends CoreException {
     super(dbName, message);
   }
 
-  public SerializationException(DatabaseSession session, String message) {
+  public SerializationException(DatabaseSessionEmbedded session, String message) {
     super(session, message);
   }
 }

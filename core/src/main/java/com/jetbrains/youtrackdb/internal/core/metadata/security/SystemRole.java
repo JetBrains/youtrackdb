@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
@@ -31,7 +31,7 @@ public class SystemRole extends Role {
   /**
    * Create the role by reading the source entity.
    */
-  public SystemRole(DatabaseSessionInternal session, final EntityImpl iSource) {
+  public SystemRole(DatabaseSessionEmbedded session, final EntityImpl iSource) {
     super(session, iSource);
   }
 }

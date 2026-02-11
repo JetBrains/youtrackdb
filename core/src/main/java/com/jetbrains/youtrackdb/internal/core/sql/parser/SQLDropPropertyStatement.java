@@ -5,7 +5,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
@@ -93,7 +93,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
     return ExecutionStream.resultIterator(rs.iterator());
   }
 
-  private List<Index> relatedIndexes(final String fieldName, DatabaseSessionInternal database) {
+  private List<Index> relatedIndexes(final String fieldName, DatabaseSessionEmbedded database) {
     final List<Index> result = new ArrayList<Index>();
     for (final var index :
         database

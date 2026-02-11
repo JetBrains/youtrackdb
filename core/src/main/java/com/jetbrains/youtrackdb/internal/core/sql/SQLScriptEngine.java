@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 
 import com.jetbrains.youtrackdb.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptDatabaseWrapper;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -131,9 +131,9 @@ public class SQLScriptEngine implements ScriptEngine {
 
   @Override
   public Object eval(Reader reader, Bindings n) throws ScriptException {
-    DatabaseSessionInternal session = null;
+    DatabaseSessionEmbedded session = null;
     if (n != null) {
-      session = (DatabaseSessionInternal) n.get("db");
+      session = (DatabaseSessionEmbedded) n.get("db");
     }
     if (session == null) {
       throw new CommandExecutionException("No database available in bindings");

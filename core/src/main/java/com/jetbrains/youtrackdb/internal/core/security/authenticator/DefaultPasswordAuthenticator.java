@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
@@ -82,7 +81,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   }
 
   // Derived implementations can override this method to provide new server user implementations.
-  protected SecurityUser createServerUser(DatabaseSessionInternal session,
+  protected SecurityUser createServerUser(DatabaseSessionEmbedded session,
       final Map<String, Object> userMap) {
     SecurityUser userCfg = null;
 
@@ -114,7 +113,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   // Returns the actual username if successful, null otherwise.
   @Nullable
   public SecurityUser authenticate(
-      DatabaseSessionInternal session, final String username, final String password) {
+      DatabaseSessionEmbedded session, final String username, final String password) {
 
     try {
       var user = getUser(username, session);
@@ -132,7 +131,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
-  public boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  public boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     if (username == null || resource == null) {
       return false;
@@ -160,7 +159,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   }
 
   // SecurityAuthenticator
-  public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
+  public SecurityUser getUser(final String username, DatabaseSessionEmbedded session) {
     SecurityUser userCfg = null;
 
     synchronized (usersMap) {

@@ -5,8 +5,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
  */
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -71,8 +70,8 @@ public class IfExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var session = (DatabaseSessionInternal) db;
+  public @Nonnull Result toResult(@Nullable DatabaseSessionEmbedded db) {
+    var session = (DatabaseSessionEmbedded) db;
     var result = new ResultInternal(session);
     result.setProperty("type", "IfExecutionPlan");
     result.setProperty("javaType", getClass().getName());

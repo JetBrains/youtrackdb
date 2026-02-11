@@ -20,8 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -95,7 +94,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final SchemaClassImpl original;
 
 
-  public SchemaImmutableClass(@Nonnull DatabaseSessionInternal session,
+  public SchemaImmutableClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final SchemaClassImpl oClass,
       final ImmutableSchema schema) {
 
@@ -134,7 +133,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     this.original = oClass;
   }
 
-  public void init(DatabaseSessionInternal session) {
+  public void init(DatabaseSessionEmbedded session) {
     if (!inited) {
       initSuperClasses(session);
 
@@ -378,17 +377,17 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
 
   @Override
-  public long count(DatabaseSessionInternal session) {
+  public long count(DatabaseSessionEmbedded session) {
     return count(session, true);
   }
 
   @Override
-  public long count(DatabaseSessionInternal session, boolean isPolymorphic) {
+  public long count(DatabaseSessionEmbedded session, boolean isPolymorphic) {
     assert session.assertIfNotActive();
     return session.countClass(name, isPolymorphic);
   }
 
-  public long countImpl(boolean isPolymorphic, DatabaseSessionInternal session) {
+  public long countImpl(boolean isPolymorphic, DatabaseSessionEmbedded session) {
     assert session.assertIfNotActive();
 
     if (isPolymorphic) {
@@ -495,7 +494,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
+  public Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     initSuperClasses(session);
 
@@ -508,7 +507,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     initSuperClasses(session);
 
@@ -521,44 +520,44 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+  public Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session, String... fields) {
     return getInvolvedIndexes(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields) {
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session, String... fields) {
     return getInvolvedIndexesInternal(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     return getClassInvolvedIndexesInternal(session, fields).stream().map(Index::getName)
         .collect(HashSet::new, HashSet::add, HashSet::addAll);
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     final var indexManager = session.getSharedContext().getIndexManager();
     return indexManager.getClassInvolvedIndexes(session, name, fields);
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session, String... fields) {
     assert session.assertIfNotActive();
     return getClassInvolvedIndexes(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       String... fields) {
     assert session.assertIfNotActive();
     return getClassInvolvedIndexesInternal(session, Arrays.asList(fields));
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
+  public boolean areIndexed(DatabaseSessionEmbedded session, Collection<String> fields) {
     assert session.assertIfNotActive();
     final var indexManager = session.getSharedContext().getIndexManager();
     final var currentClassResult = indexManager.areIndexed(session, name, fields);
@@ -577,7 +576,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, String... fields) {
+  public boolean areIndexed(DatabaseSessionEmbedded session, String... fields) {
     assert session.assertIfNotActive();
     return areIndexed(session, Arrays.asList(fields));
   }
@@ -619,7 +618,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Index getClassIndex(DatabaseSessionInternal session, String name) {
+  public Index getClassIndex(DatabaseSessionEmbedded session, String name) {
     assert session.assertIfNotActive();
     return session
         .getSharedContext()
@@ -627,20 +626,20 @@ public class SchemaImmutableClass implements SchemaClassInternal {
         .getClassIndex(session, this.name, name);
   }
 
-  public void getClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+  public void getClassIndexes(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
     assert session.assertIfNotActive();
     session.getSharedContext().getIndexManager()
         .getClassIndexes(session, name, indexes);
   }
 
-  public void getRawClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+  public void getRawClassIndexes(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
     assert session.assertIfNotActive();
     session.getSharedContext().getIndexManager()
         .getClassRawIndexes(session, name, indexes);
   }
 
   @Override
-  public void getIndexesInternal(DatabaseSessionInternal session, final Collection<Index> indexes) {
+  public void getIndexesInternal(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
     initSuperClasses(session);
 
     getClassIndexes(session, indexes);
@@ -649,7 +648,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
   }
 
-  public void getRawIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+  public void getRawIndexes(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
     initSuperClasses(session);
 
     getRawClassIndexes(session, indexes);
@@ -719,7 +718,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     throw new UnsupportedOperationException();
   }
 
-  private void initSuperClasses(DatabaseSessionInternal session) {
+  private void initSuperClasses(DatabaseSessionEmbedded session) {
     if (superClassesNames != null && superClassesNames.size() != superClasses.size()) {
       superClasses.clear();
       for (var superClassName : superClassesNames) {
@@ -797,7 +796,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
   @Nullable
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return null;
   }
 }

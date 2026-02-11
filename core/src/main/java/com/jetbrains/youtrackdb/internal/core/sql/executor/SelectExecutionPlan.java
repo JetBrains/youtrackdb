@@ -1,9 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -89,8 +87,8 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var session = (DatabaseSessionInternal) db;
+  public @Nonnull Result toResult(@Nullable DatabaseSessionEmbedded db) {
+    var session = (DatabaseSessionEmbedded) db;
     var result = new ResultInternal(session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
@@ -124,7 +122,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public void deserialize(Result serializedExecutionPlan, DatabaseSessionInternal session) {
+  public void deserialize(Result serializedExecutionPlan, DatabaseSessionEmbedded session) {
     List<Result> serializedSteps = serializedExecutionPlan.getProperty("steps");
     for (var serializedStep : serializedSteps) {
       try {

@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
@@ -79,7 +79,7 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
     return configuredParameters.length == 1;
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "sum(<field> [,<field>*])";
   }
 

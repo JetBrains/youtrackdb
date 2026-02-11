@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.internal.common.exception.ErrorCode;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
 
@@ -107,7 +107,7 @@ public class CommandSQLParsingException extends CoreException {
     super(dbName, iMessage);
   }
 
-  public CommandSQLParsingException(DatabaseSession session, String iMessage, String iText,
+  public CommandSQLParsingException(DatabaseSessionEmbedded session, String iMessage, String iText,
       int iPosition) {
     this(session != null ? session.getDatabaseName() : null, iMessage, iText, iPosition);
   }

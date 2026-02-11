@@ -17,7 +17,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,7 +69,7 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
 
     Schema schema = db.getMetadata().getSchema();
     var shape = superClass(db);
@@ -91,7 +91,7 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
 
   @Override
   public EmbeddedEntity toEmbeddedEntity(ShapeCollection<Shape> shapes,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     var result = session.newEmbeddedEntity(getName());
 
     List<EmbeddedEntity> geometries = new ArrayList<>(shapes.size());

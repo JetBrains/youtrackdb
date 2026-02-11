@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityRole;
@@ -52,7 +52,7 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   // This will authenticate username using the system database.
   @Nullable
   public SecurityUser authenticate(
-      DatabaseSessionInternal session, final String username, final String password) {
+      DatabaseSessionEmbedded session, final String username, final String password) {
 
     try {
       if (getSecurity() != null) {
@@ -75,7 +75,7 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   // SecurityAuthenticator
   // If not supported by the authenticator, return false.
   // Checks to see if a
-  public boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  public boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     if (username == null || resource == null) {
       return false;
@@ -111,7 +111,7 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   }
 
   // SecurityAuthenticator
-  public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
+  public SecurityUser getUser(final String username, DatabaseSessionEmbedded session) {
     SecurityUser userCfg = null;
 
     try {

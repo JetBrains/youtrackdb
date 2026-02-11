@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -85,7 +85,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
         Spliterators.spliteratorUnknownSize((Iterator<?>) toValues, 0), false);
   }
 
-  private ExecutionStream edges(DatabaseSessionInternal session, Object from) {
+  private ExecutionStream edges(DatabaseSessionEmbedded session, Object from) {
     if (from instanceof Result) {
       from = ((Result) from).asEntityOrNull();
     }
@@ -121,7 +121,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     return false;
   }
 
-  private boolean matchesClass(DatabaseSessionInternal db, Edge edge) {
+  private boolean matchesClass(DatabaseSessionEmbedded db, Edge edge) {
     if (targetClass == null) {
       return true;
     }

@@ -18,7 +18,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -40,7 +40,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
 
     Schema schema = db.getMetadata().getSchema();
     var lineString = schema.createAbstractClass(getName(), superClass(db));
@@ -67,7 +67,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionEmbedded session) {
     var result = session.newEmbeddedEntity(getName());
     var lineString = (LineString) shape.getGeom();
     result.newEmbeddedList(COORDINATES, coordinatesFromLineString(lineString));
@@ -76,7 +76,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
 
   @Override
   protected EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, Geometry geometry,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinate().getZ())) {
       return toEmbeddedEntity(shape, session);
     }

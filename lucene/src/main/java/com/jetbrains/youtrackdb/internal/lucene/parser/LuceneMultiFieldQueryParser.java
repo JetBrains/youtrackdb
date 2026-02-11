@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.parser;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.lucene.builder.LuceneDateTools;
 import java.util.Map;
@@ -22,13 +22,13 @@ import org.apache.lucene.search.Query;
 public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
 
   private final Map<String, PropertyTypeInternal> types;
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
 
   public LuceneMultiFieldQueryParser(
       final Map<String, PropertyTypeInternal> types,
       final String[] fields,
       final Analyzer analyzer,
-      final Map<String, Float> boosts, DatabaseSessionInternal session) {
+      final Map<String, Float> boosts, DatabaseSessionEmbedded session) {
     super(fields, analyzer, boosts);
     this.types = types;
     this.session = session;
@@ -73,7 +73,7 @@ public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
       final String part1,
       final String part2,
       final boolean startInclusive,
-      final boolean endInclusive, DatabaseSessionInternal session)
+      final boolean endInclusive, DatabaseSessionEmbedded session)
       throws ParseException {
     var start = 0;
     var end = 0;

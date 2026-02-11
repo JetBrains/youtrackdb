@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryComparator;
@@ -17,7 +17,7 @@ public abstract class AbstractComparatorTest extends DbTestBase {
       RecordSerializerBinary.INSTANCE.getCurrentSerializer();
   protected BinaryComparator comparator = serializer.getComparator();
 
-  protected void testEquals(DatabaseSessionInternal db, PropertyTypeInternal sourceType,
+  protected void testEquals(DatabaseSessionEmbedded db, PropertyTypeInternal sourceType,
       PropertyTypeInternal destType) {
     try {
       Assert.assertTrue(comparator.isEqual(db, field(db, sourceType, 10), field(db, destType, 10)));
@@ -30,12 +30,12 @@ public abstract class AbstractComparatorTest extends DbTestBase {
     }
   }
 
-  protected BinaryField field(DatabaseSessionInternal db, final PropertyTypeInternal type,
+  protected BinaryField field(DatabaseSessionEmbedded db, final PropertyTypeInternal type,
       final Object value) {
     return field(db, type, value, null);
   }
 
-  protected BinaryField field(DatabaseSessionInternal db, final PropertyTypeInternal type,
+  protected BinaryField field(DatabaseSessionEmbedded db, final PropertyTypeInternal type,
       final Object value,
       Collate collate) {
     var bytes = new BytesContainer();

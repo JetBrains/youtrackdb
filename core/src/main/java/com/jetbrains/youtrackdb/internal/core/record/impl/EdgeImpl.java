@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -34,7 +34,7 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
   @Nonnull
   private final SchemaImmutableClass lightweightEdgeType;
 
-  public EdgeImpl(@Nonnull DatabaseSessionInternal session,
+  public EdgeImpl(@Nonnull DatabaseSessionEmbedded session,
       @Nullable Vertex out, @Nullable Vertex in,
       @Nonnull SchemaImmutableClass lightweightEdgeType) {
     super(session, out, in, lightweightEdgeType.getName());

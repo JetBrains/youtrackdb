@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.EntityPropertiesVisitor;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import javax.annotation.Nullable;
@@ -18,7 +18,7 @@ public final class LinksRewriter implements EntityPropertiesVisitor {
 
   @Nullable
   @Override
-  public Object visitField(DatabaseSessionInternal db,
+  public Object visitField(DatabaseSessionEmbedded db,
       PropertyTypeInternal type,
       PropertyTypeInternal linkedType,
       Object value) {

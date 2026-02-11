@@ -23,8 +23,7 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_LIVE
 
 import com.jetbrains.youtrackdb.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
@@ -73,7 +72,7 @@ public class LiveQueryHookV2 {
 
   public static class LiveQueryOps implements CloseableInStorage {
 
-    protected final Map<DatabaseSession, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
+    protected final Map<DatabaseSessionEmbedded, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
     private LiveQueryQueueThreadV2 queueThread = new LiveQueryQueueThreadV2(this);
     private final Object threadLock = new Object();
 
@@ -121,12 +120,12 @@ public class LiveQueryHookV2 {
     }
   }
 
-  public static LiveQueryOps getOpsReference(DatabaseSessionInternal db) {
+  public static LiveQueryOps getOpsReference(DatabaseSessionEmbedded db) {
     return db.getSharedContext().getLiveQueryOpsV2();
   }
 
   public static Integer subscribe(
-      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionInternal session) {
+      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionEmbedded session) {
     if (Boolean.FALSE.equals(session.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       LogManager.instance()
           .warn(
@@ -147,7 +146,7 @@ public class LiveQueryHookV2 {
     return ops.subscribe(token, iListener);
   }
 
-  public static void unsubscribe(Integer id, DatabaseSessionInternal db) {
+  public static void unsubscribe(Integer id, DatabaseSessionEmbedded db) {
     if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       LogManager.instance()
           .warn(
@@ -167,8 +166,8 @@ public class LiveQueryHookV2 {
     }
   }
 
-  public static void notifyForTxChanges(DatabaseSession database) {
-    var ops = getOpsReference((DatabaseSessionInternal) database);
+  public static void notifyForTxChanges(DatabaseSessionEmbedded database) {
+    var ops = getOpsReference((DatabaseSessionEmbedded) database);
     if (ops.pendingOps.isEmpty()) {
       return;
     }
@@ -187,13 +186,13 @@ public class LiveQueryHookV2 {
     }
   }
 
-  public static void removePendingDatabaseOps(DatabaseSession database) {
+  public static void removePendingDatabaseOps(DatabaseSessionEmbedded database) {
     try {
       if (database.isClosed()
           || Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
         return;
       }
-      var ops = getOpsReference((DatabaseSessionInternal) database);
+      var ops = getOpsReference((DatabaseSessionEmbedded) database);
       synchronized (ops.pendingOps) {
         ops.pendingOps.remove(database);
       }
@@ -203,7 +202,7 @@ public class LiveQueryHookV2 {
     }
   }
 
-  public static void addOp(DatabaseSessionInternal database, EntityImpl entity, byte iType) {
+  public static void addOp(DatabaseSessionEmbedded database, EntityImpl entity, byte iType) {
     var ops = getOpsReference(database);
     if (!ops.hasListeners()) {
       return;
@@ -263,7 +262,7 @@ public class LiveQueryHookV2 {
   }
 
   public static ResultInternal calculateBefore(
-      @Nonnull DatabaseSessionInternal db, EntityImpl entity,
+      @Nonnull DatabaseSessionEmbedded db, EntityImpl entity,
       Set<String> projectionsToLoad) {
     var result = new ResultInternal(db);
     for (var prop : entity.getPropertyNamesInternal(false, true)) {
@@ -299,7 +298,7 @@ public class LiveQueryHookV2 {
   }
 
   private static ResultInternal calculateAfter(
-      DatabaseSessionInternal db, EntityImpl entity, Set<String> projectionsToLoad) {
+      DatabaseSessionEmbedded db, EntityImpl entity, Set<String> projectionsToLoad) {
     var result = new ResultInternal(db);
     for (var prop : entity.getPropertyNamesInternal(false, true)) {
       if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
