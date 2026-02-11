@@ -49,6 +49,7 @@ jobs:
           github.event_name == 'pull_request' &&
           !contains(github.head_ref, 'qodana-claude-fix-')
         id: pr-management
+        continue-on-error: true
         uses: actions/github-script@v8
         with:
           script: |
@@ -173,6 +174,7 @@ jobs:
           github.event_name == 'pull_request' &&
           steps.pr-management.outputs.has_new_commits == 'true'
         id: filter-sarif
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -262,6 +264,7 @@ jobs:
           steps.pr-management.outputs.has_new_commits == 'true' &&
           steps.filter-sarif.outputs.has_findings == 'true'
         id: fix-findings
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -286,6 +289,7 @@ jobs:
           steps.filter-sarif.outputs.has_findings == 'true' &&
           steps.fix-findings.outcome == 'success'
         id: push-fixes
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -339,6 +343,7 @@ jobs:
           always() && !cancelled() &&
           github.event_name == 'pull_request' &&
           steps.push-fixes.outputs.has_fixes == 'true'
+        continue-on-error: true
         uses: actions/github-script@v8
         env:
           FIX_BRANCH: ${{ steps.push-fixes.outputs.fix_branch }}
@@ -395,6 +400,7 @@ jobs:
 
       - name: Job summary
         if: always() && !cancelled() && github.event_name == 'pull_request'
+        continue-on-error: true
         shell: bash
         env:
           HAS_NEW_COMMITS: ${{ steps.pr-management.outputs.has_new_commits }}
