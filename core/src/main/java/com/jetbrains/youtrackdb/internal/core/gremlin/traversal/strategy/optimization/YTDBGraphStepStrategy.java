@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;

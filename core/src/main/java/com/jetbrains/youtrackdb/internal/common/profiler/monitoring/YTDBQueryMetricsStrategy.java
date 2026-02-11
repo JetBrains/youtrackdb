@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.FinalizationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
@@ -37,7 +38,7 @@ public class YTDBQueryMetricsStrategy
     }
 
     final var ticker = YouTrackDBEnginesManager.instance().getTicker();
-    final String querySummary = YTDBQueryConfigParam.querySummary.getValue(traversal);
+    final String querySummary = YTDBStrategyUtil.getConfigValue(YTDBQueryConfigParam.querySummary, traversal);
     final var metricsStep = new YTDBQueryMetricsStep<>(traversal, ytdbTx, querySummary, ticker);
     traversal.addStep(metricsStep);
   }

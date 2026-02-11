@@ -1,9 +1,5 @@
 package com.jetbrains.youtrackdb.api.gremlin.tokens;
 
-import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy;
-
 /// YTDB-specific parameters that can be passed to
 /// [[com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource#with(YTDBQueryConfigParam,
 /// Object)]] and
@@ -26,16 +22,5 @@ public enum YTDBQueryConfigParam {
 
   public Class<?> type() {
     return type;
-  }
-
-  @SuppressWarnings("unchecked")
-  public <T> @Nullable T getValue(Traversal.Admin<?, ?> traversal) {
-    final var strategy = traversal.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
-    if (strategy == null) {
-      return null;
-    }
-    final var value = strategy.getOptions().get(this.name());
-
-    return (T) value;
   }
 }
