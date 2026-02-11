@@ -219,19 +219,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final AtomicOperation atomicOperation)
       throws IOException {
 
-    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
-    final var lastPage = getLastPage(atomicOperation);
-    if (pageIndex > lastPage) {
-      throw new CollectionPositionMapException(storage.getName(),
-          "Passed in collection position "
-              + collectionPosition
-              + " is outside of range of collection-position map", this);
-    }
-
     try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+        loadBucketPageForWrite(collectionPosition, atomicOperation)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
       bucket.set(index, entry);
     }
@@ -242,8 +233,20 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final AtomicOperation atomicOperation)
       throws IOException {
 
-    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    try (final var cacheEntry =
+        loadBucketPageForWrite(collectionPosition, atomicOperation)) {
+      final var bucket = new CollectionPositionMapBucket(cacheEntry);
+      bucket.updateVersion(index, recordVersion);
+    }
+  }
+
+  private CacheEntry loadBucketPageForWrite(
+      final long collectionPosition,
+      final AtomicOperation atomicOperation) throws IOException {
+
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
 
     final var lastPage = getLastPage(atomicOperation);
     if (pageIndex > lastPage) {
@@ -253,11 +256,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
               + " is outside of range of collection-position map", this);
     }
 
-    try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
-      final var bucket = new CollectionPositionMapBucket(cacheEntry);
-      bucket.updateVersion(index, recordVersion);
-    }
+    return loadPageForWrite(atomicOperation, fileId, pageIndex, true);
   }
 
   @Nullable
