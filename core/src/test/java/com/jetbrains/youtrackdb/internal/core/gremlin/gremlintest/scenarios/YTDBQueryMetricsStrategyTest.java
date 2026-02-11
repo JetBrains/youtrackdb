@@ -68,6 +68,57 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).isNull();
   }
 
+  @Test
+  @LoadGraphWith(MODERN)
+  public void testLightweightDurationExcludesDelayBeforeClose() throws Exception {
+    final var listener = new RememberingListener();
+    final long delayMillis = 200;
+
+    ((YTDBTransaction) g().tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+
+    try (var q = g().V().hasLabel("person")) {
+      q.toList(); // consume all results
+
+      final long afterLastCallNanos = System.nanoTime();
+
+      Thread.sleep(delayMillis);
+
+      // close() is called here by try-with-resources;
+      // the reported duration should NOT include the sleep
+      assertThat(System.nanoTime() - afterLastCallNanos)
+          .as("sanity check: sleep actually elapsed")
+          .isGreaterThanOrEqualTo(delayMillis * 1_000_000 / 2);
+    }
+    g.tx().commit();
+
+    assertThat(listener.executionTimeNanos)
+        .isLessThan(delayMillis * 1_000_000);
+  }
+
+  @Test
+  @LoadGraphWith(MODERN)
+  public void testListenerNotNotifiedWhenTraversalNeverIterated() throws Exception {
+    final var listener = new RememberingListener();
+
+    ((YTDBTransaction) g().tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+
+    //noinspection EmptyTryBlock
+    try (var ignored = g().V().hasLabel("person")) {
+      // never call hasNext/next
+    }
+    g.tx().commit();
+
+    assertThat(listener.query).isNull();
+  }
+
   private void testQuery(QueryMonitoringMode mode, RememberingListener listener) throws Exception {
     final var rand = RandomUtils.insecure();
     ((YTDBTransaction) g().tx())
