@@ -67,7 +67,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private static final int MIN_ENTRY_SIZE = ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
 
   private static final int STATE_ENTRY_INDEX = 0;
-  private static final int BINARY_VERSION = 2;
+  private static final int BINARY_VERSION = 3;
 
   private static final int PAGE_INDEX_OFFSET = 16;
   private static final int RECORD_POSITION_MASK = 0xFFFF;
@@ -376,12 +376,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             if (allocatedPosition != null) {
               collectionPositionMap.update(
                   allocatedPosition.collectionPosition,
-                  new CollectionPositionMapBucket.PositionEntry(nextPageIndex, nextPageOffset),
+                  new CollectionPositionMapBucket.PositionEntry(
+                      nextPageIndex, nextPageOffset, recordVersion),
                   atomicOperation);
               collectionPosition = allocatedPosition.collectionPosition;
             } else {
               collectionPosition =
-                  collectionPositionMap.add(nextPageIndex, nextPageOffset, atomicOperation);
+                  collectionPositionMap.add(
+                      nextPageIndex, nextPageOffset, recordVersion, atomicOperation);
             }
             return createPhysicalPosition(recordType, collectionPosition, recordVersion);
           } finally {
@@ -642,6 +644,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             collectionPosition,
             positionEntry.getPageIndex(),
             positionEntry.getRecordPosition(),
+            versionToInt(positionEntry.getRecordVersion()),
             atomicOperation);
       } finally {
         releaseSharedLock();
@@ -656,10 +659,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final long collectionPosition,
       long pageIndex,
       int recordPosition,
+      final int recordVersion,
       final AtomicOperation atomicOperation)
       throws IOException {
-
-    var recordVersion = 0;
 
     final List<byte[]> recordChunks = new ArrayList<>(2);
     var contentSize = 0;
@@ -669,9 +671,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     do {
       try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
         final var localPage = new CollectionPage(cacheEntry);
-        if (firstEntry) {
-          recordVersion = localPage.getRecordVersion(recordPosition);
-        }
+        assert !firstEntry || assertVersionConsistency(
+            recordVersion, localPage.getRecordVersion(recordPosition));
 
         if (localPage.isDeleted(recordPosition)) {
           if (recordChunks.isEmpty()) {
@@ -926,8 +927,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 || nextRecordPosition != positionEntry.getRecordPosition()) {
               collectionPositionMap.update(
                   collectionPosition,
-                  new CollectionPositionMapBucket.PositionEntry(nextPageIndex, nextRecordPosition),
+                  new CollectionPositionMapBucket.PositionEntry(
+                      nextPageIndex, nextRecordPosition, recordVersion),
                   atomicOperation);
+            } else if (recordVersion != positionEntry.getRecordVersion()) {
+              collectionPositionMap.updateVersion(
+                  collectionPosition, recordVersion, atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -963,10 +968,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                     new RecordId(id, collectionPosition));
               }
 
-              if (!localPage.updateRecordVersion(recordPosition)) {
+              if (!localPage.setRecordVersion(recordPosition, recordVersion)) {
                 throw new RecordNotFoundException(storageName,
                     new RecordId(id, collectionPosition));
               }
+
+              collectionPositionMap.updateVersion(
+                  collectionPosition, recordVersion, atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -1015,8 +1023,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           physicalPosition.recordSize = -1;
 
           physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
-          physicalPosition.recordVersion = localPage.getRecordVersion(recordPosition);
+          physicalPosition.recordVersion = versionToInt(positionEntry.getRecordVersion());
           physicalPosition.collectionPosition = position.collectionPosition;
+
+          assert assertVersionConsistency(
+              versionToInt(positionEntry.getRecordVersion()),
+              localPage.getRecordVersion(recordPosition));
 
           return physicalPosition;
         }
@@ -1152,6 +1164,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /**
    * Returns the fileId used in disk cache.
    */
+  @Override
   public long getFileId() {
     return fileId;
   }
@@ -1440,6 +1453,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return positions;
   }
 
+  @Override
   public RECORD_STATUS getRecordStatus(final long collectionPosition) throws IOException {
     final var atomicOperation = atomicOperationsManager.getCurrentOperation();
     acquireSharedLock();
@@ -1458,6 +1472,30 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     } finally {
       releaseSharedLock();
     }
+  }
+
+  /// Verifies that the version stored in the position map matches the version stored on the data
+  /// page. Must only be called within {@code assert} statements.
+  @SuppressWarnings("SameReturnValue")
+  private static boolean assertVersionConsistency(
+      int positionMapVersion, int pageVersion) {
+    if (positionMapVersion != pageVersion) {
+      throw new AssertionError(
+          "Version mismatch: positionMap=" + positionMapVersion
+              + " page=" + pageVersion);
+    }
+    return true;
+  }
+
+  /// Safely narrows a {@code long} record version to {@code int}. Throws if the value does not
+  /// fit, preventing silent truncation during the transition period before the rest of the
+  /// codebase migrates from {@code int} to {@code long} versions.
+  private static int versionToInt(long version) {
+    if ((int) version != version) {
+      throw new IllegalStateException(
+          "Record version " + version + " exceeds int range");
+    }
+    return (int) version;
   }
 
   @Override
@@ -1491,7 +1529,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           for (final var pos : nextPositions) {
             final var buff =
                 internalReadRecord(
-                    pos.getPosition(), pos.getPage(), pos.getOffset(), atomicOperation);
+                    pos.getPosition(), pos.getPage(), pos.getOffset(),
+                    versionToInt(pos.getRecordVersion()), atomicOperation);
             next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
           }
           return new CollectionBrowsePage(next);

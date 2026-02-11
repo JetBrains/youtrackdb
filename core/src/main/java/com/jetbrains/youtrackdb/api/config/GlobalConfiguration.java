@@ -247,7 +247,7 @@ public enum GlobalConfiguration {
       "youtrackdb.storage.collection.version",
       "Binary version of collection which will be used inside of storage",
       Integer.class,
-      2),
+      3),
 
   STORAGE_PRINT_WAL_PERFORMANCE_STATISTICS(
       "youtrackdb.storage.printWALPerformanceStatistics",
