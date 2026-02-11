@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.test.ConcurrentTestHelper;
 import com.jetbrains.youtrackdb.internal.test.TestFactory;
 import java.util.concurrent.Callable;

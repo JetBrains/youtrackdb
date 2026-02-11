@@ -16,7 +16,6 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.test.ConcurrentTestHelper;
 import java.util.concurrent.Callable;

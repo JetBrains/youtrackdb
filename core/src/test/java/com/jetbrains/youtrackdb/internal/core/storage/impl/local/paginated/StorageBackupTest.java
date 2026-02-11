@@ -706,6 +706,7 @@ public class StorageBackupTest {
 
         var backupFileName = traversal.fullBackup(backupDir.toPath());
 
+        //noinspection ConstantValue,ObviousNullCheck
         Assert.assertNotNull("Backup file name should not be null", backupFileName);
         Assert.assertTrue("Backup file should exist",
             Files.exists(backupDir.toPath().resolve(backupFileName)));

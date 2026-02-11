@@ -2592,7 +2592,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "SameReturnValue"})
   public boolean isMVCC() {
     assert assertIfNotActive();
     return true;
@@ -2601,7 +2601,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "MethodMayBeStatic"})
   public DatabaseSessionEmbedded setMVCC(boolean mvcc) {
     throw new UnsupportedOperationException();
   }
@@ -3438,15 +3438,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * @return <code>true</code> if database is obtained from the pool and <code>false</code>
-   * otherwise.
-   */
-  @SuppressWarnings("unused")
-  public boolean isPooled() {
-    return false;
-  }
-
-  /**
    * Use #activateOnCurrentThread instead.
    */
   @Deprecated
@@ -3501,6 +3492,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   // Called via assert, always returns true (throws otherwise)
+  @SuppressWarnings("SameReturnValue")
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
 

@@ -16,7 +16,6 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import org.testng.annotations.Test;
 
 public class DbClosedTest extends BaseDBTest {

@@ -194,6 +194,7 @@ public class ScriptDocumentDatabaseWrapper {
     return session.getMetadata();
   }
 
+  @SuppressWarnings("MethodMayBeStatic")
   public byte getRecordType() {
     return DatabaseSessionEmbedded.getRecordType();
   }
