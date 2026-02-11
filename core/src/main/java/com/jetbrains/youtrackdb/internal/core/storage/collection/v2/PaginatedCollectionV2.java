@@ -403,19 +403,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
             updateCollectionState(1, content.length, atomicOperation);
 
-            final long collectionPosition;
-            if (allocatedPosition != null) {
-              collectionPositionMap.update(
-                  allocatedPosition.collectionPosition,
-                  new CollectionPositionMapBucket.PositionEntry(
-                      nextPageIndex, nextPageOffset, recordVersion),
-                  atomicOperation);
-              collectionPosition = allocatedPosition.collectionPosition;
-            } else {
-              collectionPosition =
-                  collectionPositionMap.add(
-                      nextPageIndex, nextPageOffset, recordVersion, atomicOperation);
-            }
+            // Both pre-allocated and freshly allocated positions use update() here:
+            // allocate() reserves a slot without page coordinates; update() fills them in.
+            collectionPositionMap.update(
+                collectionPosition,
+                new CollectionPositionMapBucket.PositionEntry(
+                    nextPageIndex, nextPageOffset, recordVersion),
+                atomicOperation);
             return createPhysicalPosition(recordType, collectionPosition, recordVersion);
           } finally {
             releaseExclusiveLock();
@@ -1276,7 +1270,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           physicalPosition.collectionPosition = position.collectionPosition;
 
           assert assertVersionConsistency(
-              versionToInt(positionEntry.getRecordVersion()),
+              physicalPosition.recordVersion,
               localPage.getRecordVersion(recordPosition));
 
           return physicalPosition;
