@@ -1,12 +1,6 @@
 name: Qodana
 on:
   workflow_dispatch:
-    inputs:
-      cleanup:
-        description: 'Apply Qodana cleanup fixes'
-        required: false
-        type: boolean
-        default: false
   pull_request:
   push:
     branches:
@@ -22,8 +16,6 @@ jobs:
       contents: write
       pull-requests: write
       checks: write
-    env:
-      RUN_CLEANUP: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup == true }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -34,96 +26,395 @@ jobs:
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
         with:
-          args: --linter, jetbrains/qodana-jvm:${{ env.QODANA_VERSION }}, --baseline, .github/workflows/qodana.sarif.json${{ env.RUN_CLEANUP == 'true' && ', --cleanup' || '' }}
+          args: --linter, jetbrains/qodana-jvm:${{ env.QODANA_VERSION }}, --baseline, .github/workflows/qodana.sarif.json
           pr-mode: 'true'
           push-fixes: none
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
 
-      - name: Extract issue number from branch name
-        if: env.RUN_CLEANUP == 'true'
-        id: extract-issue
+      - name: Upload Qodana SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qodana-sarif
+          path: ${{ runner.temp }}/qodana/results/qodana.sarif.json
+          retention-days: 30
+
+      # ── Claude Code: Automated Qodana Fix PR ──────────────────────────
+
+      - name: Manage existing fix PRs
+        if: >-
+          always() && !cancelled() &&
+          github.event_name == 'pull_request' &&
+          !contains(github.head_ref, 'qodana-claude-fix-')
+        id: pr-management
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const sourceBranch = context.payload.pull_request.head.ref;
+            const headSha = context.payload.pull_request.head.sha;
+            const headSha7 = headSha.substring(0, 7);
+
+            core.setOutput('pr_number', String(prNumber));
+            core.setOutput('source_branch', sourceBranch);
+            core.setOutput('head_sha7', headSha7);
+
+            // Get all commits in this PR
+            const commits = [];
+            let page = 1;
+            while (true) {
+              const resp = await github.rest.pulls.listCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                per_page: 100,
+                page
+              });
+              commits.push(...resp.data.map(c => c.sha));
+              if (resp.data.length < 100) break;
+              page++;
+            }
+            core.info(`PR has ${commits.length} commits`);
+
+            // Find open fix PRs for this source PR
+            const searchPattern = `qodana-claude-fix-pr${prNumber}-`;
+            const allPRs = [];
+            let prPage = 1;
+            while (true) {
+              const resp = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100,
+                page: prPage
+              });
+              allPRs.push(...resp.data);
+              if (resp.data.length < 100) break;
+              prPage++;
+            }
+
+            const fixPRs = allPRs
+              .filter(pr => pr.head.ref.includes(searchPattern))
+              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+            core.info(`Found ${fixPRs.length} open fix PRs`);
+
+            // Gap detection: walk fix PRs in order, close from first gap onward
+            let gapFound = false;
+            let lastValidSha7 = '';
+
+            for (const fixPR of fixPRs) {
+              const branchName = fixPR.head.ref;
+              const shaMatch = branchName.match(/-([0-9a-f]{7})$/);
+              if (!shaMatch) {
+                core.warning(`Fix PR #${fixPR.number} branch "${branchName}" has no SHA suffix`);
+                continue;
+              }
+              const fixSha7 = shaMatch[1];
+
+              if (!gapFound) {
+                // Check if this SHA is in current PR commits
+                const found = commits.some(c => c.startsWith(fixSha7));
+                if (!found) {
+                  gapFound = true;
+                  core.info(`Gap detected at fix PR #${fixPR.number} (SHA ${fixSha7} not in PR)`);
+                } else {
+                  lastValidSha7 = fixSha7;
+                }
+              }
+
+              if (gapFound) {
+                core.info(`Closing stale fix PR #${fixPR.number} (branch: ${branchName})`);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: fixPR.number,
+                  body: `Closing: source PR #${prNumber} was force-pushed, invalidating this fix PR.`
+                });
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: fixPR.number,
+                  state: 'closed'
+                });
+                try {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `heads/${branchName}`
+                  });
+                } catch (e) {
+                  core.warning(`Failed to delete branch ${branchName}: ${e.message}`);
+                }
+              }
+            }
+
+            // Check if a fix PR already exists for this exact HEAD
+            const alreadyExists = fixPRs.some(pr => {
+              const m = pr.head.ref.match(/-([0-9a-f]{7})$/);
+              return m && m[1] === headSha7 && !gapFound;
+            });
+
+            if (alreadyExists) {
+              core.info(`Fix PR already exists for HEAD ${headSha7}, skipping`);
+              core.setOutput('has_new_commits', 'false');
+              core.setOutput('last_processed_sha', headSha7);
+              return;
+            }
+
+            core.setOutput('has_new_commits', 'true');
+            core.setOutput('last_processed_sha', lastValidSha7);
+
+      - name: Filter SARIF findings
+        if: >-
+          always() && !cancelled() &&
+          github.event_name == 'pull_request' &&
+          steps.pr-management.outputs.has_new_commits == 'true'
+        id: filter-sarif
         shell: bash
         run: |
           set -euo pipefail
 
-          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
-          BRANCH_NAME_LOWER="${BRANCH_NAME,,}"
+          SARIF_FILE="${{ runner.temp }}/qodana/results/qodana.sarif.json"
+          FILTERED_FILE="${{ runner.temp }}/filtered-findings.json"
 
-          # Pattern: ytdb + optional non-alphanumeric + digits (case-insensitive)
-          if [[ $BRANCH_NAME_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
-            ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
-            echo "issue_prefix=${ISSUE_PREFIX}" >> "$GITHUB_OUTPUT"
-            echo "has_issue=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_issue=false" >> "$GITHUB_OUTPUT"
+          if [[ ! -f "$SARIF_FILE" ]]; then
+            echo "SARIF file not found at $SARIF_FILE"
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
+            echo "finding_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Push cleanup fixes branch
-        if: env.RUN_CLEANUP == 'true'
+          # Determine diff base
+          LAST_SHA="${{ steps.pr-management.outputs.last_processed_sha }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+
+          if [[ -n "$LAST_SHA" ]]; then
+            # Resolve short SHA to full commit SHA
+            FULL_SHA=$(git rev-parse --verify "${LAST_SHA}^{commit}" 2>/dev/null || true)
+            if [[ -n "$FULL_SHA" ]]; then
+              DIFF_BASE="$FULL_SHA"
+              echo "Using last processed commit as diff base: $DIFF_BASE"
+            else
+              DIFF_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
+              echo "Last processed SHA not in history, using merge-base: $DIFF_BASE"
+            fi
+          else
+            DIFF_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
+            echo "No last processed SHA, using merge-base: $DIFF_BASE"
+          fi
+
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only "$DIFF_BASE" HEAD)
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "No changed files found"
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
+            echo "finding_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Build jq filter array from changed files
+          CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))')
+
+          # Filter SARIF: keep only new findings in changed files, simplify output
+          jq --argjson changed "$CHANGED_FILES_JSON" '
+            [
+              .runs[]?.results[]?
+              | select(.baselineState == "new" or .baselineState == null)
+              | . as $result
+              | .locations[]?
+              | .physicalLocation.artifactLocation.uri as $uri
+              | select($uri != null)
+              | select($changed | any(. as $f | $uri == $f or ($uri | endswith("/" + $f))))
+              | {
+                  ruleId: $result.ruleId,
+                  level: $result.level,
+                  message: $result.message.text,
+                  file: $uri,
+                  startLine: .physicalLocation.region.startLine,
+                  startColumn: .physicalLocation.region.startColumn,
+                  snippet: .physicalLocation.region.snippet.text,
+                  context: .physicalLocation.contextRegion.snippet.text,
+                  severity: ($result.properties.ideaSeverity // $result.level)
+                }
+            ]
+          ' "$SARIF_FILE" > "$FILTERED_FILE"
+
+          COUNT=$(jq 'length' "$FILTERED_FILE")
+          echo "Filtered findings: $COUNT"
+
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_findings=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "finding_count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Fix findings with Claude Code
+        if: >-
+          always() && !cancelled() &&
+          github.event_name == 'pull_request' &&
+          steps.pr-management.outputs.has_new_commits == 'true' &&
+          steps.filter-sarif.outputs.has_findings == 'true'
+        id: fix-findings
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are a code quality assistant. Read the findings file at
+            ${{ runner.temp }}/filtered-findings.json and fix each static analysis
+            finding by editing the source files.
+
+            RULES:
+            1. Apply minimal fixes - do not change code logic or behavior
+            2. Do NOT modify files under core/.../sql/parser/ (generated code)
+            3. Do NOT create git commits, branches, or PRs - only edit source files
+            4. Skip findings that cannot be safely fixed without behavior changes
+            5. Code style: 2-space indent, 100 char lines, always use braces
+          claude_args: "--max-turns 30 --disallowedTools Bash,WebSearch,WebFetch"
+
+      - name: Create fix branch and push
+        if: >-
+          always() && !cancelled() &&
+          github.event_name == 'pull_request' &&
+          steps.pr-management.outputs.has_new_commits == 'true' &&
+          steps.filter-sarif.outputs.has_findings == 'true' &&
+          steps.fix-findings.outcome == 'success'
         id: push-fixes
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
-          # Check if there are changes to commit
+          # Check if Claude made any changes
           if git diff --quiet && git diff --staged --quiet; then
             echo "No changes to commit"
             echo "has_fixes=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          set -e
-
           git config user.name "qodana-bot[bot]"
           git config user.email "qodana-bot[bot]@users.noreply.github.com"
 
-          SOURCE_BRANCH="${{ github.head_ref || github.ref_name }}"
-          # Generate unique suffix using short SHA and run number
-          UNIQUE_SUFFIX="${GITHUB_SHA:0:7}-${GITHUB_RUN_NUMBER}"
+          SOURCE_BRANCH="${{ steps.pr-management.outputs.source_branch }}"
+          HEAD_SHA7="${{ steps.pr-management.outputs.head_sha7 }}"
+          PR_NUMBER="${{ steps.pr-management.outputs.pr_number }}"
 
-          # Build branch name with issue prefix if available
-          if [[ "${{ steps.extract-issue.outputs.has_issue }}" == "true" ]]; then
-            CLEANUP_BRANCH="${{ steps.extract-issue.outputs.issue_prefix }}-qodana-fixes-${UNIQUE_SUFFIX}"
-            COMMIT_MSG="${{ steps.extract-issue.outputs.issue_prefix }}: Apply Qodana cleanup fixes"
-          else
-            # Sanitize branch name to avoid special character issues
-            SANITIZED_SOURCE=$(echo "$SOURCE_BRANCH" | tr -cd '[:alnum:]-_/')
-            CLEANUP_BRANCH="qodana-fixes-${SANITIZED_SOURCE}-${UNIQUE_SUFFIX}"
-            COMMIT_MSG="Apply Qodana cleanup fixes"
+          # Extract issue prefix from source branch
+          BRANCH_LOWER="${SOURCE_BRANCH,,}"
+          HAS_ISSUE="false"
+          ISSUE_PREFIX=""
+
+          if [[ $BRANCH_LOWER =~ ^(ytdb)([^a-zA-Z0-9]?)([0-9]+) ]]; then
+            ISSUE_PREFIX="YTDB-${BASH_REMATCH[3]}"
+            HAS_ISSUE="true"
           fi
 
-          git checkout -b "$CLEANUP_BRANCH"
-          git add -A
+          # Build branch name
+          if [[ "$HAS_ISSUE" == "true" ]]; then
+            FIX_BRANCH="${ISSUE_PREFIX}-qodana-claude-fix-pr${PR_NUMBER}-${HEAD_SHA7}"
+            COMMIT_MSG="${ISSUE_PREFIX}: Fix Qodana findings (automated)"
+          else
+            FIX_BRANCH="qodana-claude-fix-pr${PR_NUMBER}-${HEAD_SHA7}"
+            COMMIT_MSG="Fix Qodana findings (automated)"
+          fi
+
+          git checkout -b "$FIX_BRANCH"
+          git add -u
           git commit -m "$COMMIT_MSG"
-          git push -u origin "$CLEANUP_BRANCH" --force-with-lease
+          git push -u origin "$FIX_BRANCH" --force-with-lease
 
-          echo "cleanup_branch=$CLEANUP_BRANCH" >> "$GITHUB_OUTPUT"
-          echo "source_branch=$SOURCE_BRANCH" >> "$GITHUB_OUTPUT"
           echo "has_fixes=true" >> "$GITHUB_OUTPUT"
+          echo "fix_branch=$FIX_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "source_branch=$SOURCE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "has_issue=$HAS_ISSUE" >> "$GITHUB_OUTPUT"
+          echo "issue_prefix=$ISSUE_PREFIX" >> "$GITHUB_OUTPUT"
 
-      - name: Output fixes info
-        if: env.RUN_CLEANUP == 'true' && steps.push-fixes.outputs.has_fixes == 'true'
+      - name: Create fix PR
+        if: >-
+          always() && !cancelled() &&
+          github.event_name == 'pull_request' &&
+          steps.push-fixes.outputs.has_fixes == 'true'
+        uses: actions/github-script@v8
+        env:
+          FIX_BRANCH: ${{ steps.push-fixes.outputs.fix_branch }}
+          SOURCE_BRANCH: ${{ steps.push-fixes.outputs.source_branch }}
+          HAS_ISSUE: ${{ steps.push-fixes.outputs.has_issue }}
+          ISSUE_PREFIX: ${{ steps.push-fixes.outputs.issue_prefix }}
+          PR_NUMBER: ${{ steps.pr-management.outputs.pr_number }}
+          FINDING_COUNT: ${{ steps.filter-sarif.outputs.finding_count }}
+        with:
+          script: |
+            const fixBranch = process.env.FIX_BRANCH;
+            const sourceBranch = process.env.SOURCE_BRANCH;
+            const hasIssue = process.env.HAS_ISSUE === 'true';
+            const issuePrefix = process.env.ISSUE_PREFIX;
+            const prNumber = process.env.PR_NUMBER;
+            const findingCount = process.env.FINDING_COUNT;
+
+            const title = hasIssue
+              ? `${issuePrefix}: Fix Qodana findings from PR #${prNumber}`
+              : `Fix Qodana findings from PR #${prNumber}`;
+
+            const body = [
+              `## Automated Qodana Fix`,
+              ``,
+              `This PR fixes **${findingCount}** static analysis finding(s) detected by Qodana on PR #${prNumber}.`,
+              ``,
+              `### Review checklist`,
+              `- [ ] Fixes are minimal and do not change behavior`,
+              `- [ ] No generated code was modified`,
+              `- [ ] Code style is consistent with the project`,
+              ``,
+              `> Generated automatically by Claude Code from Qodana SARIF output.`
+            ].join('\n');
+
+            try {
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                head: fixBranch,
+                base: sourceBranch
+              });
+              core.info(`Created fix PR #${pr.number}: ${pr.html_url}`);
+              core.setOutput('fix_pr_url', pr.html_url);
+              core.setOutput('fix_pr_number', String(pr.number));
+            } catch (err) {
+              if (err.status === 422) {
+                core.info(`Fix PR already exists for branch ${fixBranch}`);
+              } else {
+                throw err;
+              }
+            }
+
+      - name: Job summary
+        if: always() && !cancelled() && github.event_name == 'pull_request'
         shell: bash
+        env:
+          HAS_NEW_COMMITS: ${{ steps.pr-management.outputs.has_new_commits }}
+          HAS_FINDINGS: ${{ steps.filter-sarif.outputs.has_findings }}
+          HAS_FIXES: ${{ steps.push-fixes.outputs.has_fixes }}
+          FIX_BRANCH: ${{ steps.push-fixes.outputs.fix_branch }}
+          FINDING_COUNT: ${{ steps.filter-sarif.outputs.finding_count }}
         run: |
-          set -euo pipefail
-
-          CLEANUP_BRANCH="${{ steps.push-fixes.outputs.cleanup_branch }}"
-          SOURCE_BRANCH="${{ steps.push-fixes.outputs.source_branch }}"
-
-          COMPARE_URL="https://github.com/${{ github.repository }}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}"
-          PR_CREATE_URL="https://github.com/${{ github.repository }}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}?expand=1"
-
-          # Output to job summary
           {
-            echo "## 🤖 Qodana Cleanup Fixes Available"
+            echo "## Qodana Claude Fix Summary"
             echo ""
-            echo "**Branch with fixes:** [\`$CLEANUP_BRANCH\`]($COMPARE_URL)"
-            echo ""
-            echo "**Options:**"
-            echo "1. [Create a PR]($PR_CREATE_URL) to merge fixes into \`$SOURCE_BRANCH\`"
-            echo "2. Cherry-pick commits: \`git cherry-pick origin/$CLEANUP_BRANCH\`"
-            echo "3. Rebase locally: \`git rebase origin/$CLEANUP_BRANCH\`"
-            echo ""
-            echo "⚠️ Please review the changes before merging - automated fixes may not always be correct."
+
+            if [[ "$HAS_NEW_COMMITS" != "true" ]]; then
+              echo "No new commits to process (fix PR already exists for current HEAD)."
+            elif [[ "$HAS_FINDINGS" != "true" ]]; then
+              echo "No new Qodana findings in changed files."
+            elif [[ "$HAS_FIXES" != "true" ]]; then
+              echo "Claude Code did not produce any fixes."
+            else
+              echo "Created fix branch: \`${FIX_BRANCH}\`"
+              echo ""
+              echo "Findings processed: **${FINDING_COUNT}**"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

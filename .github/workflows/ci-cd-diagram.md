@@ -20,8 +20,12 @@ flowchart TB
     subgraph qodana_pipeline["qodana-scan.yml"]
         direction TB
         qodana_scan["Qodana Code Analysis<br/>JetBrains static analysis"]
-        qodana_cleanup["Optional: Push cleanup fixes"]
-        qodana_scan --> qodana_cleanup
+        qodana_filter["Filter SARIF Findings<br/>(PR only, incremental)"]
+        qodana_claude["Claude Code Action<br/>Fix findings"]
+        qodana_fixpr["Create Fix PR<br/>targeting source branch"]
+        qodana_scan --> qodana_filter
+        qodana_filter --> qodana_claude
+        qodana_claude --> qodana_fixpr
     end
 
     subgraph maven_pipeline["maven-pipeline.yml<br/>(develop branch)"]
@@ -133,9 +137,19 @@ the PR title if not already present.
 ### qodana-scan.yml
 
 Runs JetBrains Qodana static code analysis on every push to `develop` and on pull requests. Uses a
-baseline file to track known issues and can optionally apply automatic cleanup fixes when triggered
-manually with the `cleanup` input set to true. Cleanup fixes are pushed to a separate branch for
-review.
+baseline file to track known issues. On pull requests, the workflow automatically attempts to fix
+new findings using Claude Code Action (`anthropics/claude-code-action@v1`):
+
+1. **Manage fix PRs** - Finds existing fix PRs for the source PR, detects stale ones invalidated
+   by force-pushes (gap detection), and closes them
+2. **Filter SARIF** - Filters Qodana's SARIF output to only new findings in files changed since
+   the last processed commit (incremental processing)
+3. **Claude Code** - Invokes Claude to apply minimal fixes to source files (no git operations)
+4. **Create fix PR** - Pushes fixes to a branch named
+   `{YTDB-NNN-}qodana-claude-fix-pr{N}-{sha7}` and creates a PR targeting the source branch
+
+Fix PRs from `qodana-claude-fix-*` branches are excluded from triggering the Claude fix pipeline
+to prevent recursive workflow runs. Requires `ANTHROPIC_API_KEY` secret.
 
 ### maven-pipeline.yml (Develop Branch)
 
@@ -203,7 +217,7 @@ For complete setup and configuration instructions, see [testflows-runner-setup.m
 | **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                  | GitHub-hosted runners                               | N/A                                                             |
 | **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix             | GitHub-hosted runners                               | N/A                                                             |
 | **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title            | GitHub-hosted runners                               | N/A                                                             |
-| **qodana-scan.yml**                      | Push/PR to `develop`, Manual | Static code analysis                         | GitHub-hosted runners                               | N/A (optional cleanup branch)                                   |
+| **qodana-scan.yml**                      | Push/PR to `develop`, Manual | Static code analysis + automated Claude fixes | GitHub-hosted runners                               | Fix PR targeting source branch (PR only)                        |
 | **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Run tests, deploy dev artifacts              | GitHub-hosted runners                               | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
 | **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main         | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
 | **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify) | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
