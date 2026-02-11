@@ -223,11 +223,14 @@ jobs:
           # Build jq filter array from changed files
           CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))')
 
-          # Filter SARIF: keep only new findings in changed files, simplify output
-          jq --argjson changed "$CHANGED_FILES_JSON" '
+          # Filter SARIF: keep only new Critical/High/Moderate findings in changed files
+          ALLOWED_SEVERITIES='["Critical","High","Moderate"]'
+          jq --argjson changed "$CHANGED_FILES_JSON" \
+             --argjson severities "$ALLOWED_SEVERITIES" '
             [
               .runs[]?.results[]?
               | select(.baselineState == "new" or .baselineState == null)
+              | select(.properties.qodanaSeverity as $sev | $severities | index($sev))
               | . as $result
               | .locations[]?
               | .physicalLocation.artifactLocation.uri as $uri
@@ -242,7 +245,7 @@ jobs:
                   startColumn: .physicalLocation.region.startColumn,
                   snippet: .physicalLocation.region.snippet.text,
                   context: .physicalLocation.contextRegion.snippet.text,
-                  severity: ($result.properties.ideaSeverity // $result.level)
+                  severity: $result.properties.qodanaSeverity
                 }
             ]
           ' "$SARIF_FILE" > "$FILTERED_FILE"
