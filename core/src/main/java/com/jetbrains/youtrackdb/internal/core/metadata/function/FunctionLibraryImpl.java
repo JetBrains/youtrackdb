@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -55,11 +54,11 @@ public class FunctionLibraryImpl {
   public FunctionLibraryImpl() {
   }
 
-  public static void create(DatabaseSessionInternal session) {
+  public static void create(DatabaseSessionEmbedded session) {
     init(session);
   }
 
-  public void load(DatabaseSessionInternal session) {
+  public void load(DatabaseSessionEmbedded session) {
     // COPY CALLBACK IN RAM
     final Map<String, CallableFunction<Object, Map<Object, Object>>> callbacks =
         new HashMap<>();
@@ -109,7 +108,7 @@ public class FunctionLibraryImpl {
   }
 
 
-  public void onFunctionDropped(@Nonnull DatabaseSessionInternal session, @Nonnull RID rid) {
+  public void onFunctionDropped(@Nonnull DatabaseSessionEmbedded session, @Nonnull RID rid) {
     var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
 
     @SuppressWarnings("unchecked")
@@ -130,7 +129,7 @@ public class FunctionLibraryImpl {
     return Collections.unmodifiableSet(functions.keySet());
   }
 
-  public Function getFunction(DatabaseSessionInternal session, final String iName) {
+  public Function getFunction(DatabaseSessionEmbedded session, final String iName) {
     reloadIfNeeded(session);
     return functions.get(iName.toUpperCase(Locale.ENGLISH));
   }
@@ -162,7 +161,7 @@ public class FunctionLibraryImpl {
     functions.clear();
   }
 
-  protected static void init(final DatabaseSessionInternal session) {
+  protected static void init(final DatabaseSessionEmbedded session) {
     if (session.getMetadata().getSchema().existsClass("OFunction")) {
       var f = session.getMetadata().getSchema().getClassInternal("OFunction");
       var prop = f.getPropertyInternal("name");
@@ -185,14 +184,14 @@ public class FunctionLibraryImpl {
         true);
   }
 
-  public synchronized void dropFunction(DatabaseSessionInternal session, Function function) {
+  public synchronized void dropFunction(DatabaseSessionEmbedded session, Function function) {
     reloadIfNeeded(session);
     var name = function.getName();
     function.delete(session);
     functions.remove(name.toUpperCase(Locale.ENGLISH));
   }
 
-  public synchronized void dropFunction(DatabaseSessionInternal session, String iName) {
+  public synchronized void dropFunction(DatabaseSessionEmbedded session, String iName) {
     reloadIfNeeded(session);
 
     session.executeInTx(
@@ -224,14 +223,14 @@ public class FunctionLibraryImpl {
     onFunctionsChanged(session);
   }
 
-  private void reloadIfNeeded(DatabaseSessionInternal session) {
+  private void reloadIfNeeded(DatabaseSessionEmbedded session) {
     if (needReload.get()) {
       load(session);
       needReload.set(false);
     }
   }
 
-  private static void onFunctionsChanged(DatabaseSessionInternal session) {
+  private static void onFunctionsChanged(DatabaseSessionEmbedded session) {
     for (var listener : session.getSharedContext().browseListeners()) {
       listener.onFunctionLibraryUpdate(session, session.getDatabaseName());
     }

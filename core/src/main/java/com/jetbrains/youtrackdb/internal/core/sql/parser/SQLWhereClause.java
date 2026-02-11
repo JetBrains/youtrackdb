@@ -5,7 +5,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
@@ -176,7 +175,7 @@ public class SQLWhereClause extends SimpleNode {
     return Long.MAX_VALUE;
   }
 
-  private static Object convert(DatabaseSessionInternal session, Object o,
+  private static Object convert(DatabaseSessionEmbedded session, Object o,
       PropertyTypeInternal oType) {
     return PropertyTypeInternal.convert(session, o, oType.getDefaultJavaType());
   }

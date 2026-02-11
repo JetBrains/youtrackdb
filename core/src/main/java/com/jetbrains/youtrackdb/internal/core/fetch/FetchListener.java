@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.fetch;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.FetchException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -52,7 +52,7 @@ public interface FetchListener {
       throws FetchException;
 
   void parseLinked(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final Identifiable iLinked,
       final Object iUserObject,
       final String iFieldName,
@@ -60,7 +60,7 @@ public interface FetchListener {
       throws FetchException;
 
   void parseLinkedCollectionValue(
-      DatabaseSessionInternal db, final EntityImpl iRootRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRootRecord,
       final Identifiable iLinked,
       final Object iUserObject,
       final String iFieldName,
@@ -85,7 +85,7 @@ public interface FetchListener {
       throws FetchException;
 
   void processStandardField(
-      DatabaseSessionInternal db, final EntityImpl iRecord,
+      DatabaseSessionEmbedded db, final EntityImpl iRecord,
       final Object iFieldValue,
       final String iFieldName,
       final FetchContext iContext,

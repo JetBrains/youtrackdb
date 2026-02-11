@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
@@ -45,7 +45,7 @@ public interface Transaction {
   int activeTxCount();
 
   @Nonnull
-  DatabaseSession getDatabaseSession();
+  DatabaseSessionEmbedded getDatabaseSession();
 
   /**
    * Loads an element by its id, throws an exception if record is not an element or does not exist.

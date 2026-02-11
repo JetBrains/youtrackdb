@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
@@ -465,7 +464,7 @@ public class SQLHelper {
 
   @Nullable
   public static Object resolveFieldValue(
-      DatabaseSession session, final EntityImpl entity,
+      DatabaseSessionEmbedded session, final EntityImpl entity,
       final String iFieldName,
       final Object iFieldValue,
       final CommandParameters iArguments,

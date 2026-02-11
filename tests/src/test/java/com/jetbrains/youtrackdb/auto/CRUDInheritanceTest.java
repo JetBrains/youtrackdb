@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -217,7 +217,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
     checkProperty(session, testSchemaClass, "embeddedList", PropertyType.EMBEDDEDLIST, childClass);
   }
 
-  protected static void checkProperty(DatabaseSessionInternal session, SchemaClass iClass,
+  protected static void checkProperty(DatabaseSessionEmbedded session, SchemaClass iClass,
       String iPropertyName,
       PropertyType iType) {
     var prop = iClass.getProperty(iPropertyName);
@@ -226,7 +226,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
   }
 
   protected static void checkProperty(
-      DatabaseSessionInternal session, SchemaClass iClass, String iPropertyName, PropertyType iType,
+      DatabaseSessionEmbedded session, SchemaClass iClass, String iPropertyName, PropertyType iType,
       SchemaClass iLinkedClass) {
     var prop = iClass.getProperty(iPropertyName);
     Assert.assertNotNull(prop);
@@ -235,7 +235,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
   }
 
   protected static void checkProperty(
-      DatabaseSessionInternal session, SchemaClass iClass, String iPropertyName, PropertyType iType,
+      DatabaseSessionEmbedded session, SchemaClass iClass, String iPropertyName, PropertyType iType,
       PropertyType iLinkedType) {
     var prop = iClass.getProperty(iPropertyName);
     Assert.assertNotNull(prop);

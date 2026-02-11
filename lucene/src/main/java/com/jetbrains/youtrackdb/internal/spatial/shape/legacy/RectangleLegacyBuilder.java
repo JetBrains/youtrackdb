@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.shape.legacy;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Collection;
@@ -28,7 +28,7 @@ import org.locationtech.spatial4j.shape.Rectangle;
 public class RectangleLegacyBuilder implements ShapeBuilderLegacy<Rectangle> {
 
   @Override
-  public Rectangle makeShape(DatabaseSessionInternal session, CompositeKey key,
+  public Rectangle makeShape(DatabaseSessionEmbedded session, CompositeKey key,
       SpatialContext ctx) {
 
     var points = new Point[2];

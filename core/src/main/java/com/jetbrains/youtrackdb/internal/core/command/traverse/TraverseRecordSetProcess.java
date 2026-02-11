@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -34,7 +34,7 @@ public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<I
 
   public TraverseRecordSetProcess(
       final Traverse iCommand, final Iterator<Identifiable> iTarget, TraversePath parentPath,
-      DatabaseSessionInternal db) {
+      DatabaseSessionEmbedded db) {
     super(iCommand, iTarget, db);
     this.path = parentPath.appendRecordSet();
     command.getContext().push(this);

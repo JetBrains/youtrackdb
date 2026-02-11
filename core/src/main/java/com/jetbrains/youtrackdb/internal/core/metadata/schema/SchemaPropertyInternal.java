@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import java.util.Collection;
@@ -14,7 +14,7 @@ public interface SchemaPropertyInternal extends SchemaProperty {
 
   Collection<Index> getAllIndexesInternal();
 
-  DatabaseSession getBoundToSession();
+  DatabaseSessionEmbedded getBoundToSession();
 
   PropertyTypeInternal getTypeInternal();
 }

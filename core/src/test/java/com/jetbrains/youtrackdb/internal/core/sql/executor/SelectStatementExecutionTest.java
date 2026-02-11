@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
@@ -4597,7 +4597,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
               }
 
               @Override
-              public String getName(DatabaseSession session) {
+              public String getName(DatabaseSessionEmbedded session) {
                 return funcitonName;
               }
 
@@ -4607,12 +4607,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
               }
 
               @Override
-              public int getMaxParams(DatabaseSession session) {
+              public int getMaxParams(DatabaseSessionEmbedded session) {
                 return 0;
               }
 
               @Override
-              public String getSyntax(DatabaseSession session) {
+              public String getSyntax(DatabaseSessionEmbedded session) {
                 return "";
               }
 

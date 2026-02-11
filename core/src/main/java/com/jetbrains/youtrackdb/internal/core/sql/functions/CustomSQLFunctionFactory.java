@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLStaticReflectiveFunction;
@@ -60,22 +60,22 @@ public class CustomSQLFunctionFactory implements SQLFunctionFactory {
 
 
   @Override
-  public void registerDefaultFunctions(DatabaseSessionInternal db) {
+  public void registerDefaultFunctions(DatabaseSessionEmbedded db) {
     // do nothing
   }
 
   @Override
-  public Set<String> getFunctionNames(DatabaseSessionInternal session) {
+  public Set<String> getFunctionNames(DatabaseSessionEmbedded session) {
     return FUNCTIONS.keySet();
   }
 
   @Override
-  public boolean hasFunction(final String name, DatabaseSessionInternal session) {
+  public boolean hasFunction(final String name, DatabaseSessionEmbedded session) {
     return FUNCTIONS.containsKey(name);
   }
 
   @Override
-  public SQLFunction createFunction(final String name, DatabaseSessionInternal session) {
+  public SQLFunction createFunction(final String name, DatabaseSessionEmbedded session) {
     final var obj = FUNCTIONS.get(name);
 
     if (obj == null) {

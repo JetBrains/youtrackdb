@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.Collections;
 import java.util.List;
@@ -29,7 +29,7 @@ import java.util.List;
 /**
  * Base class for tools related to databases.
  */
-public abstract class DatabaseTool<S extends BasicDatabaseSession<?, ?>> implements Runnable {
+public abstract class DatabaseTool<S extends DatabaseSessionEmbedded> implements Runnable {
 
   protected CommandOutputListener output;
   protected S session;

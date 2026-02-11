@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.TraverseRecordProcess;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
@@ -65,7 +65,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     return true;
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return getName(session) + "(<beginIndex> [,<items>])";
   }
 

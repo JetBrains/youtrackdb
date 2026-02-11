@@ -16,14 +16,14 @@
 
 package com.jetbrains.youtrackdb.internal.lucene.operator;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.EntitySerializer;
@@ -73,13 +73,13 @@ public class LuceneTextOperator extends QueryTargetOperator {
 
   @Nullable
   @Override
-  public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getBeginRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 
@@ -133,7 +133,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
   }
 
   private boolean matchField(
-      DatabaseSessionInternal session, Object iLeft, Object iRight, LuceneFullTextIndex index,
+      DatabaseSessionEmbedded session, Object iLeft, Object iRight, LuceneFullTextIndex index,
       MemoryIndex memoryIndex)
       throws IOException, ParseException {
     for (var field : index.buildDocument(session, iLeft).getFields()) {
@@ -143,7 +143,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
   }
 
   private boolean matchCollectionIndex(
-      DatabaseSessionInternal session, List iLeft, Object iRight, LuceneFullTextIndex index,
+      DatabaseSessionEmbedded session, List iLeft, Object iRight, LuceneFullTextIndex index,
       MemoryIndex memoryIndex)
       throws IOException, ParseException {
     var match = false;
@@ -204,7 +204,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
 
   @Nullable
   protected LuceneFullTextIndex involvedIndex(
-      DatabaseSessionInternal session, Entity iRecord,
+      DatabaseSessionEmbedded session, Entity iRecord,
       SQLFilterCondition iCondition) {
     try {
       var doc = (EntityImpl) iRecord;

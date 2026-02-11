@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Compute the standard deviation for a given field.
@@ -38,7 +38,7 @@ public class SQLFunctionStandardDeviation extends SQLFunctionVariance {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return NAME + "(<field>)";
   }
 

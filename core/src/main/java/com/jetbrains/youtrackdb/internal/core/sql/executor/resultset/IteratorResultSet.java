@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
@@ -19,11 +18,11 @@ public class IteratorResultSet implements ResultSet {
 
   protected final Iterator<?> iterator;
   @Nullable
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
 
   private boolean closed = false;
 
-  public IteratorResultSet(@Nullable DatabaseSessionInternal session, Iterator<?> iter) {
+  public IteratorResultSet(@Nullable DatabaseSessionEmbedded session, Iterator<?> iter) {
     this.iterator = iter;
     this.session = session;
   }
@@ -69,7 +68,7 @@ public class IteratorResultSet implements ResultSet {
   }
 
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
 

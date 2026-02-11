@@ -22,9 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -142,7 +140,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean isAllowed(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final Set<Identifiable> iAllowAll,
       final Set<Identifiable> iAllowOperation) {
     if ((iAllowAll == null || iAllowAll.isEmpty())
@@ -281,22 +279,22 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   @Nullable
-  public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
+  public SecurityUserImpl getUser(final DatabaseSessionEmbedded session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
     }
 
     EntityImpl result;
-    result = ((DatabaseSessionInternal) session).load(iRecordId);
+    result = session.load(iRecordId);
     if (!result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
       result = null;
     }
-    return new SecurityUserImpl((DatabaseSessionInternal) session, result);
+    return new SecurityUserImpl(session, result);
   }
 
   @Override
   public SecurityUserImpl createUser(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final String iUserName,
       final String iUserPassword,
       final String... iRoles) {
@@ -314,7 +312,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityUserImpl createUser(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final String userName,
       final String userPassword,
       final Role... roles) {
@@ -331,7 +329,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean dropUser(final DatabaseSession session, final String iUserName) {
+  public boolean dropUser(final DatabaseSessionEmbedded session, final String iUserName) {
     final Number removed;
     try (var res = session.getActiveTransaction().
         execute("delete from OUser where name = ?", iUserName)) {
@@ -343,16 +341,15 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   @Nullable
-  public Role getRole(final DatabaseSession session, final Identifiable iRole) {
+  public Role getRole(final DatabaseSessionEmbedded session, final Identifiable iRole) {
     try {
-      var sessionInternal = (DatabaseSessionInternal) session;
-      var transaction = sessionInternal.getActiveTransaction();
+      var transaction = session.getActiveTransaction();
       final EntityImpl entity = transaction.load(iRole);
       SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(sessionInternal);
+      clazz = entity.getImmutableSchemaClass(session);
 
       if (clazz != null && clazz.isRole()) {
-        return new Role(sessionInternal, entity);
+        return new Role(session, entity);
       }
     } catch (RecordNotFoundException rnf) {
       return null;
@@ -363,7 +360,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   @Nullable
-  public Role getRole(final DatabaseSession session, final String iRoleName) {
+  public Role getRole(final DatabaseSessionEmbedded session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
     }
@@ -373,7 +370,7 @@ public class SecurityShared implements SecurityInternal {
           transaction.query("select from " + Role.CLASS_NAME + " where name = ? limit 1",
               iRoleName)) {
         if (result.hasNext()) {
-          return new Role((DatabaseSessionInternal) session,
+          return new Role(session,
               (EntityImpl) result.next().asEntity());
         }
       }
@@ -384,7 +381,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Nullable
-  public static RID getRoleRID(final DatabaseSession session, final String iRoleName) {
+  public static RID getRoleRID(final DatabaseSessionEmbedded session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
     }
@@ -406,13 +403,13 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public Role createRole(
-      final DatabaseSessionInternal session, final String iRoleName) {
+      final DatabaseSessionEmbedded session, final String iRoleName) {
     return createRole(session, iRoleName, null);
   }
 
   @Override
   public Role createRole(
-      final DatabaseSessionInternal session,
+      final DatabaseSessionEmbedded session,
       final String iRoleName,
       final Role iParent) {
     final var role = new Role(session, iRoleName, iParent);
@@ -421,7 +418,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean dropRole(final DatabaseSession session, final String iRoleName) {
+  public boolean dropRole(final DatabaseSessionEmbedded session, final String iRoleName) {
     return session.computeInTx(transaction -> {
       final Number removed;
       try (var result =
@@ -435,7 +432,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public List<EntityImpl> getAllUsers(final DatabaseSession session) {
+  public List<EntityImpl> getAllUsers(final DatabaseSessionEmbedded session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from OUser")) {
         return rs.stream().map((e) -> (EntityImpl) e.asEntity())
@@ -445,7 +442,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public List<EntityImpl> getAllRoles(final DatabaseSession session) {
+  public List<EntityImpl> getAllRoles(final DatabaseSessionEmbedded session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {
         return rs.stream().map((e) -> (EntityImpl) e.asEntity())
@@ -456,20 +453,20 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public Map<String, ? extends SecurityPolicy> getSecurityPolicies(
-      DatabaseSession session, SecurityRole role) {
+      DatabaseSessionEmbedded session, SecurityRole role) {
     var result = role.getPolicies(session);
     return result != null ? result : Collections.emptyMap();
   }
 
   @Override
   public SecurityPolicy getSecurityPolicy(
-      DatabaseSession session, SecurityRole role, String resource) {
+      DatabaseSessionEmbedded session, SecurityRole role, String resource) {
     resource = normalizeSecurityResource(session, resource);
     return role.getPolicy(session, resource);
   }
 
   public void setSecurityPolicyWithBitmask(
-      DatabaseSessionInternal session, SecurityRole role, String resource, int legacyPolicy) {
+      DatabaseSessionEmbedded session, SecurityRole role, String resource, int legacyPolicy) {
     var policyName = "default_" + legacyPolicy;
     var policy = getSecurityPolicy(session, policyName);
     if (policy == null) {
@@ -492,7 +489,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void setSecurityPolicy(
-      DatabaseSessionInternal session, SecurityRole securityRole, String resource,
+      DatabaseSessionEmbedded session, SecurityRole securityRole, String resource,
       SecurityPolicyImpl policy) {
     if (securityRole instanceof Role role) {
       var currentResource = normalizeSecurityResource(session, resource);
@@ -513,7 +510,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  private static void validatePolicyWithIndexes(DatabaseSessionInternal session, String resource)
+  private static void validatePolicyWithIndexes(DatabaseSessionEmbedded session, String resource)
       throws IllegalArgumentException {
     var res = SecurityResource.getInstance(resource);
     if (res instanceof SecurityResourceProperty) {
@@ -547,9 +544,8 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public SecurityPolicyImpl createSecurityPolicy(DatabaseSession session, String name) {
-    var sessionInternal = (DatabaseSessionInternal) session;
-    var elem = sessionInternal.newEntity(SecurityPolicy.CLASS_NAME);
+  public SecurityPolicyImpl createSecurityPolicy(DatabaseSessionEmbedded session, String name) {
+    var elem = session.newEntity(SecurityPolicy.CLASS_NAME);
     elem.setProperty("name", name);
     var policy = new SecurityPolicyImpl((EntityImpl) elem);
     saveSecurityPolicy(session, policy);
@@ -557,7 +553,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public SecurityPolicyImpl getSecurityPolicy(DatabaseSession session, String name) {
+  public SecurityPolicyImpl getSecurityPolicy(DatabaseSessionEmbedded session, String name) {
     var currentTx = session.getActiveTransactionOrNull();
     if (currentTx != null) {
       return doGetSecurityPolicy(name, currentTx);
@@ -580,13 +576,12 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public void saveSecurityPolicy(DatabaseSession session, SecurityPolicyImpl policy) {
-    var sessionInternal = (DatabaseSessionInternal) session;
-    policy.save(sessionInternal);
+  public void saveSecurityPolicy(DatabaseSessionEmbedded session, SecurityPolicyImpl policy) {
+    policy.save(session);
   }
 
   @Override
-  public void deleteSecurityPolicy(DatabaseSession session, String name) {
+  public void deleteSecurityPolicy(DatabaseSessionEmbedded session, String name) {
     session.executeInTx(transaction -> {
       transaction
           .execute("DELETE FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)
@@ -595,23 +590,23 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public void removeSecurityPolicy(DatabaseSession session, Role role, String resource) {
-    var sessionInternal = (DatabaseSessionInternal) session;
+  public void removeSecurityPolicy(DatabaseSessionEmbedded session, Role role, String resource) {
     var calculatedResource = normalizeSecurityResource(session, resource);
     role.getPolicies(session).remove(calculatedResource);
-    role.save(sessionInternal);
+    role.save(session);
 
-    updateAllFilteredProperties(sessionInternal);
-    initPredicateSecurityOptimizations(sessionInternal);
+    updateAllFilteredProperties(session);
+    initPredicateSecurityOptimizations(session);
   }
 
-  private static String normalizeSecurityResource(DatabaseSession session, String resource) {
+  private static String normalizeSecurityResource(DatabaseSessionEmbedded session,
+      String resource) {
     return resource; // TODO
   }
 
   @Override
   @Nullable
-  public SecurityUserImpl create(final DatabaseSessionInternal session) {
+  public SecurityUserImpl create(final DatabaseSessionEmbedded session) {
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
       return null;
     }
@@ -645,7 +640,7 @@ public class SecurityShared implements SecurityInternal {
     return adminUser;
   }
 
-  private void createDefaultRoles(final DatabaseSessionInternal session) {
+  private void createDefaultRoles(final DatabaseSessionEmbedded session) {
     session.executeInTx(
         transaction -> {
           createDefaultAdminRole(session);
@@ -654,7 +649,7 @@ public class SecurityShared implements SecurityInternal {
         });
   }
 
-  private SecurityUserImpl createDefaultUsers(final DatabaseSessionInternal session) {
+  private SecurityUserImpl createDefaultUsers(final DatabaseSessionEmbedded session) {
     var createDefUsers =
         session.getConfiguration().getValueAsBoolean(GlobalConfiguration.CREATE_DEFAULT_USERS);
 
@@ -675,13 +670,13 @@ public class SecurityShared implements SecurityInternal {
     return adminUser;
   }
 
-  private void createDefaultWriterRole(final DatabaseSessionInternal session) {
+  private void createDefaultWriterRole(final DatabaseSessionEmbedded session) {
     final var writerRole =
         createRole(session, DEFAULT_WRITER_ROLE_NAME);
     sedDefaultWriterPermissions(session, writerRole);
   }
 
-  private void sedDefaultWriterPermissions(final DatabaseSessionInternal session,
+  private void sedDefaultWriterPermissions(final DatabaseSessionEmbedded session,
       final Role writerRole) {
     setSecurityPolicyWithBitmask(session, writerRole, "database.class.*.*", Role.PERMISSION_ALL);
 
@@ -782,13 +777,13 @@ public class SecurityShared implements SecurityInternal {
         Role.PERMISSION_NONE);
   }
 
-  private void createDefaultReaderRole(final DatabaseSessionInternal session) {
+  private void createDefaultReaderRole(final DatabaseSessionEmbedded session) {
     final var readerRole =
         createRole(session, DEFAULT_READER_ROLE_NAME);
     setDefaultReaderPermissions(session, readerRole);
   }
 
-  private void setDefaultReaderPermissions(final DatabaseSessionInternal session,
+  private void setDefaultReaderPermissions(final DatabaseSessionEmbedded session,
       final Role readerRole) {
     setSecurityPolicyWithBitmask(session, readerRole, "database.class.*.*", Role.PERMISSION_ALL);
 
@@ -867,13 +862,13 @@ public class SecurityShared implements SecurityInternal {
         Role.PERMISSION_NONE);
   }
 
-  private void createDefaultAdminRole(final DatabaseSessionInternal session) {
+  private void createDefaultAdminRole(final DatabaseSessionEmbedded session) {
     Role adminRole;
     adminRole = createRole(session, Role.ADMIN);
     setDefaultAdminPermissions(session, adminRole);
   }
 
-  private void setDefaultAdminPermissions(final DatabaseSessionInternal session,
+  private void setDefaultAdminPermissions(final DatabaseSessionEmbedded session,
       Role adminRole) {
     setSecurityPolicyWithBitmask(session, adminRole, "*", Role.PERMISSION_ALL);
     adminRole.addRule(session, ResourceGeneric.BYPASS_RESTRICTED, null, Role.PERMISSION_ALL)
@@ -894,7 +889,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private static void createOrUpdateOUserClass(
-      final DatabaseSessionInternal database, SchemaClass identityClass, SchemaClass roleClass) {
+      final DatabaseSessionEmbedded database, SchemaClass identityClass, SchemaClass roleClass) {
     var unsafe = false;
     var userClass = database.getMetadata().getSchemaInternal()
         .getClassInternal("OUser");
@@ -945,7 +940,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private static void createOrUpdateOSecurityPolicyClass(
-      final DatabaseSessionInternal database) {
+      final DatabaseSessionEmbedded database) {
     var policyClass = database.getMetadata().getSchemaInternal()
         .getClassInternal("OSecurityPolicy");
     var unsafe = false;
@@ -1007,7 +1002,7 @@ public class SecurityShared implements SecurityInternal {
 
   }
 
-  private static SchemaClass createOrUpdateORoleClass(final DatabaseSessionInternal database,
+  private static SchemaClass createOrUpdateORoleClass(final DatabaseSessionEmbedded database,
       SchemaClass identityClass) {
     var roleClass = database.getMetadata().getSchemaInternal()
         .getClassInternal(Role.CLASS_NAME);
@@ -1061,7 +1056,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public void load(DatabaseSessionInternal session) {
+  public void load(DatabaseSessionEmbedded session) {
     final var userClass = session.getMetadata().getSchema()
         .getClassInternal("OUser");
     if (userClass != null) {
@@ -1095,7 +1090,7 @@ public class SecurityShared implements SecurityInternal {
     initPredicateSecurityOptimizations(session);
   }
 
-  private void setupPredicateSecurity(DatabaseSessionInternal session) {
+  private void setupPredicateSecurity(DatabaseSessionEmbedded session) {
     var securityPolicyClass = session.getMetadata().getSchema()
         .getClass(SecurityPolicy.CLASS_NAME);
     if (securityPolicyClass == null) {
@@ -1120,13 +1115,13 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  public static SecurityUser getUserInternal(final DatabaseSession session,
+  public static SecurityUser getUserInternal(final DatabaseSessionEmbedded session,
       final String iUserName) {
     return session.computeInTx(transaction -> {
       try (var result =
           transaction.query("select from OUser where name = ? limit 1", iUserName)) {
         if (result.hasNext()) {
-          return new SecurityUserImpl((DatabaseSessionInternal) session,
+          return new SecurityUserImpl(session,
               (EntityImpl) result.next().asEntity());
         }
       }
@@ -1194,7 +1189,7 @@ public class SecurityShared implements SecurityInternal {
     return policies;
   }
 
-  public static RID getUserRID(final DatabaseSession session, final String userName) {
+  public static RID getUserRID(final DatabaseSessionEmbedded session, final String userName) {
     return session.computeInTx(transaction -> {
       try (var result =
           transaction.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
@@ -1214,20 +1209,19 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public long getVersion(final DatabaseSession session) {
+  public long getVersion(final DatabaseSessionEmbedded session) {
     return version.get();
   }
 
   @Override
-  public void incrementVersion(final DatabaseSession session) {
-    var sessionInternal = (DatabaseSessionInternal) session;
+  public void incrementVersion(final DatabaseSessionEmbedded session) {
     version.incrementAndGet();
     securityPredicateCache.clear();
-    updateAllFilteredProperties(sessionInternal);
-    initPredicateSecurityOptimizations(sessionInternal);
+    updateAllFilteredProperties(session);
+    initPredicateSecurityOptimizations(session);
   }
 
-  protected void initPredicateSecurityOptimizations(DatabaseSessionInternal session) {
+  protected void initPredicateSecurityOptimizations(DatabaseSessionEmbedded session) {
     if (skipRoleHasPredicateSecurityForClassUpdate) {
       return;
     }
@@ -1246,7 +1240,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  private void initPredicateSecurityOptimizationsInternal(DatabaseSessionInternal session) {
+  private void initPredicateSecurityOptimizationsInternal(DatabaseSessionEmbedded session) {
     Map<String, Map<String, Boolean>> result = new HashMap<>();
     var allClasses = session.getMetadata().getSchema().getClasses();
 
@@ -1266,7 +1260,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  private void doInitPredicateOptimization(DatabaseSessionInternal session,
+  private void doInitPredicateOptimization(DatabaseSessionEmbedded session,
       Collection<SchemaClass> allClasses,
       Map<String, Map<String, Boolean>> result) {
     synchronized (this) {
@@ -1305,7 +1299,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  private static boolean isAllAllowed(DatabaseSessionInternal db, SecurityPolicy policy) {
+  private static boolean isAllAllowed(DatabaseSessionEmbedded db, SecurityPolicy policy) {
     for (var scope : SecurityPolicy.Scope.values()) {
       var predicateString = policy.get(scope, db);
       if (predicateString == null) {
@@ -1319,7 +1313,7 @@ public class SecurityShared implements SecurityInternal {
     return true;
   }
 
-  private static boolean isClassInvolved(DatabaseSessionInternal db, SchemaClass clazz,
+  private static boolean isClassInvolved(DatabaseSessionEmbedded db, SchemaClass clazz,
       SecurityResource res) {
     if (res instanceof SecurityResourceAll
         || res.equals(SecurityResourceClass.ALL_CLASSES)
@@ -1510,7 +1504,6 @@ public class SecurityShared implements SecurityInternal {
       return true;
     }
 
-    var sessionInternal = session;
     if (record instanceof Entity) {
       SchemaImmutableClass clazz = null;
       if (record != null) {
@@ -1539,7 +1532,7 @@ public class SecurityShared implements SecurityInternal {
 
       var predicate =
           SecurityEngine.getPredicateForSecurityResource(
-              sessionInternal,
+              session,
               this,
               "database.class.`" + ((EntityImpl) record).getSchemaClassName() + "`",
               SecurityPolicy.Scope.READ);
@@ -1577,12 +1570,11 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
-      var sessionInternal = session;
       SQLBooleanExpression beforePredicate = null;
       if (className != null) {
         beforePredicate =
             SecurityEngine.getPredicateForSecurityResource(
-                sessionInternal,
+                session,
                 this,
                 "database.class.`" + className + "`",
                 SecurityPolicy.Scope.BEFORE_UPDATE);
@@ -1590,7 +1582,7 @@ public class SecurityShared implements SecurityInternal {
 
       // TODO avoid calculating original valueif not needed!!!
 
-      var originalRecord = calculateOriginalValue(record, sessionInternal);
+      var originalRecord = calculateOriginalValue(record, session);
       if (!SecurityEngine.evaluateSecuirtyPolicyPredicate(
           session, beforePredicate, originalRecord)) {
         return false;
@@ -1600,7 +1592,7 @@ public class SecurityShared implements SecurityInternal {
       if (className != null) {
         predicate =
             SecurityEngine.getPredicateForSecurityResource(
-                sessionInternal,
+                session,
                 this,
                 "database.class.`" + className + "`",
                 SecurityPolicy.Scope.AFTER_UPDATE);
@@ -1611,13 +1603,13 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private static ResultInternal calculateOriginalValue(DBRecord record,
-      DatabaseSessionInternal db) {
+      DatabaseSessionEmbedded db) {
     var transaction = db.getActiveTransaction();
     return calculateBefore(transaction.load(record), db);
   }
 
   public static ResultInternal calculateBefore(EntityImpl entity,
-      DatabaseSessionInternal db) {
+      DatabaseSessionEmbedded db) {
     var result = new ResultInternal(db);
     for (var prop : entity.getPropertyNamesInternal(false, false)) {
       result.setProperty(prop, unboxRidbags(entity.getProperty(prop)));
@@ -1768,7 +1760,7 @@ public class SecurityShared implements SecurityInternal {
     return new HashSet<>(filteredProperties);
   }
 
-  protected void updateAllFilteredProperties(DatabaseSessionInternal session) {
+  protected void updateAllFilteredProperties(DatabaseSessionEmbedded session) {
     Set<SecurityResourceProperty> result;
     if (session.getCurrentUser() == null) {
       result = calculateAllFilteredProperties(session);
@@ -1786,7 +1778,7 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  protected void updateAllFilteredPropertiesInternal(DatabaseSessionInternal session) {
+  protected void updateAllFilteredPropertiesInternal(DatabaseSessionEmbedded session) {
     var user = session.getCurrentUser();
     try {
       if (user != null) {
@@ -1805,7 +1797,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   protected Set<SecurityResourceProperty> calculateAllFilteredProperties(
-      DatabaseSessionInternal db) {
+      DatabaseSessionEmbedded db) {
     Set<SecurityResourceProperty> result = new HashSet<>();
     if (!db
         .getMetadata()
@@ -1843,14 +1835,13 @@ public class SecurityShared implements SecurityInternal {
     return result;
   }
 
-  public boolean couldHaveActivePredicateSecurityRoles(DatabaseSession session,
+  public boolean couldHaveActivePredicateSecurityRoles(DatabaseSessionEmbedded session,
       String className) {
-    var sessionInternal = (DatabaseSessionInternal) session;
-    if (sessionInternal.getCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       return false;
     }
     if (roleHasPredicateSecurityForClass != null) {
-      for (var role : sessionInternal.getCurrentUser().getRoles()) {
+      for (var role : session.getCurrentUser().getRoles()) {
         var roleMap = roleHasPredicateSecurityForClass.get(role.getName(session));
         if (roleMap == null) {
           return false; // TODO hierarchy...?

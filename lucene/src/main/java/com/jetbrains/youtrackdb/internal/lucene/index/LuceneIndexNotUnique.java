@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -123,7 +122,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
+  public void doPut(DatabaseSessionEmbedded session, AbstractStorage storage,
       Object key,
       RID rid) {
     while (true) {
@@ -154,7 +153,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public boolean doRemove(AbstractStorage storage, Object key,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     while (true) {
       try {
         storage.callIndexEngine(
@@ -174,7 +173,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+  public boolean doRemove(DatabaseSessionEmbedded session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     while (true) {
@@ -215,12 +214,12 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     entity.delete();
   }
 
-  protected Object decodeKey(Object key, DatabaseSessionInternal session) {
+  protected Object decodeKey(Object key, DatabaseSessionEmbedded session) {
     return key;
   }
 
   @Override
-  protected void onIndexEngineChange(DatabaseSessionInternal session, int indexId) {
+  protected void onIndexEngineChange(DatabaseSessionEmbedded session, int indexId) {
     while (true) {
       try {
         storage.callIndexEngine(

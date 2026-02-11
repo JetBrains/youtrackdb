@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.command;
 
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import java.util.Map;
 import java.util.Set;
@@ -37,9 +37,9 @@ public interface CommandExecutor {
    * @param session
    * @param iRequest Command request implementation.
    * @return
-   * @see #execute(DatabaseSessionInternal, Map) <Object, Object>...)
+   * @see #execute(DatabaseSessionEmbedded, Map) <Object, Object>...)
    */
-  <RET extends CommandExecutor> RET parse(DatabaseSessionInternal session, CommandRequest iRequest);
+  <RET extends CommandExecutor> RET parse(DatabaseSessionEmbedded session, CommandRequest iRequest);
 
   /**
    * Execute the requested command parsed previously.
@@ -47,9 +47,9 @@ public interface CommandExecutor {
    * @param session
    * @param iArgs Optional variable arguments to pass to the command.
    * @return
-   * @see #parse(DatabaseSessionInternal, CommandRequest)
+   * @see #parse(DatabaseSessionEmbedded, CommandRequest)
    */
-  Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs);
+  Object execute(DatabaseSessionEmbedded session, final Map<Object, Object> iArgs);
 
   /**
    * Set the listener invoked while the command is executing.
@@ -77,7 +77,7 @@ public interface CommandExecutor {
   /**
    * Returns the involved collections.
    */
-  Set<String> getInvolvedCollections(DatabaseSessionInternal session);
+  Set<String> getInvolvedCollections(DatabaseSessionEmbedded session);
 
   /**
    * Returns the security operation type use to check about security.

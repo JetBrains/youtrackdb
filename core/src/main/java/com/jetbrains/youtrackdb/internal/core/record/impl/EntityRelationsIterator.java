@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -19,7 +19,7 @@ public class EntityRelationsIterator extends
       @Nonnull Iterator<? extends Identifiable> iterator,
       Pair<Direction, String> connection,
       String[] labels, int size,
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     super(sourceEntity, multiValue, iterator, connection, labels, size, session);
   }
 

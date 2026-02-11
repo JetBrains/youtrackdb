@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 
 /**
@@ -36,7 +36,7 @@ public interface BinaryComparator {
    * @param iSecondValue Second value to compare
    * @return true if they match, otherwise false
    */
-  boolean isEqual(DatabaseSessionInternal db, BinaryField iFirstValue, BinaryField iSecondValue);
+  boolean isEqual(DatabaseSessionEmbedded db, BinaryField iFirstValue, BinaryField iSecondValue);
 
   /**
    * Compares two binary values executing also conversion between types.
@@ -46,7 +46,7 @@ public interface BinaryComparator {
    * @param iValue2 Second value to compare
    * @return 0 if they matches, >0 if first value is major than second, <0 in case is minor
    */
-  int compare(DatabaseSessionInternal db, BinaryField iValue1, BinaryField iValue2);
+  int compare(DatabaseSessionEmbedded db, BinaryField iValue1, BinaryField iValue2);
 
   /**
    * Returns true if the type is binary comparable

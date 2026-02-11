@@ -4,7 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -599,7 +598,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionEmbedded db, Entity currentRecord) {
     if (this.identifier != null) {
       if (modifier == null) {
         return identifier.isDefinedFor(db, currentRecord);

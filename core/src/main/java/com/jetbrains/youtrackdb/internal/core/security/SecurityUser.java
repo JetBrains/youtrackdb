@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.security;
 
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityRole;
@@ -22,52 +22,52 @@ public interface SecurityUser extends Serializable {
   }
 
   SecurityRole allow(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
       final int iOperation);
 
   SecurityRole checkIfAllowed(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
       final int iOperation);
 
-  boolean isRuleDefined(DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+  boolean isRuleDefined(DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific);
 
   @Deprecated
-  SecurityRole allow(DatabaseSessionInternal session, final String iResource,
+  SecurityRole allow(DatabaseSessionEmbedded session, final String iResource,
       final int iOperation);
 
   @Deprecated
-  SecurityRole checkIfAllowed(DatabaseSessionInternal session, final String iResource,
+  SecurityRole checkIfAllowed(DatabaseSessionEmbedded session, final String iResource,
       final int iOperation);
 
   @Deprecated
-  boolean isRuleDefined(DatabaseSessionInternal session, final String iResource);
+  boolean isRuleDefined(DatabaseSessionEmbedded session, final String iResource);
 
-  boolean checkPassword(DatabaseSessionInternal session, final String iPassword);
+  boolean checkPassword(DatabaseSessionEmbedded session, final String iPassword);
 
-  String getName(DatabaseSessionInternal session);
+  String getName(DatabaseSessionEmbedded session);
 
-  SecurityUser setName(DatabaseSessionInternal session, final String iName);
+  SecurityUser setName(DatabaseSessionEmbedded session, final String iName);
 
-  String getPassword(DatabaseSessionInternal session);
+  String getPassword(DatabaseSessionEmbedded session);
 
-  SecurityUser setPassword(DatabaseSessionInternal session, final String iPassword);
+  SecurityUser setPassword(DatabaseSessionEmbedded session, final String iPassword);
 
-  SecurityUser.STATUSES getAccountStatus(DatabaseSessionInternal session);
+  SecurityUser.STATUSES getAccountStatus(DatabaseSessionEmbedded session);
 
-  void setAccountStatus(DatabaseSessionInternal session, STATUSES accountStatus);
+  void setAccountStatus(DatabaseSessionEmbedded session, STATUSES accountStatus);
 
   Set<? extends SecurityRole> getRoles();
 
-  SecurityUser addRole(DatabaseSessionInternal session, final String iRole);
+  SecurityUser addRole(DatabaseSessionEmbedded session, final String iRole);
 
-  SecurityUser addRole(DatabaseSessionInternal session, final SecurityRole iRole);
+  SecurityUser addRole(DatabaseSessionEmbedded session, final SecurityRole iRole);
 
-  boolean removeRole(DatabaseSessionInternal session, final String iRoleName);
+  boolean removeRole(DatabaseSessionEmbedded session, final String iRoleName);
 
-  boolean hasRole(DatabaseSessionInternal session, final String iRoleName,
+  boolean hasRole(DatabaseSessionEmbedded session, final String iRoleName,
       final boolean iIncludeInherited);
 
   Identifiable getIdentity();

@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.serialization;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
@@ -44,7 +44,7 @@ public interface EntitySerializable {
 
   String CLASS_NAME = "__youtrackdb_serilized_class__ ";
 
-  EntityImpl toEntity(DatabaseSessionInternal db);
+  EntityImpl toEntity(DatabaseSessionEmbedded db);
 
   void fromDocument(EntityImpl entity);
 }

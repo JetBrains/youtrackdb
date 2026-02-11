@@ -19,9 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.function;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import java.util.Set;
 
@@ -42,7 +40,7 @@ public class FunctionLibraryProxy extends ProxedResource<FunctionLibraryImpl>
   }
 
   @Override
-  public Function getFunction(DatabaseSessionInternal db, final String iName) {
+  public Function getFunction(DatabaseSessionEmbedded db, final String iName) {
     return delegate.getFunction(db, iName);
   }
 
@@ -67,12 +65,12 @@ public class FunctionLibraryProxy extends ProxedResource<FunctionLibraryImpl>
   }
 
   @Override
-  public void dropFunction(DatabaseSession session, Function function) {
-    delegate.dropFunction((DatabaseSessionInternal) session, function);
+  public void dropFunction(DatabaseSessionEmbedded session, Function function) {
+    delegate.dropFunction(session, function);
   }
 
   @Override
-  public void dropFunction(DatabaseSession session, String iName) {
-    delegate.dropFunction((DatabaseSessionInternal) session, iName);
+  public void dropFunction(DatabaseSessionEmbedded session, String iName) {
+    delegate.dropFunction(session, iName);
   }
 }

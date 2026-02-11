@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseStats;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -21,11 +20,11 @@ public class ExplainResultSet implements ResultSet {
   private final DatabaseStats dbStats;
   boolean hasNext = true;
   @Nullable
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   private boolean closed = false;
 
-  public ExplainResultSet(@Nullable DatabaseSessionInternal session, ExecutionPlan executionPlan,
+  public ExplainResultSet(@Nullable DatabaseSessionEmbedded session, ExecutionPlan executionPlan,
       DatabaseStats dbStats) {
     this.executionPlan = executionPlan;
     this.dbStats = dbStats;
@@ -82,7 +81,7 @@ public class ExplainResultSet implements ResultSet {
 
   @Nullable
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
 

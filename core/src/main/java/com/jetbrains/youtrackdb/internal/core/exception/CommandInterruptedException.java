@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Exception thrown in case the execution of the command has been interrupted.
@@ -37,7 +37,7 @@ public class CommandInterruptedException extends NeedRetryException {
     super(dbName, message);
   }
 
-  public CommandInterruptedException(DatabaseSession session, String message) {
+  public CommandInterruptedException(DatabaseSessionEmbedded session, String message) {
     super(session != null ? session.getDatabaseName() : null, message);
   }
 }

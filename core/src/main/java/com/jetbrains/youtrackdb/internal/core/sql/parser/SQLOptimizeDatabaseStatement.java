@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -74,7 +74,7 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
     return result;
   }
 
-  private String optimizeEdges(DatabaseSessionInternal db) {
+  private String optimizeEdges(DatabaseSessionEmbedded db) {
     long transformed = 0;
     final var totalEdges = db.countClass("E");
     long browsedEdges = 0;

@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -94,14 +94,14 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
     nullValuesIgnored = value;
   }
 
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionEmbedded session) {
   }
 
 
   protected void serializeFromMap(@Nonnull Map<String, ?> map) {
   }
 
-  protected static <T> T refreshRid(DatabaseSessionInternal session, T value) {
+  protected static <T> T refreshRid(DatabaseSessionEmbedded session, T value) {
     if (value instanceof RID rid) {
       //noinspection unchecked
       return (T) session.refreshRid(rid);

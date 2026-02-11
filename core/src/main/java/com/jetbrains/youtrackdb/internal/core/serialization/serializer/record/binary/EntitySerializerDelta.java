@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -73,19 +72,19 @@ public class EntitySerializerDelta {
   protected EntitySerializerDelta() {
   }
 
-  public static byte[] serialize(DatabaseSessionInternal session, EntityImpl entity) {
+  public static byte[] serialize(DatabaseSessionEmbedded session, EntityImpl entity) {
     var bytes = new BytesContainer();
     serialize(session, entity, bytes);
     return bytes.fitBytes();
   }
 
-  public static byte[] serializeDelta(DatabaseSessionInternal session, EntityImpl entity) {
+  public static byte[] serializeDelta(DatabaseSessionEmbedded session, EntityImpl entity) {
     var bytes = new BytesContainer();
     serializeDelta(session, bytes, entity);
     return bytes.fitBytes();
   }
 
-  protected static void serializeClass(DatabaseSessionInternal session, final EntityImpl entity,
+  protected static void serializeClass(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     SchemaImmutableClass result = null;
     if (entity != null) {
@@ -111,7 +110,7 @@ public class EntitySerializerDelta {
     VarIntSerializer.write(bytes, 0);
   }
 
-  private static void serialize(DatabaseSessionInternal session, final EntityImpl entity,
+  private static void serialize(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     serializeClass(session, entity, bytes);
     SchemaImmutableClass result = null;
@@ -255,7 +254,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void deserializeDeltaLinkMap(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void deserializeDeltaLinkMap(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityLinkMapIml toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
@@ -288,7 +287,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  protected static void deserializeDeltaLinkBag(DatabaseSessionInternal session,
+  protected static void deserializeDeltaLinkBag(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       LinkBag toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
@@ -316,7 +315,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void deserializeDeltaLinkList(DatabaseSessionInternal session,
+  private static void deserializeDeltaLinkList(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       EntityLinkListImpl toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
@@ -349,7 +348,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void deserializeDeltaLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void deserializeDeltaLinkSet(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityLinkSetImpl toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
@@ -563,7 +562,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  public static void serializeDelta(DatabaseSessionInternal session, BytesContainer bytes,
+  public static void serializeDelta(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityImpl entity) {
     serializeClass(session, entity, bytes);
     SchemaImmutableClass result = null;
@@ -605,7 +604,7 @@ public class EntitySerializerDelta {
   }
 
   private static void serializeDeltaEntry(
-      DatabaseSessionInternal session, BytesContainer bytes, String name,
+      DatabaseSessionEmbedded session, BytesContainer bytes, String name,
       EntityEntry entry) {
     final var value = entry.value;
     assert value != null;
@@ -620,7 +619,7 @@ public class EntitySerializerDelta {
   }
 
   private static void serializeDeltaValue(
-      DatabaseSessionInternal session, BytesContainer bytes, Object value,
+      DatabaseSessionEmbedded session, BytesContainer bytes, Object value,
       PropertyTypeInternal type) {
     switch (type) {
       case EMBEDDEDLIST:
@@ -655,7 +654,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  protected static void serializeDeltaLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+  protected static void serializeDeltaLinkBag(DatabaseSessionEmbedded session, BytesContainer bytes,
       LinkBag value) {
     final var timeline =
         value.getTransactionTimeLine();
@@ -680,7 +679,7 @@ public class EntitySerializerDelta {
   }
 
   private static void serializeDeltaLinkSet(
-      DatabaseSessionInternal session, BytesContainer bytes,
+      DatabaseSessionEmbedded session, BytesContainer bytes,
       TrackedMultiValue<Identifiable, Identifiable> value) {
     var timeline =
         value.getTransactionTimeLine();
@@ -704,7 +703,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void serializeDeltaLinkList(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void serializeDeltaLinkList(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityLinkListImpl value) {
     var timeline = value.getTransactionTimeLine();
     assert timeline != null : "Collection timeline required for link* types serialization";
@@ -729,7 +728,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void serializeDeltaLinkMap(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void serializeDeltaLinkMap(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityLinkMapIml value) {
     var timeline = value.getTransactionTimeLine();
     assert timeline != null : "Collection timeline required for link* types serialization";
@@ -755,7 +754,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void serializeDeltaEmbeddedMap(DatabaseSessionInternal session,
+  private static void serializeDeltaEmbeddedMap(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       EntityEmbeddedMapImpl<?> value) {
     var timeline = value.getTransactionTimeLine();
@@ -827,7 +826,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void serializeDeltaEmbeddedList(DatabaseSessionInternal session,
+  private static void serializeDeltaEmbeddedList(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       EntityEmbeddedListImpl<?> value) {
     var timeline = value.getTransactionTimeLine();
@@ -899,7 +898,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void serializeDeltaEmbeddedSet(DatabaseSessionInternal session,
+  private static void serializeDeltaEmbeddedSet(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       EntityEmbeddedSetImpl<?> value) {
     var timeline = value.getTransactionTimeLine();
@@ -984,7 +983,7 @@ public class EntitySerializerDelta {
   }
 
   private static void serializeFullEntry(
-      @Nonnull DatabaseSessionInternal session, BytesContainer bytes, SchemaClass oClass,
+      @Nonnull DatabaseSessionEmbedded session, BytesContainer bytes, SchemaClass oClass,
       String name,
       EntityEntry entry) {
     final var value = entry.value;
@@ -1017,7 +1016,7 @@ public class EntitySerializerDelta {
   }
 
   public static void serializeValue(
-      DatabaseSessionInternal session, final BytesContainer bytes, Object value,
+      DatabaseSessionEmbedded session, final BytesContainer bytes, Object value,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType) {
     var pointer = 0;
@@ -1127,7 +1126,7 @@ public class EntitySerializerDelta {
   }
 
   private static void writeLinkCollection(
-      DatabaseSessionInternal session, final BytesContainer bytes,
+      DatabaseSessionEmbedded session, final BytesContainer bytes,
       final Collection<Identifiable> value) {
     VarIntSerializer.write(bytes, value.size());
 
@@ -1142,7 +1141,7 @@ public class EntitySerializerDelta {
 
   }
 
-  private static void writeLinkMap(DatabaseSessionInternal session, final BytesContainer bytes,
+  private static void writeLinkMap(DatabaseSessionEmbedded session, final BytesContainer bytes,
       final Map<Object, Identifiable> map) {
     VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
@@ -1160,7 +1159,7 @@ public class EntitySerializerDelta {
   }
 
   private static void writeEmbeddedCollection(
-      DatabaseSessionInternal session, final BytesContainer bytes, final Collection<?> value,
+      DatabaseSessionEmbedded session, final BytesContainer bytes, final Collection<?> value,
       final PropertyTypeInternal linkedType) {
     VarIntSerializer.write(bytes, value.size());
     // TODO manage embedded type from schema and auto-determined.
@@ -1188,7 +1187,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void writeEmbeddedMap(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void writeEmbeddedMap(DatabaseSessionEmbedded session, BytesContainer bytes,
       Map<Object, Object> map) {
     VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
@@ -1338,7 +1337,7 @@ public class EntitySerializerDelta {
     return found;
   }
 
-  private static Collection<Identifiable> readLinkList(DatabaseSessionInternal session,
+  private static Collection<Identifiable> readLinkList(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       RecordElement owner) {
     var found = new EntityLinkListImpl(owner);
@@ -1388,7 +1387,7 @@ public class EntitySerializerDelta {
     return result;
   }
 
-  private static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+  private static EntityLinkSetImpl readLinkSet(DatabaseSessionEmbedded session,
       BytesContainer bytes) {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
@@ -1420,7 +1419,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void writeLinkSet(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityLinkSetImpl linkSet) {
     if (linkSet.isToSerializeEmbedded()) {
       var pos = bytes.alloc(1);
@@ -1448,7 +1447,7 @@ public class EntitySerializerDelta {
   }
 
 
-  private static LinkBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+  private static LinkBag readLinkBag(DatabaseSessionEmbedded session, BytesContainer bytes) {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
@@ -1479,7 +1478,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private static void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void writeLinkBag(DatabaseSessionEmbedded session, BytesContainer bytes,
       LinkBag bag) {
     if (bag.isToSerializeEmbedded()) {
       var pos = bytes.alloc(1);
@@ -1520,7 +1519,7 @@ public class EntitySerializerDelta {
   }
 
   @Nullable
-  public static RID readOptimizedLink(DatabaseSessionInternal session, final BytesContainer bytes) {
+  public static RID readOptimizedLink(DatabaseSessionEmbedded session, final BytesContainer bytes) {
     var collectionId = VarIntSerializer.readAsInteger(bytes);
     var collectionPos = VarIntSerializer.readAsLong(bytes);
 
@@ -1537,7 +1536,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  public static void writeOptimizedLink(DatabaseSessionInternal session, final BytesContainer bytes,
+  public static void writeOptimizedLink(DatabaseSessionEmbedded session, final BytesContainer bytes,
       Identifiable link) {
     if (link == null) {
       VarIntSerializer.write(bytes, -2);

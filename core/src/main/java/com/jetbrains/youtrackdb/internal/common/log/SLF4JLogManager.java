@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.log;
 
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import java.util.Objects;
@@ -106,7 +106,7 @@ public abstract class SLF4JLogManager {
     try {
       if (requester instanceof Storage) {
         dbName = ((Storage) requester).getName();
-      } else if (requester instanceof BasicDatabaseSession<?, ?> databaseSession) {
+      } else if (requester instanceof DatabaseSessionEmbedded databaseSession) {
         dbName = databaseSession.getDatabaseName();
       } else if (exception instanceof BaseException baseException) {
         dbName = baseException.getDbName();

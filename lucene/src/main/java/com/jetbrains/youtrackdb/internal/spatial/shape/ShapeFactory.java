@@ -15,7 +15,7 @@ package com.jetbrains.youtrackdb.internal.spatial.shape;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -60,7 +60,7 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
     for (var f : factories.values()) {
       f.initClazz(db);
     }
@@ -164,7 +164,7 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public EmbeddedEntity toEmbeddedEntity(Shape shape, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(Shape shape, DatabaseSessionEmbedded session) {
 
     EmbeddedEntity result = null;
     if (Point.class.isAssignableFrom(shape.getClass())) {
@@ -198,7 +198,7 @@ public class ShapeFactory extends ComplexShapeBuilder {
 
   @Override
   protected EmbeddedEntity toEmbeddedEntity(Shape shape, Geometry geometry,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (Point.class.isAssignableFrom(shape.getClass())) {
       return factories.get(PointShapeBuilder.NAME).toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "LineString".equals(geometry.getClass().getSimpleName())) {
@@ -242,7 +242,7 @@ public class ShapeFactory extends ComplexShapeBuilder {
     }
   }
 
-  public EmbeddedEntity toEmbeddedEntity(Geometry geometry, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(Geometry geometry, DatabaseSessionEmbedded session) {
     if (geometry instanceof org.locationtech.jts.geom.Point point) {
       var point1 = context().makePoint(point.getX(), point.getY());
       return toEmbeddedEntity(point1, session);

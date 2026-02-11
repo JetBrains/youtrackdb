@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -27,7 +26,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
+  public void setType(DatabaseSessionEmbedded session, final PropertyTypeInternal type) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -43,7 +42,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   /**
    * Change the type. It checks for compatibility between the change of type.
    */
-  protected void setTypeInternal(DatabaseSessionInternal session,
+  protected void setTypeInternal(DatabaseSessionEmbedded session,
       final PropertyTypeInternal iType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -68,7 +67,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setName(DatabaseSessionInternal session, final String name) {
+  public void setName(DatabaseSessionEmbedded session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -79,7 +78,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setNameInternal(DatabaseSessionInternal session, final String name) {
+  protected void setNameInternal(DatabaseSessionEmbedded session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     var oldName = this.globalRef.getName();
@@ -98,7 +97,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setDescription(DatabaseSessionInternal session,
+  public void setDescription(DatabaseSessionEmbedded session,
       final String iDescription) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -110,7 +109,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setDescriptionInternal(DatabaseSessionInternal session,
+  protected void setDescriptionInternal(DatabaseSessionEmbedded session,
       final String iDescription) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -200,7 +199,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void clearCustom(DatabaseSessionInternal session) {
+  public void clearCustom(DatabaseSessionEmbedded session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -211,7 +210,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void clearCustomInternal(DatabaseSessionInternal session) {
+  protected void clearCustomInternal(DatabaseSessionEmbedded session) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
@@ -223,7 +222,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setCustom(DatabaseSessionInternal session, final String name,
+  public void setCustom(DatabaseSessionEmbedded session, final String name,
       final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -235,7 +234,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setCustomInternal(DatabaseSessionInternal session, final String iName,
+  protected void setCustomInternal(DatabaseSessionEmbedded session, final String iName,
       final String iValue) {
     acquireSchemaWriteLock(session);
     try {
@@ -255,7 +254,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setRegexp(DatabaseSessionInternal session, final String regexp) {
+  public void setRegexp(DatabaseSessionEmbedded session, final String regexp) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -266,7 +265,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setRegexpInternal(DatabaseSessionInternal session, final String regexp) {
+  protected void setRegexpInternal(DatabaseSessionEmbedded session, final String regexp) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -278,7 +277,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setLinkedClass(DatabaseSessionInternal session,
+  public void setLinkedClass(DatabaseSessionEmbedded session,
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -292,7 +291,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setLinkedClassInternal(DatabaseSessionInternal session,
+  protected void setLinkedClassInternal(DatabaseSessionEmbedded session,
       final SchemaClassImpl iLinkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -308,7 +307,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setLinkedType(DatabaseSessionInternal session,
+  public void setLinkedType(DatabaseSessionEmbedded session,
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -322,7 +321,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setLinkedTypeInternal(DatabaseSessionInternal session,
+  protected void setLinkedTypeInternal(DatabaseSessionEmbedded session,
       final PropertyTypeInternal iLinkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
@@ -336,7 +335,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setNotNull(DatabaseSessionInternal session, final boolean isNotNull) {
+  public void setNotNull(DatabaseSessionEmbedded session, final boolean isNotNull) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -347,7 +346,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setNotNullInternal(DatabaseSessionInternal session, final boolean isNotNull) {
+  protected void setNotNullInternal(DatabaseSessionEmbedded session, final boolean isNotNull) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -359,7 +358,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setDefaultValue(DatabaseSessionInternal session,
+  public void setDefaultValue(DatabaseSessionEmbedded session,
       final String defaultValue) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -374,7 +373,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setDefaultValueInternal(DatabaseSessionInternal session,
+  protected void setDefaultValueInternal(DatabaseSessionEmbedded session,
       final String defaultValue) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -389,7 +388,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setMax(DatabaseSessionInternal session, final String max) {
+  public void setMax(DatabaseSessionEmbedded session, final String max) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkCorrectLimitValue(session, max);
 
@@ -401,7 +400,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  private void checkCorrectLimitValue(DatabaseSessionInternal session, final String value) {
+  private void checkCorrectLimitValue(DatabaseSessionEmbedded session, final String value) {
     if (value != null) {
       if (this.getType().equals(PropertyType.STRING)
           || this.getType().equals(PropertyType.LINKBAG)
@@ -429,7 +428,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setMaxInternal(DatabaseSessionInternal sesisson, final String max) {
+  protected void setMaxInternal(DatabaseSessionEmbedded sesisson, final String max) {
     sesisson.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(sesisson);
@@ -444,7 +443,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setMin(DatabaseSessionInternal session, final String min) {
+  public void setMin(DatabaseSessionEmbedded session, final String min) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkCorrectLimitValue(session, min);
 
@@ -456,7 +455,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setMinInternal(DatabaseSessionInternal session, final String min) {
+  protected void setMinInternal(DatabaseSessionEmbedded session, final String min) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -471,7 +470,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setReadonly(DatabaseSessionInternal session, final boolean isReadonly) {
+  public void setReadonly(DatabaseSessionEmbedded session, final boolean isReadonly) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -482,7 +481,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setReadonlyInternal(DatabaseSessionInternal session, final boolean isReadonly) {
+  protected void setReadonlyInternal(DatabaseSessionEmbedded session, final boolean isReadonly) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -496,7 +495,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setMandatory(DatabaseSessionInternal session,
+  public void setMandatory(DatabaseSessionEmbedded session,
       final boolean isMandatory) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -508,7 +507,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setMandatoryInternal(DatabaseSessionInternal session,
+  protected void setMandatoryInternal(DatabaseSessionEmbedded session,
       final boolean isMandatory) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);

@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.functions;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFactoryTemplate;
 
 public class SpatialFunctionsFactory extends SQLFunctionFactoryTemplate {
@@ -22,7 +22,7 @@ public class SpatialFunctionsFactory extends SQLFunctionFactoryTemplate {
   }
 
   @Override
-  public void registerDefaultFunctions(DatabaseSessionInternal session) {
+  public void registerDefaultFunctions(DatabaseSessionEmbedded session) {
     register(session, new STGeomFromTextFunction());
     register(session, new STAsTextFunction());
     register(session, new STWithinFunction());

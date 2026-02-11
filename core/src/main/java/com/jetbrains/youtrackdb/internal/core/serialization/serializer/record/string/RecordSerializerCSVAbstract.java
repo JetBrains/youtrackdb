@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterat
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -69,7 +68,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
    */
   @Nullable
   private static Identifiable linkToStream(
-      DatabaseSessionInternal session, final StringWriter buffer, final EntityImpl iParentRecord,
+      DatabaseSessionEmbedded session, final StringWriter buffer, final EntityImpl iParentRecord,
       Object iLinked) {
     if (iLinked == null)
     // NULL REFERENCE
@@ -347,7 +346,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   }
 
   public void fieldToStream(
-      DatabaseSessionInternal session, final EntityImpl iRecord,
+      DatabaseSessionEmbedded session, final EntityImpl iRecord,
       final StringWriter iOutput,
       final PropertyTypeInternal iType,
       final SchemaClass iLinkedClass,
@@ -546,7 +545,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   }
 
   public void embeddedMapToStream(
-      DatabaseSessionInternal db,
+      DatabaseSessionEmbedded db,
       final StringWriter iOutput,
       PropertyTypeInternal iLinkedType,
       final Object iValue) {
@@ -716,7 +715,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   }
 
   public void embeddedCollectionToStream(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final StringWriter iOutput,
       final SchemaClass iLinkedClass,
       final PropertyTypeInternal iLinkedType,

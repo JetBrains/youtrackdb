@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.stream.Streams;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -144,7 +143,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
+  public void doPut(DatabaseSessionEmbedded session, AbstractStorage storage,
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
@@ -158,7 +157,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+  public boolean doRemove(DatabaseSessionEmbedded session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     return doRemoveV1(indexId, storage, key, rid);
@@ -394,7 +393,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     return null;
   }
 
-  private Stream<RawPair<Object, RID>> streamForKey(DatabaseSessionInternal db,
+  private Stream<RawPair<Object, RID>> streamForKey(DatabaseSessionEmbedded db,
       Object key) {
     key = getCollatingValue(key);
 

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
@@ -13,7 +13,7 @@ public final class EmbeddedMapConverter extends AbstractCollectionConverter<Map<
   }
 
   @Override
-  public Map<String, Object> convert(DatabaseSessionInternal session, Map<String, Object> value) {
+  public Map<String, Object> convert(DatabaseSessionEmbedded session, Map<String, Object> value) {
     var result = session.newEmbeddedMap();
     var updated = false;
     final class MapResultCallback implements ResultCallback {

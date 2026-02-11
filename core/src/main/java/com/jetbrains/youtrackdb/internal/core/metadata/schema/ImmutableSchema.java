@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalProperty;
@@ -59,7 +59,7 @@ public class ImmutableSchema implements SchemaInternal {
   private final Map<String, IndexDefinition> indexes;
 
   public ImmutableSchema(@Nonnull SchemaShared schemaShared,
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     version = schemaShared.getVersion();
     identity = schemaShared.getIdentity();
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
@@ -263,7 +263,7 @@ public class ImmutableSchema implements SchemaInternal {
 
   @Override
   public Set<SchemaClass> getClassesRelyOnCollection(String collectionName,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
     final var collectionId = session.getCollectionIdByName(collectionName);

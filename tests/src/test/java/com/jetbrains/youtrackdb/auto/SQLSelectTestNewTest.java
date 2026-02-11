@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -1945,7 +1945,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   }
 
   @Override
-  protected List<Result> executeQuery(String sql, DatabaseSessionInternal db,
+  protected List<Result> executeQuery(String sql, DatabaseSessionEmbedded db,
       Object... args) {
     var rs = db.query(sql, args);
     return rs.toList();

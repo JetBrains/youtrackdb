@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -337,7 +337,7 @@ public class MatchExecutionPlanner {
    * sort edges in the order they will be matched
    */
   private List<EdgeTraversal> getTopologicalSortedSchedule(
-      Map<String, Long> estimatedRootEntries, Pattern pattern, DatabaseSessionInternal session) {
+      Map<String, Long> estimatedRootEntries, Pattern pattern, DatabaseSessionEmbedded session) {
     List<EdgeTraversal> resultingSchedule = new ArrayList<>();
     var remainingDependencies = getDependencies(pattern);
     Set<PatternNode> visitedNodes = new HashSet<>();
@@ -801,7 +801,7 @@ public class MatchExecutionPlanner {
 
   @Nullable
   private static String getLowerSubclass(
-      DatabaseSessionInternal db, String className1, String className2) {
+      DatabaseSessionEmbedded db, String className1, String className2) {
     Schema schema = db.getMetadata().getSchema();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);

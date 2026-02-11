@@ -20,8 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -85,12 +84,12 @@ public class Role extends IdentityWrapper implements SecurityRole {
   private final String name;
   private volatile SecurityRole parent;
 
-  public Role(DatabaseSessionInternal db, final String iName, final Role parent) {
+  public Role(DatabaseSessionEmbedded db, final String iName, final Role parent) {
     this(db, iName, parent, null);
   }
 
   public Role(
-      DatabaseSessionInternal session, final String name, final Role parent,
+      DatabaseSessionEmbedded session, final String name, final Role parent,
       Map<String, SecurityPolicy> policies) {
     super(session, CLASS_NAME);
 
@@ -107,7 +106,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
   /**
    * Create the role by reading the source entity.
    */
-  public Role(DatabaseSessionInternal session, final EntityImpl source) {
+  public Role(DatabaseSessionEmbedded session, final EntityImpl source) {
     super(source);
 
     name = source.getProperty(NAME);
@@ -156,7 +155,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionEmbedded session, @Nonnull EntityImpl entity) {
     entity.setProperty(NAME, name);
     entity.setProperty(INHERITED_ROLE, parent != null ? parent.getIdentity() : null);
 
@@ -222,7 +221,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return value;
   }
 
-  static void generateSchema(DatabaseSessionInternal session) {
+  static void generateSchema(DatabaseSessionEmbedded session) {
     SchemaProperty p;
     var schema = session.getMetadata().getSchema();
     final var roleClass = schema.getClassInternal(CLASS_NAME);
@@ -292,8 +291,10 @@ public class Role extends IdentityWrapper implements SecurityRole {
     return resourceSpecific == null || rule.containsSpecificResource(resourceSpecific);
   }
 
+  @SuppressWarnings("DuplicatedCode")
   public Role addRule(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     var rule = rules.get(resourceGeneric);
     if (rule == null) {
@@ -304,7 +305,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     rule.grantAccess(resourceSpecific, iOperation);
 
     rules.put(resourceGeneric, rule);
-    save((DatabaseSessionInternal) session);
+    save(session);
     return this;
   }
 
@@ -338,7 +339,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
 
   @Deprecated
   @Override
-  public SecurityRole addRule(DatabaseSession session, String iResource, int iOperation) {
+  public SecurityRole addRule(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     final var specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -352,7 +353,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
 
   @Deprecated
   @Override
-  public SecurityRole grant(DatabaseSession session, String iResource, int iOperation) {
+  public SecurityRole grant(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     final var specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -366,7 +367,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
 
   @Deprecated
   @Override
-  public SecurityRole revoke(DatabaseSession session, String iResource, int iOperation) {
+  public SecurityRole revoke(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     final var specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -382,7 +383,8 @@ public class Role extends IdentityWrapper implements SecurityRole {
    * Grant a permission to the resource.
    */
   public Role grant(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     var rule = rules.get(resourceGeneric);
 
@@ -394,7 +396,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     rule.grantAccess(resourceSpecific, iOperation);
 
     rules.put(resourceGeneric, rule);
-    save((DatabaseSessionInternal) session);
+    save(session);
     return this;
   }
 
@@ -402,7 +404,8 @@ public class Role extends IdentityWrapper implements SecurityRole {
    * Revoke a permission to the resource.
    */
   public Role revoke(
-      DatabaseSession session, final ResourceGeneric resourceGeneric, String resourceSpecific,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
+      String resourceSpecific,
       final int iOperation) {
     if (iOperation == PERMISSION_NONE) {
       return this;
@@ -418,16 +421,16 @@ public class Role extends IdentityWrapper implements SecurityRole {
     rule.revokeAccess(resourceSpecific, iOperation);
     rules.put(resourceGeneric, rule);
 
-    save((DatabaseSessionInternal) session);
+    save(session);
 
     return this;
   }
 
-  public String getName(DatabaseSession session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
-  public void setParentRole(DatabaseSession session, final SecurityRole parent) {
+  public void setParentRole(DatabaseSessionEmbedded session, final SecurityRole parent) {
     this.parent = parent;
   }
 
@@ -455,12 +458,12 @@ public class Role extends IdentityWrapper implements SecurityRole {
   }
 
   @Override
-  public Map<String, SecurityPolicy> getPolicies(DatabaseSession db) {
+  public Map<String, SecurityPolicy> getPolicies(DatabaseSessionEmbedded db) {
     return policies;
   }
 
   @Override
-  public SecurityPolicy getPolicy(DatabaseSession db, String resource) {
+  public SecurityPolicy getPolicy(DatabaseSessionEmbedded db, String resource) {
     return policies.get(resource);
   }
 }

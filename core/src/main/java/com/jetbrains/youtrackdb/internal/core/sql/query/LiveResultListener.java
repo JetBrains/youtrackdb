@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.query;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 
@@ -30,7 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
  */
 public interface LiveResultListener {
 
-  void onLiveResult(DatabaseSessionInternal db, int iLiveToken, RecordOperation iOp)
+  void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp)
       throws BaseException;
 
   void onError(int iLiveToken);

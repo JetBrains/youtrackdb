@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.cache;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.HashSet;
 import java.util.Set;
@@ -124,7 +124,7 @@ public abstract class AbstractRecordCache {
   /**
    * All operations running at cache initialization stage
    */
-  public void startup(@Nonnull DatabaseSessionInternal session) {
+  public void startup(@Nonnull DatabaseSessionEmbedded session) {
     underlying.startup();
   }
 

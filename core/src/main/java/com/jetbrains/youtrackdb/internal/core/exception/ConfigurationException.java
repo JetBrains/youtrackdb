@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 public class ConfigurationException extends CoreException implements HighLevelException {
 
@@ -32,7 +32,7 @@ public class ConfigurationException extends CoreException implements HighLevelEx
     super(dbName, message);
   }
 
-  public ConfigurationException(BasicDatabaseSession<?, ?> session, String message) {
+  public ConfigurationException(DatabaseSessionEmbedded session, String message) {
     this(session != null ? session.getDatabaseName() : null, message);
   }
 

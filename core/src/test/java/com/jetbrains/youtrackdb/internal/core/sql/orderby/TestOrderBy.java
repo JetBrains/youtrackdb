@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.orderby;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.Locale;
@@ -15,8 +15,8 @@ public class TestOrderBy extends DbTestBase {
 
   @Test
   public void testGermanOrderBy() {
-    session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
-    session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
     session.getMetadata().getSchema().createClass("test");
 
     session.begin();
@@ -47,8 +47,8 @@ public class TestOrderBy extends DbTestBase {
   @Test
   @Ignore
   public void testGermanOrderByIndex() {
-    session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
-    session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
+    session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
 
     var clazz = session.getMetadata().getSchema().createClass("test");
     clazz.createProperty("name", PropertyType.STRING)

@@ -23,8 +23,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.common.thread.NonDaemonThreadFactory;
 import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutorWithLogging;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -223,7 +222,7 @@ public abstract class DBSequence {
     entityRid = entity.getIdentity();
   }
 
-  protected DBSequence(DatabaseSessionInternal session, CreateParams params, @Nonnull String name) {
+  protected DBSequence(DatabaseSessionEmbedded session, CreateParams params, @Nonnull String name) {
     Objects.requireNonNull(name);
 
     entityRid =
@@ -260,7 +259,7 @@ public abstract class DBSequence {
     setSequenceType(entity);
   }
 
-  public boolean updateParams(DatabaseSessionInternal db, CreateParams params)
+  public boolean updateParams(DatabaseSessionEmbedded db, CreateParams params)
       throws DatabaseException {
     var entity = db.<EntityImpl>load(entityRid);
     var result = updateParams(entity, params, false);
@@ -362,7 +361,7 @@ public abstract class DBSequence {
     this.maxRetry = maxRetry;
   }
 
-  public String getName(DatabaseSessionInternal db) {
+  public String getName(DatabaseSessionEmbedded db) {
     return getSequenceName(db.load(entityRid));
   }
 
@@ -427,35 +426,35 @@ public abstract class DBSequence {
   /*
    * Forwards the sequence by one, and returns the new value.
    */
-  public long next(DatabaseSessionInternal db)
+  public long next(DatabaseSessionEmbedded db)
       throws SequenceLimitReachedException, DatabaseException {
     return nextWork(db);
   }
 
-  public abstract long nextWork(DatabaseSessionInternal session)
+  public abstract long nextWork(DatabaseSessionEmbedded session)
       throws SequenceLimitReachedException;
 
   /*
    * Returns the current sequence value. If next() was never called, returns null
    */
-  public long current(DatabaseSessionInternal db) throws DatabaseException {
+  public long current(DatabaseSessionEmbedded db) throws DatabaseException {
     return currentWork(db);
   }
 
-  protected abstract long currentWork(DatabaseSessionInternal session);
+  protected abstract long currentWork(DatabaseSessionEmbedded session);
 
-  public long reset(DatabaseSessionInternal db) throws DatabaseException {
+  public long reset(DatabaseSessionEmbedded db) throws DatabaseException {
     return resetWork(db);
   }
 
-  public abstract long resetWork(DatabaseSessionInternal session);
+  public abstract long resetWork(DatabaseSessionEmbedded session);
 
   /*
    * Returns the sequence type
    */
   public abstract SEQUENCE_TYPE getSequenceType();
 
-  protected long callRetry(DatabaseSessionInternal db, final SequenceCallable callable,
+  protected long callRetry(DatabaseSessionEmbedded db, final SequenceCallable callable,
       final String method) {
     try (var dbCopy = db.copy()) {
       for (var retry = 0; retry < maxRetry; ++retry) {
@@ -534,6 +533,6 @@ public abstract class DBSequence {
   @FunctionalInterface
   public interface SequenceCallable {
 
-    long call(DatabaseSession db, EntityImpl entity);
+    long call(DatabaseSessionEmbedded db, EntityImpl entity);
   }
 }

@@ -3,7 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -302,7 +302,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     return ExecutionStream.singleton(result);
   }
 
-  private static void checkNotIndexed(DatabaseSessionInternal session, SchemaClassInternal oClass) {
+  private static void checkNotIndexed(DatabaseSessionEmbedded session, SchemaClassInternal oClass) {
     var indexes = oClass.getIndexesInternal();
     if (indexes != null && !indexes.isEmpty()) {
       throw new CommandExecutionException(session,
@@ -313,7 +313,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
   }
 
-  private static void checkNotEdge(DatabaseSessionInternal session, SchemaClass oClass) {
+  private static void checkNotEdge(DatabaseSessionEmbedded session, SchemaClass oClass) {
     if (oClass.isSubClassOf("E")) {
       throw new CommandExecutionException(session,
           "Cannot alter class '"

@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -170,7 +169,7 @@ public class RecreateIndexesTask implements Runnable {
   }
 
   private void addIndexAsIs(
-      DatabaseSessionInternal session, Index index, FrontendTransaction transaction) {
+      DatabaseSessionEmbedded session, Index index, FrontendTransaction transaction) {
     try {
       indexManager.addIndexInternal(session, transaction, index, false);
       ok++;

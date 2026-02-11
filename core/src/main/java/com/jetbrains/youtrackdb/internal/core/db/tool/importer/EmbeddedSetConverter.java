@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Set;
 
 /**
@@ -13,7 +13,7 @@ public final class EmbeddedSetConverter extends AbstractCollectionConverter<Set<
   }
 
   @Override
-  public Set<Object> convert(DatabaseSessionInternal session, Set<Object> value) {
+  public Set<Object> convert(DatabaseSessionEmbedded session, Set<Object> value) {
     var updated = false;
     final var result = session.newEmbeddedSet();
 

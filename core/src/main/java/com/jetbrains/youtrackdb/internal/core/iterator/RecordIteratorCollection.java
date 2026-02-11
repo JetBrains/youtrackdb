@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -37,7 +37,7 @@ import java.util.NoSuchElementException;
 public class RecordIteratorCollection<REC extends RecordAbstract>
     implements Iterator<REC>, AutoCloseable {
 
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
   private final int collectionId;
   private final boolean forwardDirection;
 
@@ -49,7 +49,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   private REC next;
 
   public RecordIteratorCollection(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       int collectionId,
       boolean forwardDirection
   ) {
@@ -57,7 +57,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   }
 
   public RecordIteratorCollection(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       int collectionId,
       boolean forwardDirection,
       boolean checkAccess

@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.command;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -76,7 +75,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
   }
 
   @Override
-  public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
+  public byte[] toStream(DatabaseSessionEmbedded session, RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream();
     return toStream(buffer, session);
@@ -87,7 +86,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     return "?." + text;
   }
 
-  protected byte[] toStream(final MemoryStream buffer, DatabaseSessionInternal session) {
+  protected byte[] toStream(final MemoryStream buffer, DatabaseSessionEmbedded session) {
     buffer.setUtf8(text);
 
     if (parameters == null || parameters.isEmpty()) {

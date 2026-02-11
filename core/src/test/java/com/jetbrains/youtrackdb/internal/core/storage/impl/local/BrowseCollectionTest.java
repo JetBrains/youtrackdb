@@ -10,8 +10,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.util.ArrayList;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -23,7 +22,7 @@ import org.junit.Test;
 public class BrowseCollectionTest {
 
   private static final String PASSWORD = "adminpwd";
-  private DatabaseSession db;
+  private DatabaseSessionEmbedded db;
   private YouTrackDBImpl youTrackDb;
 
   @Before
@@ -53,7 +52,7 @@ public class BrowseCollectionTest {
     var collection = db.getSchema().getClass("One").getCollectionIds()[0];
 
     var forwardBrowser =
-        ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage())
+        ((AbstractStorage) db.getStorage())
             .browseCollection(collection, true);
 
     final var forwardPositions = new ArrayList<Long>();
@@ -68,7 +67,7 @@ public class BrowseCollectionTest {
     assertTrue(ArrayUtils.isSorted(forwardPositions.stream().mapToLong(Long::longValue).toArray()));
 
     var backwardBrowser =
-        ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage())
+        ((AbstractStorage) db.getStorage())
             .browseCollection(collection, false);
     final var backwardPositions = new ArrayList<Long>();
     while (backwardBrowser.hasNext()) {

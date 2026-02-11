@@ -30,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -202,7 +201,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   @Override
   @Nullable
   public BinaryField deserializeField(
-      DatabaseSessionInternal session, final BytesContainer bytes,
+      DatabaseSessionEmbedded session, final BytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,
       boolean embedded,
@@ -334,7 +333,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Override
-  public String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
+  public String[] getFieldNames(DatabaseSessionEmbedded session, EntityImpl reference,
       final BytesContainer bytes,
       boolean embedded) {
     // SKIP CLASS NAME
@@ -381,7 +380,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   private void serializeValues(
-      DatabaseSessionInternal session, final BytesContainer headerBuffer,
+      DatabaseSessionEmbedded session, final BytesContainer headerBuffer,
       final BytesContainer valuesBuffer,
       final EntityImpl entity,
       Set<Entry<String, EntityEntry>> fields,
@@ -473,7 +472,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   private void serializeEntity(
-      DatabaseSessionInternal session, final EntityImpl entity,
+      DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes,
       final SchemaClass clazz,
       ImmutableSchema schema,
@@ -495,7 +494,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     merge(bytes, headerBuffer, valuesBuffer);
   }
 
-  public void serializeWithClassName(DatabaseSessionInternal session, final EntityImpl entity,
+  public void serializeWithClassName(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     ImmutableSchema schema = null;
     if (entity != null) {
@@ -516,7 +515,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Override
-  public void serialize(DatabaseSessionInternal session, final EntityImpl entity,
+  public void serialize(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     ImmutableSchema schema = null;
     if (entity != null) {
@@ -603,7 +602,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected int writeEmbeddedMap(
-      DatabaseSessionInternal session, BytesContainer bytes,
+      DatabaseSessionEmbedded session, BytesContainer bytes,
       Map<Object, Object> map,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
@@ -690,7 +689,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return retList;
   }
 
-  protected static int writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+  protected static int writeLinkSet(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityLinkSetImpl linkSet) {
     var positionOffset = bytes.offset;
     linkSet.checkAndConvert(session.getTransactionInternal());
@@ -717,7 +716,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return positionOffset;
   }
 
-  protected static int writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+  protected static int writeLinkBag(DatabaseSessionEmbedded session, BytesContainer bytes,
       LinkBag ridbag) {
     var positionOffset = bytes.offset;
     ridbag.checkAndConvert();
@@ -743,7 +742,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return positionOffset;
   }
 
-  private static void writeBTreeBasedLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void writeBTreeBasedLinkBag(DatabaseSessionEmbedded session, BytesContainer bytes,
       BTreeBasedLinkBag btreeLinkBag) {
     var pointer = btreeLinkBag.getCollectionPointer();
 
@@ -793,7 +792,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     HelperClasses.writeByte(bytes, (byte) 0);
   }
 
-  protected static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+  protected static EntityLinkSetImpl readLinkSet(DatabaseSessionEmbedded session,
       BytesContainer bytes) {
     var configByte = bytes.bytes[bytes.offset++];
     var isEmbedded = (configByte & 1) != 0;
@@ -811,7 +810,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return ridbag;
   }
 
-  protected static LinkBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+  protected static LinkBag readLinkBag(DatabaseSessionEmbedded session, BytesContainer bytes) {
     var configByte = bytes.bytes[bytes.offset++];
     var isEmbedded = (configByte & 1) != 0;
 
@@ -829,7 +828,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Nonnull
-  private static BTreeBasedLinkBag readBTreeBasedLinkBag(DatabaseSessionInternal session,
+  private static BTreeBasedLinkBag readBTreeBasedLinkBag(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       int linkBagSize, int counterMaxValue) {
     var fileId = VarIntSerializer.readAsLong(bytes);
@@ -842,7 +841,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Nonnull
-  private static EmbeddedLinkBag readEmbeddedLinkBag(DatabaseSessionInternal session,
+  private static EmbeddedLinkBag readEmbeddedLinkBag(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       int linkBagSize, int counterMaxValue) {
     var changes = new ArrayList<RawPair<RID, Change>>();
@@ -1003,7 +1002,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   @SuppressWarnings("unchecked")
   @Override
   public int serializeValue(
-      DatabaseSessionInternal session, final BytesContainer bytes,
+      DatabaseSessionEmbedded session, final BytesContainer bytes,
       Object value,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType,
@@ -1119,7 +1118,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected int writeEmbeddedCollection(
-      DatabaseSessionInternal session, final BytesContainer bytes,
+      DatabaseSessionEmbedded session, final BytesContainer bytes,
       final Collection<?> value,
       final PropertyTypeInternal linkedType,
       ImmutableSchema schema,

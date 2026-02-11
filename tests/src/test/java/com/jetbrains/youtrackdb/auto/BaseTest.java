@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import java.util.Locale;
@@ -198,7 +197,7 @@ public abstract class BaseTest {
   }
 
   protected Index getIndex(final String indexName) {
-    final DatabaseSessionInternal db = this.session;
+    final var db = this.session;
 
     return db.getSharedContext().getIndexManager().getIndex(indexName);
   }

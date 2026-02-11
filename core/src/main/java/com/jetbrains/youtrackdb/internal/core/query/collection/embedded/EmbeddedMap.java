@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query.collection.embedded;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
@@ -16,7 +16,7 @@ import java.util.Map;
 /// Embedded map supports only string keys.
 ///
 /// Embedded map cannot be instantiated directly, instead you should use factory methods either in
-/// [DatabaseSession] or in [Transaction] or in [Entity] objects.
+/// [DatabaseSessionEmbedded] or in [Transaction] or in [Entity] objects.
 ///
 /// If an embedded map is associated with [Entity] it cannot contain links to another record. This
 /// restriction is forced because a database always ensures links consistency.

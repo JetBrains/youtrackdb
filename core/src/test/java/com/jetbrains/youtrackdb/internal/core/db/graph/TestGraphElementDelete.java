@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -24,7 +24,7 @@ public class TestGraphElementDelete {
 
   private static final String ADMIN_PASSWORD = "adminpwd";
   private YouTrackDBImpl youTrackDB;
-  private DatabaseSession session;
+  private DatabaseSessionEmbedded session;
 
   @Before
   public void before() {

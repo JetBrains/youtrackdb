@@ -84,7 +84,7 @@ public abstract class DatabasePoolBase extends Thread {
                 }
 
                 @Override
-                public DatabaseSession createNewResource(
+                public DatabaseSessionEmbedded createNewResource(
                     final String iDatabaseName, final Object... iAdditionalArgs) {
                   if (iAdditionalArgs.length < 2) {
                     throw new SecurityAccessException("Username and/or password missed");
@@ -97,20 +97,19 @@ public abstract class DatabasePoolBase extends Thread {
                 public boolean reuseResource(
                     final String iKey,
                     final Object[] iAdditionalArgs,
-                    final DatabaseSession iValue) {
-                  var session = (DatabaseSessionInternal) iValue;
+                    final DatabaseSessionEmbedded iValue) {
                   if (((DatabasePooled) iValue).isUnderlyingOpen()) {
                     ((DatabasePooled) iValue).reuse(owner, iAdditionalArgs);
-                    if (session.getStorage().isClosed(session))
+                    if (iValue.getStorage().isClosed(iValue))
                     // STORAGE HAS BEEN CLOSED: REOPEN IT
                     {
-                      (session)
+                      iValue
                           .getStorage()
-                          .open(session,
+                          .open(iValue,
                               (String) iAdditionalArgs[0],
                               (String) iAdditionalArgs[1], new ContextConfiguration());
-                    } else if (!session.getCurrentUser()
-                        .checkPassword(session, (String) iAdditionalArgs[1])) {
+                    } else if (!iValue.getCurrentUser()
+                        .checkPassword(iValue, (String) iAdditionalArgs[1])) {
                       throw new SecurityAccessException(
                           iValue.getDatabaseName(),
                           "User or password not valid for database: '" + iValue.getDatabaseName()
@@ -134,7 +133,7 @@ public abstract class DatabasePoolBase extends Thread {
    *
    * @return A pooled database instance
    */
-  public DatabaseSession acquire() {
+  public DatabaseSessionEmbedded acquire() {
     setup();
     return dbPool.acquire(url, userName, userPassword);
   }
@@ -148,7 +147,7 @@ public abstract class DatabasePoolBase extends Thread {
    * @param iUserPassword User password
    * @return A pooled database instance
    */
-  public DatabaseSession acquire(
+  public DatabaseSessionEmbedded acquire(
       final String iName, final String iUserName, final String iUserPassword) {
     setup();
     return dbPool.acquire(iName, iUserName, iUserPassword);
@@ -181,7 +180,7 @@ public abstract class DatabasePoolBase extends Thread {
    * @param iUserPassword User password
    * @return A pooled database instance
    */
-  public DatabaseSession acquire(
+  public DatabaseSessionEmbedded acquire(
       final String iName,
       final String iUserName,
       final String iUserPassword,
@@ -202,7 +201,7 @@ public abstract class DatabasePoolBase extends Thread {
    *
    * @param iDatabase
    */
-  public void release(final DatabaseSessionInternal iDatabase) {
+  public void release(final DatabaseSessionEmbedded iDatabase) {
     if (dbPool != null) {
       dbPool.release(iDatabase);
     }
@@ -229,7 +228,7 @@ public abstract class DatabasePoolBase extends Thread {
   /**
    * Returns all the configured pools.
    */
-  public Map<String, ReentrantResourcePool<String, DatabaseSession>> getPools() {
+  public Map<String, ReentrantResourcePool<String, DatabaseSessionEmbedded>> getPools() {
     return dbPool.getPools();
   }
 
@@ -245,6 +244,6 @@ public abstract class DatabasePoolBase extends Thread {
     close();
   }
 
-  protected abstract DatabaseSessionInternal createResource(
+  protected abstract DatabaseSessionEmbedded createResource(
       Object owner, String iDatabaseName, Object... iAdditionalArgs);
 }

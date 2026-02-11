@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
@@ -20,7 +20,7 @@ public class UpdatableResult extends ResultInternal {
 
   protected ResultInternal previousValue = null;
 
-  public UpdatableResult(DatabaseSessionInternal session, Entity entity) {
+  public UpdatableResult(DatabaseSessionEmbedded session, Entity entity) {
     super(session, entity);
   }
 

@@ -33,7 +33,7 @@ import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
@@ -71,7 +71,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
    * @return true if they match, otherwise false
    */
   @Override
-  public boolean isEqual(DatabaseSessionInternal session, final BinaryField iField1,
+  public boolean isEqual(DatabaseSessionEmbedded session, final BinaryField iField1,
       final BinaryField iField2) {
     final var fieldValue1 = iField1.bytes;
     final var offset1 = fieldValue1.offset;
@@ -688,7 +688,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
    * @return 0 if they matches, >0 if first value is major than second, <0 in case is minor
    */
   @Override
-  public int compare(DatabaseSessionInternal session, final BinaryField iField1,
+  public int compare(DatabaseSessionEmbedded session, final BinaryField iField1,
       final BinaryField iField2) {
     final var fieldValue1 = iField1.bytes;
     final var offset1 = fieldValue1.offset;

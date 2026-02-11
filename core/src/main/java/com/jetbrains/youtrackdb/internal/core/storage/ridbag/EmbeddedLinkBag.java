@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -32,13 +32,13 @@ import javax.annotation.Nonnull;
 
 public class EmbeddedLinkBag extends AbstractLinkBag {
 
-  public EmbeddedLinkBag(@Nonnull DatabaseSessionInternal session, int counterMaxValue) {
+  public EmbeddedLinkBag(@Nonnull DatabaseSessionEmbedded session, int counterMaxValue) {
     super(session, counterMaxValue);
   }
 
 
   public EmbeddedLinkBag(@Nonnull List<RawPair<RID, Change>> changes,
-      @Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
+      @Nonnull DatabaseSessionEmbedded session, int size, int counterMaxValue) {
     super(session, size, counterMaxValue);
     localChanges.fillAllSorted(changes);
   }

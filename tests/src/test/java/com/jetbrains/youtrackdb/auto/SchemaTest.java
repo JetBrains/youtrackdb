@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
@@ -544,7 +544,7 @@ public class SchemaTest extends BaseDBTest {
     schema.dropClass(className);
   }
 
-  private void swapCollections(DatabaseSessionInternal databaseDocumentTx, int i) {
+  private void swapCollections(DatabaseSessionEmbedded databaseDocumentTx, int i) {
     databaseDocumentTx
         .execute(
             "CREATE CLASS TestRenameCollectionNew extends TestRenameCollectionOriginal collections 2")

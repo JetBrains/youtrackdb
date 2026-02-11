@@ -4,8 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterat
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -230,7 +229,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return new ArrayList<RID>();
   }
 
-  private void bindAdditionalParams(DatabaseSessionInternal db, Object additionalParams,
+  private void bindAdditionalParams(DatabaseSessionEmbedded db, Object additionalParams,
       ShortestPathContext ctx) {
     if (additionalParams == null) {
       return;
@@ -324,7 +323,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return getVerticesAndEdges(srcVertex, direction, (String[]) null);
   }
 
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "shortestPath(<sourceVertex>, <destinationVertex>, [<direction>, [ <edgeTypeAsString>"
         + " ]])";
   }

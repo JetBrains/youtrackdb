@@ -4,7 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -78,7 +77,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     return evaluate(db, firstValue, secondValue, thirdValue);
   }
 
-  private static boolean evaluate(DatabaseSessionInternal session, Object firstValue,
+  private static boolean evaluate(DatabaseSessionEmbedded session, Object firstValue,
       Object secondValue,
       Object thirdValue) {
     if (firstValue == null) {
@@ -102,7 +101,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     return leftResult >= 0 && rightResult <= 0;
   }
 
-  private boolean evaluateAny(DatabaseSessionInternal session, Result currentRecord,
+  private boolean evaluateAny(DatabaseSessionEmbedded session, Result currentRecord,
       CommandContext ctx) {
     var secondValue = second.execute(currentRecord, ctx);
     var thirdValue = third.execute(currentRecord, ctx);

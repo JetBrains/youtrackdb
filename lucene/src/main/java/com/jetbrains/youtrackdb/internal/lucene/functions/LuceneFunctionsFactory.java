@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.lucene.functions;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFactoryTemplate;
 
 public class LuceneFunctionsFactory extends SQLFunctionFactoryTemplate {
@@ -24,7 +24,7 @@ public class LuceneFunctionsFactory extends SQLFunctionFactoryTemplate {
   }
 
   @Override
-  public void registerDefaultFunctions(DatabaseSessionInternal session) {
+  public void registerDefaultFunctions(DatabaseSessionEmbedded session) {
     register(session, new LuceneSearchOnIndexFunction());
     register(session, new LuceneSearchOnFieldsFunction());
     register(session, new LuceneSearchOnClassFunction());

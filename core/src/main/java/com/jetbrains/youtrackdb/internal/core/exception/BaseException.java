@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -31,7 +31,7 @@ public abstract class BaseException extends RuntimeException {
   private String dbName;
 
   public static BaseException wrapException(final BaseException exception, final Throwable cause,
-      @Nullable BasicDatabaseSession<?, ?> session) {
+      @Nullable DatabaseSessionEmbedded session) {
     return wrapException(exception, cause, session != null ? session.getDatabaseName() : null);
   }
 
@@ -63,7 +63,7 @@ public abstract class BaseException extends RuntimeException {
     return exception;
   }
 
-  public BaseException(final String message, @Nullable BasicDatabaseSession<?, ?> session) {
+  public BaseException(final String message, @Nullable DatabaseSessionEmbedded session) {
     super(message);
 
     if (session != null) {
@@ -100,7 +100,7 @@ public abstract class BaseException extends RuntimeException {
     this.dbName = dbName;
   }
 
-  public void setDbName(@Nonnull BasicDatabaseSession<?, ?> db) {
+  public void setDbName(@Nonnull DatabaseSessionEmbedded db) {
     if (this.dbName == null) {
       this.dbName = db.getURL();
     }

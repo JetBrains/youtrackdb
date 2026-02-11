@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -42,7 +41,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
         };
   }
 
-  public static long getLastInvalidation(DatabaseSessionInternal db) {
+  public static long getLastInvalidation(DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
@@ -77,7 +76,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
    */
   @Nullable
   public static ExecutionPlan get(
-      String statement, CommandContext ctx, DatabaseSessionInternal db) {
+      String statement, CommandContext ctx, DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
@@ -129,7 +128,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
    */
   @Nullable
   public ExecutionPlan getInternal(
-      String statement, CommandContext ctx, DatabaseSessionInternal db) {
+      String statement, CommandContext ctx, DatabaseSessionEmbedded db) {
     InternalExecutionPlan result;
 
     var currentGlobalTimeout =
@@ -172,24 +171,24 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
   }
 
   @Override
-  public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName,
+  public void onSchemaUpdate(DatabaseSessionEmbedded session, String databaseName,
       SchemaShared schema) {
     invalidate();
   }
 
   @Override
-  public void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
+  public void onIndexManagerUpdate(DatabaseSessionEmbedded session, String databaseName,
       IndexManagerAbstract indexManager) {
     invalidate();
   }
 
   @Override
-  public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
+  public void onFunctionLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
     invalidate();
   }
 
   @Override
-  public void onSequenceLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
+  public void onSequenceLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
     invalidate();
   }
 
@@ -198,7 +197,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
     invalidate();
   }
 
-  public static ExecutionPlanCache instance(DatabaseSessionInternal db) {
+  public static ExecutionPlanCache instance(DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }

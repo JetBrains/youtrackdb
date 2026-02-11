@@ -26,7 +26,6 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineException;
@@ -76,7 +75,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+  public void init(DatabaseSessionEmbedded session, IndexMetadata im) {
     super.init(session, im);
     queryBuilder = new LuceneQueryBuilder(im.getMetadata());
   }
@@ -128,14 +127,14 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
 
   @Override
   public void update(
-      DatabaseSessionInternal db, final AtomicOperation atomicOperation,
+      DatabaseSessionEmbedded db, final AtomicOperation atomicOperation,
       final Object key,
       final IndexKeyUpdater<Object> updater) {
     put(db, atomicOperation, key, updater.update(null, bonsayFileId).getValue());
   }
 
   @Override
-  public void put(DatabaseSessionInternal db, final AtomicOperation atomicOperation,
+  public void put(DatabaseSessionEmbedded db, final AtomicOperation atomicOperation,
       final Object key, final Object value) {
     updateLastAccess();
     openIfClosed(db.getStorage());
@@ -203,7 +202,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public Document buildDocument(DatabaseSessionInternal session, Object key,
+  public Document buildDocument(DatabaseSessionEmbedded session, Object key,
       Identifiable value) {
     if (indexDefinition.isAutomatic()) {
       //      builder.newBuild(index, key, value);
@@ -244,7 +243,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public Query buildQuery(final Object maybeQuery, DatabaseSessionInternal session) {
+  public Query buildQuery(final Object maybeQuery, DatabaseSessionEmbedded session) {
     try {
       if (maybeQuery instanceof String) {
         return queryBuilder.query(indexDefinition, maybeQuery, EMPTY_METADATA,

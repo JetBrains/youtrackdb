@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.internal.common.exception.ErrorCode;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * @since 9/28/2015
@@ -30,7 +30,7 @@ public abstract class CoreException extends BaseException {
     this(dbName, message, null, null);
   }
 
-  public CoreException(BasicDatabaseSession<?, ?> session, final String message) {
+  public CoreException(DatabaseSessionEmbedded session, final String message) {
     this(session != null ? session.getDatabaseName() : null, message, null, null);
   }
 

@@ -28,9 +28,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession.STATUS;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.STATUS;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.EntityFieldWalker;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -1538,12 +1537,12 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   }
 
   protected static void rewriteLinksInDocument(
-      DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
+      DatabaseSessionEmbedded session, EntityImpl entity, Set<RID> brokenRids) {
     doRewriteLinksInDocument(session, entity, brokenRids);
   }
 
   protected static void doRewriteLinksInDocument(
-      DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
+      DatabaseSessionEmbedded session, EntityImpl entity, Set<RID> brokenRids) {
     final var rewriter = new LinksRewriter(new ConverterData(session, brokenRids));
     final var entityFieldWalker = new EntityFieldWalker();
     entityFieldWalker.walkDocument(session, entity, rewriter);

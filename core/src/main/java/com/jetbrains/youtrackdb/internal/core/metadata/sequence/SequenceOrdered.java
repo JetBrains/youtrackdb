@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
@@ -36,12 +36,12 @@ public class SequenceOrdered extends DBSequence {
     super(entity);
   }
 
-  public SequenceOrdered(DatabaseSessionInternal db, CreateParams params, String name) {
+  public SequenceOrdered(DatabaseSessionEmbedded db, CreateParams params, String name) {
     super(db, params, name);
   }
 
   @Override
-  public long nextWork(DatabaseSessionInternal session) throws SequenceLimitReachedException {
+  public long nextWork(DatabaseSessionEmbedded session) throws SequenceLimitReachedException {
     return callRetry(session,
         (db, entity) -> {
           long newValue;
@@ -92,12 +92,12 @@ public class SequenceOrdered extends DBSequence {
   }
 
   @Override
-  protected long currentWork(DatabaseSessionInternal session) {
+  protected long currentWork(DatabaseSessionEmbedded session) {
     return callRetry(session, (db, entity) -> getValue(entity), "current");
   }
 
   @Override
-  public long resetWork(DatabaseSessionInternal session) {
+  public long resetWork(DatabaseSessionEmbedded session) {
     return callRetry(session,
         (db, entity) -> {
           var newValue = getStart(entity);

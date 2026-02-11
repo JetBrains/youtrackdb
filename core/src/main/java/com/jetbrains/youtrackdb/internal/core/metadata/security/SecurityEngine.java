@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
@@ -68,7 +67,7 @@ public class SecurityEngine {
 
   @Nullable
   private static SQLBooleanExpression getPredicateForFunction(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityResourceFunction resource,
       SecurityPolicy.Scope scope) {
@@ -170,7 +169,7 @@ public class SecurityEngine {
   }
 
   private static SQLBooleanExpression getPredicateForRoleHierarchy(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
       Function function,
@@ -189,7 +188,7 @@ public class SecurityEngine {
   }
 
   private static SQLBooleanExpression getPredicateForFunction(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
       Function clazz,
@@ -272,7 +271,7 @@ public class SecurityEngine {
   }
 
   private static SQLBooleanExpression getPredicateForClassHierarchy(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
       SchemaClass clazz,
@@ -315,7 +314,7 @@ public class SecurityEngine {
   }
 
   private static SQLBooleanExpression getPredicateForClassHierarchy(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
       SchemaClass clazz,
@@ -427,7 +426,7 @@ public class SecurityEngine {
   }
 
   static boolean evaluateSecuirtyPolicyPredicate(
-      DatabaseSessionInternal session, SQLBooleanExpression predicate, Result record) {
+      DatabaseSessionEmbedded session, SQLBooleanExpression predicate, Result record) {
     if (SQLBooleanExpression.TRUE.equals(predicate)) {
       return true;
     }

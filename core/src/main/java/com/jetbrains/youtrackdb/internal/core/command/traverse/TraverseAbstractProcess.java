@@ -20,18 +20,18 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandProcess;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import javax.annotation.Nullable;
 
 public abstract class TraverseAbstractProcess<T>
     extends CommandProcess<Traverse, T, Identifiable> {
 
-  protected final DatabaseSessionInternal session;
+  protected final DatabaseSessionEmbedded session;
 
 
   public TraverseAbstractProcess(final Traverse iCommand, final T iTarget,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     super(iCommand, iTarget);
     this.session = session;
   }

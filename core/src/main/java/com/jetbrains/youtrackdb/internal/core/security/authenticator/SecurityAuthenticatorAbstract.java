@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityAuthenticator;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
@@ -114,11 +113,11 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
   }
 
   @Nullable
-  public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
+  public SecurityUser getUser(final String username, DatabaseSessionEmbedded session) {
     return null;
   }
 
-  public boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  public boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource) {
     return false;
   }
@@ -126,7 +125,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
   @Nullable
   @Override
   public SecurityUser authenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     // Return null means no valid authentication
     return null;
   }
@@ -135,7 +134,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return false;
   }
 
-  protected boolean isPasswordValid(DatabaseSessionInternal session, final SecurityUser user) {
+  protected boolean isPasswordValid(DatabaseSessionEmbedded session, final SecurityUser user) {
     return user != null && user.getPassword(session) != null && !user.getPassword(session)
         .isEmpty();
   }

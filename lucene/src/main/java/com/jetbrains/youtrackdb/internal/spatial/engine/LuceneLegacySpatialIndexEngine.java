@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
@@ -76,7 +75,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
     super(storage, indexName, id, factory);
   }
 
-  private Set<Identifiable> legacySearch(DatabaseSessionInternal session, Object key,
+  private Set<Identifiable> legacySearch(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) throws IOException {
     if (key instanceof SpatialCompositeKey newKey) {
 
@@ -97,7 +96,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
   }
 
   private Set<Identifiable> searchIntersect(
-      DatabaseSessionInternal db, CompositeKey key, double distance,
+      DatabaseSessionEmbedded db, CompositeKey key, double distance,
       CommandContext context,
       LuceneTxChanges changes)
       throws IOException {
@@ -201,7 +200,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
   }
 
   @Override
-  public void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
       Object value) {
 
     if (key instanceof CompositeKey compositeKey) {
@@ -217,7 +216,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
 
   @Override
   public void update(
-      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
     throw new UnsupportedOperationException();
   }
@@ -233,7 +232,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
   }
 
   @Override
-  public Document buildDocument(DatabaseSessionInternal session, Object key,
+  public Document buildDocument(DatabaseSessionEmbedded session, Object key,
       Identifiable value) {
     return newGeoDocument(
         value,
@@ -243,7 +242,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
 
   @Override
   protected SpatialStrategy createSpatialStrategy(
-      DatabaseSessionInternal db, IndexDefinition indexDefinition, Map<String, ?> metadata) {
+      DatabaseSessionEmbedded db, IndexDefinition indexDefinition, Map<String, ?> metadata) {
     return new RecursivePrefixTreeStrategy(new GeohashPrefixTree(ctx, 11), "location");
   }
 

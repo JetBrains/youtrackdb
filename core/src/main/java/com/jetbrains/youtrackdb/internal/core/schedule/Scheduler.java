@@ -16,7 +16,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.schedule;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
@@ -35,7 +35,7 @@ public interface Scheduler {
   /**
    * Creates a new scheduled event.
    */
-  void scheduleEvent(DatabaseSession session, ScheduledEvent event);
+  void scheduleEvent(DatabaseSessionEmbedded session, ScheduledEvent event);
 
   /**
    * Removes a scheduled event.
@@ -43,12 +43,12 @@ public interface Scheduler {
    * @param session
    * @param eventName Event's name
    */
-  void removeEvent(DatabaseSession session, String eventName);
+  void removeEvent(DatabaseSessionEmbedded session, String eventName);
 
   /**
    * Updates a scheduled event.
    */
-  void updateEvent(DatabaseSession session, ScheduledEvent event);
+  void updateEvent(DatabaseSessionEmbedded session, ScheduledEvent event);
 
   /**
    * Returns all the scheduled events.

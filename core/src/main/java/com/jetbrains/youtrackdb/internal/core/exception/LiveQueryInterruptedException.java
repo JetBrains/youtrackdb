@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  *
@@ -11,7 +11,7 @@ public class LiveQueryInterruptedException extends CoreException {
     super(exception);
   }
 
-  public LiveQueryInterruptedException(DatabaseSession db, String message) {
+  public LiveQueryInterruptedException(DatabaseSessionEmbedded db, String message) {
     super(db, message);
   }
 }

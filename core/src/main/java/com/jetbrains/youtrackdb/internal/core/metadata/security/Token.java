@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenHeader;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
@@ -22,7 +22,7 @@ public interface Token {
 
   String getUserName();
 
-  SecurityUser getUser(DatabaseSessionInternal session);
+  SecurityUser getUser(DatabaseSessionEmbedded session);
 
   String getDatabaseName();
 

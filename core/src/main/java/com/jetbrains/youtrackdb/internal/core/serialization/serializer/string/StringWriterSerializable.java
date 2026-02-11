@@ -19,15 +19,15 @@
  */
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.string;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import java.io.StringWriter;
 
 public interface StringWriterSerializable {
 
-  StringWriterSerializable toStream(DatabaseSessionInternal db, StringWriter iOutput)
+  StringWriterSerializable toStream(DatabaseSessionEmbedded db, StringWriter iOutput)
       throws SerializationException;
 
-  StringWriterSerializable fromStream(DatabaseSessionInternal db, StringWriter iInput)
+  StringWriterSerializable fromStream(DatabaseSessionEmbedded db, StringWriter iInput)
       throws SerializationException;
 }

@@ -38,7 +38,7 @@ public interface EntityPropertiesVisitor {
    * @return New value of this field. If the same value is returned document content will not be
    * changed.
    */
-  Object visitField(DatabaseSessionInternal db, PropertyTypeInternal type,
+  Object visitField(DatabaseSessionEmbedded db, PropertyTypeInternal type,
       PropertyTypeInternal linkedType, Object value);
 
   /**
@@ -50,7 +50,7 @@ public interface EntityPropertiesVisitor {
    *                   schema.
    * @param value      Field value.
    * @param newValue   New value returned by
-   *                   {@link #visitField(DatabaseSessionInternal, PropertyTypeInternal, PropertyTypeInternal,
+   *                   {@link #visitField(DatabaseSessionEmbedded, PropertyTypeInternal, PropertyTypeInternal,
    *                   Object)} method.
    * @return If false document processing will be stopped.
    */
@@ -72,7 +72,7 @@ public interface EntityPropertiesVisitor {
 
   /**
    * @return If false value returned by method
-   * {@link #visitField(DatabaseSessionInternal, PropertyTypeInternal, PropertyTypeInternal, Object)} will not be
+   * {@link #visitField(DatabaseSessionEmbedded, PropertyTypeInternal, PropertyTypeInternal, Object)} will not be
    * taken in account and field value will not be updated.
    */
   boolean updateMode();

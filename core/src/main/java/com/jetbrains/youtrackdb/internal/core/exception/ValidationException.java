@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.exception;
 
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.common.exception.ErrorCode;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 public class ValidationException extends CoreException implements HighLevelException {
 
@@ -33,7 +33,7 @@ public class ValidationException extends CoreException implements HighLevelExcep
     super(dbName, string, null, ErrorCode.VALIDATION_ERROR);
   }
 
-  public ValidationException(BasicDatabaseSession<?, ?> session, String string) {
+  public ValidationException(DatabaseSessionEmbedded session, String string) {
     super(session != null ? session.getDatabaseName() : null, string, null,
         ErrorCode.VALIDATION_ERROR);
   }

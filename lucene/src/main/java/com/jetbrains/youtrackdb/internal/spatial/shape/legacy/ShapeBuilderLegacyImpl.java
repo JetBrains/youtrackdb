@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.shape.legacy;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +36,7 @@ public class ShapeBuilderLegacyImpl implements ShapeBuilderLegacy<Shape> {
 
   @Nullable
   @Override
-  public Shape makeShape(DatabaseSessionInternal session, CompositeKey key, SpatialContext ctx) {
+  public Shape makeShape(DatabaseSessionEmbedded session, CompositeKey key, SpatialContext ctx) {
     for (var f : builders) {
       if (f.canHandle(key)) {
         return f.makeShape(session, key, ctx);

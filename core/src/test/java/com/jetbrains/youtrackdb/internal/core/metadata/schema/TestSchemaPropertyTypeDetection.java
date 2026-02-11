@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -256,7 +256,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
   public class DocumentSer implements EntitySerializable {
 
     @Override
-    public EntityImpl toEntity(DatabaseSessionInternal db) {
+    public EntityImpl toEntity(DatabaseSessionEmbedded db) {
       // TODO Auto-generated method stub
       return null;
     }

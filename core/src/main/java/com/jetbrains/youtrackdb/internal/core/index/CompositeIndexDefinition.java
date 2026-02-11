@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -464,7 +464,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
   @Nonnull
   @Override
-  public EmbeddedMap<Object> toMap(DatabaseSessionInternal session) {
+  public EmbeddedMap<Object> toMap(DatabaseSessionEmbedded session) {
     var result = session.newEmbeddedMap();
     serializeToMap(result, session);
     return result;
@@ -498,7 +498,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionEmbedded
       session) {
     super.serializeToMap(map, session);
 

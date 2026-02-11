@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.function;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import javax.annotation.Nullable;
@@ -57,7 +57,7 @@ public class DatabaseFunction implements SQLFunction {
   }
 
   @Override
-  public String getName(DatabaseSession session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return f.getName();
   }
 
@@ -67,12 +67,12 @@ public class DatabaseFunction implements SQLFunction {
   }
 
   @Override
-  public int getMaxParams(DatabaseSession session) {
+  public int getMaxParams(DatabaseSessionEmbedded session) {
     return f.getParameters() != null ? f.getParameters().size() : 0;
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     final var buffer = new StringBuilder(512);
     buffer.append(f.getName());
     buffer.append('(');

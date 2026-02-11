@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
@@ -162,7 +161,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
   }
 
   @Override
-  public String getRoot(DatabaseSession session) {
+  public String getRoot(DatabaseSessionEmbedded session) {
     return function.getName(session);
   }
 

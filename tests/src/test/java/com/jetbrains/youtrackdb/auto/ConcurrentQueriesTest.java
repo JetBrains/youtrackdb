@@ -16,7 +16,6 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.test.ConcurrentTestHelper;
 import java.util.concurrent.Callable;
@@ -40,7 +39,7 @@ public class ConcurrentQueriesTest extends BaseDBTest {
     @Override
     public Void call() {
       for (var i = 0; i < CYCLES; i++) {
-        try (DatabaseSession db = acquireSession()) {
+        try (var db = acquireSession()) {
           for (var retry = 0; retry < MAX_RETRIES; ++retry) {
             try {
               db.executeInTx(transaction -> {

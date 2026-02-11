@@ -21,7 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import javax.annotation.Nullable;
@@ -87,7 +87,7 @@ public class SQLFunctionCoalesce extends SQLFunctionAbstract {
   }
 
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return "Returns the first not-null parameter or null if all parameters are null. Syntax:"
         + " coalesce(<field|value> [,<field|value>]*)";
   }

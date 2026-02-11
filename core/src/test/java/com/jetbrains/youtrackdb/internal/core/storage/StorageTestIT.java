@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -42,7 +42,7 @@ public class StorageTestIT {
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var session =
-        (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
+        youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = session.getMetadata();
     Schema schema = metadata.getSchema();
@@ -107,7 +107,7 @@ public class StorageTestIT {
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var db =
-        (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
+        youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = db.getMetadata();
     Schema schema = metadata.getSchema();
@@ -170,7 +170,7 @@ public class StorageTestIT {
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var db =
-        (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
+        youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = db.getMetadata();
     Schema schema = metadata.getSchema();
@@ -233,7 +233,7 @@ public class StorageTestIT {
     youTrackDB.create(StorageTestIT.class.getSimpleName(), DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
     var db =
-        (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
+        youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = db.getMetadata();
     Schema schema = metadata.getSchema();

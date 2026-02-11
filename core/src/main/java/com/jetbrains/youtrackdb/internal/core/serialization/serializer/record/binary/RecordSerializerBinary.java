@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -114,7 +113,7 @@ public class RecordSerializerBinary implements RecordSerializer {
   }
 
   @Override
-  public byte[] toStream(@Nonnull DatabaseSessionInternal session, @Nonnull RecordAbstract record) {
+  public byte[] toStream(@Nonnull DatabaseSessionEmbedded session, @Nonnull RecordAbstract record) {
     if (record instanceof Blob) {
       return record.toStream();
     } else {
@@ -134,7 +133,7 @@ public class RecordSerializerBinary implements RecordSerializer {
   }
 
   @Override
-  public String[] getFieldNames(@Nonnull DatabaseSessionInternal session, EntityImpl reference,
+  public String[] getFieldNames(@Nonnull DatabaseSessionEmbedded session, EntityImpl reference,
       final @Nonnull byte[] iSource) {
     if (iSource.length == 0) {
       return new String[0];

@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,9 +34,9 @@ public interface SecurityAuthenticator extends SecurityComponent {
   // Some token-based authentication (e.g., SPNEGO tokens have the user's name embedded in the
   // service ticket).
   SecurityUser authenticate(
-      DatabaseSessionInternal session, final String username, final String password);
+      DatabaseSessionEmbedded session, final String username, final String password);
 
-  SecurityUser authenticate(DatabaseSessionInternal session,
+  SecurityUser authenticate(DatabaseSessionEmbedded session,
       AuthenticationInfo authenticationInfo);
 
   String getAuthenticationHeader(final String databaseName);
@@ -50,9 +50,9 @@ public interface SecurityAuthenticator extends SecurityComponent {
   // Returns the name of this SecurityAuthenticator.
   String getName();
 
-  SecurityUser getUser(final String username, DatabaseSessionInternal session);
+  SecurityUser getUser(final String username, DatabaseSessionEmbedded session);
 
-  boolean isAuthorized(DatabaseSessionInternal session, final String username,
+  boolean isAuthorized(DatabaseSessionEmbedded session, final String username,
       final String resource);
 
   boolean isSingleSignOnSupported();

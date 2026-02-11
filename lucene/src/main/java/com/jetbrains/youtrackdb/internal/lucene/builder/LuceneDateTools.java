@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.builder;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -40,7 +40,7 @@ public class LuceneDateTools {
    * @return the number of milliseconds since January 1, 1970, 00:00:00 GMT
    * @throws ParseException if <code>dateString</code> is not in the expected format
    */
-  public static long stringToTime(String dateString, DatabaseSessionInternal session)
+  public static long stringToTime(String dateString, DatabaseSessionEmbedded session)
       throws ParseException {
     return stringToDate(dateString, session).getTime();
   }
@@ -54,7 +54,7 @@ public class LuceneDateTools {
    * @return the parsed time as a Date object
    * @throws ParseException if <code>dateString</code> is not in the expected format
    */
-  public static Date stringToDate(String dateString, DatabaseSessionInternal session)
+  public static Date stringToDate(String dateString, DatabaseSessionEmbedded session)
       throws ParseException {
     try {
       var format = RESOLUTIONS[dateString.length()].format(session);
@@ -106,7 +106,7 @@ public class LuceneDateTools {
       this.formatLen = formatLen;
     }
 
-    public SimpleDateFormat format(DatabaseSessionInternal session) {
+    public SimpleDateFormat format(DatabaseSessionEmbedded session) {
       // formatLen 10's place:                     11111111
       // formatLen  1's place:            12345678901234567
 

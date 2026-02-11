@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -197,7 +197,7 @@ public class EntityEntry {
     this.onLoadValue = null;
   }
 
-  public Object getOnLoadValue(DatabaseSessionInternal session) {
+  public Object getOnLoadValue(DatabaseSessionEmbedded session) {
     if (!hasOnLoadValue && !(value instanceof TrackedMultiValue<?, ?>)) {
       return value;
     }

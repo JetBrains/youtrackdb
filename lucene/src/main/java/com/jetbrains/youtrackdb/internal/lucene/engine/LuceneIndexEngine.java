@@ -20,7 +20,6 @@ package com.jetbrains.youtrackdb.internal.lucene.engine;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -46,9 +45,9 @@ public interface LuceneIndexEngine extends IndexEngine, FreezableStorageComponen
       LuceneQueryContext queryContext, ContextualRecordId recordId, Document ret,
       ScoreDoc score);
 
-  Document buildDocument(DatabaseSessionInternal session, Object key, Identifiable value);
+  Document buildDocument(DatabaseSessionEmbedded session, Object key, Identifiable value);
 
-  Query buildQuery(Object query, DatabaseSessionInternal session);
+  Query buildQuery(Object query, DatabaseSessionEmbedded session);
 
   Analyzer indexAnalyzer();
 

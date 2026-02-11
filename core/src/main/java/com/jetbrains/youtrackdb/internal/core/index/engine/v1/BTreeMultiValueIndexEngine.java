@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -72,7 +71,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
+  public void init(DatabaseSessionEmbedded session, IndexMetadata metadata) {
   }
 
   @Override

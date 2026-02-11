@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import javax.annotation.Nullable;
 
@@ -41,7 +41,7 @@ public abstract class SQLFunctionAbstract implements SQLFunction {
   }
 
   @Override
-  public String getName(DatabaseSession session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
@@ -51,7 +51,7 @@ public abstract class SQLFunctionAbstract implements SQLFunction {
   }
 
   @Override
-  public int getMaxParams(DatabaseSession session) {
+  public int getMaxParams(DatabaseSessionEmbedded session) {
     return maxParams;
   }
 

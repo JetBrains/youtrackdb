@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.command.script.ScriptResultSets;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.result.MapTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.resultset.ResultSetTransformer;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
@@ -54,7 +54,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
   }
 
   @Override
-  public ResultSet toResultSet(DatabaseSessionInternal db, Object value) {
+  public ResultSet toResultSet(DatabaseSessionEmbedded db, Object value) {
     if (value instanceof Value v) {
       if (v.isNull()) {
         return null;
@@ -99,12 +99,12 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return defaultResultSet(db, value);
   }
 
-  private ResultSet defaultResultSet(DatabaseSessionInternal db, Object value) {
+  private ResultSet defaultResultSet(DatabaseSessionEmbedded db, Object value) {
     return new ScriptResultSet(db, Collections.singletonList(value).iterator(), this);
   }
 
   @Override
-  public Result toResult(DatabaseSessionInternal db, Object value) {
+  public Result toResult(DatabaseSessionEmbedded db, Object value) {
     var transformer = getTransformer(value.getClass());
 
     if (transformer == null) {
@@ -131,7 +131,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return getTransformer(value.getClass()) != null;
   }
 
-  private static Result defaultTransformer(DatabaseSessionInternal db, Object value) {
+  private static Result defaultTransformer(DatabaseSessionEmbedded db, Object value) {
     var internal = new ResultInternal(db);
     internal.setProperty("value", value);
     return internal;

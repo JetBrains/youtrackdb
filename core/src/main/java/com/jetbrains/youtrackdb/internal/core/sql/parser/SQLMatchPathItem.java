@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -161,7 +161,7 @@ public class SQLMatchPathItem extends SimpleNode {
     return result;
   }
 
-  private static boolean matchesClass(DatabaseSessionInternal session, Identifiable identifiable,
+  private static boolean matchesClass(DatabaseSessionEmbedded session, Identifiable identifiable,
       SchemaClass oClass) {
     if (identifiable == null) {
       return false;

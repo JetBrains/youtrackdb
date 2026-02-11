@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 
@@ -11,7 +11,7 @@ public final class LinkBagConverter extends AbstractCollectionConverter<LinkBag>
   }
 
   @Override
-  public LinkBag convert(DatabaseSessionInternal session, LinkBag value) {
+  public LinkBag convert(DatabaseSessionEmbedded session, LinkBag value) {
     final var result = new LinkBag(session);
     var updated = false;
     final ResultCallback callback =

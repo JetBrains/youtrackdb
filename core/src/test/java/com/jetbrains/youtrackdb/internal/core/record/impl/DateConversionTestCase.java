@@ -28,8 +28,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
@@ -84,13 +83,13 @@ public class DateConversionTestCase extends DbTestBase {
         DbTestBase.getBaseDirectoryPathStr(getClass()) + "temporal")) {
       ctx.create("test", DatabaseType.MEMORY,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
-      try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
+      try (var session = ctx.open("test", "admin", "adminpwd")) {
 
         var format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
         var date = format.parse("2016-08-31 23:30:00");
 
-        session.set(BasicDatabaseSession.ATTRIBUTES.TIMEZONE, "GMT");
+        session.set(DatabaseSessionEmbedded.ATTRIBUTES.TIMEZONE, "GMT");
 
         var tx = session.begin();
         var doc = (EntityImpl) session.newEntity();

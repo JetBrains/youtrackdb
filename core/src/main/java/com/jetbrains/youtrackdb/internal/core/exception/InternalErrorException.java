@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 public class InternalErrorException extends CoreException {
 
@@ -8,7 +8,7 @@ public class InternalErrorException extends CoreException {
     super(exception);
   }
 
-  public InternalErrorException(DatabaseSessionInternal db, String string) {
+  public InternalErrorException(DatabaseSessionEmbedded db, String string) {
     super(db, string);
   }
 }

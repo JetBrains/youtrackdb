@@ -22,8 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.filter;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -214,7 +213,7 @@ public class SQLFilterCondition {
   }
 
   @Nullable
-  public Collate getCollate(DatabaseSessionInternal db, Identifiable identifiable) {
+  public Collate getCollate(DatabaseSessionEmbedded db, Identifiable identifiable) {
     if (left instanceof SQLFilterItemField) {
       return ((SQLFilterItemField) left).getCollate(db, identifiable);
     } else if (right instanceof SQLFilterItemField) {
@@ -224,7 +223,7 @@ public class SQLFilterCondition {
   }
 
   @Nullable
-  public RID getBeginRidRange(DatabaseSession session) {
+  public RID getBeginRidRange(DatabaseSessionEmbedded session) {
     if (operator == null) {
       if (left instanceof SQLFilterCondition) {
         return ((SQLFilterCondition) left).getBeginRidRange(session);
@@ -237,7 +236,7 @@ public class SQLFilterCondition {
   }
 
   @Nullable
-  public RID getEndRidRange(DatabaseSession session) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session) {
     if (operator == null) {
       if (left instanceof SQLFilterCondition) {
         return ((SQLFilterCondition) left).getEndRidRange(session);
@@ -294,7 +293,7 @@ public class SQLFilterCondition {
     return buffer.toString();
   }
 
-  public String asString(DatabaseSessionInternal session) {
+  public String asString(DatabaseSessionEmbedded session) {
     var buffer = new StringBuilder(128);
 
     buffer.append('(');
@@ -383,7 +382,7 @@ public class SQLFilterCondition {
   }
 
   @Nullable
-  protected Date getDate(final Object value, DatabaseSessionInternal session) {
+  protected Date getDate(final Object value, DatabaseSessionEmbedded session) {
     if (value == null) {
       return null;
     }
@@ -494,7 +493,7 @@ public class SQLFilterCondition {
   }
 
   private Object[] checkForConversion(
-      DatabaseSessionInternal session, Object l, Object r,
+      DatabaseSessionEmbedded session, Object l, Object r,
       final Collate collate) {
     Object[] result = null;
 

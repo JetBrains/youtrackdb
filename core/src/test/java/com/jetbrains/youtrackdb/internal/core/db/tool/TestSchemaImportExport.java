@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -42,7 +41,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin",
         "admin");
     try (var sessionOne =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var imp =
           new DatabaseImport(

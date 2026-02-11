@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.cache;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -44,7 +44,7 @@ public class LocalRecordCache extends AbstractRecordCache {
    *
    * @param record  record that should be cached
    */
-  public void updateRecord(final RecordAbstract record, DatabaseSessionInternal session) {
+  public void updateRecord(final RecordAbstract record, DatabaseSessionEmbedded session) {
     assert !record.isUnloaded();
     var rid = record.getIdentity();
     if (rid.getCollectionId() != excludedCollection

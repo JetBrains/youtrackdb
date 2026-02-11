@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -62,18 +62,18 @@ public class JSONWriter {
     }
   }
 
-  public static String writeValue(DatabaseSessionInternal db, final Object iValue)
+  public static String writeValue(DatabaseSessionEmbedded db, final Object iValue)
       throws IOException {
     return writeValue(db, iValue, DEF_FORMAT);
   }
 
-  public static String writeValue(DatabaseSessionInternal db, Object iValue, final String iFormat)
+  public static String writeValue(DatabaseSessionEmbedded db, Object iValue, final String iFormat)
       throws IOException {
     return writeValue(db, iValue, iFormat, 0, null);
   }
 
   public static String writeValue(
-      DatabaseSessionInternal db, Object iValue, final String iFormat, final int iIndentLevel,
+      DatabaseSessionEmbedded db, Object iValue, final String iFormat, final int iIndentLevel,
       PropertyTypeInternal valueType)
       throws IOException {
     if (iValue == null) {
@@ -181,7 +181,7 @@ public class JSONWriter {
   }
 
   protected static void iteratorToJSON(
-      DatabaseSessionInternal db, final Iterator<?> it, final String iFormat,
+      DatabaseSessionEmbedded db, final Iterator<?> it, final String iFormat,
       final StringBuilder buffer) throws IOException {
     buffer.append('[');
     if (iFormat != null && iFormat.contains("shallow")) {
@@ -215,7 +215,7 @@ public class JSONWriter {
   }
 
   public static String mapToJSON(
-      DatabaseSessionInternal db, final Map<?, ?> iMap, final String iFormat,
+      DatabaseSessionEmbedded db, final Map<?, ?> iMap, final String iFormat,
       final StringBuilder buffer) {
     try {
       buffer.append('{');
@@ -316,13 +316,13 @@ public class JSONWriter {
     return this;
   }
 
-  public JSONWriter beginCollection(DatabaseSessionInternal db, final String iName)
+  public JSONWriter beginCollection(DatabaseSessionEmbedded db, final String iName)
       throws IOException {
     return beginCollection(db, -1, false, iName);
   }
 
   public JSONWriter beginCollection(
-      DatabaseSessionInternal db, final int iIdentLevel, final boolean iNewLine, final String iName)
+      DatabaseSessionEmbedded db, final int iIdentLevel, final boolean iNewLine, final String iName)
       throws IOException {
     if (!firstAttribute) {
       out.append(",");
@@ -355,13 +355,13 @@ public class JSONWriter {
     return this;
   }
 
-  public JSONWriter writeObjects(DatabaseSessionInternal db, final String iName, Object[]... iPairs)
+  public JSONWriter writeObjects(DatabaseSessionEmbedded db, final String iName, Object[]... iPairs)
       throws IOException {
     return writeObjects(db, -1, false, iName, iPairs);
   }
 
   public JSONWriter writeObjects(
-      DatabaseSessionInternal db, int iIdentLevel, boolean iNewLine, final String iName,
+      DatabaseSessionEmbedded db, int iIdentLevel, boolean iNewLine, final String iName,
       Object[]... iPairs)
       throws IOException {
     for (var iPair : iPairs) {
@@ -374,20 +374,20 @@ public class JSONWriter {
     return this;
   }
 
-  public JSONWriter writeAttribute(DatabaseSessionInternal db, final String iName,
+  public JSONWriter writeAttribute(DatabaseSessionEmbedded db, final String iName,
       final Object iValue) throws IOException {
     return writeAttribute(db, -1, false, iName, iValue, format);
   }
 
   public JSONWriter writeAttribute(
-      DatabaseSessionInternal db, final int iIdentLevel, final boolean iNewLine, final String iName,
+      DatabaseSessionEmbedded db, final int iIdentLevel, final boolean iNewLine, final String iName,
       final Object iValue)
       throws IOException {
     return writeAttribute(db, iIdentLevel, iNewLine, iName, iValue, format, null);
   }
 
   public JSONWriter writeAttribute(
-      DatabaseSessionInternal db, final int iIdentLevel,
+      DatabaseSessionEmbedded db, final int iIdentLevel,
       final boolean iNewLine,
       final String iName,
       final Object iValue,
@@ -397,7 +397,7 @@ public class JSONWriter {
   }
 
   public JSONWriter writeAttribute(
-      DatabaseSessionInternal db, final int iIdentLevel,
+      DatabaseSessionEmbedded db, final int iIdentLevel,
       final boolean iNewLine,
       final String iName,
       final Object iValue,
@@ -442,7 +442,7 @@ public class JSONWriter {
     return this;
   }
 
-  public void writeValue(DatabaseSessionInternal db, final int iIdentLevel,
+  public void writeValue(DatabaseSessionEmbedded db, final int iIdentLevel,
       final boolean iNewLine, final Object iValue)
       throws IOException {
     if (!firstAttribute) {

@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.IOException;
 import java.io.InputStream;
@@ -46,7 +46,7 @@ public class FulltextIndexFunctionBenchmark {
     new Runner(opt).run();
   }
 
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
   private YouTrackDBImpl context;
   private DatabaseType type;
 
@@ -84,7 +84,7 @@ public class FulltextIndexFunctionBenchmark {
     context.execute(
         "create database " + name + " disk users ( admin identified by 'admin' role admin)");
 
-    db = (DatabaseSessionInternal) context.open(name, "admin", "admin");
+    db = (DatabaseSessionEmbedded) context.open(name, "admin", "admin");
   }
 
   private String getScriptFromStream(final InputStream scriptStream) {

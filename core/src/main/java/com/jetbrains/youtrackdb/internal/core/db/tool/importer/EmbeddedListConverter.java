@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.List;
 
 /**
@@ -13,7 +13,7 @@ public final class EmbeddedListConverter extends AbstractCollectionConverter<Lis
   }
 
   @Override
-  public List<Object> convert(DatabaseSessionInternal session, List<Object> value) {
+  public List<Object> convert(DatabaseSessionEmbedded session, List<Object> value) {
     final var result = session.newEmbeddedList();
 
     final var callback =

@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.spatial;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.lucene.tests.LuceneBaseTest;
@@ -54,11 +54,11 @@ public class LuceneSpatialDropTest {
   @Ignore
   public void testDeleteLuceneIndex1() {
     try (var dpPool = youTrackDB.cachedPool(dbName, "admin", "adminpwd")) {
-      var db = (DatabaseSessionInternal) dpPool.acquire();
+      var db = (DatabaseSessionEmbedded) dpPool.acquire();
       fillDb(db, insertcount);
       db.close();
 
-      db = (DatabaseSessionInternal) dpPool.acquire();
+      db = (DatabaseSessionEmbedded) dpPool.acquire();
       var query = "select from test where [latitude,longitude] WITHIN [[50.0,8.0],[51.0,9.0]]";
       final var result = db.query(query).toList();
       Assert.assertEquals(insertcount, result.size());
@@ -71,7 +71,7 @@ public class LuceneSpatialDropTest {
 
   }
 
-  private static void fillDb(DatabaseSession db, int count) {
+  private static void fillDb(DatabaseSessionEmbedded db, int count) {
     db.executeInTx(transaction -> {
       for (var i = 0; i < count; i++) {
         var doc = ((EntityImpl) transaction.newEntity("test"));

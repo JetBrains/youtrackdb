@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -98,7 +97,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
             });
   }
 
-  public void load(DatabaseSessionInternal database) {
+  public void load(DatabaseSessionEmbedded database) {
     if (loaded) {
       return;
     }
@@ -145,7 +144,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   }
 
 
-  public void reload(DatabaseSessionInternal database) {
+  public void reload(DatabaseSessionEmbedded database) {
     lock.lock();
     try {
       schema.reload(database);
@@ -204,13 +203,13 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     }
   }
 
-  public void reInit(AbstractStorage storage2, DatabaseSessionInternal database) {
+  public void reInit(AbstractStorage storage2, DatabaseSessionEmbedded database) {
     lock.lock();
     try {
       this.close();
       this.storage = storage2;
       this.init(storage2);
-      ((MetadataDefault) database.getMetadata()).init(this);
+      database.getMetadata().init(this);
       this.load(database);
     } finally {
       lock.unlock();

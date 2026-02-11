@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
@@ -562,7 +561,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
    * updates old and new vertices connected to an edge after out/in update on the edge itself
    */
   public static void changeVertexEdgePointers(
-      DatabaseSessionInternal db, EntityImpl edge,
+      DatabaseSessionEmbedded db, EntityImpl edge,
       Identifiable prevInVertex,
       Identifiable currentInVertex,
       Identifiable prevOutVertex,
@@ -580,7 +579,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   private static void changeVertexEdgePointersOneDirection(
-      DatabaseSessionInternal db, EntityImpl edge,
+      DatabaseSessionEmbedded db, EntityImpl edge,
       Identifiable prevInVertex,
       Identifiable currentInVertex,
       String edgeClass,
@@ -603,7 +602,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Nullable
-  private static String[] resolveAliases(DatabaseSessionInternal db, Schema schema,
+  private static String[] resolveAliases(DatabaseSessionEmbedded db, Schema schema,
       String[] labels) {
     if (labels == null) {
       return null;
@@ -617,7 +616,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return result;
   }
 
-  private static String resolveAlias(DatabaseSessionInternal db, String label, Schema schema) {
+  private static String resolveAlias(DatabaseSessionEmbedded db, String label, Schema schema) {
     var clazz = schema.getClass(label);
     if (clazz != null) {
       return clazz.getName();
@@ -647,7 +646,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
    * Creates a link between a vertices and a Graph Element.
    */
   public static void createLink(
-      DatabaseSessionInternal session, final EntityImpl fromVertex, final Identifiable to,
+      DatabaseSessionEmbedded session, final EntityImpl fromVertex, final Identifiable to,
       final String fieldName) {
     final Object out;
     var outType = fromVertex.getPropertyTypeInternal(fieldName);
@@ -732,7 +731,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
-  private static void removeLinkFromEdge(DatabaseSessionInternal db, EntityImpl vertex, Edge edge,
+  private static void removeLinkFromEdge(DatabaseSessionEmbedded db, EntityImpl vertex, Edge edge,
       Direction direction) {
     var className = edge.getSchemaClassName();
     Identifiable edgeId;
@@ -790,11 +789,11 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
-  static void removeIncomingEdge(DatabaseSessionInternal db, Vertex vertex, Edge edge) {
+  static void removeIncomingEdge(DatabaseSessionEmbedded db, Vertex vertex, Edge edge) {
     removeLinkFromEdge(db, (EntityImpl) vertex, edge, Direction.IN);
   }
 
-  static void removeOutgoingEdge(DatabaseSessionInternal db, Vertex vertex, Edge edge) {
+  static void removeOutgoingEdge(DatabaseSessionEmbedded db, Vertex vertex, Edge edge) {
     removeLinkFromEdge(db, (EntityImpl) vertex, edge, Direction.OUT);
   }
 

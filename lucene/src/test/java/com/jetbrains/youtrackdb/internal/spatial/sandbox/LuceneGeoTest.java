@@ -14,7 +14,7 @@
 package com.jetbrains.youtrackdb.internal.spatial.sandbox;
 
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrackdb.internal.spatial.shape.MultiPolygonShapeBuilder;
@@ -191,7 +191,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
     writer.close();
   }
 
-  protected static EmbeddedEntity loadMultiPolygon(DatabaseSessionInternal session)
+  protected static EmbeddedEntity loadMultiPolygon(DatabaseSessionEmbedded session)
       throws IOException {
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 

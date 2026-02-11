@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -96,7 +95,7 @@ public interface ExecutionStepInternal extends ExecutionStep {
     throw new UnsupportedOperationException();
   }
 
-  default void deserialize(Result fromResult, DatabaseSessionInternal session) {
+  default void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
@@ -123,7 +122,7 @@ public interface ExecutionStepInternal extends ExecutionStep {
   }
 
   static void basicDeserialize(Result serialized, ExecutionStepInternal step,
-      DatabaseSessionInternal session)
+      DatabaseSessionEmbedded session)
       throws ClassNotFoundException, IllegalAccessException, InstantiationException {
     List<Result> serializedSubsteps = serialized.getProperty("subSteps");
     if (serializedSubsteps != null) {

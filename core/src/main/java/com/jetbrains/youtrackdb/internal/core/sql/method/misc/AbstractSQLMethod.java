@@ -15,8 +15,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.method.SQLMethod;
 import javax.annotation.Nullable;
@@ -83,12 +82,12 @@ public abstract class AbstractSQLMethod implements SQLMethod {
   }
 
   @Override
-  public int getMaxParams(DatabaseSession session) {
+  public int getMaxParams(DatabaseSessionEmbedded session) {
     return maxparams;
   }
 
   @Nullable
-  protected static Object getParameterValue(DatabaseSessionInternal db, final Result iRecord,
+  protected static Object getParameterValue(DatabaseSessionEmbedded db, final Result iRecord,
       final String iValue) {
     if (iValue == null) {
       return null;

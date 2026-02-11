@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
 import java.io.File;
@@ -91,7 +91,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
             + dbName
             + " memory users (admin identified by 'adminpwd' role admin)");
     var db =
-        (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "adminpwd");
+        (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "adminpwd");
     final var directory =
         fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
     // 'DatabaseType.MEMORY' plus 'DIRECTORY_MMAP' leads to the same result as just

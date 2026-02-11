@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -126,7 +126,7 @@ public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolic
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionEmbedded db, @Nonnull EntityImpl entity) {
     entity.setString("name", name);
     entity.setBoolean("active", active);
     entity.setString("create", createRule);

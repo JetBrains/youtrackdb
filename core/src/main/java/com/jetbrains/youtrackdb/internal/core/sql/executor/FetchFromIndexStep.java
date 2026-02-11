@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -546,7 +545,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
   @Nullable
   private static Object convertToIndexDefinitionTypes(
-      DatabaseSessionInternal session, SQLBooleanExpression condition, Object val,
+      DatabaseSessionEmbedded session, SQLBooleanExpression condition, Object val,
       PropertyTypeInternal[] types) {
     if (val == null) {
       return null;
@@ -878,7 +877,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   @Override
-  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
+  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
     try {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       String indexName = fromResult.getProperty("indexName");

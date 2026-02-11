@@ -5,7 +5,7 @@ import static org.junit.Assert.assertEquals;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -18,7 +18,7 @@ public class TransactionQueryIndexTests {
 
   private static final String ADMIN_PASSWORD = "adminpwd";
   private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionInternal database;
+  private DatabaseSessionEmbedded database;
 
   @Before
   public void before() {

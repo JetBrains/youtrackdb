@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -76,7 +75,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     return source;
   }
 
-  private static Result loadEntity(DatabaseSessionInternal session, Result result) {
+  private static Result loadEntity(DatabaseSessionEmbedded session, Result result) {
     if (result instanceof Entity entity) {
       if (entity.isUnloaded()) {
         var tx = session.getActiveTransaction();
@@ -111,7 +110,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
   }
 
   @Override
-  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
+  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
     try {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("variableName") != null) {

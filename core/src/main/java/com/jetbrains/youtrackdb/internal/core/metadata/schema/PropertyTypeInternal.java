@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -73,7 +73,7 @@ public enum PropertyTypeInternal {
   BOOLEAN("Boolean", 0, Boolean.class, new Class<?>[]{Number.class}) {
     @Override
     public Boolean convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -103,7 +103,7 @@ public enum PropertyTypeInternal {
   INTEGER("Integer", 1, Integer.class, new Class<?>[]{Number.class}) {
     @Override
     public Integer convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -136,7 +136,7 @@ public enum PropertyTypeInternal {
   SHORT("Short", 2, Short.class, new Class<?>[]{Number.class}) {
     @Override
     public Short convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -172,7 +172,7 @@ public enum PropertyTypeInternal {
       }) {
     @Override
     public Long convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -205,7 +205,7 @@ public enum PropertyTypeInternal {
   FLOAT("Float", 4, Float.class, new Class<?>[]{Number.class}) {
     @Override
     public Float convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -235,7 +235,7 @@ public enum PropertyTypeInternal {
   DOUBLE("Double", 5, Double.class, new Class<?>[]{Number.class}) {
     @Override
     public Double convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -268,7 +268,7 @@ public enum PropertyTypeInternal {
   DATETIME("Datetime", 6, Date.class, new Class<?>[]{Date.class, Number.class}) {
     @Override
     public Date convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -312,7 +312,7 @@ public enum PropertyTypeInternal {
   STRING("String", 7, String.class, new Class<?>[]{Enum.class}) {
     @Override
     public Object convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       return switch (value) {
         case null -> null;
         case String s -> s;
@@ -331,7 +331,7 @@ public enum PropertyTypeInternal {
   BINARY("Binary", 8, byte[].class, new Class<?>[]{byte[].class}) {
     @Override
     public byte[] convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       if (value == null) {
         return null;
       }
@@ -343,7 +343,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public byte[] copy(Object value, DatabaseSessionInternal session) {
+    public byte[] copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
       return value == null ? null : ((byte[]) value).clone();
     }
@@ -366,7 +366,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public Entity convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -394,7 +394,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -427,7 +427,7 @@ public enum PropertyTypeInternal {
     @Override
     public List<Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -534,7 +534,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -571,7 +571,7 @@ public enum PropertyTypeInternal {
     @Override
     public Set<Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -635,7 +635,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
       if (value == null) {
         return null;
@@ -674,7 +674,7 @@ public enum PropertyTypeInternal {
     @Override
     public Map<String, Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -773,7 +773,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -813,7 +813,7 @@ public enum PropertyTypeInternal {
     @Override
     public Identifiable convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -887,7 +887,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -908,7 +908,7 @@ public enum PropertyTypeInternal {
   LINKLIST("LinkList", 14, EntityLinkListImpl.class, new Class<?>[]{List.class}) {
     @Override
     public Object convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -968,7 +968,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -992,7 +992,7 @@ public enum PropertyTypeInternal {
     @Override
     public Set<Identifiable> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -1051,7 +1051,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
       if (value == null) {
         return null;
@@ -1074,7 +1074,7 @@ public enum PropertyTypeInternal {
     @Override
     public Map<String, Identifiable> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       switch (value) {
         case null -> {
           return null;
@@ -1131,7 +1131,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
       if (value == null) {
         return null;
@@ -1153,7 +1153,7 @@ public enum PropertyTypeInternal {
   BYTE("Byte", 17, Byte.class, new Class<?>[]{Number.class}) {
     @Override
     public Object convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       return switch (value) {
         case null -> null;
         case Byte byteValue -> byteValue;
@@ -1174,7 +1174,7 @@ public enum PropertyTypeInternal {
   DATE("Date", 19, Date.class, new Class<?>[]{Number.class}) {
     @Override
     public Object convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       if (value == null) {
         return null;
       } else if (value instanceof Date date) {
@@ -1184,7 +1184,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -1204,7 +1204,7 @@ public enum PropertyTypeInternal {
     @Override
     public BigDecimal convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       return switch (value) {
         case null -> null;
         case BigDecimal bigDecimal -> bigDecimal;
@@ -1216,7 +1216,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -1235,7 +1235,7 @@ public enum PropertyTypeInternal {
   LINKBAG("LinkBag", 22, LinkBag.class, new Class<?>[]{LinkBag.class}) {
     @Override
     public LinkBag convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
+        DatabaseSessionEmbedded session) {
       if (value == null) {
         return null;
       } else if (value instanceof LinkBag linkBag) {
@@ -1272,7 +1272,7 @@ public enum PropertyTypeInternal {
     }
 
     @Override
-    public Object copy(Object value, DatabaseSessionInternal session) {
+    public Object copy(Object value, DatabaseSessionEmbedded session) {
       value = convert(value, session);
 
       if (value == null) {
@@ -1398,7 +1398,7 @@ public enum PropertyTypeInternal {
   @Nullable
   public abstract Object convert(Object value, PropertyTypeInternal linkedType,
       SchemaClass linkedClass,
-      DatabaseSessionInternal session);
+      DatabaseSessionEmbedded session);
 
   public boolean isTypeInstance(Object value) {
     var clazz = value.getClass();
@@ -1424,7 +1424,7 @@ public enum PropertyTypeInternal {
     return false;
   }
 
-  public Object convert(Object value, DatabaseSessionInternal session) {
+  public Object convert(Object value, DatabaseSessionEmbedded session) {
     if (value == null || isTypeInstance(value)) {
       return value;
     }
@@ -1437,7 +1437,7 @@ public enum PropertyTypeInternal {
   }
 
   @Nullable
-  public Object copy(Object value, DatabaseSessionInternal session) {
+  public Object copy(Object value, DatabaseSessionEmbedded session) {
     return convert(value, session);
   }
 
@@ -1624,7 +1624,7 @@ public enum PropertyTypeInternal {
    */
   @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
-  public static <T> T convert(@Nullable DatabaseSessionInternal session, final Object value,
+  public static <T> T convert(@Nullable DatabaseSessionEmbedded session, final Object value,
       Class<? extends T> targetClass) {
     if (value == null) {
       return null;
@@ -1743,7 +1743,7 @@ public enum PropertyTypeInternal {
         type);
   }
 
-  private static Object convertValue(DatabaseSessionInternal session, Object item) {
+  private static Object convertValue(DatabaseSessionEmbedded session, Object item) {
     var type = PropertyTypeInternal.getTypeByValue(item);
     if (type == null) {
       throw new DatabaseException(session.getDatabaseName(),
@@ -1755,7 +1755,7 @@ public enum PropertyTypeInternal {
 
   @Nullable
   private static Object convertEmbeddedCollectionItem(PropertyTypeInternal linkedType,
-      SchemaClass linkedClass, DatabaseSessionInternal session,
+      SchemaClass linkedClass, DatabaseSessionEmbedded session,
       Object item, PropertyTypeInternal rootType) {
     if (item == null) {
       return null;

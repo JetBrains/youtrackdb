@@ -5,7 +5,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -47,7 +46,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
   }
 
   @Nullable
-  public static Object apply(Object left, Object right, DatabaseSessionInternal session) {
+  public static Object apply(Object left, Object right, DatabaseSessionEmbedded session) {
     if (left == null && right == null) {
       return null;
     }
@@ -103,7 +102,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return result;
   }
 
-  private static void addValueToResultList(Object value, DatabaseSessionInternal session,
+  private static void addValueToResultList(Object value, DatabaseSessionEmbedded session,
       List<Object> result) {
     if (MultiValue.isMultiValue(value)) {
       var leftIter = MultiValue.getMultiValueIterator(value);

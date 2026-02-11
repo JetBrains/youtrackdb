@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -28,31 +27,31 @@ import org.graalvm.polyglot.PolyglotException;
  *
  */
 public class PolyglotScriptExecutor extends AbstractScriptExecutor
-    implements ResourcePoolListener<DatabaseSessionInternal, Context> {
+    implements ResourcePoolListener<DatabaseSessionEmbedded, Context> {
 
   private final ScriptTransformer transformer;
-  protected ConcurrentHashMap<String, ResourcePool<DatabaseSessionInternal, Context>>
+  protected ConcurrentHashMap<String, ResourcePool<DatabaseSessionEmbedded, Context>>
       contextPools =
-      new ConcurrentHashMap<String, ResourcePool<DatabaseSessionInternal, Context>>();
+      new ConcurrentHashMap<>();
 
   public PolyglotScriptExecutor(final String language, ScriptTransformer scriptTransformer) {
     super("javascript".equalsIgnoreCase(language) ? "js" : language);
     this.transformer = scriptTransformer;
   }
 
-  private Context resolveContext(DatabaseSessionInternal database) {
+  private Context resolveContext(DatabaseSessionEmbedded database) {
     var pool =
         contextPools.computeIfAbsent(
             database.getDatabaseName(),
             (k) -> {
-              return new ResourcePool<DatabaseSessionInternal, Context>(
+              return new ResourcePool<>(
                   database.getConfiguration().getValueAsInteger(GlobalConfiguration.SCRIPT_POOL),
                   PolyglotScriptExecutor.this);
             });
     return pool.getResource(database, 0);
   }
 
-  private void returnContext(Context context, DatabaseSessionInternal database) {
+  private void returnContext(Context context, DatabaseSessionEmbedded database) {
     var pool = contextPools.get(database.getDatabaseName());
     if (pool != null) {
       pool.returnResource(context);
@@ -60,7 +59,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   }
 
   @Override
-  public Context createNewResource(DatabaseSessionInternal database, Object... iAdditionalArgs) {
+  public Context createNewResource(DatabaseSessionEmbedded database, Object... iAdditionalArgs) {
     final var scriptManager =
         database.getSharedContext().getYouTrackDB().getScriptManager();
 
@@ -103,7 +102,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
 
   @Override
   public boolean reuseResource(
-      DatabaseSessionInternal iKey, Object[] iAdditionalArgs, Context iValue) {
+      DatabaseSessionEmbedded iKey, Object[] iAdditionalArgs, Context iValue) {
     return true;
   }
 

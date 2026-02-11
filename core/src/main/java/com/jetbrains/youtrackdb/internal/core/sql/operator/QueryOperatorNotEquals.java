@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.operator;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
@@ -68,13 +68,13 @@ public class QueryOperatorNotEquals extends QueryOperatorEqualityNotNulls {
 
   @Nullable
   @Override
-  public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getBeginRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 
   @Nullable
   @Override
-  public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
+  public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 }

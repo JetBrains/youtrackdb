@@ -5,7 +5,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -39,7 +38,7 @@ public final class SQLContainsCondition extends SQLBooleanExpression {
     super(p, id);
   }
 
-  public boolean execute(DatabaseSessionInternal session, Object left, Object right) {
+  public boolean execute(DatabaseSessionEmbedded session, Object left, Object right) {
     if (left instanceof Collection) {
       if (right instanceof Collection) {
         if (((Collection) right).size() == 1) {
@@ -126,7 +125,7 @@ public final class SQLContainsCondition extends SQLBooleanExpression {
     return false;
   }
 
-  private boolean equalsInContainsSpace(DatabaseSessionInternal session, Object left,
+  private boolean equalsInContainsSpace(DatabaseSessionEmbedded session, Object left,
       Object right) {
     if (left == null && right == null) {
       return true;

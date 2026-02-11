@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -18,7 +18,7 @@ public abstract class RelationsIterable<E extends Entity, L extends Relation<E>>
   protected final String[] labels;
 
   @Nonnull
-  protected final DatabaseSessionInternal session;
+  protected final DatabaseSessionEmbedded session;
 
   @Nonnull
   protected final Iterable<? extends Identifiable> iterable;
@@ -26,7 +26,7 @@ public abstract class RelationsIterable<E extends Entity, L extends Relation<E>>
   protected final Object multiValue;
 
   protected RelationsIterable(@Nonnull E sourceEntity, Pair<Direction, String> connection,
-      String[] labels, @Nonnull DatabaseSessionInternal session,
+      String[] labels, @Nonnull DatabaseSessionEmbedded session,
       @Nonnull Iterable<? extends Identifiable> iterable, int size, Object multiValue) {
     this.sourceEntity = sourceEntity;
     this.connection = connection;

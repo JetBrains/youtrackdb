@@ -21,5 +21,5 @@ package com.jetbrains.youtrackdb.internal.core.db;
  */
 public interface DatabaseThreadLocalFactory {
 
-  DatabaseSessionInternal getThreadDatabase();
+  DatabaseSessionEmbedded getThreadDatabase();
 }

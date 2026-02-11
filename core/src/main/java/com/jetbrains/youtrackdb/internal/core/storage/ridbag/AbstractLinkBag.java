@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.stream.Streams;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.Resettable;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -37,7 +37,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   protected final int counterMaxValue;
 
   @Nonnull
-  protected final DatabaseSessionInternal session;
+  protected final DatabaseSessionEmbedded session;
 
   @Nonnull
   protected BagChangesContainer localChanges;
@@ -56,7 +56,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   protected boolean dirty;
   protected boolean transactionDirty = false;
 
-  public AbstractLinkBag(@Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
+  public AbstractLinkBag(@Nonnull DatabaseSessionEmbedded session, int size, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
     this.localChanges = createChangesContainer();
@@ -65,7 +65,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     this.counterMaxValue = counterMaxValue;
   }
 
-  public AbstractLinkBag(@Nonnull DatabaseSessionInternal session, int counterMaxValue) {
+  public AbstractLinkBag(@Nonnull DatabaseSessionEmbedded session, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
     this.counterMaxValue = counterMaxValue;

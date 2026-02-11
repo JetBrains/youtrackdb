@@ -17,7 +17,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.List;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -40,7 +40,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   }
 
   @Override
-  public void initClazz(DatabaseSessionInternal db) {
+  public void initClazz(DatabaseSessionEmbedded db) {
 
     Schema schema = db.getMetadata().getSchema();
     var polygon = schema.createAbstractClass(getName(), superClass(db));
@@ -61,7 +61,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   }
 
   @Override
-  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionEmbedded session) {
 
     var entity = session.newEmbeddedEntity(getName());
 

@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -48,7 +48,7 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
   public LinkBagUpdateSerializationOperation(
       final Stream<RawPair<RID, Change>> changedValues,
       LinkBagPointer collectionPointer, int maxCounterValue,
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     this.changedValues = changedValues;
     this.collectionPointer = collectionPointer;
     collectionManager = session.getBTreeCollectionManager();

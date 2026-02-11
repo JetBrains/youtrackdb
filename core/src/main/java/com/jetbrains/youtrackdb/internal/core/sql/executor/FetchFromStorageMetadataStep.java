@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageEntryConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -53,7 +53,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     return result;
   }
 
-  private static Object toResult(DatabaseSessionInternal db,
+  private static Object toResult(DatabaseSessionEmbedded db,
       StorageConfiguration configuration) {
     var result = new ResultInternal(db);
     result.setProperty("charset", configuration.getCharset());
@@ -69,7 +69,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     return result;
   }
 
-  private static List<Result> toResult(DatabaseSessionInternal db,
+  private static List<Result> toResult(DatabaseSessionEmbedded db,
       List<StorageEntryConfiguration> properties) {
     List<Result> result = new ArrayList<>();
     if (properties != null) {
@@ -83,7 +83,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     return result;
   }
 
-  private List<Result> toResult(DatabaseSessionInternal db,
+  private List<Result> toResult(DatabaseSessionEmbedded db,
       Collection<? extends StorageCollection> collectionInstances) {
     List<Result> result = new ArrayList<>();
     if (collectionInstances != null) {

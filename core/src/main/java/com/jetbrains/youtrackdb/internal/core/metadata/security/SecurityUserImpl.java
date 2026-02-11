@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
@@ -59,14 +59,14 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   private volatile STATUSES status;
   protected final Set<Role> roles = ConcurrentHashMap.newKeySet();
 
-  public SecurityUserImpl(DatabaseSessionInternal session, final String userName) {
+  public SecurityUserImpl(DatabaseSessionEmbedded session, final String userName) {
     super(session, CLASS_NAME);
 
     this.name = userName;
     this.status = STATUSES.ACTIVE;
   }
 
-  public SecurityUserImpl(DatabaseSessionInternal db, String userName,
+  public SecurityUserImpl(DatabaseSessionEmbedded db, String userName,
       final String userPassword) {
     super(db, CLASS_NAME);
 
@@ -80,7 +80,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   /**
    * Create the user by reading the source entity.
    */
-  public SecurityUserImpl(DatabaseSessionInternal session, final EntityImpl source) {
+  public SecurityUserImpl(DatabaseSessionEmbedded session, final EntityImpl source) {
     super(source);
 
     this.name = source.getProperty(NAME_PROPERTY);
@@ -96,7 +96,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionEmbedded session, @Nonnull EntityImpl entity) {
     entity.setProperty(NAME_PROPERTY, name);
     entity.setProperty(PASSWORD_PROPERTY, password);
     entity.setProperty(STATUS_PROPERTY, status.name());
@@ -114,7 +114,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   }
 
   public static void encodePassword(
-      DatabaseSessionInternal session, final EntityImpl entity) {
+      DatabaseSessionEmbedded session, final EntityImpl entity) {
     final String name = entity.getProperty(NAME_PROPERTY);
     if (name == null) {
       throw new SecurityException(session.getDatabaseName(), "User name not found");
@@ -143,7 +143,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    * exception is raised
    */
   public Role allow(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
       final int operation) {
     var roles = getRoles();
@@ -179,7 +179,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    */
   @Nullable
   public Role checkIfAllowed(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
       final int operation) {
     var roles = getRoles();
@@ -202,7 +202,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
   @Override
   @Deprecated
-  public SecurityRole allow(DatabaseSessionInternal session, String iResource, int iOperation) {
+  public SecurityRole allow(DatabaseSessionEmbedded session, String iResource, int iOperation) {
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -216,7 +216,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
   @Override
   @Deprecated
-  public SecurityRole checkIfAllowed(DatabaseSessionInternal session, String iResource,
+  public SecurityRole checkIfAllowed(DatabaseSessionEmbedded session, String iResource,
       int iOperation) {
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
@@ -231,7 +231,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
   @Override
   @Deprecated
-  public boolean isRuleDefined(DatabaseSessionInternal session, String iResource) {
+  public boolean isRuleDefined(DatabaseSessionEmbedded session, String iResource) {
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -249,7 +249,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    * @return True is a rule is defined, otherwise false
    */
   public boolean isRuleDefined(
-      DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
+      DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific) {
     var roles = getRoles();
     for (var r : roles) {
@@ -268,33 +268,33 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     return false;
   }
 
-  public boolean checkPassword(DatabaseSessionInternal session, final String iPassword) {
+  public boolean checkPassword(DatabaseSessionEmbedded session, final String iPassword) {
     return SecurityManager.checkPassword(iPassword, password);
   }
 
-  public String getName(DatabaseSessionInternal session) {
+  public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
-  public SecurityUserImpl setName(DatabaseSessionInternal session, final String iName) {
+  public SecurityUserImpl setName(DatabaseSessionEmbedded session, final String iName) {
     this.name = iName;
     return this;
   }
 
-  public String getPassword(DatabaseSessionInternal session) {
+  public String getPassword(DatabaseSessionEmbedded session) {
     return password;
   }
 
-  public SecurityUserImpl setPassword(DatabaseSessionInternal session, final String password) {
+  public SecurityUserImpl setPassword(DatabaseSessionEmbedded session, final String password) {
     this.password = password;
     return this;
   }
 
-  public STATUSES getAccountStatus(DatabaseSessionInternal session) {
+  public STATUSES getAccountStatus(DatabaseSessionEmbedded session) {
     return status;
   }
 
-  public void setAccountStatus(DatabaseSessionInternal session, STATUSES accountStatus) {
+  public void setAccountStatus(DatabaseSessionEmbedded session, STATUSES accountStatus) {
     this.status = accountStatus;
   }
 
@@ -302,7 +302,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     return Collections.unmodifiableSet(roles);
   }
 
-  public SecurityUserImpl addRole(DatabaseSessionInternal session, final String iRole) {
+  public SecurityUserImpl addRole(DatabaseSessionEmbedded session, final String iRole) {
     if (iRole != null) {
       var role = session.getMetadata().getSecurity().getRole(iRole);
       if (role != null) {
@@ -315,7 +315,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   }
 
   @Override
-  public SecurityUserImpl addRole(DatabaseSessionInternal session, final SecurityRole role) {
+  public SecurityUserImpl addRole(DatabaseSessionEmbedded session, final SecurityRole role) {
     if (role != null) {
       roles.add((Role) role);
     }
@@ -323,11 +323,11 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     return this;
   }
 
-  public boolean removeRole(DatabaseSessionInternal session, final String roleName) {
+  public boolean removeRole(DatabaseSessionEmbedded session, final String roleName) {
     return roles.removeIf(role -> role.getName(session).equals(roleName));
   }
 
-  public boolean hasRole(DatabaseSessionInternal session, final String roleName,
+  public boolean hasRole(DatabaseSessionEmbedded session, final String roleName,
       final boolean includeInherited) {
     for (final var role : roles) {
       if (role.getName(session).equals(roleName)) {

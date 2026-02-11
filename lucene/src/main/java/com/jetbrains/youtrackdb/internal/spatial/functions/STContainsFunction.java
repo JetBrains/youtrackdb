@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrackdb.internal.spatial.functions;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -72,7 +72,7 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
 
   @Nullable
   @Override
-  public String getSyntax(DatabaseSession session) {
+  public String getSyntax(DatabaseSessionEmbedded session) {
     return null;
   }
 
