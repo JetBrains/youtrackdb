@@ -18,6 +18,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   private boolean hasStarted = false;
   private long startMillis;
   private long nano;
+  private long endNano;
 
   public YTDBQueryMetricsStep(
       Traversal.Admin<?, ?> traversal,
@@ -40,36 +41,49 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
   @Override
   public boolean hasNext() {
-    if (isLightweight) {
-      return super.hasNext();
-    }
     queryHasStarted();
-    final var now = System.nanoTime();
-    try {
-      return super.hasNext();
-    } finally {
-      nano += System.nanoTime() - now;
+    if (isLightweight) {
+      try {
+        return super.hasNext();
+      } finally {
+        endNano = ticker.approximateNanoTime();
+      }
+    } else {
+      final var now = System.nanoTime();
+      try {
+        return super.hasNext();
+      } finally {
+        nano += System.nanoTime() - now;
+      }
     }
   }
 
   @Override
   public Admin<S> next() {
-    if (isLightweight) {
-      return super.next();
-    }
     queryHasStarted();
-    final var now = System.nanoTime();
-    try {
-      return super.next();
-    } finally {
-      nano += System.nanoTime() - now;
+    if (isLightweight) {
+      try {
+        return super.next();
+      } finally {
+        endNano = ticker.approximateNanoTime();
+      }
+    } else {
+      final var now = System.nanoTime();
+      try {
+        return super.next();
+      } finally {
+        nano += System.nanoTime() - now;
+      }
     }
   }
 
   @Override
   public void close() throws Exception {
+    if (!hasStarted) {
+      return;
+    }
 
-    final var duration = isLightweight ? ticker.approximateNanoTime() - nano : nano;
+    final var duration = isLightweight ? endNano - nano : nano;
     ytdbTx.getQueryMetricsListener().queryFinished(
         new QueryDetails() {
           @Override
