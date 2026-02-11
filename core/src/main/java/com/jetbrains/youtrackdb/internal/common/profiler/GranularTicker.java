@@ -35,7 +35,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
     );
     executor.scheduleAtFixedRate(
         () -> nanoTimeDifference = System.currentTimeMillis() - System.nanoTime() / 1_000_000,
-        timestampRefreshRate, timestampRefreshRate, TimeUnit.MILLISECONDS
+        timestampRefreshRate, timestampRefreshRate, TimeUnit.NANOSECONDS
     );
   }
 

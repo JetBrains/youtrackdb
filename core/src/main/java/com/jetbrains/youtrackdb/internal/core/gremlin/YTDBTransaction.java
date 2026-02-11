@@ -255,7 +255,7 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   public @Nonnull String getTrackingId() {
     return trackingId != null ? trackingId :
-        " " + activeSession.getActiveTransaction().getId();
+        String.valueOf(activeSession.getActiveTransaction().getId());
   }
 
   public QueryMetricsListener getQueryMetricsListener() {
