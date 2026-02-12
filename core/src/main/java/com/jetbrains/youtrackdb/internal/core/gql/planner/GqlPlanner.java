@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.planner;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlQueryVisitor;
@@ -26,7 +26,7 @@ import org.antlr.v4.runtime.Recognizer;
 /// Similar to SQL's SQLEngine.parse() returning SQLStatement.
 public class GqlPlanner {
 
-  public static GqlStatement getStatement(String query, DatabaseSessionInternal session) {
+  public static GqlStatement getStatement(String query, DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(query);
     }
