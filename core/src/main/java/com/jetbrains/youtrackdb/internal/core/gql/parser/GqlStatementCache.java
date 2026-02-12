@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,7 +24,7 @@ public class GqlStatementCache {
     };
   }
 
-  public static GqlStatement get(String statement, DatabaseSessionInternal session) {
+  public static GqlStatement get(String statement, DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(statement);
     }
