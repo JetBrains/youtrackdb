@@ -33,11 +33,10 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
   }
 
   @Override
-  @SuppressWarnings("resource")
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
 
     com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal graph;
-    com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass entityIterator;
+    com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass entityIterator = null;
     var session = ctx.session();
     graph = ctx.graph();
     if (prev != null) {
@@ -51,12 +50,18 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
           "Class '" + className + "' not found");
     }
 
-    entityIterator = session.browseClass(className, polymorphic);
-
-    return GqlExecutionStream.fromIterator(entityIterator, entity -> {
-      var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-      return Map.of(alias, vertex);
-    });
+    try {
+      entityIterator = session.browseClass(className, polymorphic);
+      return GqlExecutionStream.fromIterator(entityIterator, entity -> {
+        var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+        return Map.of(alias, vertex);
+      });
+    } catch (Exception e) {
+      if (entityIterator != null) {
+        entityIterator.close();
+      }
+      throw e;
+    }
   }
 
   public String getAlias() {

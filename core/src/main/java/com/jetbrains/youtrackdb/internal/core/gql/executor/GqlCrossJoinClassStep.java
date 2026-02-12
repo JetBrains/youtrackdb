@@ -22,35 +22,47 @@ public class GqlCrossJoinClassStep extends GqlAbstractExecutionStep {
     this.polymorphic = polymorphic;
   }
 
-  @SuppressWarnings({"unchecked", "resource"})
+  @SuppressWarnings("unchecked")
   @Override
   protected GqlExecutionStream internalStart(GqlExecutionContext ctx) {
     if (prev == null) {
       throw new IllegalStateException("CrossJoinStep requires a previous step");
     }
 
-    try (var upstream = prev.start(ctx)) {
-      var graph = ctx.graph();
-      var session = ctx.session();
+    var upstream = prev.start(ctx);
+    var graph = ctx.graph();
+    var session = ctx.session();
 
-      var schema = session.getMetadata().getImmutableSchemaSnapshot();
-      if (schema.getClass(className) == null) {
-        throw new com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException(
-            session.getDatabaseName(), "Class '" + className + "' not found");
-      }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema.getClass(className) == null) {
+      upstream.close();
+      throw new com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException(
+          session.getDatabaseName(), "Class '" + className + "' not found");
+    }
 
+    try {
       return upstream.flatMap(input -> {
         var baseRow = (Map<String, Object>) input;
 
-        var entityIterator = session.browseClass(className, polymorphic);
-
-        return GqlExecutionStream.fromIterator(entityIterator, entity -> {
-          Map<String, Object> newRow = new LinkedHashMap<>(baseRow);
-          var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-          newRow.put(alias, vertex);
-          return newRow;
-        });
+        com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass entityIterator = null;
+        try {
+          entityIterator = session.browseClass(className, polymorphic);
+          return GqlExecutionStream.fromIterator(entityIterator, entity -> {
+            Map<String, Object> newRow = new LinkedHashMap<>(baseRow);
+            var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+            newRow.put(alias, vertex);
+            return newRow;
+          });
+        } catch (Exception e) {
+          if (entityIterator != null) {
+            entityIterator.close();
+          }
+          throw e;
+        }
       });
+    } catch (Exception e) {
+      upstream.close();
+      throw e;
     }
   }
 
