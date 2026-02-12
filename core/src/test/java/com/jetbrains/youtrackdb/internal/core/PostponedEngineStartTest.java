@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
@@ -343,11 +344,6 @@ public class PostponedEngineStartTest {
         @Override
         public long count(DatabaseSessionEmbedded session, int[] iCollectionIds,
             boolean countTombstones) {
-          return 0;
-        }
-
-        @Override
-        public long getSize(DatabaseSessionEmbedded session) {
           return 0;
         }
 
