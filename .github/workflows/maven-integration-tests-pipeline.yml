@@ -99,8 +99,8 @@ jobs:
         id: tests
         run: ./mvnw -s .github/workflows/settings.xml clean verify -B ${{ matrix.mvn_opts }}
         env:
-          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
-          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
@@ -145,8 +145,8 @@ jobs:
         shell: bash
         run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci
         env:
-          MAVEN_MIROR_USERNAME: ${{ secrets.MAVEN_MIROR_USERNAME }}
-          MAVEN_MIROR_PASSWORD: ${{ secrets.MAVEN_MIROR_PASSWORD }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
