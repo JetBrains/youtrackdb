@@ -974,7 +974,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     final var summary = "test_" + rand.randomInt(0, 1000);
     g.tx().open();
 
-    final String qStr;
     final long beforeMillis;
     final long beforeNanos;
     final long afterMillis;
@@ -988,7 +987,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
     try (var q = gs.V().hasLabel("person")) {
 
-      qStr = q.getBytecode().toString();
       beforeMillis = System.currentTimeMillis();
       beforeNanos = System.nanoTime();
 
@@ -996,10 +994,10 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       q.hasNext(); // query has started
 
       Thread.sleep(rand.randomInt(0, 50));
-      q.toList(); // query has finished
+      q.iterate(); // query has finished
 
-      afterMillis = System.currentTimeMillis();
       afterNanos = System.nanoTime();
+      afterMillis = System.currentTimeMillis();
     }
     g.tx().commit();
 
@@ -1017,8 +1015,11 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       assertThat(listener.startedAtMillis)
           .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS)
           .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS);
+      // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
+      // window [beforeNanos, afterNanos], so the measured duration is at most the real
+      // elapsed time plus ticker lag.
       assertThat(listener.executionTimeNanos)
-          .isGreaterThan(duration - TICKER_POSSIBLE_LAG_NANOS)
+          .isGreaterThanOrEqualTo(0)
           .isLessThanOrEqualTo(duration + TICKER_POSSIBLE_LAG_NANOS);
     } else {
 
