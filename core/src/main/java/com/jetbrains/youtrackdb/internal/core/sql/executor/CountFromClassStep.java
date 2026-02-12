@@ -41,7 +41,7 @@ public class CountFromClassStep extends AbstractExecutionStep {
 
   private Result produce(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var size = target.count(session);
+    var size = session.computeInTxInternal(tx -> target.count(session));
     var result = new ResultInternal(session);
     result.setProperty(alias, size);
     return result;

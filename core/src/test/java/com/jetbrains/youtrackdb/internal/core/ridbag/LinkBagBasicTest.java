@@ -12,8 +12,13 @@ public class LinkBagBasicTest extends DbTestBase {
 
   @Test(expected = IllegalArgumentException.class)
   public void testExceptionInCaseOfNull() {
-    var bag = new EmbeddedLinkBag(session, Integer.MAX_VALUE);
-    bag.add(null);
+    session.begin();
+    try {
+      var bag = new EmbeddedLinkBag(session, Integer.MAX_VALUE);
+      bag.add(null);
+    } finally {
+      session.rollback();
+    }
   }
 
   @Test

@@ -74,9 +74,11 @@ public class IndexChangesQueryTest {
 
     db.commit();
 
+    db.begin();
     Assert.assertEquals(2, index.size(db));
     Assert.assertFalse((fetchCollectionFromIndex(index, 1)).isEmpty());
     Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
+    db.rollback();
   }
 
   private Collection<RID> fetchCollectionFromIndex(Index index, int key) {
@@ -103,9 +105,11 @@ public class IndexChangesQueryTest {
 
     db.commit();
 
+    db.begin();
     Assert.assertEquals(3, index.size(db));
     Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
+    db.rollback();
 
     db.begin();
 
@@ -135,8 +139,10 @@ public class IndexChangesQueryTest {
 
     Assert.assertNull(db.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
+    db.begin();
     Assert.assertEquals(3, index.size(db));
     Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
+    db.rollback();
   }
 }

@@ -41,13 +41,14 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
     }
     session.commit();
 
-    session.begin();
     // when
     var result = session.execute("rebuild index " + className + "index1");
     Assert.assertTrue(result.hasNext());
     var resultRecord = result.next();
     Assert.assertEquals(2L, resultRecord.<Object>getProperty("totalIndexed"));
     Assert.assertFalse(result.hasNext());
+
+    session.begin();
     assertEquals(
         2, session.query("select from " + className + " where key = 'a'").stream().toList().size());
     session.commit();
