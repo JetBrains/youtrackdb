@@ -698,11 +698,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
   }
 
-  /// Reads a record from the collection at the specified position.
+  /// Reads a record from the collection at the specified position, with tombstone awareness
+  /// for snapshot isolation.
   ///
-  /// This method resolves the physical location of the record from the collection position map,
-  /// falling back to the historical snapshot index if the current position entry is not found
-  /// (which can happen under snapshot isolation when reading older versions).
+  /// The method distinguishes three cases based on the position map entry status:
+  /// 1. NOT_EXISTENT/ALLOCATED: the entry was never written -> RecordNotFoundException
+  /// 2. REMOVED (tombstone): check if the deletion is visible to the current transaction.
+  ///    If visible, the record is deleted -> RecordNotFoundException.
+  ///    If not visible, read the old version from the history snapshot index.
+  /// 3. FILLED: proceed with normal read (existing behavior with version visibility checks).
   ///
   /// @param collectionPosition the logical position of the record in the collection
   /// @param atomicOperation    the atomic operation context
@@ -711,17 +715,38 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /// @throws RecordNotFoundException if the record does not exist at the specified position
   private @Nonnull RawBuffer doReadRecord(long collectionPosition,
       @Nonnull AtomicOperation atomicOperation) throws IOException {
-    var positionEntry =
-        collectionPositionMap.get(collectionPosition, atomicOperation);
+    var entryWithStatus =
+        collectionPositionMap.getWithStatus(collectionPosition, atomicOperation);
     var snapshot = atomicOperation.getAtomicOperationsSnapshot();
-    if (positionEntry == null) {
-      positionEntry = findHistoricalPositionEntry(collectionPosition,
-          atomicOperation.getCommitTsUnsafe(), snapshot);
-      if (positionEntry == null) {
-        throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
-      }
+    var commitTs = atomicOperation.getCommitTsUnsafe();
+    var status = entryWithStatus.status();
+
+    // 1. Entry does not exist at all
+    if (status == CollectionPositionMapBucket.NOT_EXISTENT
+        || status == CollectionPositionMapBucket.ALLOCATED) {
+      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
     }
 
+    // 2. Entry is a tombstone - check deletion visibility
+    if (status == CollectionPositionMapBucket.REMOVED) {
+      var deletionVersion = entryWithStatus.entry().getRecordVersion();
+      if (isRecordVersionVisible(deletionVersion, commitTs, snapshot)) {
+        // Deletion visible -> record is deleted from our perspective
+        throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+      }
+      // Deletion not visible -> read old version from history
+      var historicalEntry = findHistoricalPositionEntry(
+          collectionPosition, commitTs, snapshot);
+      if (historicalEntry == null) {
+        throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+      }
+      return internalReadRecord(collectionPosition, historicalEntry.getPageIndex(),
+          historicalEntry.getRecordPosition(), historicalEntry.getRecordVersion(),
+          atomicOperation);
+    }
+
+    // 3. FILLED - use current entry (existing behavior)
+    var positionEntry = entryWithStatus.entry();
     return internalReadRecord(
         collectionPosition,
         positionEntry.getPageIndex(),
@@ -975,7 +1000,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       recordPosition = getRecordPosition(nextPagePointer);
     } while (nextPagePointer >= 0);
 
-    collectionPositionMap.remove(collectionPosition, atomicOperation);
+    collectionPositionMap.remove(collectionPosition, atomicOperation.getCommitTs(),
+        atomicOperation);
     return true;
   }
 
@@ -986,7 +1012,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var recordVersion = atomicOperation.getCommitTs();
     keepPreviousRecordVersion(collectionPosition, recordVersion, atomicOperation, positionEntry);
 
-    collectionPositionMap.remove(collectionPosition, atomicOperation);
+    collectionPositionMap.remove(collectionPosition, recordVersion, atomicOperation);
   }
 
   @Override

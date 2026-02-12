@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.Arrays;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.ArrayUtils;
 
@@ -219,7 +220,27 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     }
   }
 
-  public void remove(final long collectionPosition, final AtomicOperation atomicOperation)
+  @Nonnull
+  public CollectionPositionMapBucket.EntryWithStatus getWithStatus(
+      final long collectionPosition, final AtomicOperation atomicOperation) throws IOException {
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
+    final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    final var lastPage = getLastPage(atomicOperation);
+
+    if (pageIndex > lastPage) {
+      return new CollectionPositionMapBucket.EntryWithStatus(
+          CollectionPositionMapBucket.NOT_EXISTENT, null);
+    }
+
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var bucket = new CollectionPositionMapBucket(cacheEntry);
+      return bucket.getEntryWithStatus(index);
+    }
+  }
+
+  public void remove(final long collectionPosition, final long deletionVersion,
+      final AtomicOperation atomicOperation)
       throws IOException {
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
@@ -228,7 +249,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
 
-      bucket.remove(index);
+      bucket.remove(index, deletionVersion);
     }
   }
 
