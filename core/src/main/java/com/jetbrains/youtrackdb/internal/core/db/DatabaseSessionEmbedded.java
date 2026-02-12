@@ -125,6 +125,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
@@ -632,11 +633,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     hooks.clear();
   }
 
-  public Storage getStorage() {
-    return storage;
-  }
-
-  public StorageInfo getStorageInfo() {
+  public AbstractStorage getStorage() {
     return storage;
   }
 
@@ -1368,7 +1365,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  public FrontendTransaction begin() {
+  public FrontendTransactionImpl begin() {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -2144,7 +2141,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    return storage.getConfiguration().getTimeZone();
+    return storage.getTimeZone();
   }
 
   public RecordMetadata getRecordMetadata(final RID rid) {
@@ -4030,7 +4027,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nonnull
-  public FrontendTransaction getActiveTransaction() {
+  public FrontendTransactionImpl getActiveTransaction() {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -4043,7 +4040,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
-  public FrontendTransaction getActiveTransactionOrNull() {
+  public FrontendTransactionImpl getActiveTransactionOrNull() {
     assert assertIfNotActive();
 
     checkOpenness();
