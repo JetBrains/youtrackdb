@@ -198,6 +198,13 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return getByteValue(position);
   }
 
+  public long getRecordVersionAt(int index) {
+    var position = entryPosition(index);
+    return getLongValue(
+        position + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE
+            + IntegerSerializer.INT_SIZE);
+  }
+
   public void updateVersion(int index, long recordVersion) {
     var size = getIntValue(SIZE_OFFSET);
 
