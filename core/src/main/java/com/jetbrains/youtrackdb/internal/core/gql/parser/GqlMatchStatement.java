@@ -56,7 +56,7 @@ public class GqlMatchStatement implements GqlStatement {
       }
     }
 
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     // Create new execution plan
     var plan = new GqlMatchPlanner(this).createExecutionPlan();
