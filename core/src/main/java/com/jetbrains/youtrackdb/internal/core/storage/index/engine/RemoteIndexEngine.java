@@ -57,7 +57,6 @@ public class RemoteIndexEngine implements IndexEngine {
     return name;
   }
 
-  @Override
   public String getIndexNameByKey(Object key) {
     return name;
   }
