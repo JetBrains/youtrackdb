@@ -57,10 +57,6 @@ public final class CollectionPositionMapBucket extends DurablePage {
     setIntValue(SIZE_OFFSET, 0);
   }
 
-  public int add(long pageIndex, int recordPosition, long recordVersion) {
-    return add(pageIndex, recordPosition, recordVersion, FILLED);
-  }
-
   public int add(long pageIndex, int recordPosition, long recordVersion, byte status) {
     var size = getIntValue(SIZE_OFFSET);
 

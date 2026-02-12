@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
@@ -51,7 +50,7 @@ public class StorageBackupMTIT {
           DbTestBase.getBaseDirectoryPathStr(getClass()));
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
 
-      var db = (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin");
+      var db = youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
       final var backupClass = schema.createClass("BackupClass");
@@ -99,8 +98,8 @@ public class StorageBackupMTIT {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+              youTrackDB.open(dbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       System.out.println("compare");
@@ -155,7 +154,7 @@ public class StorageBackupMTIT {
       youTrackDB.create(dbName, DatabaseType.DISK,
           new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
-      var db = (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin");
+      var db = youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
       final var backupClass = schema.createClass("BackupClass");
@@ -207,8 +206,8 @@ public class StorageBackupMTIT {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+              youTrackDB.open(dbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
       System.out.println("compare");
 
