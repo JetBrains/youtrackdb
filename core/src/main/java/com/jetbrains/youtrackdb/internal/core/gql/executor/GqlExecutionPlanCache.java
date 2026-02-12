@@ -153,7 +153,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   public void invalidate() {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
-      lastInvalidation = System.currentTimeMillis();
+      lastInvalidation = System.nanoTime();
       return;
     }
 
@@ -161,7 +161,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
       synchronized (map) {
         map.clear();
       }
-      lastInvalidation = System.currentTimeMillis();
+      lastInvalidation = System.nanoTime();
     }
   }
 
