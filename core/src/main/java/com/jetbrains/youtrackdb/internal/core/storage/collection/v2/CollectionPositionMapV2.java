@@ -529,6 +529,41 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     this.fileId = newFileId;
   }*/
 
+  /// Visitor callback for iterating over all position map entries, including
+  /// both {@link CollectionPositionMapBucket#FILLED} and
+  /// {@link CollectionPositionMapBucket#REMOVED} entries.
+  interface EntryVisitor {
+
+    void visit(long position, byte status, long recordVersion);
+  }
+
+  /// Iterates over all entries in the position map, including removed (tombstone) entries.
+  /// For each entry with status {@link CollectionPositionMapBucket#FILLED} or
+  /// {@link CollectionPositionMapBucket#REMOVED}, the visitor is called with the entry's
+  /// collection position, status, and record version.
+  /// {@link CollectionPositionMapBucket#ALLOCATED} entries are skipped.
+  void forEachEntry(AtomicOperation atomicOperation, EntryVisitor visitor)
+      throws IOException {
+    final var lastPage = getLastPage(atomicOperation);
+    for (long pageIndex = 1; pageIndex <= lastPage; pageIndex++) {
+      try (final var cacheEntry =
+          loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var bucket = new CollectionPositionMapBucket(cacheEntry);
+        final var bucketSize = bucket.getSize();
+        final var startPosition =
+            (pageIndex - 1) * CollectionPositionMapBucket.MAX_ENTRIES;
+
+        for (var i = 0; i < bucketSize; i++) {
+          final var status = bucket.getStatus(i);
+          if (status == CollectionPositionMapBucket.FILLED
+              || status == CollectionPositionMapBucket.REMOVED) {
+            visitor.visit(startPosition + i, status, bucket.getRecordVersionAt(i));
+          }
+        }
+      }
+    }
+  }
+
   public static final class CollectionPositionEntry {
 
     private final long position;
