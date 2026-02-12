@@ -20,7 +20,7 @@
       <id>ytdb-maven-central</id>
       <mirrorOf>central</mirrorOf>
       <name>YTDB mirror of Maven Central</name>
-      <url>https://packages.jetbrains.team/maven/p/youtrackdb/maven-central</url>
+      <url>https://maven.youtrackdb.io/maven-central</url>
     </mirror>
   </mirrors>
 </settings>
