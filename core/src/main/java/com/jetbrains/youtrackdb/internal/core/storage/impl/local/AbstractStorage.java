@@ -91,6 +91,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.St
 import com.jetbrains.youtrackdb.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
@@ -1484,8 +1485,10 @@ public abstract class AbstractStorage
         final var collection = doGetAndCheckCollection(rid.getCollectionId());
         checkOpennessAndMigration();
 
+        var atomicOperation = session.getActiveTransaction().getAtomicOperation();
         final var ppos =
-            collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()));
+            collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()),
+                atomicOperation);
         if (ppos == null) {
           return null;
         }
