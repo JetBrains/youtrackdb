@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -38,7 +38,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
         };
   }
 
-  public static long getLastInvalidation(DatabaseSessionInternal db) {
+  public static long getLastInvalidation(DatabaseSessionEmbedded db) {
     var resource = instance(db);
     synchronized (resource) {
       return resource.lastInvalidation;
@@ -69,7 +69,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @Nullable
   public static GqlExecutionPlan get(
-      String statement, GqlExecutionContext ctx, DatabaseSessionInternal db) {
+      String statement, GqlExecutionContext ctx, DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
@@ -88,7 +88,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param plan      the execution plan to cache
    * @param db        the current DB instance
    */
-  public static void put(String statement, GqlExecutionPlan plan, DatabaseSessionInternal db) {
+  public static void put(String statement, GqlExecutionPlan plan, DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
@@ -166,24 +166,24 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   }
 
   @Override
-  public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName,
+  public void onSchemaUpdate(DatabaseSessionEmbedded session, String databaseName,
       SchemaShared schema) {
     invalidate();
   }
 
   @Override
-  public void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
+  public void onIndexManagerUpdate(DatabaseSessionEmbedded session, String databaseName,
       IndexManagerAbstract indexManager) {
     invalidate();
   }
 
   @Override
-  public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
+  public void onFunctionLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
     invalidate();
   }
 
   @Override
-  public void onSequenceLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
+  public void onSequenceLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
     invalidate();
   }
 
@@ -192,7 +192,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     invalidate();
   }
 
-  public static GqlExecutionPlanCache instance(DatabaseSessionInternal db) {
+  public static GqlExecutionPlanCache instance(DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
