@@ -98,25 +98,38 @@ public class GqlService implements Service<Object, Object> {
       return CloseableIterator.empty();
     }
 
-    // 1. Get graph and session from traversal context
-    var traversal = (Traversal.Admin<?, ?>) ctx.getTraversal();
-    var graph = (YTDBGraphInternal) traversal.getGraph().orElseThrow();
-    var graphTx = graph.tx();
-    graphTx.readWrite();
-    var session = graphTx.getDatabaseSession();
+    GqlExecutionPlan executionPlan = null;
+    GqlExecutionStream stream = null;
 
-    // 2. Get the query statement (from cache if available)
-    var statement = GqlPlanner.getStatement(query, session);
+    try {
+      // 1. Get graph and session from traversal context
+      var traversal = (Traversal.Admin<?, ?>) ctx.getTraversal();
+      var graph = (YTDBGraphInternal) traversal.getGraph().orElseThrow();
+      var graphTx = graph.tx();
+      graphTx.readWrite();
+      var session = graphTx.getDatabaseSession();
 
-    // 3. Create execution context
-    var executionCtx = new GqlExecutionContext(graph, session);
+      // 2. Get the query statement (from cache if available)
+      var statement = GqlPlanner.getStatement(query, session);
 
-    // 4. Create execution plan from statement
-    var executionPlan = statement.createExecutionPlan(executionCtx);
+      // 3. Create execution context
+      var executionCtx = new GqlExecutionContext(graph, session);
 
-    // 5. Execute and return streaming result
-    var stream = executionPlan.start(executionCtx);
-    return new GqlResultIterator(stream, executionPlan);
+      // 4. Create execution plan from statement
+      executionPlan = statement.createExecutionPlan(executionCtx);
+
+      // 5. Execute and return streaming result
+      stream = executionPlan.start(executionCtx);
+      return new GqlResultIterator(stream, executionPlan);
+    } catch (Exception e) {
+      if (stream != null) {
+        stream.close();
+      }
+      if (executionPlan != null) {
+        executionPlan.close();
+      }
+      throw e;
+    }
   }
 
   /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption. Handles any
@@ -126,12 +139,26 @@ public class GqlService implements Service<Object, Object> {
 
     @Override
     public boolean hasNext() {
-      return stream.hasNext();
+      try {
+        final var hasNext = stream.hasNext();
+        if (!hasNext) {
+          close();
+        }
+        return hasNext;
+      } catch (Exception e) {
+        close();
+        throw e;
+      }
     }
 
     @Override
     public Object next() {
-      return stream.next();
+      try {
+        return stream.next();
+      } catch (Exception e) {
+        close();
+        throw e;
+      }
     }
 
     @Override
