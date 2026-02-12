@@ -333,7 +333,9 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
+    session.begin();
     assertRids("Name2");
+    session.rollback();
   }
 
   @Test

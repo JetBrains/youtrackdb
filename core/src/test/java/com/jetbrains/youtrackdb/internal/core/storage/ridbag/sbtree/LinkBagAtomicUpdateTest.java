@@ -146,9 +146,9 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    session.begin();
     var activeTx = session.getActiveTransaction();
     rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
@@ -271,9 +271,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
-    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
-
     session.begin();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
     var activeTx = session.getActiveTransaction();
     cmeDoc = activeTx.load(cmeDoc);
@@ -295,9 +294,9 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
-    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.getProperty("ridBag");
 
@@ -314,9 +313,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
   @Test
   public void testAddTwoSavedDocuments() {
-    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
-
     session.begin();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
     var rootDoc = (EntityImpl) session.newEntity();
 
@@ -332,7 +330,9 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
+    session.rollback();
   }
 
   @Test
@@ -352,9 +352,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
-    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
-
     session.begin();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
     rootDoc = session.load(rootDoc.getIdentity());
 
     var activeTx = session.getActiveTransaction();
@@ -408,9 +407,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
-    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
-
     session.begin();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
     rootDoc = session.load(rootDoc.getIdentity());
 
     var activeTx1 = session.getActiveTransaction();
@@ -436,9 +434,9 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
-    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.getProperty("ridBag");
 
@@ -471,9 +469,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
-    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
-
     session.begin();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
     var docThree = (EntityImpl) session.newEntity();
 
     var docFour = (EntityImpl) session.newEntity();
@@ -506,11 +503,11 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
     List<RID> addedDocs = new ArrayList<>(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.getProperty("ridBag");
 
@@ -542,9 +539,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
-    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
-
     session.begin();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
     var activeTx1 = session.getActiveTransaction();
     cmeDoc = activeTx1.load(cmeDoc);
     cmeDoc.setProperty("v", "v2");
@@ -586,11 +582,11 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
     List<RID> addedDocs = new ArrayList<>(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.getProperty("ridBag");
 
