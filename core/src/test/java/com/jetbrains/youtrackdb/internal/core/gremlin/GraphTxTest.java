@@ -33,7 +33,9 @@ public class GraphTxTest extends GraphBaseTest {
     }
     graph.tx().commit();
 
+    session.begin();
     Assert.assertEquals(11, session.countClass("Person"));
+    session.rollback();
   }
 
   @Test
@@ -105,7 +107,9 @@ public class GraphTxTest extends GraphBaseTest {
 
     graph = openGraph();
 
+    session.begin();
     Assert.assertEquals(0, session.countClass("Person"));
+    session.rollback();
   }
 
   @Test
@@ -118,7 +122,9 @@ public class GraphTxTest extends GraphBaseTest {
 
     graph = openGraph();
 
+    session.begin();
     Assert.assertEquals(1, session.countClass("Person"));
+    session.rollback();
   }
 
   @Test
@@ -131,7 +137,9 @@ public class GraphTxTest extends GraphBaseTest {
 
     graph = openGraph();
 
+    session.begin();
     Assert.assertEquals(1, session.countClass("Person"));
+    session.rollback();
   }
 
   @Test
@@ -143,7 +151,9 @@ public class GraphTxTest extends GraphBaseTest {
     }
     graph.tx().rollback();
 
+    session.begin();
     Assert.assertEquals(0, session.countClass("Person"));
+    session.rollback();
   }
 
   @Test
@@ -157,6 +167,8 @@ public class GraphTxTest extends GraphBaseTest {
 
     graph = openGraph();
 
+    session.begin();
     Assert.assertEquals(0, session.countClass("Person"));
+    session.rollback();
   }
 }

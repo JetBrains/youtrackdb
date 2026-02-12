@@ -35,7 +35,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
       throw new CommandExecutionException(session, "Schema Class not found: " + className);
     }
 
-    final var recs = clazz.count(session, polymorphic);
+    final var recs = session.computeInTxInternal(tx -> clazz.count(session, polymorphic));
     if (recs > 0 && !unsafe) {
       if (clazz.isSubClassOf("V")) {
         throw new CommandExecutionException(session,
@@ -52,7 +52,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
     var subclasses = clazz.getAllSubclasses();
     if (polymorphic && !unsafe) { // for multiple inheritance
       for (var subclass : subclasses) {
-        var subclassRecs = clazz.count(session);
+        var subclassRecs = session.computeInTxInternal(tx -> clazz.count(session));
         if (subclassRecs > 0) {
           if (subclass.isSubClassOf("V")) {
             throw new CommandExecutionException(session,

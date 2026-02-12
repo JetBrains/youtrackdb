@@ -305,7 +305,9 @@ public class DBSequenceTest {
           }
         });
 
+    db.begin();
     assertThat(db.countClass("Person")).isEqualTo(10);
+    db.rollback();
   }
 
   @Test
@@ -327,7 +329,9 @@ public class DBSequenceTest {
 
     db.commit();
 
+    db.begin();
     assertThat(db.countClass("Person")).isEqualTo(10);
+    db.rollback();
   }
 
   @Test

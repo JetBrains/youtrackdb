@@ -42,7 +42,7 @@ public class SQLDropClassStatement extends DDLStatement {
       throw new CommandExecutionException(session, "Class " + className + " does not exist");
     }
 
-    if (!unsafe && clazz.count(session) > 0) {
+    if (!unsafe && session.computeInTxInternal(tx -> clazz.count(session)) > 0) {
       // check vertex or edge
       if (clazz.isVertexType()) {
         throw new CommandExecutionException(session,

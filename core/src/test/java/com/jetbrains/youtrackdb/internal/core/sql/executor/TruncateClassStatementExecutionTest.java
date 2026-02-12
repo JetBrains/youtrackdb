@@ -165,13 +165,22 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
       final var indexManager = session.getSharedContext().getIndexManager();
       final var indexOne =
           indexManager.getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
+
+      session.begin();
       Assert.assertEquals(2, indexOne.size(session));
+      session.rollback();
 
       session.execute("truncate class TestTruncateVertexClassSubclassWithIndex");
+
+      session.begin();
       Assert.assertEquals(1, indexOne.size(session));
+      session.rollback();
 
       session.execute("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic");
+
+      session.begin();
       Assert.assertEquals(0, indexOne.size(session));
+      session.rollback();
     }
   }
 

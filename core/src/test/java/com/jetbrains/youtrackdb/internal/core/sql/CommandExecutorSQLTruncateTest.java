@@ -24,8 +24,10 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     doc = (EntityImpl) session.newEntity("ab");
     session.commit();
 
+    session.begin();
     var ret = session.execute("truncate class A ");
     assertEquals(1L, (long) ret.next().getProperty("count"));
+    session.commit();
   }
 
   @Test
@@ -34,9 +36,10 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("A");
-    var record = session.load(new RecordId(1,3));
+    var record = session.load(new RecordId(1, 3));
     session.commit();
 
+    session.begin();
     session.getMetadata().getSchema().getClasses().stream()
         .filter(oClass -> !oClass.getName().startsWith("OSecurity")) //
         .forEach(
@@ -46,6 +49,7 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
                     .close();
               }
             });
+    session.commit();
   }
 
   @Test
@@ -61,9 +65,11 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     doc = (EntityImpl) session.newEntity("ab");
     session.commit();
 
+    session.begin();
     try (var res = session.execute("truncate class A POLYMORPHIC")) {
       assertEquals(1L, (long) res.next().getProperty("count"));
       assertEquals(1L, (long) res.next().getProperty("count"));
     }
+    session.commit();
   }
 }
