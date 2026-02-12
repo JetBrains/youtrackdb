@@ -246,6 +246,3 @@ local.properties
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
-
-# Generated source code (ANTLR, annotation processors)
-**/src/main/generated/
