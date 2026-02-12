@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
@@ -7,6 +8,9 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class GqlExecutionPlanCacheTest extends GraphBaseTest {
 
@@ -42,6 +46,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     Assert.assertNotNull("Cache should return an execution plan", cachedPlan1);
 
     // 5) Repeated planning / cache reads should not return the same plan instance (copy-on-read)
+    // GqlExecutionPlan is mutable (contains iterators, execution state), must be copied
     var plan2 = statement.createExecutionPlan(ctx);
     Assert.assertNotNull(plan2);
 
@@ -53,14 +58,18 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
 
     Assert.assertNotSame("Repeated createExecutionPlan() calls should not return the same instance",
         plan1, plan2);
+
+    tx.commit();
   }
 
   @Test
-  public void testPlanIsCachedAndInvalidatedOnSchemaAndIndexChanges() throws InterruptedException {
+  public void testPlanIsCachedAndInvalidatedOnSchemaAndIndexChanges() {
     var query = "MATCH (n:OUser)";
     var graphInternal = (YTDBGraphInternal) graph;
 
     var statement = GqlPlanner.getStatement(query, null);
+
+    long invalidationTimestamp;
 
     // 1) Populate cache by planning
     {
@@ -79,6 +88,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         Assert.assertNotNull(plan);
 
         Assert.assertTrue(cache.contains(query));
+
+        invalidationTimestamp = GqlExecutionPlanCache.getLastInvalidation(session);
       } finally {
         tx.commit();
       }
@@ -89,8 +100,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     graphInternal.executeSchemaCode(schemaSession ->
         schemaSession.getMetadata().getSchema().createClass(className)
     );
-    Thread.sleep(2);
-    // Verify invalidation
+
+    // Verify invalidation using lastInvalidation timestamp
     {
       var tx = graphInternal.tx();
       tx.readWrite();
@@ -101,6 +112,12 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         var cache = GqlExecutionPlanCache.instance(session);
         Assert.assertFalse("Cache should be invalidated after schema change",
             cache.contains(query));
+
+        var newInvalidationTimestamp = GqlExecutionPlanCache.getLastInvalidation(session);
+        Assert.assertTrue("Invalidation timestamp should increase after schema change",
+            newInvalidationTimestamp > invalidationTimestamp);
+
+        invalidationTimestamp = newInvalidationTimestamp;
       } finally {
         tx.commit();
       }
@@ -136,8 +153,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       clazz.createProperty("name", PropertyType.STRING);
       clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
     });
-    Thread.sleep(2);
-    // Verify invalidation using a NEW active session (new tx)
+
+    // Verify invalidation using lastInvalidation timestamp
     {
       var tx = graphInternal.tx();
       tx.readWrite();
@@ -147,9 +164,185 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
 
         var cache = GqlExecutionPlanCache.instance(session);
         Assert.assertFalse("Cache should be invalidated after index change", cache.contains(query));
+
+        var newInvalidationTimestamp = GqlExecutionPlanCache.getLastInvalidation(session);
+        Assert.assertTrue("Invalidation timestamp should increase after index change",
+            newInvalidationTimestamp > invalidationTimestamp);
       } finally {
         tx.commit();
       }
+    }
+  }
+
+  @Test
+  public void testLRUEvictionLogic() {
+    var graphInternal = (YTDBGraphInternal) graph;
+
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+
+      // Create cache with size 2
+      var cache = new GqlExecutionPlanCache(2);
+
+      var stmt1 = GqlPlanner.getStatement("MATCH (a:Person)", session);
+      var stmt2 = GqlPlanner.getStatement("MATCH (b:Company)", session);
+      var stmt3 = GqlPlanner.getStatement("MATCH (c:Product)", session);
+
+      var plan1 = stmt1.createExecutionPlan(ctx);
+      var plan2 = stmt2.createExecutionPlan(ctx);
+
+      cache.putInternal("MATCH (a:Person)", plan1);
+      cache.putInternal("MATCH (b:Company)", plan2);
+
+      Assert.assertTrue(cache.contains("MATCH (a:Person)"));
+      Assert.assertTrue(cache.contains("MATCH (b:Company)"));
+
+      // Adding third item should evict oldest (a:Person)
+      var plan3 = stmt3.createExecutionPlan(ctx);
+      cache.putInternal("MATCH (c:Product)", plan3);
+
+      Assert.assertFalse("First query should have been evicted",
+          cache.contains("MATCH (a:Person)"));
+      Assert.assertTrue(cache.contains("MATCH (b:Company)"));
+      Assert.assertTrue(cache.contains("MATCH (c:Product)"));
+
+      // Access (b:Company) to refresh LRU
+      cache.getInternal("MATCH (b:Company)", ctx);
+
+      // Adding fourth item should now evict (c:Product) not (b:Company)
+      var stmt4 = GqlPlanner.getStatement("MATCH (d:Location)", session);
+      var plan4 = stmt4.createExecutionPlan(ctx);
+      cache.putInternal("MATCH (d:Location)", plan4);
+
+      Assert.assertTrue(cache.contains("MATCH (b:Company)"));
+      Assert.assertTrue(cache.contains("MATCH (d:Location)"));
+      Assert.assertFalse("Query (c:Product) should be evicted because (b:Company) was refreshed",
+          cache.contains("MATCH (c:Product)"));
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
+  public void testDisabledCacheWhenSizeIsZero() {
+    var graphInternal = (YTDBGraphInternal) graph;
+
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+
+      // Create cache with size 0 (disabled)
+      var cache = new GqlExecutionPlanCache(0);
+
+      var statement = GqlPlanner.getStatement("MATCH (n:OUser)", session);
+      var plan = statement.createExecutionPlan(ctx);
+      Assert.assertNotNull(plan);
+
+      cache.putInternal("MATCH (n:OUser)", plan);
+
+      // With size=0, nothing should be cached
+      Assert.assertFalse("Cache with size 0 should not contain any entries",
+          cache.contains("MATCH (n:OUser)"));
+
+      var retrieved = cache.getInternal("MATCH (n:OUser)", ctx);
+      Assert.assertNull("Cache with size 0 should return null", retrieved);
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
+  public void testConcurrentAccess() throws InterruptedException {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var cache = new GqlExecutionPlanCache(50);
+    var threadCount = 10;
+    var plansPerThread = 20;
+    var latch = new CountDownLatch(threadCount);
+    var errors = new AtomicInteger(0);
+
+    for (var t = 0; t < threadCount; t++) {
+      final var threadId = t;
+      var thread = new Thread(() -> {
+        var tx = graphInternal.tx();
+        tx.readWrite();
+        try {
+          var session = tx.getDatabaseSession();
+          var ctx = new GqlExecutionContext(graphInternal, session);
+
+          for (var i = 0; i < plansPerThread; i++) {
+            var query = "MATCH (n:Type" + (i % 5) + ") WHERE n.id = " + threadId;
+            var stmt = GqlPlanner.getStatement(query, session);
+            var plan = stmt.createExecutionPlan(ctx);
+
+            cache.putInternal(query, plan);
+            Assert.assertTrue(cache.contains(query));
+
+            // Get again - should return a COPY (different instance)
+            var retrieved = cache.getInternal(query, ctx);
+            Assert.assertNotNull(retrieved);
+            Assert.assertNotSame("Should return copy, not same instance", plan, retrieved);
+          }
+
+          tx.commit();
+        } catch (Exception e) {
+          errors.incrementAndGet();
+          e.printStackTrace();
+        } finally {
+          latch.countDown();
+        }
+      });
+      thread.start();
+    }
+
+    latch.await();
+    Assert.assertEquals("No errors should occur during concurrent access", 0, errors.get());
+  }
+
+  @Test
+  public void testGlobalConfigurationCacheSize() {
+    var defaultSize = GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger();
+    Assert.assertTrue("Cache size should be positive by default", defaultSize > 0);
+
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+
+      var cache = new GqlExecutionPlanCache(defaultSize);
+
+      // Fill cache to capacity
+      for (var i = 0; i < defaultSize; i++) {
+        var query = "MATCH (n:Type" + i + ")";
+        var stmt = GqlPlanner.getStatement(query, session);
+        var plan = stmt.createExecutionPlan(ctx);
+        cache.putInternal(query, plan);
+      }
+
+      // All should be cached
+      for (var i = 0; i < defaultSize; i++) {
+        Assert.assertTrue("Query " + i + " should be in cache",
+            cache.contains("MATCH (n:Type" + i + ")"));
+      }
+
+      // Adding one more should evict the oldest
+      var extraQuery = "MATCH (n:TypeExtra)";
+      var extraStmt = GqlPlanner.getStatement(extraQuery, session);
+      var extraPlan = extraStmt.createExecutionPlan(ctx);
+      cache.putInternal(extraQuery, extraPlan);
+
+      Assert.assertFalse("First query should have been evicted",
+          cache.contains("MATCH (n:Type0)"));
+      Assert.assertTrue("Extra query should be cached",
+          cache.contains(extraQuery));
+    } finally {
+      tx.commit();
     }
   }
 }
