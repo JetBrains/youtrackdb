@@ -103,9 +103,6 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
-# Generated sources (annotation processors, etc.)
-**/generated/
-
 ### Maven template
 target/
 pom.xml.tag
