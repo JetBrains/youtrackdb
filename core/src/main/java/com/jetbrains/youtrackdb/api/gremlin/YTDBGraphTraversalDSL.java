@@ -212,4 +212,55 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
     return GraphTraversal.Admin.super.to(toStepLabel);
   }
+
+  /// Begins a new transaction.
+  ///
+  /// This is a non-blocking step that passes through the input value unchanged.
+  /// The transaction will remain active until either {@link #commit()} or {@link #rollback()}
+  /// is called.
+  ///
+  /// @return the traversal with the transaction begun
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> begin() {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    ytdbGraphTraversal.asAdmin().addStep(
+        new com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.BeginStep<>(
+            ytdbGraphTraversal.asAdmin())
+    );
+    return ytdbGraphTraversal;
+  }
+
+  /// Commits the current transaction.
+  ///
+  /// This is a blocking step that waits for the commit to complete before continuing.
+  /// After commit, all elements and properties in the traversal stream are detached
+  /// (converted to read-only snapshots without database connection).
+  /// The input value is passed through to the next step.
+  ///
+  /// @return the traversal with detached elements
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> commit() {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    ytdbGraphTraversal.asAdmin().addStep(
+        new com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.CommitStep<>(
+            ytdbGraphTraversal.asAdmin())
+    );
+    return ytdbGraphTraversal;
+  }
+
+  /// Rolls back the current transaction and terminates the traversal.
+  ///
+  /// This is a terminal step that discards all changes made in the transaction
+  /// and returns an empty iterator. No further steps in the traversal will be executed.
+  ///
+  /// @return an empty traversal (no elements)
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> rollback() {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    ytdbGraphTraversal.asAdmin().addStep(
+        new com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.RollbackStep<>(
+            ytdbGraphTraversal.asAdmin())
+    );
+    return ytdbGraphTraversal;
+  }
 }
