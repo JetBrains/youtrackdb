@@ -88,6 +88,7 @@ run_cmd=(
   -e "POWERLEVEL9K_DISABLE_GITSTATUS=true"
   -e "JAVA_HOME=/usr/lib/jvm/temurin-21-jdk"
   -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}"
+  -e "JETBRAINS_MCP_PORT=${JETBRAINS_MCP_PORT:-64342}"
 )
 
 # GitHub CLI config (read-only, only if present on host)

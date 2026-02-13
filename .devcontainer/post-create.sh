@@ -10,10 +10,13 @@ GIT_DIR="$(git -C /workspace rev-parse --git-dir)"
 # Make absolute if relative
 [[ "$GIT_DIR" = /* ]] || GIT_DIR="/workspace/$GIT_DIR"
 
-# Add settings.local.json to git exclude
 EXCLUDE_FILE="$GIT_DIR/info/exclude"
 mkdir -p "$(dirname "$EXCLUDE_FILE")"
-grep -qxF '.claude/settings.local.json' "$EXCLUDE_FILE" 2>/dev/null || echo '.claude/settings.local.json' >> "$EXCLUDE_FILE"
+
+# Add generated files to git exclude
+for entry in '.claude/settings.local.json' '.mcp.json'; do
+    grep -qxF "$entry" "$EXCLUDE_FILE" 2>/dev/null || echo "$entry" >> "$EXCLUDE_FILE"
+done
 
 # Install pre-push hook to block pushes inside the container
 HOOKS_DIR="$GIT_DIR/hooks"
@@ -27,3 +30,24 @@ if [ "${DEVCONTAINER:-}" = "true" ]; then
 fi
 HOOK
 chmod +x "$HOOKS_DIR/pre-push"
+
+# Generate .mcp.json with JetBrains MCP pointing to the Docker host
+# The host IP is the default gateway from inside the container
+HOST_IP=$(ip route | awk '/default/ {print $3; exit}')
+JETBRAINS_MCP_PORT="${JETBRAINS_MCP_PORT:-64342}"
+
+if [ -n "$HOST_IP" ]; then
+    cat > /workspace/.mcp.json << MCPEOF
+{
+  "mcpServers": {
+    "jetbrains": {
+      "type": "sse",
+      "url": "http://${HOST_IP}:${JETBRAINS_MCP_PORT}/sse"
+    }
+  }
+}
+MCPEOF
+    echo "JetBrains MCP configured at http://${HOST_IP}:${JETBRAINS_MCP_PORT}/sse"
+else
+    echo "WARNING: Could not detect host IP. JetBrains MCP not configured."
+fi

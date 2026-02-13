@@ -23,7 +23,8 @@
     "NODE_OPTIONS": "--max-old-space-size=4096",
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
-    "JAVA_HOME": "/usr/lib/jvm/temurin-21-jdk"
+    "JAVA_HOME": "/usr/lib/jvm/temurin-21-jdk",
+    "JETBRAINS_MCP_PORT": "64342"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
