@@ -157,6 +157,7 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
 - Target branch: `develop`
+- **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation and Changes sections as described in the template.
 
 ## CI/CD
 
