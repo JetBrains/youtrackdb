@@ -227,6 +227,13 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
    - Changes to `tests` module: run `./mvnw -pl tests test`
    - If in doubt, run the full test suite: `./mvnw clean package`
 
+## File Modification Rules
+
+- **Always use the `Edit` and `Write` tools** to create or modify files. Do not use shell commands (`cat`, `echo`, `sed`, `awk`, `tee`, or redirection operators `>`, `>>`) to write or modify files.
+- **Use the `Read` tool** to read file contents instead of `cat`, `head`, or `tail`.
+- **Use `Glob` and `Grep` tools** for file search instead of `find`, `grep`, or `rg` shell commands.
+- Reserve `Bash` exclusively for build commands (`./mvnw`), git operations, `gh` CLI, `docker`, and other tools that genuinely require shell execution.
+
 ## Tips for Working with This Codebase
 
 1. **Always use `./mvnw`** (Maven Wrapper) instead of system Maven
