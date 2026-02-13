@@ -3,8 +3,6 @@ projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
 
-bootstrap: mkdir -p ~/.m2 && cp /data/project/.github/workflows/settings.xml ~/.m2/settings.xml
-
 exclude:
   - name: All
     paths:
