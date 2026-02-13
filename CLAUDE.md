@@ -191,6 +191,41 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - LZ4 (compression)
 - BouncyCastle (TLS in server)
 
+## Pre-Commit Verification
+
+**Every task MUST be verified before committing.** Follow this workflow:
+
+1. **Run unit tests** for the affected module(s) before committing:
+   ```bash
+   # If changes are in core module
+   ./mvnw -pl core test
+
+   # If changes span multiple modules, test all affected ones
+   ./mvnw -pl core,server test
+
+   # If unsure which modules are affected, run the full unit test suite
+   ./mvnw clean package
+   ```
+
+2. **Run related integration tests** if the change touches areas covered by integration tests:
+   ```bash
+   # Run integration tests for the affected module(s)
+   ./mvnw -pl core verify -P ci-integration-tests
+
+   # Or run the full integration test suite
+   ./mvnw clean verify -P ci-integration-tests
+   ```
+
+3. **Do not commit if tests fail.** Fix the failures first, then re-run the tests.
+
+4. **Determining which tests to run:**
+   - Changes to `core` module: always run `./mvnw -pl core test`
+   - Changes to `server` module: run `./mvnw -pl server test`
+   - Changes to storage, WAL, or index code: also run integration tests (`-P ci-integration-tests`)
+   - Changes to Gremlin integration or transaction handling: also run integration tests
+   - Changes to `tests` module: run `./mvnw -pl tests test`
+   - If in doubt, run the full test suite: `./mvnw clean package`
+
 ## Tips for Working with This Codebase
 
 1. **Always use `./mvnw`** (Maven Wrapper) instead of system Maven
