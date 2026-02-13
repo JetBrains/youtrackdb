@@ -48,7 +48,7 @@ jobs:
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
         with:
-          args: --linter, jetbrains/qodana-jvm:${{ env.QODANA_VERSION }}, --baseline, .github/workflows/qodana.sarif.json${{ env.RUN_CLEANUP == 'true' && ', --cleanup' || '' }}
+          args: --linter, jetbrains/qodana-jvm:${{ env.QODANA_VERSION }}, --baseline, .github/workflows/qodana.sarif.json, -e, MAVEN_MIRROR_USERNAME=${{ secrets.MAVEN_MIRROR_USERNAME }}, -e, MAVEN_MIRROR_PASSWORD=${{ secrets.MAVEN_MIRROR_PASSWORD }}${{ env.RUN_CLEANUP == 'true' && ', --cleanup' || '' }}
           pr-mode: 'true'
           push-fixes: none
         env:
