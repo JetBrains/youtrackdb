@@ -276,7 +276,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       readMinimumCollections(atomicOperation);
       recalculateLocale();
 
-      validation = "true".equalsIgnoreCase(getProperty(VALIDATION_PROPERTY));
+      // Access the cache directly instead of going through getProperty() which
+      // would try to acquire the read lock, causing a deadlock with the write lock
+      // already held by this method (ScalableRWLock is non-reentrant).
+      @SuppressWarnings("unchecked")
+      final var properties = (Map<String, String>) cache.get(PROPERTIES);
+      validation = properties != null
+          && "true".equalsIgnoreCase(properties.get(VALIDATION_PROPERTY));
     } catch (Exception e) {
       cache.clear();
       throw BaseException.wrapException(new StorageException(storage.getName(),
@@ -327,9 +333,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     updateIntProperty(atomicOperation, MINIMUM_COLLECTIONS_PROPERTY, doGetMinimalCollections());
   }
 
+  /// Reads the minimumCollections property from the cache and applies it.
+  /// Called while the write lock is already held (from load()), so it accesses
+  /// the configuration field directly instead of going through lock-acquiring
+  /// methods (setMinimumCollections/getContextConfiguration) to avoid deadlock
+  /// with the non-reentrant ScalableRWLock.
   private void readMinimumCollections(AtomicOperation atomicOperation) {
     if (containsProperty(MINIMUM_COLLECTIONS_PROPERTY, atomicOperation)) {
-      setMinimumCollections(readIntProperty(MINIMUM_COLLECTIONS_PROPERTY, false));
+      var minimumCollections = readIntProperty(MINIMUM_COLLECTIONS_PROPERTY, true);
+      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, minimumCollections);
+      autoInitCollections();
     }
   }
 

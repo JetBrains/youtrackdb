@@ -745,7 +745,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           atomicOperation);
     }
 
-    // 3. FILLED - use current entry (existing behavior)
+    // 3. FILLED - use current entry (existing behavior with version visibility checks)
     var positionEntry = entryWithStatus.entry();
     return internalReadRecord(
         collectionPosition,
@@ -1362,8 +1362,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         var count = new long[]{0};
         // Single pass over all position map entries (FILLED and REMOVED).
         // FILLED entries are counted when their version is visible.
-        // REMOVED entries (tombstones) are counted when the snapshot index
-        // contains a visible historical version for the position.
+        // REMOVED entries (tombstones) are counted only when the deletion
+        // is NOT visible (i.e., the record was deleted after the reader's
+        // snapshot started) AND a visible historical version exists.
         collectionPositionMap.forEachEntry(atomicOperation,
             (position, status, recordVersion) -> {
               if (status == CollectionPositionMapBucket.FILLED) {
@@ -1384,6 +1385,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   return;
                 }
 
+                // For REMOVED entries, recordVersion holds the deletion timestamp.
+                // If the deletion is visible to the reader, the record is gone.
+                if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
+                  return;
+                }
+
+                // The deletion is not yet visible - check if there's a historical
+                // version that the reader can see.
                 var historical = findHistoricalPositionEntry(
                     position, commitTs, snapshot);
                 if (historical != null) {

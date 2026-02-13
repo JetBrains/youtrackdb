@@ -130,11 +130,18 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      compareCollections();
-      compareRecords(ridMapper);
+      sessionOne.begin();
+      sessionTwo.begin();
+      try {
+        compareCollections();
+        compareRecords(ridMapper);
 
-      compareSchema();
-      compareIndexes(ridMapper);
+        compareSchema();
+        compareIndexes(ridMapper);
+      } finally {
+        sessionOne.rollback();
+        sessionTwo.rollback();
+      }
 
       if (differences == 0) {
         listener.onMessage("\n\nDatabases match.");
