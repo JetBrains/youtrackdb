@@ -176,10 +176,43 @@ public final class YTDBTransaction extends AbstractTransaction {
     }
   }
 
+  /**
+   * @deprecated Use DSL steps {@code g.begin()}, {@code g.commit()}, and {@code g.rollback()}
+   *             instead of explicit transaction management. These steps are part of the
+   *             traversal pipeline and work efficiently in both embedded and remote modes.
+   */
+  @Deprecated(since = "0.5.0", forRemoval = true)
   @SuppressWarnings("unchecked")
   @Override
   public YTDBGraphTraversalSource begin() {
     return new YTDBGraphTraversalSource(graph);
+  }
+
+  /**
+   * @deprecated Use DSL step {@code g.commit()} instead of explicit transaction management.
+   */
+  @Deprecated(since = "0.5.0", forRemoval = true)
+  @Override
+  public void commit() {
+    super.commit();
+  }
+
+  /**
+   * @deprecated Use DSL step {@code g.rollback()} instead of explicit transaction management.
+   */
+  @Deprecated(since = "0.5.0", forRemoval = true)
+  @Override
+  public void rollback() {
+    super.rollback();
+  }
+
+  /**
+   * @deprecated Use DSL step {@code g.begin()} instead of explicit transaction management.
+   */
+  @Deprecated(since = "0.5.0", forRemoval = true)
+  @Override
+  public void open() {
+    super.open();
   }
 
   @Override

@@ -56,22 +56,12 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// If a transaction is already started, executes passed in code in it. In case of exception,
   /// rolls back the transaction and commits the changes if the transaction was started by this
   /// method.
+  ///
+  /// @deprecated Use {@link #autoExecuteInTx(FailableFunction)} with {@code begin()},
+  ///             {@code commit()}, and {@code rollback()} DSL steps instead.
+  @Deprecated(since = "0.5.0", forRemoval = true)
   public <X extends Exception> void executeInTx(
       @Nonnull FailableConsumer<YTDBGraphTraversalSource, X> code) throws X {
-    YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
-  }
-
-  /// Start a new transaction if it is not yet started and executes passed in code in it.
-  ///
-  /// If a transaction is already started, executes passed in code in it. In case of exception,
-  /// rolls back the transaction and commits the changes if the transaction was started by this
-  /// method.
-  ///
-  /// Unlike {@link #executeInTx(FailableConsumer)} also iterates over the returned
-  /// [YTDBGraphTraversal] triggering its execution.
-  public <X extends Exception> void autoExecuteInTx(
-      @Nonnull FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code)
-      throws X {
     YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
   }
 
@@ -81,10 +71,71 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// If a transaction is already started, executes passed in code in it. In case of exception,
   /// rolls back the transaction and commits the changes if the transaction was started by this
   /// method.
+  ///
+  /// @deprecated Use {@link #autoCalculateInTx(FailableFunction)} with {@code begin()},
+  ///             {@code commit()}, and {@code rollback()} DSL steps instead.
+  @Deprecated(since = "0.5.0", forRemoval = true)
   public <X extends Exception, R> R computeInTx(
       @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
+
+
+
+  /// Executes the provided traversal-building function within a transaction.
+  ///
+  /// The function receives a {@link YTDBGraphTraversalSource} and should build a traversal that
+  /// includes transaction control steps ({@code begin()}, {@code commit()}, {@code rollback()}).
+  /// The returned traversal is automatically executed via {@code iterate()}.
+  ///
+  /// Example:
+  /// <pre>{@code
+  /// g.autoExecuteInTx(source ->
+  ///   source.V().hasLabel("Person")
+  ///     .begin()
+  ///     .property("processed", true)
+  ///     .commit()
+  /// );
+  /// }</pre>
+  ///
+  /// @param code Function that builds a traversal with transaction control
+  /// @param <X> Exception type that may be thrown
+  /// @throws X if the function throws an exception
+  public <X extends Exception> void autoExecuteInTx(
+      @Nonnull FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code)
+      throws X {
+    var traversal = code.apply((YTDBGraphTraversalSource) this.clone());
+    traversal.iterate();
+  }
+
+  /// Executes the provided traversal-building function within a transaction and returns a result.
+  ///
+  /// The function receives a {@link YTDBGraphTraversalSource} and should build a traversal with
+  /// transaction control steps ({@code begin()}, {@code commit()}). The function should call
+  /// terminal methods like {@code next()} to materialize results.
+  ///
+  /// Example:
+  /// <pre>{@code
+  /// Long count = g.autoCalculateInTx(source ->
+  ///   source.V()
+  ///     .begin()
+  ///     .count()
+  ///     .commit()
+  ///     .next()
+  /// );
+  /// }</pre>
+  ///
+  /// @param code Function that builds a traversal and returns a result
+  /// @param <X> Exception type that may be thrown
+  /// @param <R> Result type
+  /// @return The result from the function
+  /// @throws X if the function throws an exception
+  public <X extends Exception, R> R autoCalculateInTx(
+      @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
+    return code.apply((YTDBGraphTraversalSource) this.clone());
+  }
+
+
 
   /// Execute a generic YouTrackDB command immediately. The command is executed eagerly - no need to
   /// call .iterate().

@@ -30,9 +30,24 @@ public class CommitStep<S> extends AbstractStep<S, S> {
       committed = true;
     }
 
-    // Pass through the traverser unchanged
+    // Pass through the traverser unchanged, or throw if no more traversers
     // TODO: Detach elements after commit
-    return this.starts.next();
+    if (this.starts.hasNext()) {
+      return this.starts.next();
+    } else {
+      throw fastNoSuchElement();
+    }
+  }
+  
+  private NoSuchElementException fastNoSuchElement() {
+    // Use reflection to get FastNoSuchElementException if available
+    try {
+      var clazz = Class.forName("org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException");
+      var method = clazz.getMethod("instance");
+      return (NoSuchElementException) method.invoke(null);
+    } catch (Exception e) {
+      return new NoSuchElementException();
+    }
   }
 
   private void commitTransaction() {
