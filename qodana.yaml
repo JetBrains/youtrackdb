@@ -3,7 +3,7 @@ projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
 
-bootstrap: ./mvnw -s .github/workflows/settings.xml dependency:go-offline -DskipTests -B -q
+bootstrap: ./mvnw -s .github/workflows/settings.xml dependency:go-offline -DskipTests -B
 
 exclude:
   - name: All
