@@ -25,7 +25,8 @@ public interface QueryMetricsListener {
     String getQuery();
 
     /// Optional client-provided summary of the query.
-    @Nullable String getQuerySummary();
+    @Nullable
+    String getQuerySummary();
 
     /// Get transaction tracking id
     String getTransactionTrackingId();
