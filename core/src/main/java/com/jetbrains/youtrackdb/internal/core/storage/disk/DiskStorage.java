@@ -1783,10 +1783,10 @@ public class DiskStorage extends AbstractStorage {
     if (isFull) {
       final var files = writeCache.files();
       for (var entry : files.entrySet()) {
-        final var fileId = writeCache.fileHandlerByName(entry.getKey()).fileId();
+        final var fileHandler = writeCache.fileHandlerByName(entry.getKey());
 
-        assert entry.getValue().equals(fileId);
-        readCache.deleteFile(fileId, writeCache);
+        assert entry.getValue().equals(fileHandler);
+        readCache.deleteFile(fileHandler.fileId(), writeCache);
       }
     }
 

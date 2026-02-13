@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.LockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
@@ -55,7 +54,7 @@ public final class LockFreeReadCache implements ReadCache {
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
 
-   static final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
+  static final CacheEntry LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER =
       new CacheEntryPlaceholder();
 
   private final ConcurrentHashMap<Long/*fileId*/, FileHandler> data; // todo replace with primitive concurrent hash map
@@ -156,10 +155,9 @@ public final class LockFreeReadCache implements ReadCache {
 
     final var updatedEntry = new CacheEntry[1];
     for (; ; ) {
-      @SuppressWarnings("unechecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
-      var cacheEntry = casArray.get(pageIndex);
-      if (cacheEntry == null) {
-
+      @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      var cacheEntry = casArray.getOrNull(pageIndex);
+      if (cacheEntry == null || cacheEntry == LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
         try {
           final var pointer = writeCache.load(fileHandler.fileId(), pageIndex,
               new ModifiableBoolean(), verifyChecksums);
@@ -175,8 +173,8 @@ public final class LockFreeReadCache implements ReadCache {
               e, writeCache.getStorageName());
         }
 
-        cacheEntry = casArray.get(pageIndex);
-        if (cacheEntry == null) {
+        cacheEntry = casArray.getOrNull(pageIndex);
+        if (cacheEntry == null || cacheEntry == LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
           cacheEntry = updatedEntry[0];
         }
 
@@ -208,7 +206,8 @@ public final class LockFreeReadCache implements ReadCache {
         //search for page in an array
         cacheEntry = casArray.getOrNull(pageIndex);
         var read = true;
-        if (cacheEntry != null) {
+        // here we need to check not only for null, but for a placeholder
+        if (cacheEntry != null && cacheEntry != LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
           if (cacheEntry.acquireEntry()) {
             afterRead(cacheEntry);
             return cacheEntry;
@@ -223,8 +222,9 @@ public final class LockFreeReadCache implements ReadCache {
               if (pointer == null) {
                 return null;
               }
-              cacheEntry = casArray.get(pageIndex);
-              if (cacheEntry != null) {
+              cacheEntry = casArray.getOrNull(pageIndex);
+              if (cacheEntry != null
+                  && cacheEntry != LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
                 read = true;
               } else {
                 cacheSize.incrementAndGet();
@@ -286,10 +286,14 @@ public final class LockFreeReadCache implements ReadCache {
 
     @SuppressWarnings("unchecked")
     var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    if (casArray.size() < pageIndex + 1) {
+      // fill the array up to the index, this is safe, since other threads will also fill it with placeholder
+      casArray.set(pageIndex, LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER,
+          LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
+    }
     //if cas does not work, it means old entry is present
     final var oldCacheEntryPresent = !casArray.compareAndSet(pageIndex,
-        LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER, cacheEntry,
-        LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
+        LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER, cacheEntry);
     if (oldCacheEntryPresent) {
       throw new IllegalStateException(
           "Page  " + fileHandler.fileId() + ":" + pageIndex + " was allocated in other thread");
@@ -575,15 +579,6 @@ public final class LockFreeReadCache implements ReadCache {
         // file is not cached, nothing to remove
         return;
       }
-      // todo remove after development is done
-      if (fileHandler == null) {
-        var joinedKeys = StreamSupport.stream(
-                Spliterators.spliteratorUnknownSize(data.keys().asIterator(), 0), false)
-            .map(Object::toString)
-            .collect(Collectors.joining(", "));
-        throw new AssertionError("File with id " + fileId
-            + " not found and could not be cleared. Available fileIds are: " + joinedKeys);
-      }
       @SuppressWarnings("unchecked") final var pageEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
       for (var pageIndex = 0; pageIndex < pageEntries.size(); pageIndex++) {
         final var cacheEntry = pageEntries.get(pageIndex);
@@ -663,7 +658,7 @@ public final class LockFreeReadCache implements ReadCache {
     return 1 << -Integer.numberOfLeadingZeros(x - 1);
   }
 
-   static class CacheEntryPlaceholder implements CacheEntry {
+  static class CacheEntryPlaceholder implements CacheEntry {
 
     private final long fileId = -1;
     private final int pageIndex = -1;
@@ -693,22 +688,26 @@ public final class LockFreeReadCache implements ReadCache {
 
     @Override
     public void acquireExclusiveLock() {
-
+      throw new UnsupportedOperationException(
+          "This object is a placeholder");
     }
 
     @Override
     public void releaseExclusiveLock() {
-
+      throw new UnsupportedOperationException(
+          "This object is a placeholder");
     }
 
     @Override
     public void acquireSharedLock() {
-
+      throw new UnsupportedOperationException(
+          "This object is a placeholder");
     }
 
     @Override
     public void releaseSharedLock() {
-
+      throw new UnsupportedOperationException(
+          "This object is a placeholder");
     }
 
     @Override
@@ -758,12 +757,14 @@ public final class LockFreeReadCache implements ReadCache {
 
     @Override
     public boolean acquireEntry() {
-      return false;
+      throw new UnsupportedOperationException(
+          "This object is a placeholder");
     }
 
     @Override
     public void releaseEntry() {
-
+      throw new UnsupportedOperationException(
+          "This object is a placeholder");
     }
 
     @Override

@@ -4924,6 +4924,7 @@ public abstract class AbstractStorage
               "Data restore was paused because of exception. The rest of changes will be rolled"
                   + " back.",
               e);
+      e.printStackTrace();
     }
 
     return lastUpdatedLSN;
@@ -4969,9 +4970,10 @@ public abstract class AbstractStorage
           }
 
           final var pageIndex = updatePageRecord.getPageIndex();
+          // seems like these operations are self exclusive, figure this out
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
-          // somehwo get it from id
-          FileHandler fileHandler = null;
+          // todo, make one method to reduce lookups
+          final var fileHandler = writeCache.fileHandlerByName(writeCache.fileNameById(fileId));
 
           var cacheEntry = readCache.loadForWrite(fileHandler, pageIndex, writeCache, true, null);
           if (cacheEntry == null) {

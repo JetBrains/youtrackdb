@@ -215,7 +215,13 @@ public final class WTinyLFUPolicy {
     var localSum = 0;
     for (var handler : data.values()) {
       @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
-      localSum += casArray.size();
+      for (var i = 0; i < casArray.size(); i++) {
+        var element = casArray.get(i);
+        if (element != null
+            && element != LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
+          localSum += 1;
+        }
+      }
     }
     return localSum;
   }
@@ -226,6 +232,11 @@ public final class WTinyLFUPolicy {
       @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
       for (var i = 0; i < casArray.size(); i++) {
         var cacheEntry = casArray.get(i);
+        if (cacheEntry == null
+            || cacheEntry == LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
+          // placeholders should not be checked
+          continue;
+        }
         assert eden.contains(cacheEntry)
             || protection.contains(cacheEntry)
             || probation.contains(cacheEntry);
@@ -238,19 +249,17 @@ public final class WTinyLFUPolicy {
       counter++;
     }
 
-    for (
-        final var cacheEntry : probation) {
+    for (final var cacheEntry : probation) {
       assert readCacheEntry(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
-    for (
-        final var cacheEntry : protection) {
+    for (final var cacheEntry : protection) {
       assert readCacheEntry(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
-    assert counter == data.size();
+    assert counter == dataSize(data);
   }
 
   private CacheEntry readCacheEntry(PageKey pageKey) {

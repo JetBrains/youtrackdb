@@ -22,8 +22,6 @@ import org.mockito.Mockito;
 
 public class WTinyLFUPolicyTest {
 
-  private static final CacheEntry CACHE_ENTRY_PLACEHOLDER = new LockFreeReadCache.CacheEntryPlaceholder();
-
   @Test
   public void testEden() {
     var memoryAllocator = new DirectMemoryAllocator();
@@ -711,13 +709,13 @@ public class WTinyLFUPolicyTest {
         (fileId) -> new FileHandler(fileId, new CASObjectArray<CacheEntry>()));
     @SuppressWarnings("unchecked")
     var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
-    casArray.set(pageIndex, cacheEntry, CACHE_ENTRY_PLACEHOLDER);
+    casArray.set(pageIndex, cacheEntry, LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
   }
 
   private static void dataRemove(ConcurrentHashMap<Long, FileHandler> data, int pageIndex) {
     var handler = data.get(1L);
     @SuppressWarnings("unchecked")
     var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
-    casArray.set(pageIndex, CACHE_ENTRY_PLACEHOLDER, CACHE_ENTRY_PLACEHOLDER);
+    casArray.set(pageIndex, LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER, LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
   }
 }

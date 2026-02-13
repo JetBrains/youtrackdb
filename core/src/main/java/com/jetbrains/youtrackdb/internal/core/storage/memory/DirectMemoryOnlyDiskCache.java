@@ -430,7 +430,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
         return false;
       }
 
-      final var memoryFile = files.get(fileHandler.fileId());
+      final var memoryFile = files.get((int) fileHandler.fileId());
       return memoryFile != null;
     } finally {
       metadataLock.unlock();
