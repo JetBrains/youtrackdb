@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.api.gremlin.tokens;
 
 /// YTDB-specific parameters that can be passed to
-/// [[com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource#with(YTDBQueryConfigParam,
-/// Object)]] and
-/// [[com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource#with(YTDBQueryConfigParam)]]
+/// [[com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSourceDSL#with(YTDBQueryConfigParam, Object)]] and
+/// [[com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSourceDSL#with(YTDBQueryConfigParam)]]
 /// methods to configure query behavior.
 public enum YTDBQueryConfigParam {
 

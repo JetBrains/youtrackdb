@@ -138,7 +138,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     // reported to the listener. Actual values (numbers, strings used as values) are
     // replaced with bind variable placeholders.
     //
-    // In expected patterns below:
+    // In the expected patterns below:
     //   - single quotes stand for double quotes (replaced at runtime for readability)
     //   - <arg> matches a parameterized value placeholder (_args_N)
 
@@ -832,7 +832,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         "g.V().values('name').split(<arg>)"
     );
 
-    // --- subgraph + cap — side-effect key preserved ---
+    // --- subgraph + cap — side effect key preserved ---
     assertQueryString(
         g.V().outE("knows").subgraph("sg").cap("sg"),
         "g.V().outE('knows').subgraph('sg').cap('sg')"
@@ -1004,7 +1004,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   /// reported to the listener matches the expected pattern.
   ///
   /// Pattern conventions:
-  /// - Single quotes stand for double quotes (for readability in Java source).
+  /// - Single quotes stand for double quotes (for readability in a Java source).
   /// - `<arg>` matches a parameterized value placeholder (`_args_N`).
   private void assertQueryString(Traversal<?, ?> traversal, String pattern) throws Exception {
     final var listener = new RememberingListener();
@@ -1033,18 +1033,25 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   private void testQuery(QueryMonitoringMode mode, RememberingListener listener) throws Exception {
     final var rand = RandomUtils.insecure();
-    ((YTDBTransaction) g.tx())
+    final var withTxId = rand.randomBoolean();
+    final var txId = "tx_" + rand.randomInt(0, 1000);
+    final var withSummary = rand.randomBoolean();
+    final var summary = "test_" + rand.randomInt(0, 1000);
+
+    final var tx = ((YTDBTransaction) g.tx())
         .withQueryMonitoringMode(mode)
         .withQueryListener(listener);
 
-    final var summary = "test_" + rand.randomInt(0, 1000);
-    g.tx().open();
+    if (withTxId) {
+      tx.withTrackingId(txId);
+    }
+
+    tx.open();
 
     final long beforeMillis;
     final long beforeNanos;
     final long afterMillis;
     final long afterNanos;
-    final var withSummary = rand.randomBoolean();
 
     @SuppressWarnings("resource") var gs = g();
     if (withSummary) {
@@ -1065,7 +1072,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       afterNanos = System.nanoTime();
       afterMillis = System.currentTimeMillis();
     }
-    g.tx().commit();
+    tx.commit();
 
     final var duration = afterNanos - beforeNanos;
 
@@ -1075,7 +1082,11 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     } else {
       assertThat(listener.querySummary).isNull();
     }
-    assertThat(listener.transactionTrackingId).isNotNull();
+    if (withTxId) {
+      assertThat(listener.transactionTrackingId).isEqualTo(txId);
+    } else {
+      assertThat(listener.transactionTrackingId).isNotNull();
+    }
 
     if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
       assertThat(listener.startedAtMillis)

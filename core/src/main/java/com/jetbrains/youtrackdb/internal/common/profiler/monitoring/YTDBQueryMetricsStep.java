@@ -135,7 +135,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   }
 
   /// Extends [GroovyTranslator.DefaultTypeTranslator] to produce a readable Gremlin query string
-  /// that preserves structural identifiers (labels, property keys, step labels, side-effect keys)
+  /// that preserves structural identifiers (labels, property keys, step labels, side effect keys)
   /// while replacing actual data values with bind variable placeholders (`_args_N`).
   ///
   /// This makes the query string safe for logging and monitoring without exposing user data,
@@ -173,7 +173,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
       extends GroovyTranslator.DefaultTypeTranslator {
 
     /// Operators whose ALL arguments are structural (labels, property keys, step labels,
-    /// or side-effect keys). String arguments of these operators are rendered literally;
+    /// or side effect keys). String arguments of these operators are rendered literally;
     /// non-string arguments (traversals, enums, etc.) are recursed into normally.
     private static final Set<String> STRUCTURAL_OPERATORS = Set.of(
         "hasLabel", "hasKey", "hasNot",
@@ -311,7 +311,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
     /// Renders a single argument as a structural identifier. Strings are quoted literally
     /// (bypassing parameterization). Non-strings (enums, traversals, predicates) are passed
-    /// to [#convertToScript] which handles them according to their type.
+    /// to [#convertToScript], which handles them according to their type.
     private void appendStructural(Object arg) {
       if (arg instanceof String s) {
         script.append(getSyntax(s));

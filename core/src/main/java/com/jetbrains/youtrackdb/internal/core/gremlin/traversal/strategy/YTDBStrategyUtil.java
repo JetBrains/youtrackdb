@@ -27,7 +27,7 @@ public final class YTDBStrategyUtil {
   /// underlying graph object.
   @Nullable
   public static Boolean isPolymorphic(Admin<?, ?> traversal) {
-    final var graph = traversal.getGraph().orElse(null);
+    @SuppressWarnings("resource") final var graph = traversal.getGraph().orElse(null);
     if (graph == null) {
       return null;
     }
