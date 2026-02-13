@@ -16,6 +16,29 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSo
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.translator.GroovyTranslator;
 
+/// A transparent TinkerPop step that measures query execution time and reports it to a
+/// [QueryMetricsListener] when the traversal is closed.
+///
+/// This step is injected at the end of every traversal by [YTDBQueryMetricsStrategy] when
+/// query monitoring is enabled on the transaction. It passes traversers through unchanged
+/// while recording timing information.
+///
+/// Two timing modes are supported:
+///
+/// - **Lightweight** ([QueryMonitoringMode#LIGHTWEIGHT]): uses an approximate [Ticker] to
+///   measure wall-clock duration from the first to the last `hasNext()`/`next()` call.
+///   Low overhead, suitable for production.
+///
+/// - **Exact** ([QueryMonitoringMode#EXACT]): uses `System.nanoTime()` to accumulate the
+///   actual CPU time spent inside `hasNext()`/`next()` calls, excluding time between calls.
+///   Higher overhead, useful for profiling.
+///
+/// On [#close], the step translates the traversal bytecode into a readable Gremlin string
+/// (with values anonymized) and delivers it together with timing data to the listener.
+/// If the traversal was never iterated, the listener is not notified.
+///
+/// @see YTDBQueryMetricsStrategy
+/// @see QueryMetricsListener
 public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoCloseable {
 
   /// GroovyTranslator is not thread-safe: its internal TypeTranslator reuses a mutable Script
