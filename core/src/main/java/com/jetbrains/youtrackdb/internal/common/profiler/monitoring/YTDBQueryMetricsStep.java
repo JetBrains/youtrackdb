@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener.QueryDetails;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -242,7 +241,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     /// Renders all arguments as structural identifiers — strings are quoted literally,
     /// non-strings are recursed into via [#convertToScript].
     private void appendAllStructural(Object[] args) {
-      final Iterator<Object> it = Arrays.stream(args).iterator();
+      final var it = Arrays.stream(args).iterator();
       while (it.hasNext()) {
         appendStructural(it.next());
         if (it.hasNext()) {
@@ -254,7 +253,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     /// Renders all arguments as parameterized values via [#convertToScript], which replaces
     /// primitives and strings with `_args_N` placeholders.
     private void appendAllParameterized(Object[] args) {
-      final Iterator<Object> it = Arrays.stream(args).iterator();
+      final var it = Arrays.stream(args).iterator();
       while (it.hasNext()) {
         convertToScript(it.next());
         if (it.hasNext()) {
@@ -272,7 +271,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     /// - `has("age", P.gt(27))` — "age" is structural, P.gt(27) is recursed into and 27
     ///   inside the predicate is parameterized by [#convertToScript]
     private void appendHasArgs(Object[] args) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         if (i < args.length - 1) {
           appendStructural(args[i]);
         } else {
@@ -297,14 +296,14 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     private void appendPropertyArgs(Object[] args) {
       // When the first argument is not a String, it is a Cardinality enum and the
       // property key follows as the second argument.
-      int keyIndex = (args[0] instanceof String) ? 0 : 1;
-      for (int i = 0; i <= keyIndex; i++) {
+      var keyIndex = (args[0] instanceof String) ? 0 : 1;
+      for (var i = 0; i <= keyIndex; i++) {
         if (i > 0) {
           script.append(",");
         }
         appendStructural(args[i]);
       }
-      for (int i = keyIndex + 1; i < args.length; i++) {
+      for (var i = keyIndex + 1; i < args.length; i++) {
         script.append(",");
         convertToScript(args[i]);
       }
