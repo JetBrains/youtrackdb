@@ -26,6 +26,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 /// Measures the performance overhead of lightweight query monitoring on a minimal query
 /// (`g.inject(1).iterate()`). Compares three scenarios: no monitoring, monitoring with a no-op
 /// listener, and monitoring with a listener that reads the query string.
+@SuppressWarnings("unused")
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
