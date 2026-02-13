@@ -4518,6 +4518,7 @@ public abstract class AbstractStorage
     final var atLeastOnePageUpdate = new ModifiableBoolean();
 
     long recordsProcessed = 0;
+    long maxOperationUnitId = -1;
 
     final var reportBatchSize =
         GlobalConfiguration.WAL_REPORT_AFTER_OPERATIONS_DURING_RESTORE.getValueAsInteger();
@@ -4534,8 +4535,11 @@ public abstract class AbstractStorage
         for (final var walRecord : records) {
           switch (walRecord) {
             case AtomicUnitEndRecord atomicUnitEndRecord -> {
-              final var atomicUnit =
-                  operationUnits.remove(atomicUnitEndRecord.getOperationUnitId());
+              final var opId = atomicUnitEndRecord.getOperationUnitId();
+              if (opId > maxOperationUnitId) {
+                maxOperationUnitId = opId;
+              }
+              final var atomicUnit = operationUnits.remove(opId);
 
               // in case of data restore from fuzzy checkpoint part of operations may be already
               // flushed to the disk
@@ -4606,6 +4610,12 @@ public abstract class AbstractStorage
               "Data restore was paused because of exception. The rest of changes will be rolled"
                   + " back.",
               e);
+    }
+
+    // After WAL replay, synchronize idGen with the highest operationUnitId seen.
+    // This is critical after backup/restore where the idGen counter may be stale.
+    if (maxOperationUnitId >= 0 && maxOperationUnitId >= idGen.getLastId()) {
+      idGen.setStartId(maxOperationUnitId + 1);
     }
 
     return lastUpdatedLSN;

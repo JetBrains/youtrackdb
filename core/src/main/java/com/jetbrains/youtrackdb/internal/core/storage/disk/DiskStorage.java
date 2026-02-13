@@ -145,18 +145,19 @@ public class DiskStorage extends AbstractStorage {
   private static final String IBU_EXTENSION = ".ibu";
   /// The metadata is located at the tail and has the following format:
   ///
-  /// 1. Version of the backup metadata format is stored as a short value (currently, we have only
-  /// version 1).
+  /// 1. Version of the backup metadata format is stored as a short value.
   /// 2. Database UUID (generated during database creation) is stored as two long values with 16
   /// bytes.
   /// 3. Number of the backup unit in sequence (stored as an int value).
   /// 4. Start LSN - value of LSN (exclusive) from which delta changes in the backup are stored. It
   /// is stored as long + int values, stored as (-1, -1) for the first (full) backup.
   /// 5. End LSN - the value of the last change stored in the backup (inclusive).
-  /// 6. The hash code of the file's content. Stored as a long value. The XX_HASH algorithm is used
+  /// 6. Last transaction ID (idGen counter) at the time of backup. Stored as a long value.
+  /// 7. The hash code of the file's content. Stored as a long value. The XX_HASH algorithm is used
   /// for hash code calculation.
   private static final int IBU_METADATA_SIZE =
-      Short.BYTES + 2 * Long.BYTES + Integer.BYTES + 2 * (Long.BYTES + Integer.BYTES) + Long.BYTES;
+      Short.BYTES + 2 * Long.BYTES + Integer.BYTES + 2 * (Long.BYTES + Integer.BYTES)
+          + Long.BYTES + Long.BYTES;
 
   private static final int IBU_METADATA_VERSION_OFFSET = 0;
 
@@ -176,10 +177,12 @@ public class DiskStorage extends AbstractStorage {
       IBU_METADATA_START_LSN_POSITION_OFFSET + Integer.BYTES;
   private static final int IBU_METADATA_LAST_LSN_POSITION_OFFSET =
       IBU_METADATA_LAST_LSN_SEGMENT_OFFSET + Long.BYTES;
-  private static final int IBU_METADATA_HASH_CODE_OFFSET =
+  private static final int IBU_METADATA_LAST_TX_ID_OFFSET =
       IBU_METADATA_LAST_LSN_POSITION_OFFSET + Integer.BYTES;
+  private static final int IBU_METADATA_HASH_CODE_OFFSET =
+      IBU_METADATA_LAST_TX_ID_OFFSET + Long.BYTES;
 
-  private static final int CURRENT_BACKUP_FORMAT_VERSION = 1;
+  private static final int CURRENT_BACKUP_FORMAT_VERSION = 2;
   private static final String CONF_ENTRY_NAME = "database.ocf";
   private static final String BACKUP_DATEFORMAT = "yyyy-MM-dd-HH-mm-ss";
   private static final String CONF_UTF_8_ENTRY_NAME = "database_utf8.ocf";
@@ -960,7 +963,8 @@ public class DiskStorage extends AbstractStorage {
             var xxHashStream = new XXHashOutputStream(fileStream);
             var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn);
 
-            writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn);
+            writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn,
+                getIdGen().getLastId());
           }
 
           LogManager.instance()
@@ -985,7 +989,8 @@ public class DiskStorage extends AbstractStorage {
   }
 
   private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
-      int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn) throws IOException {
+      int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn,
+      long lastTxId) throws IOException {
     var dataOutputStream = new DataOutputStream(xxHashStream);
     dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
@@ -1002,6 +1007,8 @@ public class DiskStorage extends AbstractStorage {
     }
     dataOutputStream.writeLong(lastLsn.getSegment());
     dataOutputStream.writeInt(lastLsn.getPosition());
+
+    dataOutputStream.writeLong(lastTxId);
 
     dataOutputStream.flush();
 
@@ -1114,6 +1121,8 @@ public class DiskStorage extends AbstractStorage {
           IBU_METADATA_LAST_LSN_SEGMENT_OFFSET);
       var metadataEndLsnPosition = IntegerSerializer.deserializeLiteral(metaDataCandidate,
           IBU_METADATA_LAST_LSN_POSITION_OFFSET);
+      var metadataLastTxId = LongSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_LAST_TX_ID_OFFSET);
       var metadataHashCode = LongSerializer.deserializeLiteral(metaDataCandidate,
           IBU_METADATA_HASH_CODE_OFFSET);
 
@@ -1212,7 +1221,8 @@ public class DiskStorage extends AbstractStorage {
 
       var lastLsn = new LogSequenceNumber(metadataLastLsnSegment, metadataEndLsnPosition);
 
-      return new BackupMetadata(metadataVersion, fileNameUUID, sequenceNumber, startLsn, lastLsn);
+      return new BackupMetadata(metadataVersion, fileNameUUID, sequenceNumber, startLsn, lastLsn,
+          metadataLastTxId);
     }
   }
 
@@ -1515,6 +1525,7 @@ public class DiskStorage extends AbstractStorage {
 
       UUID metadataUUID = null;
       LogSequenceNumber lastLsn = null;
+      long backupLastTxId = -1;
       try {
         for (var ibuFile : ibuFiles) {
           var tmpIBUFile = tmpDirectory.resolve(ibuFile);
@@ -1554,6 +1565,9 @@ public class DiskStorage extends AbstractStorage {
 
               isFullBackup = backupMetadata.startLsn == null;
               lastLsn = backupMetadata.endLsn;
+              if (backupMetadata.lastTxId > backupLastTxId) {
+                backupLastTxId = backupMetadata.lastTxId;
+              }
             }
           }
 
@@ -1586,6 +1600,10 @@ public class DiskStorage extends AbstractStorage {
                   isFullBackup);
             }
           }
+        }
+
+        if (backupLastTxId >= 0 && backupLastTxId >= getIdGen().getLastId()) {
+          getIdGen().setStartId(backupLastTxId + 1);
         }
 
         postProcessIncrementalRestore(result.contextConfiguration);
@@ -1930,7 +1948,8 @@ public class DiskStorage extends AbstractStorage {
                                   UUID databaseId,
                                   int sequenceNumber,
                                   LogSequenceNumber startLsn,
-                                  LogSequenceNumber endLsn) {
+                                  LogSequenceNumber endLsn,
+                                  long lastTxId) {
 
   }
 
