@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
-import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Objects;
 import java.util.Optional;
@@ -34,7 +33,6 @@ public final class YTDBTransaction extends AbstractTransaction {
   private QueryMonitoringMode queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
   private String trackingId;
   private QueryMetricsListener queryMetricsListener = QueryMetricsListener.NO_OP;
-  private TransactionMetricsListener transactionMetricsListener = TransactionMetricsListener.NO_OP;
 
   public YTDBTransaction(YTDBGraphImplAbstract graph) {
     super(graph);
@@ -209,7 +207,6 @@ public final class YTDBTransaction extends AbstractTransaction {
     this.trackingId = null;
     this.queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
     this.queryMetricsListener = QueryMetricsListener.NO_OP;
-    this.transactionMetricsListener = TransactionMetricsListener.NO_OP;
   }
 
   public DatabaseSessionEmbedded getDatabaseSession() {
@@ -245,14 +242,6 @@ public final class YTDBTransaction extends AbstractTransaction {
     return this;
   }
 
-  /// Register a metrics listener for this transaction. Supported only when YouTrackDB is run in
-  /// embedded mode.
-  public YTDBTransaction withTransactionListener(@Nonnull TransactionMetricsListener listener) {
-    Objects.requireNonNull(listener);
-    this.transactionMetricsListener = listener;
-    return this;
-  }
-
   public boolean isQueryMetricsEnabled() {
     return queryMetricsListener != null && queryMetricsListener != QueryMetricsListener.NO_OP;
   }
@@ -268,9 +257,5 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   public QueryMetricsListener getQueryMetricsListener() {
     return queryMetricsListener;
-  }
-
-  public TransactionMetricsListener getTransactionMetricsListener() {
-    return transactionMetricsListener;
   }
 }
