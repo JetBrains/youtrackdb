@@ -767,6 +767,126 @@ public class StorageBackupTest {
     FileUtils.deleteDirectory(backupDir);
   }
 
+  @Test
+  public void testIdGenRestoredFromBackupMetadata() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
+
+    final var dbName = StorageBackupTest.class.getSimpleName();
+    final var backupDir = new File(testDirectory, "backupDir");
+    Assert.assertTrue(backupDir.mkdirs());
+
+    long originalIdGen;
+
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+
+      try (var db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD)) {
+        final var schema = db.getMetadata().getSchema();
+        final var backupClass = schema.createClass("BackupClass");
+        backupClass.createProperty("num", PropertyType.INTEGER);
+        backupClass.createProperty("data", PropertyType.BINARY);
+
+        final var random = new Random();
+        for (var i = 0; i < 100; i++) {
+          db.begin();
+          final var document = ((EntityImpl) db.newEntity("BackupClass"));
+          document.setProperty("num", random.nextInt());
+          document.setProperty("data", new byte[16]);
+          db.commit();
+        }
+
+        originalIdGen = db.getStorage().getIdGen().getLastId();
+        Assert.assertTrue("idGen should have advanced after commits", originalIdGen > 0);
+
+        db.backup(backupDir.toPath());
+      }
+    }
+
+    final var backupDbName = dbName + "IdGenBackUp";
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath());
+
+      try (var db = youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD)) {
+        var restoredIdGen = db.getStorage().getIdGen().getLastId();
+
+        Assert.assertTrue(
+            "Restored idGen (" + restoredIdGen + ") must be >= original ("
+                + originalIdGen + "). "
+                + "If idGen is not properly restored from backup metadata, "
+                + "records will be invisible under snapshot isolation.",
+            restoredIdGen >= originalIdGen);
+      }
+    }
+
+    FileUtils.deleteDirectory(backupDir);
+  }
+
+  @Test
+  public void testIdGenRestoredFromIncrementalBackupMetadata() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
+
+    final var dbName = StorageBackupTest.class.getSimpleName();
+    final var backupDir = new File(testDirectory, "backupDir");
+    Assert.assertTrue(backupDir.mkdirs());
+
+    long idGenAfterIncrementalData;
+
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+
+      try (var db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD)) {
+        final var schema = db.getMetadata().getSchema();
+        final var backupClass = schema.createClass("BackupClass");
+        backupClass.createProperty("num", PropertyType.INTEGER);
+        backupClass.createProperty("data", PropertyType.BINARY);
+
+        final var random = new Random();
+        for (var i = 0; i < 50; i++) {
+          db.begin();
+          final var document = ((EntityImpl) db.newEntity("BackupClass"));
+          document.setProperty("num", random.nextInt());
+          document.setProperty("data", new byte[16]);
+          db.commit();
+        }
+
+        // Full backup
+        db.backup(backupDir.toPath());
+
+        // Add more data after full backup
+        for (var i = 0; i < 50; i++) {
+          db.begin();
+          final var document = ((EntityImpl) db.newEntity("BackupClass"));
+          document.setProperty("num", random.nextInt());
+          document.setProperty("data", new byte[16]);
+          db.commit();
+        }
+
+        idGenAfterIncrementalData = db.getStorage().getIdGen().getLastId();
+
+        // Incremental backup
+        db.backup(backupDir.toPath());
+      }
+    }
+
+    final var backupDbName = dbName + "IdGenIncrBackUp";
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath());
+
+      try (var db = youTrackDB.open(backupDbName, "admin", DbTestBase.ADMIN_PASSWORD)) {
+        var restoredIdGen = db.getStorage().getIdGen().getLastId();
+
+        Assert.assertTrue(
+            "Restored idGen (" + restoredIdGen + ") must be >= idGen after "
+                + "incremental data (" + idGenAfterIncrementalData + ").",
+            restoredIdGen >= idGenAfterIncrementalData);
+      }
+    }
+
+    FileUtils.deleteDirectory(backupDir);
+  }
+
   private static void generateChunkOfData(YTDBGraphTraversalSource traversalSource, Random random) {
     for (var i = 0; i < 1000; i++) {
       traversalSource.executeInTx(g -> {

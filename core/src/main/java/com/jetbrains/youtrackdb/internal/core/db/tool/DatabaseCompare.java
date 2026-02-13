@@ -350,12 +350,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
   @SuppressWarnings({"ObjectAllocationInLoop"})
   private void compareIndexes(EntityHelper.RIDMapper ridMapper) {
-    sessionOne.begin();
-    sessionTwo.begin();
-    try {
-      var txOne = sessionOne.getActiveTransaction();
+    var txOne = sessionOne.getActiveTransaction();
 
-      listener.onMessage("\nStarting index comparison:");
+    listener.onMessage("\nStarting index comparison:");
 
       var ok = true;
 
@@ -516,19 +513,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      if (ok) {
-        listener.onMessage("OK");
-      }
-    } finally {
-      if (sessionOne.isTxActive()) {
-        sessionOne.rollback();
-      }
-      if (sessionTwo.isTxActive()) {
-        sessionTwo.rollback();
-      }
+    if (ok) {
+      listener.onMessage("OK");
     }
-
-
   }
 
   private static int compareIndexStreams(
@@ -679,13 +666,10 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     var collectionNames1 = sessionOne.getCollectionNames();
 
-    sessionOne.begin();
-    sessionTwo.begin();
-    try {
-      var txOne = sessionOne.getActiveTransaction();
-      var txTwo = sessionTwo.getActiveTransaction();
+    var txOne = sessionOne.getActiveTransaction();
+    var txTwo = sessionTwo.getActiveTransaction();
 
-      for (final var collectionName : collectionNames1) {
+    for (final var collectionName : collectionNames1) {
         // CHECK IF THE COLLECTION IS INCLUDED
         final var collectionId1 = sessionOne.getCollectionIdByName(collectionName);
         RecordIdInternal rid1 = null;
@@ -891,14 +875,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                 + " records were processed for collection "
                 + collectionName
                 + " ...");
-      }
-    } finally {
-      if (sessionOne.isTxActive()) {
-        sessionOne.rollback();
-      }
-      if (sessionTwo.isTxActive()) {
-        sessionTwo.rollback();
-      }
     }
   }
 
