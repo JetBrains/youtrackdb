@@ -16,7 +16,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.DT;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Scope;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.CardinalityValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -721,6 +724,67 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         "g.V().hasLabel('person').property('nickname',<arg>)"
     );
 
+    // --- property with meta-properties — key preserved, value and meta-property
+    //     key/values are parameterized
+    assertQueryString(
+        g().addV("test").property("name", "marko", "since", 2020),
+        "g.addV('test').property('name',<arg>,<arg>,<arg>)"
+    );
+
+    // --- property with Cardinality — cardinality and key preserved, value parameterized
+    assertQueryString(
+        g().addV("test")
+            .property(VertexProperty.Cardinality.single, "name", "marko"),
+        "g.addV('test').property(VertexProperty.Cardinality.single,'name',<arg>)"
+    );
+
+    // --- property(Map) — decomposes into individual property() calls per entry;
+    //     each key is preserved, each value is parameterized
+    final var props = new java.util.LinkedHashMap<Object, Object>();
+    props.put("name", "marko");
+    props.put("age", 29);
+    assertQueryString(
+        g().addV("test").property(props),
+        "g.addV('test').property('name',<arg>).property('age',<arg>)"
+    );
+
+    // --- property(Cardinality, key, value, metaKey, metaValue) — cardinality and key
+    //     preserved, value and meta-property key/values are parameterized
+    assertQueryString(
+        g().addV("test")
+            .property(VertexProperty.Cardinality.single, "name", "marko", "since", 2020),
+        "g.addV('test')"
+            + ".property(VertexProperty.Cardinality.single,'name',<arg>,<arg>,<arg>)"
+    );
+
+    // --- property(Cardinality, Map) — decomposes into individual
+    //     property(Cardinality, key, value) calls per entry
+    final var cardProps = new java.util.LinkedHashMap<Object, Object>();
+    cardProps.put("name", "marko");
+    cardProps.put("age", 29);
+    assertQueryString(
+        g().addV("test")
+            .property(VertexProperty.Cardinality.single, cardProps),
+        "g.addV('test')"
+            + ".property(VertexProperty.Cardinality.single,'name',<arg>)"
+            + ".property(VertexProperty.Cardinality.single,'age',<arg>)"
+    );
+
+    // --- property(Cardinality, Map) with CardinalityValueTraversal — per-entry
+    //     cardinality override; each entry decomposes with its own cardinality
+    final var cvtProps = new java.util.LinkedHashMap<Object, Object>();
+    cvtProps.put("name",
+        new CardinalityValueTraversal(VertexProperty.Cardinality.set, "marko"));
+    cvtProps.put("age",
+        new CardinalityValueTraversal(VertexProperty.Cardinality.list, 29));
+    assertQueryString(
+        g().addV("test")
+            .property(VertexProperty.Cardinality.single, cvtProps),
+        "g.addV('test')"
+            + ".property(VertexProperty.Cardinality.set,'name',<arg>)"
+            + ".property(VertexProperty.Cardinality.list,'age',<arg>)"
+    );
+
     // --- propertyMap ---
     assertQueryString(
         g().V().propertyMap("name", "age"),
@@ -939,15 +1003,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   /// Pattern conventions:
   /// - Single quotes stand for double quotes (for readability in Java source).
   /// - `<arg>` matches a parameterized value placeholder (`_args_N`).
-  private void assertQueryString(AutoCloseable traversal, String pattern) throws Exception {
+  private void assertQueryString(Traversal<?, ?> traversal, String pattern) throws Exception {
     final var listener = new RememberingListener();
     ((YTDBTransaction) g().tx())
         .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
         .withQueryListener(listener);
     g.tx().open();
     try (traversal) {
-      //noinspection unchecked,rawtypes
-      ((org.apache.tinkerpop.gremlin.process.traversal.Traversal) traversal).toList();
+      traversal.toList();
     }
     g.tx().commit();
 
