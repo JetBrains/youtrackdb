@@ -13,6 +13,8 @@ public interface TransactionMetricsListener {
   ///                        transaction commit.
   /// @param commitTimeNanos Exact or approximate (depending on the mode) duration of the commit
   ///                        operation in nanoseconds.
+  //noinspection EmptyMethod
+  //noinspection unused
   void writeTransactionCommited(TransactionDetails txDetails, long commitAtMillis,
       long commitTimeNanos);
 
@@ -25,6 +27,7 @@ public interface TransactionMetricsListener {
   interface TransactionDetails {
 
     /// Get transaction tracking id
+    //noinspection unused
     String getTransactionTrackingId();
   }
 

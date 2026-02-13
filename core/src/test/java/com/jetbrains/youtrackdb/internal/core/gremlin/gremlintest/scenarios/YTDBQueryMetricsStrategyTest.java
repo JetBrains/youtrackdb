@@ -44,7 +44,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   @Before
   public void warmup() throws InterruptedException {
-    //noinspection resource
     g().executeInTx(s -> s.V().hasLabel("person").toList());
     Thread.sleep(100);
   }
@@ -1053,7 +1052,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     final long afterMillis;
     final long afterNanos;
 
-    @SuppressWarnings("resource") var gs = g();
+    var gs = g();
     if (withSummary) {
       gs = gs.with(YTDBQueryConfigParam.querySummary, summary);
     }
@@ -1063,7 +1062,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       beforeMillis = System.currentTimeMillis();
       beforeNanos = System.nanoTime();
 
-      //noinspection ResultOfMethodCallIgnored
       q.hasNext(); // query has started
 
       Thread.sleep(rand.randomInt(0, 50));
