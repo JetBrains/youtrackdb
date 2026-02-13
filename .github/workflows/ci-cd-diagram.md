@@ -60,6 +60,11 @@ flowchart TB
         main_docker --> main_notify
     end
 
+    subgraph infrastructure["Shared Infrastructure"]
+        direction TB
+        maven_mirror["Maven Mirror<br/>maven.youtrackdb.io<br/>Reposilite + Caddy (Hetzner)"]
+    end
+
     subgraph artifacts["Deployed Artifacts"]
         direction TB
         maven_dev["Maven Central<br/>X.Y.Z-dev-SNAPSHOT<br/>X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT"]
@@ -80,6 +85,10 @@ flowchart TB
     manual --> qodana_pipeline
     schedule --> integration_pipeline
     push_main --> main_pipeline
+%% Pipelines use Maven mirror for dependency resolution
+    mp_test -.->|" dependencies "| maven_mirror
+    it_test_linux -.->|" dependencies "| maven_mirror
+    it_test_windows -.->|" dependencies "| maven_mirror
 %% Pipeline to artifacts
     mp_deploy --> maven_dev
     main_deploy --> maven_release
@@ -91,6 +100,7 @@ flowchart TB
     classDef pipeline fill: #fff3e0, stroke: #e65100
     classDef artifact fill: #fff, stroke: #2e7d32, stroke-width: 2px
     classDef validation fill: #e3f2fd, stroke: #1565c0
+    classDef infra fill: #e8f5e9, stroke: #2e7d32, stroke-width: 2px
     class push_develop trigger
     class pr_develop trigger
     class schedule trigger
@@ -104,6 +114,7 @@ flowchart TB
     class maven_dev artifact
     class maven_release artifact
     class docker artifact
+    class maven_mirror infra
 ```
 
 ## Workflow Descriptions
@@ -188,6 +199,17 @@ Triggered by pushes to `main` (typically from the integration tests pipeline mer
 handles production-ready deployments. It deploys Maven artifacts without the `-dev` prefix to Maven
 Central and builds/publishes Docker images for both `console` and `server` components to Docker Hub.
 This ensures that `main` branch artifacts are always the stable, fully tested versions.
+
+## Maven Mirror
+
+All CI pipelines resolve Maven dependencies through a self-hosted Reposilite instance at
+`maven.youtrackdb.io`, which proxies and caches artifacts from Maven Central. This avoids rate
+limiting from Maven Central during parallel CI builds and improves dependency resolution speed.
+
+- Runs on a Hetzner `cax11` ARM64 instance with a floating IP for stable DNS
+- Caddy provides automatic TLS via Let's Encrypt
+- Access requires authentication (`MAVEN_MIRROR_USERNAME` / `MAVEN_MIRROR_PASSWORD` GitHub secrets)
+- Built from a Packer snapshot; see [maven-mirror/maven-mirror-setup.md](maven-mirror/maven-mirror-setup.md) for setup details
 
 ## TestFlows Runner Setup
 
