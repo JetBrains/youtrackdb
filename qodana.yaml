@@ -3,7 +3,12 @@ projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
 
-bootstrap: ./mvnw -s .github/workflows/settings.xml dependency:resolve dependency:resolve-plugins -P coverage,ekstazi -DskipTests -B -Dmaven.repo.local=/data/cache/.m2/repository
+bootstrap: >-
+  mkdir -p /data/cache/.m2/repository &&
+  mkdir -p /root/.m2 &&
+  ln -sfn /data/cache/.m2/repository /root/.m2/repository &&
+  ./mvnw -s .github/workflows/settings.xml dependency:resolve dependency:resolve-plugins
+  -P coverage,ekstazi -DskipTests -B -Dmaven.repo.local=/data/cache/.m2/repository
 
 exclude:
   - name: All
