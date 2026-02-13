@@ -64,6 +64,10 @@ if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   docker rm -f "${CONTAINER_NAME}"
 fi
 
+# Limit container to 85% of host CPU capacity
+CPU_LIMIT=$(nproc | awk '{printf "%.2f", $1 * 0.85}')
+echo "CPU limit: ${CPU_LIMIT} cores (85% of $(nproc))"
+
 # Assemble docker run command
 run_cmd=(
   docker run
@@ -72,6 +76,7 @@ run_cmd=(
   --name "${CONTAINER_NAME}"
   --cap-add=NET_ADMIN
   --cap-add=NET_RAW
+  --cpus="${CPU_LIMIT}"
   -u node
   -w /workspace
 
