@@ -728,7 +728,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "linkList", newLinkList);
 
     var newLinkSet = session.newEmbeddedSet();
-    newLinkList.addAll(Arrays.asList("a", "b"));
+    newLinkSet.addAll(Arrays.asList("a", "b"));
     checkField(entity, "linkSet", newLinkSet);
 
     Map<String, String> map1 = session.newEmbeddedMap();
