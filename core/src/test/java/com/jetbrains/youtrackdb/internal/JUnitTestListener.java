@@ -27,6 +27,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.management.ManagementFactory;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
@@ -48,12 +49,9 @@ public class JUnitTestListener extends RunListener {
   private static final long CI_DEFAULT_TIMEOUT_MINUTES = 60;
   private static final long CHECK_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
 
-  private volatile CurrentTest currentTest;
+  private final ConcurrentHashMap<String, Long> runningTests = new ConcurrentHashMap<>();
   private volatile boolean running;
   private Thread watchdogThread;
-
-  private record CurrentTest(String name, long startTimeMs) {
-  }
 
   @Override
   public void testRunStarted(Description description) throws Exception {
@@ -65,13 +63,13 @@ public class JUnitTestListener extends RunListener {
   @Override
   public void testStarted(Description description) throws Exception {
     super.testStarted(description);
-    currentTest = new CurrentTest(description.getDisplayName(), System.currentTimeMillis());
+    runningTests.put(description.getDisplayName(), System.currentTimeMillis());
   }
 
   @Override
   public void testFinished(Description description) throws Exception {
     super.testFinished(description);
-    currentTest = null;
+    runningTests.remove(description.getDisplayName());
   }
 
   @Override
@@ -121,23 +119,24 @@ public class JUnitTestListener extends RunListener {
           return;
         }
 
-        var test = currentTest;
-        if (test == null) {
+        if (runningTests.isEmpty()) {
           continue;
         }
-
-        var elapsedMs = System.currentTimeMillis() - test.startTimeMs;
 
         // Check for deadlocks on every tick, exit immediately if found
         var bean = ManagementFactory.getThreadMXBean();
         var deadlocked = bean.findDeadlockedThreads();
         if (deadlocked != null) {
-          dumpDiagnosticsAndExit(test.name, elapsedMs, deadlocked);
+          dumpDiagnosticsAndExit(runningTests, deadlocked);
         }
 
-        // If no deadlock but timeout exceeded, dump full thread info and exit
-        if (elapsedMs >= timeoutMs) {
-          dumpDiagnosticsAndExit(test.name, elapsedMs, null);
+        // Check all running tests for timeout
+        var now = System.currentTimeMillis();
+        for (var entry : runningTests.entrySet()) {
+          var elapsedMs = now - entry.getValue();
+          if (elapsedMs >= timeoutMs) {
+            dumpDiagnosticsAndExit(runningTests, null);
+          }
         }
       }
     }, "deadlock-watchdog");
@@ -160,23 +159,27 @@ public class JUnitTestListener extends RunListener {
   }
 
   private static void dumpDiagnosticsAndExit(
-      String testName, long elapsedMs, long[] deadlocked) {
+      ConcurrentHashMap<String, Long> runningTests, long[] deadlocked) {
     var bean = ManagementFactory.getThreadMXBean();
+    var now = System.currentTimeMillis();
 
     var report = new StringBuilder();
     if (deadlocked != null) {
       report.append("\n=== DEADLOCK DETECTED ===\n");
-      report.append("Test: ").append(testName).append("\n");
-      report.append("Elapsed: ").append(elapsedMs / 1000).append(" seconds\n\n");
       var infos = bean.getThreadInfo(deadlocked, true, true);
       for (var info : infos) {
         report.append(info).append("\n");
       }
     } else {
       report.append("\n=== TEST TIMEOUT ===\n");
-      report.append("Test: ").append(testName).append("\n");
-      report.append("Elapsed: ").append(elapsedMs / 1000).append(" seconds\n");
       report.append("No deadlock found by ThreadMXBean.\n");
+    }
+
+    report.append("\n=== RUNNING TESTS ===\n");
+    for (var entry : runningTests.entrySet()) {
+      var elapsedMs = now - entry.getValue();
+      report.append("  ").append(entry.getKey())
+          .append(" (").append(elapsedMs / 1000).append(" seconds)\n");
     }
 
     report.append("\n=== ALL THREADS ===\n");
