@@ -254,7 +254,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   }
 
   public boolean isQueryMetricsEnabled() {
-    return queryMetricsListener != QueryMetricsListener.NO_OP;
+    return queryMetricsListener != null && queryMetricsListener != QueryMetricsListener.NO_OP;
   }
 
   public @Nonnull QueryMonitoringMode getQueryMonitoringMode() {
