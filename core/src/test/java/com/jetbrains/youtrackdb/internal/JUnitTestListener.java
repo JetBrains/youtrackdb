@@ -48,10 +48,12 @@ public class JUnitTestListener extends RunListener {
   private static final long CI_DEFAULT_TIMEOUT_MINUTES = 60;
   private static final long CHECK_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
 
-  private volatile String currentTestName;
-  private volatile long currentTestStartTimeMs;
+  private volatile CurrentTest currentTest;
   private volatile boolean running;
   private Thread watchdogThread;
+
+  private record CurrentTest(String name, long startTimeMs) {
+  }
 
   @Override
   public void testRunStarted(Description description) throws Exception {
@@ -63,14 +65,13 @@ public class JUnitTestListener extends RunListener {
   @Override
   public void testStarted(Description description) throws Exception {
     super.testStarted(description);
-    currentTestName = description.getDisplayName();
-    currentTestStartTimeMs = System.currentTimeMillis();
+    currentTest = new CurrentTest(description.getDisplayName(), System.currentTimeMillis());
   }
 
   @Override
   public void testFinished(Description description) throws Exception {
     super.testFinished(description);
-    currentTestName = null;
+    currentTest = null;
   }
 
   @Override
@@ -120,23 +121,23 @@ public class JUnitTestListener extends RunListener {
           return;
         }
 
-        var testName = currentTestName;
-        if (testName == null) {
+        var test = currentTest;
+        if (test == null) {
           continue;
         }
 
-        var elapsedMs = System.currentTimeMillis() - currentTestStartTimeMs;
+        var elapsedMs = System.currentTimeMillis() - test.startTimeMs;
 
         // Check for deadlocks on every tick, exit immediately if found
         var bean = ManagementFactory.getThreadMXBean();
         var deadlocked = bean.findDeadlockedThreads();
         if (deadlocked != null) {
-          dumpDiagnosticsAndExit(testName, elapsedMs, deadlocked);
+          dumpDiagnosticsAndExit(test.name, elapsedMs, deadlocked);
         }
 
         // If no deadlock but timeout exceeded, dump full thread info and exit
         if (elapsedMs >= timeoutMs) {
-          dumpDiagnosticsAndExit(testName, elapsedMs, null);
+          dumpDiagnosticsAndExit(test.name, elapsedMs, null);
         }
       }
     }, "deadlock-watchdog");
@@ -197,6 +198,8 @@ public class JUnitTestListener extends RunListener {
   private static void writeReportToFile(String report) {
     var buildDir = System.getProperty("buildDirectory", "./target");
     var reportFile = new File(buildDir, "deadlock-report.txt");
+    //noinspection ResultOfMethodCallIgnored
+    reportFile.getParentFile().mkdirs();
     try (var writer = new PrintWriter(new FileWriter(reportFile))) {
       writer.print(report);
       writer.flush();
