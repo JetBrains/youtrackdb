@@ -91,11 +91,11 @@ run_cmd=(
   -e "JETBRAINS_MCP_PORT=${JETBRAINS_MCP_PORT:-64342}"
 )
 
-# GitHub CLI config (read-only, only if present on host)
-if [ -d "${HOME}/.config/gh" ]; then
-  run_cmd+=(-v "${HOME}/.config/gh:/home/node/.config/gh:ro")
+# Claude MCP config (read-only, provides GitHub MCP server access)
+if [ -f "${HOME}/.claude.json" ]; then
+  run_cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json:ro")
 else
-  echo "WARNING: ~/.config/gh not found. GitHub CLI will not be authenticated."
+  echo "WARNING: ~/.claude.json not found. MCP servers will not be configured."
 fi
 
 run_cmd+=(

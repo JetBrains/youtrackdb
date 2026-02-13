@@ -117,7 +117,8 @@ for domain in \
     "repo1.maven.org" \
     "central.sonatype.com" \
     "maven.youtrackdb.io" \
-    "packages.adoptium.net"; do
+    "packages.adoptium.net" \
+    "api.githubcopilot.com"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" @127.0.0.11 | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
