@@ -3,15 +3,6 @@ projectJDK: 21
 profile:
   path: .idea/inspectionProfiles/youtrackdb.xml
 
-bootstrap: >-
-  mkdir -p /data/cache/.m2/repository &&
-  mkdir -p /root/.m2 &&
-  ln -sfn /data/cache/.m2/repository /root/.m2/repository &&
-  ./mvnw -s .github/workflows/settings.xml dependency:resolve dependency:resolve-plugins
-  -P coverage,ekstazi -DskipTests -B -Dmaven.repo.local=/data/cache/.m2/repository &&
-  printf '<settings><servers><server><id>ytdb-maven-central</id><username>%s</username><password>%s</password></server></servers><mirrors><mirror><id>ytdb-maven-central</id><mirrorOf>central</mirrorOf><url>https://maven.youtrackdb.io/maven-central</url></mirror></mirrors></settings>'
-  "$MAVEN_MIRROR_USERNAME" "$MAVEN_MIRROR_PASSWORD" > /root/.m2/settings.xml
-
 exclude:
   - name: All
     paths:
