@@ -96,6 +96,8 @@
       "WebFetch(domain:logging.apache.org)",
       "WebFetch(domain:commons.apache.org)",
       "WebFetch(domain:byte-buddy.net)",
+      "WebFetch(domain:www.jetbrains.com)",
+      "WebFetch(domain:jetbrains.com)",
       "mcp__github__search_repositories",
       "mcp__github__search_code",
       "mcp__github__search_issues",
