@@ -38,7 +38,8 @@ public class YTDBQueryMetricsStrategy
     }
 
     final var ticker = YouTrackDBEnginesManager.instance().getTicker();
-    final String querySummary = YTDBStrategyUtil.getConfigValue(YTDBQueryConfigParam.querySummary, traversal);
+    final String querySummary = YTDBStrategyUtil.getConfigValue(YTDBQueryConfigParam.querySummary,
+        traversal);
     final var metricsStep = new YTDBQueryMetricsStep<>(traversal, ytdbTx, querySummary, ticker);
     traversal.addStep(metricsStep);
   }
