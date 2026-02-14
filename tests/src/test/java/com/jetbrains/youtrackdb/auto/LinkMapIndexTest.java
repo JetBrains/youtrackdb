@@ -942,10 +942,12 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
+    session.begin();
     Assert.assertEquals(keyIndexMap.size(session), 0);
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexMapRemoveInTx() {
@@ -976,10 +978,12 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
+    session.begin();
     Assert.assertEquals(keyIndexMap.size(session), 0);
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndexMap.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexMapRemoveInTxRollback() {

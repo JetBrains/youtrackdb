@@ -43,6 +43,7 @@ public class LinkListIndexTest extends BaseDBTest {
     session.execute("DELETE FROM LinkListIndexTestClass").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from LinkListIndexTestClass");
     Assert.assertEquals(result.stream().count(), 0);
 
@@ -50,6 +51,7 @@ public class LinkListIndexTest extends BaseDBTest {
       final var index = getIndex("linkCollectionIndex");
       Assert.assertEquals(index.size(session), 0);
     }
+    session.rollback();
 
     super.afterMethod();
   }
@@ -110,7 +112,7 @@ public class LinkListIndexTest extends BaseDBTest {
       throw e;
     }
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
@@ -541,7 +543,9 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var index = getIndex("linkCollectionIndex");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexCollectionRemoveInTx() {
@@ -569,7 +573,9 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexCollectionRemoveInTxRollback() {

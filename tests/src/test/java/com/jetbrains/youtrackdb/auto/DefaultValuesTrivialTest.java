@@ -160,10 +160,12 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
       assertEquals("default name", doc.getProperty("name"));
     });
 
+    session.begin();
     try (var stream = session.getIndex("ClassB.name")
         .getRids(session, "default name")) {
       assertEquals(1, stream.count());
     }
+    session.rollback();
   }
 
   @Test
@@ -188,9 +190,11 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
 
       session.commit();
 
+      session.begin();
       try (var stream = index.getRids(session, new CompositeKey("1"))) {
         assertEquals(1, stream.count());
       }
+      session.rollback();
     }
     {
       session.begin();
@@ -200,12 +204,16 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
 
       session.commit();
 
+      session.begin();
       try (var stream = index.getRids(session, new CompositeKey("2"))) {
         assertEquals(1, stream.count());
       }
+      session.rollback();
     }
+    session.begin();
     try (var stream = index.getRids(session, new CompositeKey("3"))) {
       assertEquals(0, stream.count());
     }
+    session.rollback();
   }
 }
