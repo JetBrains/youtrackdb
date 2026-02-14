@@ -169,6 +169,90 @@ public class MapIndexDeleteTest extends DbTestBase {
   }
 
   @Test
+  public void testMapIndexDeleteWithHeavySchemaAndSessionCloseReopen() {
+    // Reproduce the tests module environment: create many schema classes
+    // BEFORE creating the Mapper class, to ensure the database has a complex
+    // schema similar to the shared test database
+    for (int i = 0; i < 20; i++) {
+      var cls = session.createClass("BulkClass" + i);
+      cls.createProperty("name", PropertyType.STRING);
+      cls.createProperty("value", PropertyType.INTEGER);
+      cls.createIndex("bulkIdx" + i, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    }
+
+    var mapper = session.getMetadata().getSchema().createClass("Mapper");
+    mapper.createProperty("id", PropertyType.STRING);
+    mapper.createProperty("intMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    mapper.createIndex("mapKeyIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intMap");
+    mapper.createIndex("mapValueIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "intMap by value");
+
+    // Insert some data into other classes to create storage activity
+    for (int i = 0; i < 20; i++) {
+      session.begin();
+      for (int j = 0; j < 10; j++) {
+        var entity = session.newEntity("BulkClass" + i);
+        entity.setProperty("name", "name" + j);
+        entity.setProperty("value", j);
+      }
+      session.commit();
+    }
+
+    var keyIndex = session.getSharedContext().getIndexManager().getIndex("mapKeyIdx");
+    var valueIndex = session.getSharedContext().getIndexManager().getIndex("mapValueIdx");
+
+    // First insert
+    session.begin();
+    var doc = session.newEntity("Mapper");
+    var map = session.newEmbeddedMap();
+    map.put("key1", 10);
+    map.put("key2", 20);
+    doc.setProperty("intMap", map);
+    session.commit();
+
+    session.begin();
+    Assert.assertEquals(2, keyIndex.size(session));
+    Assert.assertEquals(2, valueIndex.size(session));
+    session.rollback();
+
+    // Delete all via SQL
+    session.begin();
+    session.execute("delete from Mapper").close();
+    session.commit();
+
+    // Close and reopen session
+    session.close();
+    session = youTrackDB.open(databaseName, adminUser, adminPassword);
+    keyIndex = session.getSharedContext().getIndexManager().getIndex("mapKeyIdx");
+    valueIndex = session.getSharedContext().getIndexManager().getIndex("mapValueIdx");
+
+    // Verify cleanup
+    session.begin();
+    Assert.assertEquals(
+        "Key index should be empty after delete + session reopen (heavy schema)",
+        0, keyIndex.size(session));
+    Assert.assertEquals(
+        "Value index should be empty after delete + session reopen (heavy schema)",
+        0, valueIndex.size(session));
+    session.rollback();
+
+    // Second insert
+    session.begin();
+    var doc2 = session.newEntity("Mapper");
+    var map2 = session.newEmbeddedMap();
+    map2.put("key1", 10);
+    map2.put("key2", 20);
+    doc2.setProperty("intMap", map2);
+    session.commit();
+
+    session.begin();
+    Assert.assertEquals(
+        "Key index should have exactly 2 after re-insert (heavy schema)",
+        2, keyIndex.size(session));
+    session.rollback();
+  }
+
+  @Test
   public void testMapIndexDeleteWithSessionCloseReopen() {
     // Reproduces the TestNG lifecycle: session is closed and reopened
     // between test method + afterMethod and the next test method
