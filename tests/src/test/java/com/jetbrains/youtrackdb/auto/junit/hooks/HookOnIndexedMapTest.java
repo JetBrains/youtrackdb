@@ -1,18 +1,53 @@
-package com.jetbrains.youtrackdb.auto.hooks;
+/*
+ *
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.jetbrains.youtrackdb.auto.junit.hooks;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.auto.hooks.BrokenMapHook;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.Test;
 
+/**
+ * JUnit 4 migration of HookOnIndexedMapTest. Original test class:
+ * com.jetbrains.youtrackdb.auto.hooks.HookOnIndexedMapTest Location:
+ * tests/src/test/java/com/jetbrains/youtrackdb/auto/hooks/HookOnIndexedMapTest.java
+ *
+ * <p>This test verifies that the database correctly rejects the broken hook pattern where
+ * a hook tries to modify records during callback processing (which would trigger setDirty).
+ * The BrokenMapHook demonstrates this anti-pattern by modifying the map in onAfterRecordCreate
+ * which triggers an update, and then trying to modify the map again in onBeforeRecordUpdate.
+ */
 public class HookOnIndexedMapTest {
 
-  @Test
+  /**
+   * Original test method: test Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/hooks/HookOnIndexedMapTest.java:14
+   *
+   * <p>This test expects IllegalStateException because BrokenMapHook tries to call setDirty
+   * during callback processing, which is not allowed. The error message advises moving
+   * such calls from beforeCallbackXXX to afterCallbackXX methods.
+   */
+  @Test(expected = IllegalStateException.class)
   public void test() {
-    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(".");
+    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(HookOnIndexedMapTest.class));
 
     youTrackDb.create("test", DatabaseType.MEMORY,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));

@@ -72,6 +72,11 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
 
     <dependency>
       <groupId>io.youtrackdb</groupId>
@@ -196,6 +201,7 @@
               <goal>test</goal>
             </goals>
             <configuration>
+              <skip>true</skip>
               <suiteXmlFiles>
                 <suiteXmlFile>
                   src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml
@@ -203,29 +209,63 @@
               </suiteXmlFiles>
             </configuration>
           </execution>
-<!--          <execution>-->
-<!--            <id>test-remote</id>-->
-<!--            <goals>-->
-<!--              <goal>test</goal>-->
-<!--            </goals>-->
-<!--            <configuration>-->
-<!--              <systemPropertyVariables>-->
-<!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
-<!--                </youtrackdb.config.file>-->
-<!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
-<!--              </systemPropertyVariables>-->
-<!--              <suiteXmlFiles>-->
-<!--                <suiteXmlFile>-->
+          <!--          <execution>-->
+          <!--            <id>test-remote</id>-->
+          <!--            <goals>-->
+          <!--              <goal>test</goal>-->
+          <!--            </goals>-->
+          <!--            <configuration>-->
+          <!--              <systemPropertyVariables>-->
+          <!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
+          <!--                </youtrackdb.config.file>-->
+          <!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
+          <!--              </systemPropertyVariables>-->
+          <!--              <suiteXmlFiles>-->
+          <!--                <suiteXmlFile>-->
           <!--                  src/test/java/com/jetbrains/youtrackdb/auto/remote-test-db-from-scratch.xml-->
-<!--                </suiteXmlFile>-->
-<!--              </suiteXmlFiles>-->
-<!--            </configuration>-->
-<!--          </execution>-->
+          <!--                </suiteXmlFile>-->
+          <!--              </suiteXmlFiles>-->
+          <!--            </configuration>-->
+          <!--          </execution>-->
+          <execution>
+            <id>test-junit</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <testNGArtifactName>none:none</testNGArtifactName>
+              <includes>
+                <include>**/junit/DatabaseTestSuite.java</include>
+              </includes>
+              <properties>
+                <property>
+                  <name>listener</name>
+                  <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+                </property>
+              </properties>
+              <systemPropertyVariables>
+                <youtrackdb.storage.lockTimeout>60000</youtrackdb.storage.lockTimeout>
+                <youtrackdb.storage.makeFullCheckpointAfterCreate>false
+                </youtrackdb.storage.makeFullCheckpointAfterCreate>
+                <storage.makeFullCheckpointAfterCollectionCreate>false
+                </storage.makeFullCheckpointAfterCollectionCreate>
+                <storage.wal.syncOnPageFlush>false</storage.wal.syncOnPageFlush>
+                <storage.configuration.syncOnUpdate>false</storage.configuration.syncOnUpdate>
+                <index.flushAfterCreate>false</index.flushAfterCreate>
+                <youtrackdb.security.userPasswordSaltIterations>10
+                </youtrackdb.security.userPasswordSaltIterations>
+                <buildDirectory>${project.build.directory}</buildDirectory>
+                <testPath>${project.basedir}</testPath>
+                <youtrackdb.memory.directMemory.preallocate>false
+                </youtrackdb.memory.directMemory.preallocate>
+              </systemPropertyVariables>
+            </configuration>
+          </execution>
         </executions>
         <dependencies>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-testng</artifactId>
+            <artifactId>surefire-junit47</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
