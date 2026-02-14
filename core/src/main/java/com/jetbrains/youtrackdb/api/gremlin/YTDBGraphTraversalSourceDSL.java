@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.service.GqlService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBFullBackupService;
 import com.jetbrains.youtrackdb.internal.core.gremlin.service.YTDBGraphUuidService;
@@ -17,6 +18,7 @@ import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
@@ -157,6 +159,35 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
       arguments.put(keyValues[i], keyValues[i + 1]);
     }
     return arguments;
+  }
+
+  /// Execute a GQL (Graph Query Language) query.
+  ///
+  /// Returns a traversal of result maps where each map contains variable bindings.
+  /// For example, `MATCH (a:Person)` produces maps with key "a" bound to matched vertices.
+  ///
+  /// @param query The GQL query to execute.
+  /// @return A traversal of result maps.
+  public GraphTraversal<Object, Object> gql(@Nonnull String query) {
+    return gql(query, Map.of());
+  }
+
+  /// Execute a parameterized GQL (Graph Query Language) query.
+  ///
+  /// Returns a traversal of result maps where each map contains variable bindings.
+  /// For example, `MATCH (a:Person)` produces maps with key "a" bound to matched vertices.
+  ///
+  /// @param query     The GQL query to execute.
+  /// @param arguments The arguments to pass to the query.
+  /// @return A traversal of result maps.
+  public GraphTraversal<Object, Object> gql(
+      @Nonnull String query, @Nonnull Map<?, ?> arguments) {
+    return call(
+        GqlService.NAME, Map.of(
+            GqlService.QUERY, query,
+            GqlService.ARGUMENTS, arguments
+        )
+    );
   }
 
   /// Performs backup of database content to the selected folder.
