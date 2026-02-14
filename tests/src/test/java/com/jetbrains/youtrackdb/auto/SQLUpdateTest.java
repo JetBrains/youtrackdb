@@ -227,7 +227,9 @@ public class SQLUpdateTest extends BaseDBTest {
   @Test(dependsOnMethods = "updateCollectionsRemoveWithWhereOperator")
   public void updateAllOperator() {
 
+    session.begin();
     var total = session.countClass("Profile");
+    session.rollback();
 
     session.begin();
     Long records = session.execute("update Profile set sex = 'male'").next().getProperty("count");

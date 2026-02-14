@@ -465,7 +465,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     var chunkSize = 10;
     for (var initialValue = 0; initialValue < 10; initialValue++) {
+      session.begin();
       Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
+      session.rollback();
 
       System.out.println(
           "[testTransactionPopulateDelete] Populating chunk "
@@ -509,7 +511,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
       System.out.println("[testTransactionPopulateDelete] Deleted executed successfully");
 
+      session.begin();
       Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
+      session.rollback();
     }
 
     System.out.println("[testTransactionPopulateDelete] End of the test");

@@ -32,12 +32,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
 
     session.begin();
 
@@ -50,12 +52,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.rollback();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 
   @Test
@@ -77,12 +81,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
 
     final var tx = session.begin();
 
@@ -102,12 +108,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.rollback();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 
   @Test
@@ -126,12 +134,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     ));
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
 
     final var tx = session.begin();
 
@@ -148,12 +158,14 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.rollback();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 
   @Test
@@ -181,9 +193,11 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     }
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 
   @Test
@@ -206,9 +220,11 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
     newDoc(1);
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
+    session.rollback();
   }
 
   @Test
@@ -229,9 +245,11 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 0);
     }
+    session.rollback();
   }
 
   @Test
@@ -253,8 +271,10 @@ public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 }

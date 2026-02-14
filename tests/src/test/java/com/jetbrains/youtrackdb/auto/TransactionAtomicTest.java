@@ -146,7 +146,9 @@ public class TransactionAtomicTest extends BaseDBTest {
           .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     }
 
+    session.begin();
     Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
+    session.rollback();
 
     try {
       session.begin();
@@ -177,6 +179,8 @@ public class TransactionAtomicTest extends BaseDBTest {
       session.rollback();
     }
 
+    session.begin();
     Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
+    session.rollback();
   }
 }

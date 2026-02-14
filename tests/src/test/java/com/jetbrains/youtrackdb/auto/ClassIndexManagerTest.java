@@ -181,6 +181,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     if (!session.getStorage().isRemote()) {
+      session.begin();
       Assert.assertEquals(
           session
               .getSharedContext()
@@ -195,6 +196,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
               .getIndex("classIndexManagerTestClass.prop2")
               .size(session),
           0);
+      session.rollback();
     }
 
     super.afterMethod();
@@ -1224,6 +1226,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
 
     try (var stream = index
@@ -1234,13 +1237,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getRids(session, new CompositeKey("test1", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeNullSimpleFieldCreation() {
