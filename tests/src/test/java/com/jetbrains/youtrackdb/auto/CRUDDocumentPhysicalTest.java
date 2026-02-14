@@ -239,9 +239,11 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     // We must get 1 record for "nameA".
+    session.begin();
     try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testMultiValues")
