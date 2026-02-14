@@ -166,10 +166,9 @@ echo "Host IP detected as: $HOST_IP"
 iptables -A INPUT -s "$HOST_IP" -j ACCEPT
 iptables -A OUTPUT -d "$HOST_IP" -j ACCEPT
 
-# Allow only HTTP/HTTPS/SSH outbound to allowed domains
+# Allow only HTTP/HTTPS outbound to allowed domains (no SSH — git uses HTTPS via gh credential helper)
 iptables -A OUTPUT -p tcp --dport 443 -m set --match-set allowed-domains dst -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 80 -m set --match-set allowed-domains dst -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 22 -m set --match-set allowed-domains dst -j ACCEPT
 
 # Explicitly REJECT all other outbound traffic for immediate feedback
 iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
@@ -191,15 +190,10 @@ else
     echo "Firewall verification passed - able to reach https://api.github.com as expected"
 fi
 
-# Verify GitHub SSH access (run as node user since SSH keys are mounted under /home/node/.ssh)
-# SSH_AUTH_SOCK is set to the fixed path where run-devcontainer.sh mounts the host agent socket.
-# sudo strips env vars, so we can't rely on the container environment here.
-# Note: ssh -T always returns exit code 1 with GitHub (no shell access), so capture output
-# to avoid pipefail propagating the non-zero code.
-ssh_output=$(SSH_AUTH_SOCK=/tmp/ssh-agent.sock runuser -u node -- ssh -T -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new git@github.com 2>&1) || true
-if echo "$ssh_output" | grep -q "successfully authenticated"; then
-    echo "Firewall verification passed - GitHub SSH authentication successful"
+# Verify SSH is blocked (uses bash built-in /dev/tcp, no netcat needed)
+if timeout 5 bash -c 'echo >/dev/tcp/github.com/22' 2>/dev/null; then
+    echo "ERROR: Firewall verification failed - SSH (port 22) should be blocked"
+    exit 1
 else
-    echo "WARNING: GitHub SSH authentication not confirmed (missing SSH keys or not configured)"
-    echo "  ssh output: $ssh_output"
+    echo "Firewall verification passed - SSH (port 22) is blocked as expected"
 fi

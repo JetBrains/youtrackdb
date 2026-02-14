@@ -5,7 +5,7 @@ HOST_UID="${HOST_UID:-1000}"
 HOST_GID="${HOST_GID:-1000}"
 
 # Adjust node user UID/GID to match host user if they differ.
-# This ensures bind-mounted files (SSH keys, agent socket, workspace) are accessible.
+# This ensures bind-mounted files and volumes are accessible.
 if [ "$HOST_UID" != "1000" ] || [ "$HOST_GID" != "1000" ]; then
     echo "Adjusting node user UID:GID to ${HOST_UID}:${HOST_GID}..."
     groupmod -o -g "$HOST_GID" node
@@ -29,15 +29,21 @@ fi
 
 # Drop privileges and start interactive shell.
 # Set HOME explicitly — the container starts as root so HOME=/root,
-# but all user files (SSH keys, Claude config) are under /home/node.
+# but all user files (Claude config, gh config) are under /home/node.
 export HOME=/home/node
+
+# Configure git to use gh as credential helper (HTTPS-only, no SSH keys needed)
+runuser -u node -- git config --global credential.helper '!gh auth git-credential'
 
 # Hint if GitHub CLI is not authenticated
 if ! runuser -u node -- gh auth status >/dev/null 2>&1; then
     echo ""
-    echo "GitHub CLI is not authenticated. To enable PR link detection, run:"
-    echo "  gh auth login"
-    echo "(Use a fine-grained PAT with read-only access to PRs and Issues)"
+    echo "========================================"
+    echo "  GitHub CLI is not authenticated."
+    echo "  Run: gh auth login"
+    echo "  (Use a fine-grained PAT scoped to"
+    echo "   the repos you need access to)"
+    echo "========================================"
     echo ""
 fi
 

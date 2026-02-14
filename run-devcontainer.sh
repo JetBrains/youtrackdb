@@ -95,18 +95,6 @@ elif [ ! -d "${SCRIPT_DIR}/.git" ]; then
   exit 1
 fi
 
-# Forward SSH agent socket if available (needed for passphrase-protected keys)
-SSH_AGENT_MOUNT=()
-if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "$SSH_AUTH_SOCK" ]; then
-  echo "SSH agent detected, forwarding into container"
-  SSH_AGENT_MOUNT=(
-    -v "${SSH_AUTH_SOCK}:/tmp/ssh-agent.sock"
-    -e "SSH_AUTH_SOCK=/tmp/ssh-agent.sock"
-  )
-else
-  echo "WARNING: No SSH agent found. Passphrase-protected keys won't work inside the container."
-fi
-
 # Assemble docker run command
 run_cmd=(
   docker run
@@ -129,14 +117,8 @@ run_cmd=(
   -v "ytdb-claude-bashhistory:/commandhistory"
   -v "ytdb-claude-config:/home/node/.claude"
 
-  # SSH keys (read-only, for git push over SSH)
-  -v "${HOME}/.ssh:/home/node/.ssh:ro"
-
   # GitHub CLI config (persistent volume, user runs 'gh auth login' once inside container)
   -v "ytdb-claude-ghconfig:/home/node/.config/gh"
-
-  # SSH agent forwarding (for passphrase-protected keys)
-  ${SSH_AGENT_MOUNT[@]+"${SSH_AGENT_MOUNT[@]}"}
 
   # Environment variables
   -e "NODE_OPTIONS=--max-old-space-size=4096"

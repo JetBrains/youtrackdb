@@ -18,7 +18,6 @@
     "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
     "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
     "source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind,readonly",
-    "source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,readonly",
     "source=claude-code-ghconfig-${devcontainerId},target=/home/node/.config/gh,type=volume"
   ],
   "containerEnv": {
