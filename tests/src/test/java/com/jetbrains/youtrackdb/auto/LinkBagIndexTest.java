@@ -597,7 +597,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("ridBagIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexRidBagRemoveInTx() {
@@ -628,7 +630,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     }
 
     final var index = getIndex("ridBagIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexRidBagRemoveInTxRollback() {

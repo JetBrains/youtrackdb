@@ -39,14 +39,18 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       session.addBlobCollection("binary");
     }
 
+    session.begin();
     var rec = session.countCollectionElements("binary");
+    session.rollback();
 
     session.begin();
 
     session.newBlob("This is the first version".getBytes());
     session.rollback();
 
+    session.begin();
     Assert.assertEquals(session.countCollectionElements("binary"), rec);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticRollback")
@@ -61,7 +65,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     session.newBlob("This is the first version".getBytes());
     session.commit();
 
+    session.begin();
     Assert.assertEquals(session.countCollectionElements(blocCollectionIds), tot + 1);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticCommitInternal")
@@ -187,7 +193,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       schema.createClass("Account");
     }
 
+    session.begin();
     var totalAccounts = session.countClass("Account");
+    session.rollback();
 
     var json =
         "{ \"@class\": \"Account\", \"type\": \"Residence\", \"street\": \"Piazza di Spagna\"}";
@@ -201,7 +209,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     }
     session.commit();
 
+    session.begin();
     Assert.assertEquals(session.countClass("Account"), totalAccounts + 1000);
+    session.rollback();
 
     session.close();
   }
@@ -273,7 +283,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
           public Void call() throws Exception {
             final var db = acquireSession();
             try {
+              db.begin();
               Assert.assertEquals(db.countClass("NestedTxClass"), 0);
+              db.rollback();
             } finally {
               db.close();
             }
@@ -314,7 +326,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     session.commit();
 
     Assert.assertFalse(session.getTransactionInternal().isActive());
+    session.begin();
     Assert.assertEquals(session.countClass("NestedTxClass"), 3);
+    session.rollback();
   }
 
   public void testNestedTxRollbackOne() throws Exception {
@@ -326,7 +340,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
           public Void call() throws Exception {
             final var db = acquireSession();
             try {
+              db.begin();
               Assert.assertEquals(db.countClass("NestedTxRollbackOne"), 1);
+              db.rollback();
             } finally {
               db.close();
             }
@@ -396,7 +412,9 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     }
 
     Assert.assertFalse(session.getTransactionInternal().isActive());
+    session.begin();
     Assert.assertEquals(session.countClass("NestedTxRollbackOne"), 1);
+    session.rollback();
   }
 
   public void testNestedTxRollbackTwo() {
@@ -424,6 +442,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     }
 
     Assert.assertFalse(session.getTransactionInternal().isActive());
+    session.begin();
     Assert.assertEquals(session.countClass("NestedTxRollbackTwo"), 0);
+    session.rollback();
   }
 }

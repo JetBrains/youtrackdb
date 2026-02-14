@@ -122,7 +122,7 @@ public class LinkSetIndexTest extends BaseDBTest {
       throw e;
     }
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkSetIndex");
     Assert.assertEquals(index.size(session), 2);
@@ -596,7 +596,9 @@ public class LinkSetIndexTest extends BaseDBTest {
     session.commit();
 
     var index = getIndex("linkSetIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexLinkSetRemoveInTx() {
@@ -627,7 +629,9 @@ public class LinkSetIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkSetIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexLinkSetRemoveInTxRollback() {

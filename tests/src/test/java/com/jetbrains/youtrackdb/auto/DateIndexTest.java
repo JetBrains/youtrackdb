@@ -105,6 +105,7 @@ public class DateIndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     final var dateIndexTestDateIndex =
         session
             .getSharedContext()
@@ -296,5 +297,6 @@ public class DateIndexTest extends BaseDBTest {
             .getRids(session, new CompositeKey("v1", dateFour))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
+    session.rollback();
   }
 }

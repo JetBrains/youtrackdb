@@ -167,6 +167,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   @Test(dependsOnMethods = {"testIsIndexedIndexedField"})
   public void testIndexingCompositeRIDAndOthers() throws Exception {
 
+    session.begin();
     var prev0 =
         session
             .getSharedContext()
@@ -181,6 +182,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getIndex("propOne1")
 
             .size(session);
+    session.rollback();
 
     session.begin();
     var doc =
@@ -194,6 +196,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(
         session
             .getSharedContext()
@@ -210,6 +213,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
             .size(session),
         prev1);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = {"testIndexingCompositeRIDAndOthers"})

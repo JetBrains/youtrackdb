@@ -75,7 +75,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test
   public void create() {
+    session.begin();
     startRecordNumber = session.countClass("Account");
+    session.rollback();
 
     Entity address;
 

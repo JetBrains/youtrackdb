@@ -976,6 +976,7 @@ public abstract class LinkBagTest extends BaseDBTest {
   }
 
   public void testRemove() {
+    session.begin();
     final Set<RID> expected = new HashSet<>(8);
 
     expected.add(RecordIdInternal.fromString("#77:12", false));
@@ -1010,6 +1011,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     for (Identifiable identifiable : bag) {
       assertTrue(expectedTwo.remove(identifiable));
     }
+    session.rollback();
   }
 
   public void testSaveLoad() {

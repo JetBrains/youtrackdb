@@ -59,7 +59,9 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -89,7 +91,9 @@ public class CollectionIndexTest extends BaseDBTest {
     }
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -115,7 +119,9 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -151,7 +157,10 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
+
     var tx = session.begin();
     Iterator<Object> keysIterator;
     try (var keyStream = index.keyStream(tx.getAtomicOperation())) {
@@ -183,7 +192,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -218,7 +229,9 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 3);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -254,7 +267,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 3);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -284,7 +299,9 @@ public class CollectionIndexTest extends BaseDBTest {
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -319,7 +336,9 @@ public class CollectionIndexTest extends BaseDBTest {
     }
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -349,7 +368,9 @@ public class CollectionIndexTest extends BaseDBTest {
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;
@@ -406,7 +427,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexCollectionRemoveInTx() {
@@ -427,7 +450,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexCollectionRemoveInTxRollback() {
@@ -443,7 +468,9 @@ public class CollectionIndexTest extends BaseDBTest {
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     var tx = session.begin();
     Iterator<Object> keysIterator;

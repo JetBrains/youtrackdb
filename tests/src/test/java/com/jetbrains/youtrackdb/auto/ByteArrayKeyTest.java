@@ -188,11 +188,13 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     var autoIndex =
         session.getSharedContext().getIndexManager().getIndex("byteArrayKeyIndex");
+    session.begin();
     try (var stream = autoIndex.getRids(session, key1)) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
     try (var stream = autoIndex.getRids(session, key2)) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
+    session.rollback();
   }
 }

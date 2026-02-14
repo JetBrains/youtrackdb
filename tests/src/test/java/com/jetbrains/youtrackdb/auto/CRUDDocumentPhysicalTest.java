@@ -72,7 +72,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "create")
   public void testCreate() {
+    session.begin();
     Assert.assertEquals(session.countClass("Account", false), TOT_RECORDS_ACCOUNT);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testCreate")
