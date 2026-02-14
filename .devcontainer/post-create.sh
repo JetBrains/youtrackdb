@@ -18,19 +18,6 @@ for entry in '.claude/settings.local.json' '.mcp.json'; do
     grep -qxF "$entry" "$EXCLUDE_FILE" 2>/dev/null || echo "$entry" >> "$EXCLUDE_FILE"
 done
 
-# Install pre-push hook to block pushes inside the container
-HOOKS_DIR="$GIT_DIR/hooks"
-mkdir -p "$HOOKS_DIR"
-cat > "$HOOKS_DIR/pre-push" << 'HOOK'
-#!/bin/bash
-if [ "${DEVCONTAINER:-}" = "true" ]; then
-    echo "ERROR: git push is blocked inside the dev container."
-    echo "Review changes on the host and push from there."
-    exit 1
-fi
-HOOK
-chmod +x "$HOOKS_DIR/pre-push"
-
 # Generate .mcp.json with JetBrains MCP pointing to the Docker host
 # The host IP is the default gateway from inside the container
 HOST_IP=$(ip route | awk '/default/ {print $3; exit}')

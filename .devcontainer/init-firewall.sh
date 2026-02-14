@@ -153,9 +153,10 @@ echo "Host IP detected as: $HOST_IP"
 iptables -A INPUT -s "$HOST_IP" -j ACCEPT
 iptables -A OUTPUT -d "$HOST_IP" -j ACCEPT
 
-# Allow only HTTP/HTTPS outbound to allowed domains
+# Allow only HTTP/HTTPS/SSH outbound to allowed domains
 iptables -A OUTPUT -p tcp --dport 443 -m set --match-set allowed-domains dst -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 80 -m set --match-set allowed-domains dst -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 22 -m set --match-set allowed-domains dst -j ACCEPT
 
 # Explicitly REJECT all other outbound traffic for immediate feedback
 iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
@@ -175,4 +176,11 @@ if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
     exit 1
 else
     echo "Firewall verification passed - able to reach https://api.github.com as expected"
+fi
+
+# Verify GitHub SSH access
+if ssh -T -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new git@github.com 2>&1 | grep -q "successfully authenticated"; then
+    echo "Firewall verification passed - GitHub SSH authentication successful"
+else
+    echo "WARNING: GitHub SSH authentication not confirmed (missing SSH keys or not configured)"
 fi

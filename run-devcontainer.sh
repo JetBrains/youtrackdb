@@ -87,6 +87,9 @@ run_cmd=(
   -v "ytdb-claude-bashhistory:/commandhistory"
   -v "ytdb-claude-config:/home/node/.claude"
 
+  # SSH keys (read-only, for git push over SSH)
+  -v "${HOME}/.ssh:/home/node/.ssh:ro"
+
   # Environment variables
   -e "NODE_OPTIONS=--max-old-space-size=4096"
   -e "CLAUDE_CONFIG_DIR=/home/node/.claude"

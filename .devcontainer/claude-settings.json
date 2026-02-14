@@ -49,8 +49,6 @@
       "mcp__github__*"
     ],
     "deny": [
-      "Bash(git *push*)",
-      "Bash(git *force*push*)",
       "mcp__jetbrains__execute_terminal_command",
       "mcp__jetbrains__execute_run_configuration",
       "mcp__jetbrains__runNotebookCell",
