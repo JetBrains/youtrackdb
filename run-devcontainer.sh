@@ -130,11 +130,6 @@ run_cmd=(
   -e "HOST_GID=$(id -g)"
 )
 
-# Claude user config (needed for MCP servers, settings; auth stored in persistent volume)
-if [ -f "${HOME}/.claude.json" ]; then
-  run_cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json:ro")
-fi
-
 run_cmd+=(
   "${IMAGE_NAME}"
   /workspace/.devcontainer/entrypoint.sh

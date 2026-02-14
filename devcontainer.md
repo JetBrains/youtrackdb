@@ -32,24 +32,32 @@ Select **option 1** (Claude account with subscription), open the URL in your bro
 
 ### GitHub Authentication
 
-The container uses the GitHub CLI (`gh`) for both git operations (push, pull) and GitHub API access (PR link detection, issue viewing). No SSH keys are used — all GitHub access goes over HTTPS.
+The container uses the GitHub CLI (`gh`) for git operations and the GitHub MCP server for PR/issue access inside Claude Code. No SSH keys are used — all GitHub access goes over HTTPS with a fine-grained personal access token (PAT).
 
-On first launch you'll see a prompt to authenticate. Run:
+Create a PAT at https://github.com/settings/personal-access-tokens with these minimal permissions:
+- **Repository access**: Only the repositories you need (e.g., `JetBrains/youtrackdb`)
+- **Permissions**: Contents (read/write), Pull requests (read/write), Issues (read)
+
+On first launch, run these commands inside the container:
+
+**Step 1 — Authenticate the GitHub CLI** (used for `git push`, `gh` commands):
 
 ```bash
 gh auth login
 ```
 
-When prompted:
-1. Select **GitHub.com**
-2. Select **HTTPS** as the protocol
-3. Authenticate with a **fine-grained personal access token** (PAT)
+When prompted, select **GitHub.com**, **HTTPS**, and paste your PAT.
 
-Create the PAT at https://github.com/settings/personal-access-tokens with these minimal permissions:
-- **Repository access**: Only the repositories you need (e.g., `JetBrains/youtrackdb`)
-- **Permissions**: Contents (read/write), Pull requests (read/write), Issues (read)
+**Step 2 — Add the GitHub MCP server** (used by Claude Code for PR link detection, issue viewing):
 
-The token is stored in a persistent Docker volume and survives container restarts.
+```bash
+claude mcp add-json github --scope user \
+  '{"type":"http","url":"https://api.githubcopilot.com/mcp","headers":{"Authorization":"Bearer <PAT>"}}'
+```
+
+Replace `<PAT>` with the same token.
+
+Both are stored in persistent Docker volumes and survive container restarts — you only need to do this once.
 
 ## What the Launcher Does
 
@@ -163,14 +171,13 @@ Check the output for the specific error. Common causes:
 - **DNS resolution failure** — a domain in the allowlist doesn't resolve. The firewall script detects DNS servers from `/etc/resolv.conf` automatically.
 - **Stale Docker image** — scripts changed but the image has the old copy. Force a rebuild (see above).
 
-### GitHub CLI not authenticated
+### GitHub not configured
 
 ```
-GitHub CLI is not authenticated.
-Run: gh auth login
+GitHub is not configured.
 ```
 
-This is expected on first launch. Run `gh auth login` inside the container and authenticate with a fine-grained PAT (see [GitHub Authentication](#github-authentication)). The token persists in a Docker volume.
+This is expected on first launch. Follow the two steps in [GitHub Authentication](#github-authentication) to set up both `gh` CLI and the GitHub MCP server. Both persist in Docker volumes.
 
 ### Claude shows login prompt
 
