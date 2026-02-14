@@ -7,10 +7,13 @@ on:
         required: false
         type: boolean
         default: false
-  pull_request:
-  push:
-    branches:
-      - develop
+  workflow_run:
+    workflows: ["Java CI/CD Pipeline"]
+    types: [completed]
+
+concurrency:
+  group: qodana-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: true
 
 env:
   QODANA_VERSION: "2025.3"
@@ -22,19 +25,33 @@ jobs:
       contents: write
       pull-requests: write
       checks: write
+      actions: read
     env:
       RUN_CLEANUP: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup == true }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
           lfs: true
+
+      - name: Download Coverage Data
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-data
+          path: .qodana/code-coverage
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3
         with:
-          args: --linter, jetbrains/qodana-jvm:${{ env.QODANA_VERSION }}, --baseline, .github/workflows/qodana.sarif.json${{ env.RUN_CLEANUP == 'true' && ', --cleanup' || '' }}
+          args: >-
+            --linter, jetbrains/qodana-jvm:${{ env.QODANA_VERSION }},
+            --baseline, .github/workflows/qodana.sarif.json
+            ${{ env.RUN_CLEANUP == 'true' && ', --cleanup' || '' }}
           pr-mode: 'true'
           push-fixes: none
         env:
@@ -44,10 +61,11 @@ jobs:
         if: env.RUN_CLEANUP == 'true'
         id: extract-issue
         shell: bash
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
 
-          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
           BRANCH_NAME_LOWER="${BRANCH_NAME,,}"
 
           # Pattern: ytdb + optional non-alphanumeric + digits (case-insensitive)
@@ -63,6 +81,10 @@ jobs:
         if: env.RUN_CLEANUP == 'true'
         id: push-fixes
         shell: bash
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          HAS_ISSUE: ${{ steps.extract-issue.outputs.has_issue }}
+          ISSUE_PREFIX: ${{ steps.extract-issue.outputs.issue_prefix }}
         run: |
           set -uo pipefail
 
@@ -78,14 +100,13 @@ jobs:
           git config user.name "qodana-bot[bot]"
           git config user.email "qodana-bot[bot]@users.noreply.github.com"
 
-          SOURCE_BRANCH="${{ github.head_ref || github.ref_name }}"
           # Generate unique suffix using short SHA and run number
           UNIQUE_SUFFIX="${GITHUB_SHA:0:7}-${GITHUB_RUN_NUMBER}"
 
           # Build branch name with issue prefix if available
-          if [[ "${{ steps.extract-issue.outputs.has_issue }}" == "true" ]]; then
-            CLEANUP_BRANCH="${{ steps.extract-issue.outputs.issue_prefix }}-qodana-fixes-${UNIQUE_SUFFIX}"
-            COMMIT_MSG="${{ steps.extract-issue.outputs.issue_prefix }}: Apply Qodana cleanup fixes"
+          if [[ "$HAS_ISSUE" == "true" ]]; then
+            CLEANUP_BRANCH="${ISSUE_PREFIX}-qodana-fixes-${UNIQUE_SUFFIX}"
+            COMMIT_MSG="${ISSUE_PREFIX}: Apply Qodana cleanup fixes"
           else
             # Sanitize branch name to avoid special character issues
             SANITIZED_SOURCE=$(echo "$SOURCE_BRANCH" | tr -cd '[:alnum:]-_/')
@@ -105,14 +126,14 @@ jobs:
       - name: Output fixes info
         if: env.RUN_CLEANUP == 'true' && steps.push-fixes.outputs.has_fixes == 'true'
         shell: bash
+        env:
+          CLEANUP_BRANCH: ${{ steps.push-fixes.outputs.cleanup_branch }}
+          SOURCE_BRANCH: ${{ steps.push-fixes.outputs.source_branch }}
         run: |
           set -euo pipefail
 
-          CLEANUP_BRANCH="${{ steps.push-fixes.outputs.cleanup_branch }}"
-          SOURCE_BRANCH="${{ steps.push-fixes.outputs.source_branch }}"
-
-          COMPARE_URL="https://github.com/${{ github.repository }}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}"
-          PR_CREATE_URL="https://github.com/${{ github.repository }}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}?expand=1"
+          COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}"
+          PR_CREATE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/${SOURCE_BRANCH}...${CLEANUP_BRANCH}?expand=1"
 
           # Output to job summary
           {

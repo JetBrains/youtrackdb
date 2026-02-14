@@ -2036,7 +2036,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.count(this, collectionId);
   }
 
-  public boolean dropCollection(final String iCollectionName) {
+  public void dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -2055,12 +2055,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     localCache.freeCollection(collectionId);
-    return dropCollectionInternal(iCollectionName);
+    dropCollectionInternal(iCollectionName);
   }
 
-  private boolean dropCollectionInternal(final String iCollectionName) {
+  private void dropCollectionInternal(final String iCollectionName) {
     assert assertIfNotActive();
-    return storage.dropCollection(this, iCollectionName);
+    storage.dropCollection(this, iCollectionName);
   }
 
   @SuppressWarnings("unused")
