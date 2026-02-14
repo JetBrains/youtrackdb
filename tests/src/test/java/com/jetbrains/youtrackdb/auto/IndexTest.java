@@ -126,12 +126,14 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testIndexEntries() {
 
+    session.begin();
     var resultSet = executeQuery("select * from Profile where nick is not null");
 
     var idx =
         session.getSharedContext().getIndexManager().getIndex("Profile.nick");
 
     Assert.assertEquals(idx.size(session), resultSet.size());
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
@@ -756,7 +758,9 @@ public class IndexTest extends BaseDBTest {
     final var index =
         session.getSharedContext().getIndexManager()
             .getIndex("idxTransactionUniqueIndexTest");
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
 
     session.begin();
     try {
@@ -772,7 +776,9 @@ public class IndexTest extends BaseDBTest {
       session.rollback();
     }
 
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
   }
 
   public void testTransactionUniqueIndexTestWithDotNameOne() {
@@ -838,7 +844,9 @@ public class IndexTest extends BaseDBTest {
         db.getSharedContext()
             .getIndexManager()
             .getIndex("TransactionUniqueIndexWithDotTest.label");
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
 
     db.begin();
     try {
@@ -854,7 +862,9 @@ public class IndexTest extends BaseDBTest {
       db.rollback();
     }
 
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
   }
 
   @Test(dependsOnMethods = "linkedIndexedProperty")
@@ -1059,10 +1069,12 @@ public class IndexTest extends BaseDBTest {
     session.delete(activeTx.<Entity>load(loadedProfile));
     session.commit();
 
+    session.begin();
     try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testIndexRebuildDuringDetachAllNonProxiedObjectDelete")

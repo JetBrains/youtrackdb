@@ -246,6 +246,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(
         session
             .getSharedContext()
@@ -262,6 +263,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
             .size(session),
         prev1);
+    session.rollback();
   }
 
   @Test
