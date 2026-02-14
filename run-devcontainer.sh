@@ -2,9 +2,13 @@
 set -euo pipefail
 
 IMAGE_NAME="ytdb-devcontainer"
-CONTAINER_NAME="ytdb-claude-sandbox"
 MAX_AGE_SECONDS=86400  # 1 day
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Derive a unique container name from the worktree directory name so that
+# multiple instances on different worktrees can run simultaneously.
+WORKTREE_SUFFIX="$(basename "${SCRIPT_DIR}")"
+CONTAINER_NAME="ytdb-claude-sandbox-${WORKTREE_SUFFIX}"
 
 # Build args — read from devcontainer.json (single source of truth)
 TZ="${TZ:-Europe/Berlin}"
