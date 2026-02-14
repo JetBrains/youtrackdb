@@ -214,7 +214,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   private void initStorageIterator() {
     storageIterator =
         session.getStorage().browseCollection(collectionId, forwardDirection,
-            currentTx.getAtomicOperation());
+            () -> session.getActiveTransaction().getAtomicOperation());
   }
 
   @Override
