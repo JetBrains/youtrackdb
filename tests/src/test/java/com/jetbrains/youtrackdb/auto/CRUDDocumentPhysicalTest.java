@@ -189,6 +189,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     Assert.assertEquals(indexes.size(), 1);
 
     var indexDefinition = indexes.iterator().next();
+    session.begin();
     try (final var stream = indexDefinition.getRids(session, "JayM1")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -200,6 +201,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     try (var stream = indexDefinition.getRids(session, "JayM3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testDoubleChanges")

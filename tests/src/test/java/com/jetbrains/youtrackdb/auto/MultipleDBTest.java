@@ -77,7 +77,7 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getCollectionPosition(), j + 1,
+                    dummy.getIdentity().getCollectionPosition(), j,
                     "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
@@ -155,7 +155,7 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getCollectionPosition(), j + 1,
+                    dummy.getIdentity().getCollectionPosition(), j,
                     "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();

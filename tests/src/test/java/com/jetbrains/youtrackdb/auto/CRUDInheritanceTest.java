@@ -103,7 +103,9 @@ public class CRUDInheritanceTest extends BaseDBTest {
     }
     session.commit();
 
+    session.begin();
     Assert.assertEquals(session.countClass("Company"), TOT_COMPANY_RECORDS - 1);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "deleteFirst")

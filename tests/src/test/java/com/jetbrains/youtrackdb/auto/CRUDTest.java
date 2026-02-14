@@ -108,7 +108,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "create")
   public void testCreate() {
+    session.begin();
     Assert.assertEquals(session.countClass("Account") - startRecordNumber, TOT_RECORDS_ACCOUNT);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testCreate")
@@ -118,7 +120,9 @@ public class CRUDTest extends BaseDBTest {
     var dummyClass = schema.createClass("Dummy");
     dummyClass.createProperty("name", PropertyType.STRING);
 
+    session.begin();
     Assert.assertEquals(session.countClass("Dummy"), 0);
+    session.rollback();
     Assert.assertNotNull(schema.getClass("Dummy"));
   }
 
