@@ -17,8 +17,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
@@ -48,22 +46,11 @@ public interface MetadataInternal extends Metadata {
 
   void clearThreadLocalSchemaSnapshot();
 
-  void forceClearThreadLocalSchemaSnapshot();
-
-  ImmutableSchema getImmutableSchemaSnapshot();
-
-  SchemaInternal getSchemaInternal();
-
   @Deprecated
   void load();
 
   @Deprecated
   void create() throws IOException;
-
-  /**
-   * Reloads the internal objects.
-   */
-  void reload();
 
   /**
    * Closes internal objects

@@ -69,7 +69,6 @@ public class MetadataDefault implements MetadataInternal {
     return schema;
   }
 
-  @Override
   public SchemaInternal getSchemaInternal() {
     return schema;
   }
@@ -92,7 +91,6 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
-  @Override
   public void forceClearThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
       this.immutableSchema = null;
@@ -104,7 +102,6 @@ public class MetadataDefault implements MetadataInternal {
   }
 
   @Nullable
-  @Override
   public ImmutableSchema getImmutableSchemaSnapshot() {
     if (immutableSchema == null) {
       if (schema == null) {
@@ -157,7 +154,6 @@ public class MetadataDefault implements MetadataInternal {
     return functionLibrary;
   }
 
-  @Override
   public SequenceLibrary getSequenceLibrary() {
     return sequenceLibrary;
   }

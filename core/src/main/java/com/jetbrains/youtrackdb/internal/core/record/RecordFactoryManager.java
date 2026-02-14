@@ -78,9 +78,10 @@ public class RecordFactoryManager {
 
   public DBRecord newInstance(RecordIdInternal rid, DatabaseSessionEmbedded database) {
     try {
-      return getFactory(database.getRecordType()).newRecord(rid, database);
+      return getFactory(DatabaseSessionEmbedded.getRecordType()).newRecord(rid, database);
     } catch (Exception e) {
-      throw new IllegalArgumentException("Unsupported record type: " + database.getRecordType(), e);
+      throw new IllegalArgumentException(
+          "Unsupported record type: " + DatabaseSessionEmbedded.getRecordType(), e);
     }
   }
 
