@@ -10,7 +10,7 @@ if [ "$HOST_UID" != "1000" ] || [ "$HOST_GID" != "1000" ]; then
     echo "Adjusting node user UID:GID to ${HOST_UID}:${HOST_GID}..."
     groupmod -o -g "$HOST_GID" node
     usermod -o -u "$HOST_UID" -g "$HOST_GID" node
-    chown -R "$HOST_UID:$HOST_GID" /home/node /commandhistory
+    chown -R "$HOST_UID:$HOST_GID" /home/node /commandhistory /home/node/.config/gh
 fi
 
 # Run lifecycle scripts
@@ -31,6 +31,15 @@ fi
 # Set HOME explicitly — the container starts as root so HOME=/root,
 # but all user files (SSH keys, Claude config) are under /home/node.
 export HOME=/home/node
+
+# Hint if GitHub CLI is not authenticated
+if ! runuser -u node -- gh auth status >/dev/null 2>&1; then
+    echo ""
+    echo "GitHub CLI is not authenticated. To enable PR link detection, run:"
+    echo "  gh auth login"
+    echo "(Use a fine-grained PAT with read-only access to PRs and Issues)"
+    echo ""
+fi
 
 # Clean up container-specific settings on exit so they don't leak to the host.
 trap 'rm -f /workspace/.claude/settings.local.json /workspace/.mcp.json' EXIT

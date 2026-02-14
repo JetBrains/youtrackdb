@@ -132,6 +132,9 @@ run_cmd=(
   # SSH keys (read-only, for git push over SSH)
   -v "${HOME}/.ssh:/home/node/.ssh:ro"
 
+  # GitHub CLI config (persistent volume, user runs 'gh auth login' once inside container)
+  -v "ytdb-claude-ghconfig:/home/node/.config/gh"
+
   # SSH agent forwarding (for passphrase-protected keys)
   ${SSH_AGENT_MOUNT[@]+"${SSH_AGENT_MOUNT[@]}"}
 
