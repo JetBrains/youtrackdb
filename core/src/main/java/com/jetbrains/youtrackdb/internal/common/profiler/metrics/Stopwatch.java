@@ -69,7 +69,7 @@ public interface Stopwatch extends Gauge<Double> {
 
     @Override
     public long currentApproxNanoTime() {
-      return ticker.lastNanoTime();
+      return ticker.approximateNanoTime();
     }
 
     @Override

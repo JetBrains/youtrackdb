@@ -31,12 +31,17 @@ public class StubTicker implements Ticker {
     this.time += time;
   }
 
+  @Override
+  public long approximateCurrentTimeMillis() {
+    return time / 1_000_000;
+  }
+
   public void advanceTime(long time, TimeUnit unit) {
     advanceTime(unit.toNanos(time));
   }
 
   @Override
-  public long lastNanoTime() {
+  public long approximateNanoTime() {
     return time;
   }
 
