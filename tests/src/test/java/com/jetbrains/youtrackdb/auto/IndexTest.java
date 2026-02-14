@@ -720,7 +720,7 @@ public class IndexTest extends BaseDBTest {
     final var index =
         db.getSharedContext().getIndexManager().getIndex("idxTransactionUniqueIndexTest");
     db.begin();
-    Assert.assertEquals(index.size(this.session), 1);
+    Assert.assertEquals(index.size(db), 1);
     db.rollback();
 
     db.begin();
@@ -734,7 +734,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     db.begin();
-    Assert.assertEquals(index.size(this.session), 1);
+    Assert.assertEquals(index.size(db), 1);
     db.rollback();
   }
 
@@ -803,7 +803,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("TransactionUniqueIndexWithDotTest.label");
     db.begin();
-    Assert.assertEquals(index.size(this.session), 1);
+    Assert.assertEquals(index.size(db), 1);
     var countClassBefore = db.countClass("TransactionUniqueIndexWithDotTest");
     db.rollback();
 
