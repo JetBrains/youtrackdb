@@ -7,7 +7,7 @@ MAX_AGE_SECONDS=86400  # 1 day
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Build args — read from devcontainer.json (single source of truth)
-TZ="${TZ:-America/Los_Angeles}"
+TZ="${TZ:-Europe/Berlin}"
 DEVCONTAINER_JSON="${SCRIPT_DIR}/.devcontainer/devcontainer.json"
 CLAUDE_CODE_VERSION=$(jq -r '.build.args.CLAUDE_CODE_VERSION' "$DEVCONTAINER_JSON")
 GIT_DELTA_VERSION=$(jq -r '.build.args.GIT_DELTA_VERSION' "$DEVCONTAINER_JSON")

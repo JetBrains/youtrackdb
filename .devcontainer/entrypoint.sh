@@ -31,4 +31,7 @@ fi
 # Set HOME explicitly — the container starts as root so HOME=/root,
 # but all user files (SSH keys, Claude config) are under /home/node.
 export HOME=/home/node
-exec runuser -u node -- zsh
+
+# Clean up container-specific settings on exit so they don't leak to the host.
+trap 'rm -f /workspace/.claude/settings.local.json /workspace/.mcp.json' EXIT
+runuser -u node -- zsh
