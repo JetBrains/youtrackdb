@@ -828,12 +828,14 @@ public class MapIndexTest extends BaseDBTest {
     session.delete(activeTx.<Entity>load(mapper));
     session.commit();
 
+    session.begin();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 0);
 
     var valueIndex = getIndex("mapIndexTestValue");
 
     Assert.assertEquals(valueIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexMapRemoveInTx() {
@@ -859,11 +861,13 @@ public class MapIndexTest extends BaseDBTest {
       throw e;
     }
 
+    session.begin();
     var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 0);
 
     var valueIndex = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexMapRemoveInTxRollback() {
