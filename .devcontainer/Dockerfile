@@ -94,11 +94,12 @@ RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 # Copy Claude Code container settings
 COPY claude-settings.json /usr/local/share/claude-settings.json
 
-# Copy lifecycle and firewall scripts
+# Copy lifecycle, firewall, and entrypoint scripts
 COPY post-create.sh /usr/local/bin/
 COPY init-firewall.sh /usr/local/bin/
+COPY entrypoint.sh /usr/local/bin/
 USER root
-RUN chmod +x /usr/local/bin/post-create.sh /usr/local/bin/init-firewall.sh && \
+RUN chmod +x /usr/local/bin/post-create.sh /usr/local/bin/init-firewall.sh /usr/local/bin/entrypoint.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 USER node

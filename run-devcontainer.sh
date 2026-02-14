@@ -91,6 +91,18 @@ elif [ ! -d "${SCRIPT_DIR}/.git" ]; then
   exit 1
 fi
 
+# Forward SSH agent socket if available (needed for passphrase-protected keys)
+SSH_AGENT_MOUNT=()
+if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "$SSH_AUTH_SOCK" ]; then
+  echo "SSH agent detected, forwarding into container"
+  SSH_AGENT_MOUNT=(
+    -v "${SSH_AUTH_SOCK}:/tmp/ssh-agent.sock"
+    -e "SSH_AUTH_SOCK=/tmp/ssh-agent.sock"
+  )
+else
+  echo "WARNING: No SSH agent found. Passphrase-protected keys won't work inside the container."
+fi
+
 # Assemble docker run command
 run_cmd=(
   docker run
@@ -100,7 +112,7 @@ run_cmd=(
   --cap-add=NET_ADMIN
   --cap-add=NET_RAW
   --cpus="${CPU_LIMIT}"
-  -u node
+  -u root
   -w /workspace
 
   # Workspace bind mount
@@ -116,6 +128,9 @@ run_cmd=(
   # SSH keys (read-only, for git push over SSH)
   -v "${HOME}/.ssh:/home/node/.ssh:ro"
 
+  # SSH agent forwarding (for passphrase-protected keys)
+  ${SSH_AGENT_MOUNT[@]+"${SSH_AGENT_MOUNT[@]}"}
+
   # Environment variables
   -e "NODE_OPTIONS=--max-old-space-size=4096"
   -e "CLAUDE_CONFIG_DIR=/home/node/.claude"
@@ -123,6 +138,8 @@ run_cmd=(
   -e "JAVA_HOME=/usr/lib/jvm/temurin-21-jdk"
   -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}"
   -e "JETBRAINS_MCP_PORT=${JETBRAINS_MCP_PORT:-64342}"
+  -e "HOST_UID=$(id -u)"
+  -e "HOST_GID=$(id -g)"
 )
 
 # Claude MCP config (read-only, provides GitHub MCP server access)
@@ -134,22 +151,7 @@ fi
 
 run_cmd+=(
   "${IMAGE_NAME}"
-
-  # Entry: run lifecycle scripts, then drop into zsh
-  zsh -c '
-    /usr/local/bin/post-create.sh
-    if ! sudo /usr/local/bin/init-firewall.sh; then
-      echo ""
-      echo "========================================"
-      echo "  ERROR: FIREWALL SETUP FAILED"
-      echo "  Container is NOT network-restricted!"
-      echo "  Aborting for safety."
-      echo "========================================"
-      echo ""
-      exit 1
-    fi
-    exec zsh
-  '
+  /usr/local/bin/entrypoint.sh
 )
 
 # Wrap with systemd-inhibit if available to prevent sleep

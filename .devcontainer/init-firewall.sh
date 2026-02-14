@@ -190,9 +190,15 @@ else
     echo "Firewall verification passed - able to reach https://api.github.com as expected"
 fi
 
-# Verify GitHub SSH access
-if ssh -T -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new git@github.com 2>&1 | grep -q "successfully authenticated"; then
+# Verify GitHub SSH access (run as node user since SSH keys are mounted under /home/node/.ssh)
+# SSH_AUTH_SOCK is set to the fixed path where run-devcontainer.sh mounts the host agent socket.
+# sudo strips env vars, so we can't rely on the container environment here.
+# Note: ssh -T always returns exit code 1 with GitHub (no shell access), so capture output
+# to avoid pipefail propagating the non-zero code.
+ssh_output=$(SSH_AUTH_SOCK=/tmp/ssh-agent.sock runuser -u node -- ssh -T -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new git@github.com 2>&1) || true
+if echo "$ssh_output" | grep -q "successfully authenticated"; then
     echo "Firewall verification passed - GitHub SSH authentication successful"
 else
     echo "WARNING: GitHub SSH authentication not confirmed (missing SSH keys or not configured)"
+    echo "  ssh output: $ssh_output"
 fi
