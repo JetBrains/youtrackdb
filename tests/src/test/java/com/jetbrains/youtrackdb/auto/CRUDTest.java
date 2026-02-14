@@ -2609,7 +2609,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "queryCross3Levels")
   public void deleteFirst() {
+    session.begin();
     startRecordNumber = session.countClass("Account");
+    session.rollback();
 
     // DELETE ALL THE RECORD IN THE CLASS
     session.forEachInTx(session.browseClass("Account"),
@@ -2618,7 +2620,9 @@ public class CRUDTest extends BaseDBTest {
           return false;
         }));
 
+    session.begin();
     Assert.assertEquals(session.countClass("Account"), startRecordNumber - 1);
+    session.rollback();
   }
 
   @Test
