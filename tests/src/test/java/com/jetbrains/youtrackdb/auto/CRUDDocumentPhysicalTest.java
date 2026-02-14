@@ -226,9 +226,11 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     var indexName = indexes.iterator().next();
     // We must get 2 records for "nameA".
+    session.begin();
     try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 2);
     }
+    session.rollback();
 
     session.begin();
     // Remove this last record.

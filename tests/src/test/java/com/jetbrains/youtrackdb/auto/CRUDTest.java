@@ -2487,7 +2487,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testUpdate")
   public void checkLazyLoadingOff() {
+    session.begin();
     var profiles = session.countClass("Profile");
+    session.rollback();
 
     session.begin();
     var neo = session.newEntity("Profile");
@@ -2809,7 +2811,9 @@ public class CRUDTest extends BaseDBTest {
   public void testSaveMultiCircular() {
     session = createSessionInstance();
     try {
+      session.begin();
       startRecordNumber = session.countCollectionElements("Profile");
+      session.rollback();
       session.begin();
       var bObama = session.newInstance("Profile");
       bObama.setProperty("nick", "TheUSPresident");
