@@ -1515,6 +1515,13 @@ public abstract class AbstractStorage
       final int collectionId,
       final boolean forward,
       AtomicOperation atomicOperation) {
+    return browseCollection(collectionId, forward, () -> atomicOperation);
+  }
+
+  public Iterator<CollectionBrowsePage> browseCollection(
+      final int collectionId,
+      final boolean forward,
+      Supplier<AtomicOperation> atomicOperationSupplier) {
     try {
       stateLock.readLock().lock();
       try {
@@ -1533,7 +1540,8 @@ public abstract class AbstractStorage
           @Override
           public boolean hasNext() {
             if (page == null) {
-              page = nextPage(collectionId, lastPos, forward, atomicOperation);
+              page = nextPage(collectionId, lastPos, forward,
+                  atomicOperationSupplier.get());
               if (page != null) {
                 lastPos = page.getLastPosition();
               }
