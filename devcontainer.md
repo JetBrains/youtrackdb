@@ -5,9 +5,8 @@ A sandboxed Docker environment for running Claude Code against the YouTrackDB co
 ## Prerequisites
 
 - Docker Engine installed and running
-- SSH key added to your GitHub account
-- SSH agent running with your key loaded (`ssh-add -l` to verify)
 - `jq` installed on the host (used by the launcher script)
+- A GitHub fine-grained personal access token (PAT) for git and PR operations (see [GitHub Authentication](#github-authentication))
 
 ## Quick Start
 
@@ -21,6 +20,8 @@ Once the container starts you are dropped into a zsh shell at `/workspace`.
 
 ## First-Time Authentication
 
+### Claude Code
+
 Claude Code authentication is stored in a persistent Docker volume. On the very first run you need to authenticate once:
 
 ```bash
@@ -29,6 +30,27 @@ claude
 
 Select **option 1** (Claude account with subscription), open the URL in your browser, authenticate, and paste the code back. This persists across container restarts — you won't need to do it again unless the volume is deleted.
 
+### GitHub Authentication
+
+The container uses the GitHub CLI (`gh`) for both git operations (push, pull) and GitHub API access (PR link detection, issue viewing). No SSH keys are used — all GitHub access goes over HTTPS.
+
+On first launch you'll see a prompt to authenticate. Run:
+
+```bash
+gh auth login
+```
+
+When prompted:
+1. Select **GitHub.com**
+2. Select **HTTPS** as the protocol
+3. Authenticate with a **fine-grained personal access token** (PAT)
+
+Create the PAT at https://github.com/settings/personal-access-tokens with these minimal permissions:
+- **Repository access**: Only the repositories you need (e.g., `JetBrains/youtrackdb`)
+- **Permissions**: Contents (read/write), Pull requests (read/write), Issues (read)
+
+The token is stored in a persistent Docker volume and survives container restarts.
+
 ## What the Launcher Does
 
 | Step | Description |
@@ -36,7 +58,6 @@ Select **option 1** (Claude account with subscription), open the URL in your bro
 | Image build | Builds (or reuses) the `ytdb-devcontainer` Docker image |
 | UID mapping | Adjusts the container `node` user UID/GID to match the host user |
 | Git worktree | Detects git worktrees and mounts the parent `.git` directory |
-| SSH agent | Forwards the host SSH agent socket for passphrase-protected keys |
 | Workspace | Bind-mounts the repository to `/workspace` |
 | Post-create | Copies container-specific Claude settings, generates JetBrains MCP config |
 | Firewall | Locks down the network to an allowlist of domains |
@@ -55,7 +76,7 @@ The container runs behind an iptables firewall. Only these destinations are reac
 | Other | `registry.npmjs.org`, `packages.adoptium.net`, `api.githubcopilot.com` |
 | Docker host | The host machine IP (for JetBrains MCP) |
 
-All other outbound traffic is rejected. SSH (port 22) is allowed to GitHub IPs only.
+All other outbound traffic is rejected. SSH (port 22) is blocked — git uses HTTPS via the `gh` credential helper.
 
 ## Persistent Volumes
 
@@ -65,6 +86,7 @@ These Docker volumes survive container restarts:
 |---|---|---|
 | `ytdb-claude-config` | `/home/node/.claude` | Claude Code auth, history, settings |
 | `ytdb-claude-bashhistory` | `/commandhistory` | Shell history |
+| `ytdb-claude-ghconfig` | `/home/node/.config/gh` | GitHub CLI auth token |
 
 To reset Claude auth or start fresh:
 
@@ -72,25 +94,30 @@ To reset Claude auth or start fresh:
 docker volume rm ytdb-claude-config
 ```
 
-## SSH
-
-The host `~/.ssh` directory is mounted read-only. The SSH agent socket is forwarded so passphrase-protected keys work without prompts.
-
-Before launching, ensure your agent has the key loaded:
+To reset GitHub CLI auth:
 
 ```bash
-ssh-add -l          # should show your key
-ssh-add ~/.ssh/id_ed25519  # if not listed
+docker volume rm ytdb-claude-ghconfig
 ```
 
 ## Git
 
-Full git operations work inside the container, including for git worktrees. The launcher detects worktree layouts and mounts the parent `.git` directory automatically.
+Full git operations work inside the container over HTTPS, including for git worktrees. The launcher detects worktree layouts and mounts the parent `.git` directory automatically. Git authentication is handled by the `gh` credential helper — no SSH keys are needed.
 
 ```bash
 git status
 git commit -m "YTDB-123: Fix something"
 git push
+```
+
+## Multiple Worktrees
+
+The launcher derives a unique container name from the directory name, so you can run multiple instances on different worktrees simultaneously:
+
+```bash
+# These run in parallel without conflicts
+cd ~/Projects/ytdb/feature-a && ./run-devcontainer.sh
+cd ~/Projects/ytdb/feature-b && ./run-devcontainer.sh
 ```
 
 ## JetBrains MCP
@@ -136,14 +163,14 @@ Check the output for the specific error. Common causes:
 - **DNS resolution failure** — a domain in the allowlist doesn't resolve. The firewall script detects DNS servers from `/etc/resolv.conf` automatically.
 - **Stale Docker image** — scripts changed but the image has the old copy. Force a rebuild (see above).
 
-### SSH authentication warning
+### GitHub CLI not authenticated
 
 ```
-WARNING: GitHub SSH authentication not confirmed
+GitHub CLI is not authenticated.
+Run: gh auth login
 ```
 
-- Ensure `ssh-add -l` shows your key on the host before launching.
-- If you see "Enter passphrase" during verification, your SSH agent isn't forwarded. Check that `SSH_AUTH_SOCK` is set on the host.
+This is expected on first launch. Run `gh auth login` inside the container and authenticate with a fine-grained PAT (see [GitHub Authentication](#github-authentication)). The token persists in a Docker volume.
 
 ### Claude shows login prompt
 
