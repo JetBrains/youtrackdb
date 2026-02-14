@@ -355,4 +355,74 @@ public class MapIndexDeleteTest extends DbTestBase {
         "Index should have exactly 2 entries from the new record", 2, keyIndex.size(session));
     session.rollback();
   }
+
+  @Test
+  public void testNestedTransactionDeleteDoesNotCleanupIndexEntries() {
+    // Regression test for YTDB-510: when a test leaves an open transaction
+    // and the afterMethod calls session.begin() (creating a nested tx),
+    // the commit only decrements txStartCounter without actually committing.
+    // This causes delete operations to be silently discarded, leaving
+    // stale map index entries in the B-tree.
+
+    var mapper = session.getMetadata().getSchema().createClass("Mapper");
+    mapper.createProperty("intMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    mapper.createIndex("mapKeyIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intMap");
+    mapper.createIndex("mapValueIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "intMap by value");
+
+    var keyIndex = session.getSharedContext().getIndexManager().getIndex("mapKeyIdx");
+    var valueIndex = session.getSharedContext().getIndexManager().getIndex("mapValueIdx");
+
+    // Insert a record
+    session.begin();
+    var doc = session.newEntity("Mapper");
+    var map = session.newEmbeddedMap();
+    map.put("key1", 10);
+    map.put("key2", 20);
+    doc.setProperty("intMap", map);
+    session.commit();
+
+    session.begin();
+    Assert.assertEquals(2, keyIndex.size(session));
+    Assert.assertEquals(2, valueIndex.size(session));
+    session.rollback();
+
+    // Simulate a test that leaves an open transaction (the bug scenario)
+    session.begin();
+    // ... verification code that forgets to rollback ...
+
+    // Simulate afterMethod: begin() creates a nested transaction
+    session.begin(); // txStartCounter is now 2
+
+    // Delete all records in the nested transaction
+    session.execute("delete from Mapper").close();
+
+    // commit() only decrements txStartCounter from 2 to 1, does NOT actually commit
+    session.commit();
+
+    // The delete was silently discarded! Rollback to clean up the remaining tx.
+    session.rollback();
+
+    // Verify that index entries are NOT cleaned up (the bug behavior)
+    session.begin();
+    Assert.assertEquals(
+        "Index entries should still exist because nested commit was a no-op",
+        2, keyIndex.size(session));
+    session.rollback();
+
+    // Now do a PROPER cleanup: rollback any stale tx, then delete
+    session.begin();
+    session.execute("delete from Mapper").close();
+    session.commit();
+
+    // Verify proper cleanup works
+    session.begin();
+    Assert.assertEquals(
+        "Index should be empty after proper (non-nested) delete",
+        0, keyIndex.size(session));
+    Assert.assertEquals(
+        "Value index should be empty after proper (non-nested) delete",
+        0, valueIndex.size(session));
+    session.rollback();
+  }
 }
