@@ -49,6 +49,9 @@ public class MapIndexTest extends BaseDBTest {
   @Override
   @AfterMethod
   public void afterMethod() throws Exception {
+    if (session.getTransactionInternal().isActive()) {
+      session.rollback();
+    }
     session.begin();
     session.execute("delete from Mapper").close();
     session.execute("delete from MapIndexTestMovie").close();
@@ -485,6 +488,7 @@ public class MapIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexMapUpdateItem() {
