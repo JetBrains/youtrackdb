@@ -65,7 +65,7 @@
       "Edit(*.pem)",
       "Edit(*.key)"
     ],
-    "defaultMode": "autoApprove"
+    "defaultMode": "bypassPermissions"
   },
   "model": "opus[1m]"
 }
