@@ -142,7 +142,11 @@ public abstract class BaseDBTest extends BaseTest {
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
 
-    if (session.countClass("Account") == 0) {
+    session.begin();
+    var accountCount = session.countClass("Account");
+    session.rollback();
+
+    if (accountCount == 0) {
       for (var id : ids) {
         session.begin();
         var element = session.newEntity("Account");
@@ -254,7 +258,11 @@ public abstract class BaseDBTest extends BaseTest {
     fillInAccountData();
     createCompanyClass();
 
-    if (session.countClass("Company") > 0) {
+    session.begin();
+    var companyCount = session.countClass("Company");
+    session.rollback();
+
+    if (companyCount > 0) {
       return;
     }
 
