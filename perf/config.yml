@@ -1,0 +1,31 @@
+benchmark:
+  name: ldbc-snb
+
+hosts:
+  db:
+    ssh_alias: bench-db
+    public_ip: 127.0.0.1
+
+database:
+  port: 8182
+  jvm_heap: 16g
+  root_password: root
+  name: ldbc_snb
+  user: admin
+  password: admin
+
+paths:
+  db_home: /home/bench/ytdb
+  loader_data: /data/ldbc-snb
+  driver_params: /data/ldbc-snb
+  server_conf: server-conf/youtrackdb-server.yaml
+
+ldbc:
+  scale_factor: 0.1
+  operation_count: 10000
+  thread_count: 24        # read threads
+  update_partitions: 1   # write threads = 2 * update_partitions (numpart-N directory)
+  warmup_count: 50
+  validation_params_limit: 200
+  time_compression_ratio: 0.1
+  ignore_scheduled_start_times: true
