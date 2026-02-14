@@ -7,7 +7,16 @@ for cmd in iptables ip6tables ipset curl dig jq aggregate iptables-restore; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: '$cmd' tool not found"; exit 1; }
 done
 
-# 1. Extract Docker DNS info BEFORE any flushing
+# 1. Detect DNS servers from resolv.conf (works on both default bridge and user-defined networks)
+DNS_SERVERS=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf)
+if [ -z "$DNS_SERVERS" ]; then
+    echo "ERROR: No DNS servers found in /etc/resolv.conf"
+    exit 1
+fi
+DNS_SERVER=$(echo "$DNS_SERVERS" | head -1)
+echo "DNS servers detected: $(echo $DNS_SERVERS | tr '\n' ' ')"
+
+# 2. Extract Docker DNS NAT rules BEFORE any flushing (only relevant for 127.0.0.11)
 DOCKER_NAT_SAVE=$(iptables-save -t nat)
 DOCKER_DNS_RULES=$(echo "$DOCKER_NAT_SAVE" | grep "127\.0\.0\.11" || true)
 DOCKER_DNS_CHAINS=$(echo "$DOCKER_NAT_SAVE" | grep "^:" | grep -E "DOCKER_OUTPUT|DOCKER_POSTROUTING" || true)
@@ -35,7 +44,7 @@ ip6tables -P OUTPUT DROP
 ip6tables -A INPUT -i lo -j ACCEPT
 ip6tables -A OUTPUT -o lo -j ACCEPT
 
-# Allow localhost (needed for Docker DNS resolver at 127.0.0.11)
+# Allow localhost
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
@@ -43,11 +52,13 @@ iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 
-# Allow DNS only to Docker internal resolver (UDP and TCP)
-iptables -A OUTPUT -p udp --dport 53 -d 127.0.0.11 -j ACCEPT
-iptables -A INPUT -p udp --sport 53 -s 127.0.0.11 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 53 -d 127.0.0.11 -j ACCEPT
-iptables -A INPUT -p tcp --sport 53 -s 127.0.0.11 -j ACCEPT
+# Allow DNS to each configured nameserver (UDP and TCP)
+while read -r dns; do
+    iptables -A OUTPUT -p udp --dport 53 -d "$dns" -j ACCEPT
+    iptables -A INPUT -p udp --sport 53 -s "$dns" -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 53 -d "$dns" -j ACCEPT
+    iptables -A INPUT -p tcp --sport 53 -s "$dns" -j ACCEPT
+done <<< "$DNS_SERVERS"
 
 # Restore Docker DNS NAT rules using iptables-restore (preserves correct argument parsing)
 if [ -n "$DOCKER_DNS_RULES" ]; then
@@ -97,16 +108,18 @@ ipset create allowed-domains hash:net
 # Add GitHub IPv4 ranges (filter out IPv6, -exist ignores duplicates)
 # aggregate -q coalesces overlapping CIDR ranges to minimize ipset entries
 echo "Processing GitHub IPs..."
+GH_CIDR_COUNT=0
 while read -r cidr; do
     if [[ ! "$cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
         echo "ERROR: Invalid CIDR range from GitHub meta: $cidr"
         exit 1
     fi
-    echo "Adding GitHub range $cidr"
     ipset add allowed-domains "$cidr" -exist
+    GH_CIDR_COUNT=$((GH_CIDR_COUNT + 1))
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[] | select(contains(":") | not)' | aggregate -q)
+echo "Added $GH_CIDR_COUNT GitHub CIDR ranges"
 
-# Resolve and add other allowed domains (explicitly use Docker resolver)
+# Resolve and add other allowed domains
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
@@ -119,8 +132,7 @@ for domain in \
     "maven.youtrackdb.io" \
     "packages.adoptium.net" \
     "api.githubcopilot.com"; do
-    echo "Resolving $domain..."
-    ips=$(dig +noall +answer A "$domain" @127.0.0.11 | awk '$4 == "A" {print $5}')
+    ips=$(dig +noall +answer A "$domain" @"$DNS_SERVER" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
         echo "ERROR: Failed to resolve $domain"
         exit 1
@@ -131,9 +143,9 @@ for domain in \
             echo "ERROR: Invalid IP from DNS for $domain: $ip"
             exit 1
         fi
-        echo "Adding $ip for $domain"
         ipset add allowed-domains "$ip" -exist
     done < <(echo "$ips")
+    echo "  $domain -> $(echo "$ips" | tr '\n' ' ')"
 done
 
 # Remove temporary broad outbound rules now that ipset is populated
