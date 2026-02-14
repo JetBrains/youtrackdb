@@ -70,6 +70,27 @@ fi
 CPU_LIMIT=$(nproc | awk '{printf "%.2f", $1 * 0.85}')
 echo "CPU limit: ${CPU_LIMIT} cores (85% of $(nproc))"
 
+# Resolve git worktree parent directory for mounting.
+# Git worktrees store a .git *file* (not directory) whose gitdir points to
+# <parent-repo>/.git/worktrees/<name>.  Inside the container only /workspace
+# is mounted, so the parent .git is unreachable.  We mount it at the same
+# absolute host path so the gitdir reference works inside the container.
+GIT_WORKTREE_MOUNT=()
+if [ -f "${SCRIPT_DIR}/.git" ]; then
+  # Git worktree — .git is a file pointing to the parent repo
+  WORKTREE_GITDIR=$(sed 's/^gitdir: //' "${SCRIPT_DIR}/.git" | tr -d '[:space:]')
+  if [ ! -d "${WORKTREE_GITDIR}" ]; then
+    echo "ERROR: Git worktree gitdir '${WORKTREE_GITDIR}' not found."
+    exit 1
+  fi
+  GIT_COMMON_DIR=$(cd "${WORKTREE_GITDIR}" && cd "$(cat commondir)" && pwd)
+  echo "Git worktree detected. Mounting parent .git: ${GIT_COMMON_DIR}"
+  GIT_WORKTREE_MOUNT=(-v "${GIT_COMMON_DIR}:${GIT_COMMON_DIR}:delegated")
+elif [ ! -d "${SCRIPT_DIR}/.git" ]; then
+  echo "ERROR: '${SCRIPT_DIR}' is not a git repository."
+  exit 1
+fi
+
 # Assemble docker run command
 run_cmd=(
   docker run
@@ -84,6 +105,9 @@ run_cmd=(
 
   # Workspace bind mount
   -v "${SCRIPT_DIR}:/workspace:delegated"
+
+  # Git worktree parent .git directory (resolved above, empty for regular clones)
+  "${GIT_WORKTREE_MOUNT[@]}"
 
   # Persistent volumes
   -v "ytdb-claude-bashhistory:/commandhistory"
