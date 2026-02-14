@@ -16,17 +16,17 @@ Review the changed files in the current git branch, providing actionable feedbac
 
 First, identify what has changed by running:
 ```
-git diff main...HEAD --name-only
+git diff develop...HEAD --name-only
 ```
 
-If the main branch has a different name (master, develop, etc.), adapt accordingly. Then examine the actual changes:
+If the base branch has a different name (main, master, etc.), adapt accordingly. Then examine the actual changes:
 ```
-git diff main...HEAD
+git diff develop...HEAD
 ```
 
 Also review the commit history for context:
 ```
-git log main..HEAD --oneline
+git log develop..HEAD --oneline
 ```
 
 ### Step 2: Analyze Each Changed File

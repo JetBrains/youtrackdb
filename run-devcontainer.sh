@@ -6,11 +6,12 @@ CONTAINER_NAME="ytdb-claude-sandbox"
 MAX_AGE_SECONDS=86400  # 1 day
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Build args matching devcontainer.json
+# Build args — read from devcontainer.json (single source of truth)
 TZ="${TZ:-America/Los_Angeles}"
-CLAUDE_CODE_VERSION="latest"
-GIT_DELTA_VERSION="0.18.2"
-ZSH_IN_DOCKER_VERSION="1.2.0"
+DEVCONTAINER_JSON="${SCRIPT_DIR}/.devcontainer/devcontainer.json"
+CLAUDE_CODE_VERSION=$(jq -r '.build.args.CLAUDE_CODE_VERSION' "$DEVCONTAINER_JSON")
+GIT_DELTA_VERSION=$(jq -r '.build.args.GIT_DELTA_VERSION' "$DEVCONTAINER_JSON")
+ZSH_IN_DOCKER_VERSION=$(jq -r '.build.args.ZSH_IN_DOCKER_VERSION' "$DEVCONTAINER_JSON")
 
 # Cross-platform date-to-epoch (GNU and BSD/macOS)
 date_to_epoch() {
@@ -19,9 +20,10 @@ date_to_epoch() {
     # GNU date
     date -d "${timestamp}" +%s
   else
-    # BSD/macOS date — strip fractional seconds, timezone suffixes
+    # BSD/macOS date — strip fractional seconds and timezone suffixes
+    # Handles: 2024-02-14T10:30:00.123Z, +00:00, -05:00
     local cleaned
-    cleaned=$(echo "$timestamp" | sed 's/[.+].*//' | sed 's/Z$//' | sed 's/T/ /')
+    cleaned=$(echo "$timestamp" | sed 's/T/ /' | sed 's/[.][0-9]*//' | sed 's/[Zz]$//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
     date -j -f "%Y-%m-%d %H:%M:%S" "${cleaned}" +%s
   fi
 }

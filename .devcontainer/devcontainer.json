@@ -25,7 +25,8 @@
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
     "JAVA_HOME": "/usr/lib/jvm/temurin-21-jdk",
-    "JETBRAINS_MCP_PORT": "64342"
+    "JETBRAINS_MCP_PORT": "64342",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
