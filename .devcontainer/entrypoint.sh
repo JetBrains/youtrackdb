@@ -27,5 +27,8 @@ if ! /usr/local/bin/init-firewall.sh; then
     exit 1
 fi
 
-# Drop privileges and start interactive shell
+# Drop privileges and start interactive shell.
+# Set HOME explicitly — the container starts as root so HOME=/root,
+# but all user files (SSH keys, Claude config) are under /home/node.
+export HOME=/home/node
 exec runuser -u node -- zsh

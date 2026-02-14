@@ -123,6 +123,7 @@ echo "Added $GH_CIDR_COUNT GitHub CIDR ranges"
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
+    "console.anthropic.com" \
     "sentry.io" \
     "statsig.anthropic.com" \
     "statsig.com" \

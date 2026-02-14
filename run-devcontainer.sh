@@ -136,22 +136,19 @@ run_cmd=(
   -e "CLAUDE_CONFIG_DIR=/home/node/.claude"
   -e "POWERLEVEL9K_DISABLE_GITSTATUS=true"
   -e "JAVA_HOME=/usr/lib/jvm/temurin-21-jdk"
-  -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}"
   -e "JETBRAINS_MCP_PORT=${JETBRAINS_MCP_PORT:-64342}"
   -e "HOST_UID=$(id -u)"
   -e "HOST_GID=$(id -g)"
 )
 
-# Claude MCP config (read-only, provides GitHub MCP server access)
+# Claude user config (needed for MCP servers, settings; auth stored in persistent volume)
 if [ -f "${HOME}/.claude.json" ]; then
   run_cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json:ro")
-else
-  echo "WARNING: ~/.claude.json not found. MCP servers will not be configured."
 fi
 
 run_cmd+=(
   "${IMAGE_NAME}"
-  /usr/local/bin/entrypoint.sh
+  /workspace/.devcontainer/entrypoint.sh
 )
 
 # Wrap with systemd-inhibit if available to prevent sleep
