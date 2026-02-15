@@ -139,10 +139,18 @@ run_cmd+=(
   /workspace/.devcontainer/entrypoint.sh
 )
 
+# Clean up container-specific settings on the host side.  The entrypoint has its
+# own trap, but it won't fire on SIGKILL / docker rm -f / host crash.  By
+# removing exec we keep this shell alive so the EXIT trap always runs.
+cleanup() {
+  rm -f "${SCRIPT_DIR}/.claude/settings.local.json" "${SCRIPT_DIR}/.mcp.json"
+}
+trap cleanup EXIT
+
 # Wrap with systemd-inhibit if available to prevent sleep
 if command -v systemd-inhibit >/dev/null 2>&1; then
   echo "Using systemd-inhibit to prevent sleep."
-  exec systemd-inhibit --what=sleep --who="ytdb-devcontainer" --why="Dev container session active" --mode=block "${run_cmd[@]}"
+  systemd-inhibit --what=sleep --who="ytdb-devcontainer" --why="Dev container session active" --mode=block "${run_cmd[@]}"
 else
-  exec "${run_cmd[@]}"
+  "${run_cmd[@]}"
 fi
