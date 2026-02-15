@@ -7,12 +7,9 @@ on:
         required: false
         type: boolean
         default: false
-  workflow_run:
-    workflows: ["Java CI/CD Pipeline"]
-    types: [completed]
 
 concurrency:
-  group: qodana-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: qodana-${{ github.sha }}
   cancel-in-progress: true
 
 env:
@@ -27,23 +24,12 @@ jobs:
       checks: write
       actions: read
     env:
-      RUN_CLEANUP: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup == true }}
+      RUN_CLEANUP: ${{ inputs.cleanup == true }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
           lfs: true
-
-      - name: Download Coverage Data
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-data
-          path: .qodana/code-coverage
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.3

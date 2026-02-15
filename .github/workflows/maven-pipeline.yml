@@ -131,7 +131,46 @@ jobs:
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
     # ------------------------------------------------------------------
-    # JOB 3: DEPLOY
+    # JOB 3: QODANA
+    # Runs after Linux tests to pick up coverage data
+    # ------------------------------------------------------------------
+  qodana:
+    name: Qodana Scan
+    needs: [test-linux]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Download Coverage Data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-data
+          path: .qodana/code-coverage
+        continue-on-error: true
+
+      - name: Qodana Scan
+        uses: JetBrains/qodana-action@v2025.3
+        with:
+          args: >-
+            --linter, jetbrains/qodana-jvm:2025.3,
+            --baseline, .github/workflows/qodana.sarif.json
+          pr-mode: 'true'
+          push-fixes: none
+          artifact-name: qodana-report
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+    # ------------------------------------------------------------------
+    # JOB 4: DEPLOY
     # Runs only if all Test jobs pass. Uses JDK 21
     # ------------------------------------------------------------------
   deploy:
