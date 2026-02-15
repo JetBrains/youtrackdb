@@ -8,6 +8,10 @@ on:
   merge_group:
     types: [ checks_requested ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   checks: write
@@ -126,10 +130,79 @@ jobs:
           comment_mode: off
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
-    # ------------------------------------------------------------------
-    # JOB 3: DEPLOY
-    # Runs only if all Test jobs pass. Uses JDK 21
-    # ------------------------------------------------------------------
+  # ------------------------------------------------------------------
+  # JOB 3: COVERAGE REPORT
+  # Posts JaCoCo coverage summary as a PR comment
+  # ------------------------------------------------------------------
+  coverage-report:
+    name: Coverage Report
+    needs: [ test-linux ]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Download Coverage Data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-data
+          path: .qodana/code-coverage
+
+      - name: JaCoCo Coverage Report
+        uses: Madrapps/jacoco-report@v1.7.2
+        with:
+          paths: .qodana/code-coverage/**/jacoco.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "# Coverage Report"
+          update-comment: true
+          min-coverage-overall: 0
+          min-coverage-changed-files: 0
+
+  # ------------------------------------------------------------------
+  # JOB 4: QODANA
+  # Runs after Linux tests to pick up coverage data
+  # ------------------------------------------------------------------
+  qodana:
+    name: Qodana Scan
+    needs: [ test-linux ]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Download Coverage Data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-data
+          path: .qodana/code-coverage
+        continue-on-error: true
+
+      - name: Qodana Scan
+        uses: JetBrains/qodana-action@v2025.3
+        with:
+          args: >-
+            --linter, jetbrains/qodana-jvm:2025.3,
+            --baseline, .github/workflows/qodana.sarif.json
+          pr-mode: 'true'
+          push-fixes: none
+          upload-result: true
+          artifact-name: qodana-report
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+  # ------------------------------------------------------------------
+  # JOB 5: DEPLOY
+  # Runs only if all Test jobs pass. Uses JDK 21
+  # ------------------------------------------------------------------
   deploy:
     needs: [ test-linux, test-windows ]
     runs-on: ubuntu-latest
