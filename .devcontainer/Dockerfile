@@ -9,6 +9,7 @@ ARG CLAUDE_CODE_VERSION=latest
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less \
   git \
+  git-lfs \
   procps \
   sudo \
   fzf \
@@ -16,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   man-db \
   unzip \
   gnupg2 \
+  curl \
+  python3 \
   iptables \
   ipset \
   iproute2 \
@@ -26,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   vim \
   wget \
   ca-certificates \
+  && git lfs install --system \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Eclipse Temurin JDK 21
