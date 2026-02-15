@@ -12,6 +12,32 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 - **Issue tracker**: https://youtrack.jetbrains.com/issues/YTDB
 - **Repository**: https://github.com/JetBrains/youtrackdb
 
+## Dev Container Environment
+
+Check the `YTDB_DEV_CONTAINER` environment variable to detect whether you are running inside the dev container. When `YTDB_DEV_CONTAINER=1`, the following constraints and conventions apply:
+
+### Network restrictions
+The container runs behind an iptables firewall that only allows traffic to an approved allowlist of domains (GitHub, Anthropic, Maven Central, npm registry, and a few others). All other outbound traffic is blocked. Do not attempt to fetch resources from arbitrary URLs — they will fail silently or time out.
+
+### No Docker-in-Docker
+Docker is not available inside the container. You cannot build Docker images or run containers. Skip any steps that require Docker (e.g., `./mvnw clean package -P docker-images`, docker-tests).
+
+### Workspace layout
+- `/workspace` — the bind-mounted repository root (your working directory)
+- Git operations work normally over HTTPS via the `gh` credential helper. SSH is blocked.
+
+### Git worktree support
+When the container was launched from a git worktree (not the main repo clone), the entire main repository is mounted at its host absolute path so that git refs resolve correctly. Two additional helpers are available:
+- `MAIN_REPO_PATH` env var — the host absolute path of the main repository (empty string if not a worktree)
+- `/main-repo` symlink — convenience link to the main repository root (only exists in worktree mode)
+
+You can use these to access files in the main repo when working from a worktree checkout.
+
+### What to skip in the dev container
+- **Docker image builds** (`-P docker-images`) — no Docker daemon
+- **Docker tests** (`docker-tests` module) — no Docker daemon
+- **Integration tests that need external services** not on the firewall allowlist
+
 ## Build Commands
 
 ```bash
