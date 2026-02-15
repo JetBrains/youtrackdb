@@ -35,7 +35,7 @@ The container uses the GitHub CLI (`gh`) for git operations and the GitHub MCP s
 
 Create a PAT at https://github.com/settings/personal-access-tokens with these minimal permissions:
 - **Repository access**: Only the repositories you need (e.g., `JetBrains/youtrackdb`)
-- **Permissions**: Contents (read/write), Pull requests (read/write), Issues (read)
+- **Permissions**: Contents (read/write), Pull requests (read/write), Actions (read)
 
 On first launch, run these commands inside the container:
 
