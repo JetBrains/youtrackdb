@@ -2,7 +2,7 @@
 set -euo pipefail
 
 IMAGE_NAME="ytdb-devcontainer"
-MAX_AGE_SECONDS=86400  # 1 day
+MAX_IMAGE_AGE_SECONDS=86400  # 1 day
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Derive a unique container name from the worktree directory name so that
@@ -54,16 +54,28 @@ else
   now_epoch=$(date +%s)
   age=$(( now_epoch - created_epoch ))
 
-  if [ "${age}" -ge "${MAX_AGE_SECONDS}" ]; then
-    # Safety check: refuse to rebuild if the image is in use by running containers
+  if [ "${age}" -ge "${MAX_IMAGE_AGE_SECONDS}" ]; then
+    echo "Image '${IMAGE_NAME}' is older than 1 day ($(( age / 3600 ))h). Checking for blocking containers..."
+
+    # Remove all stopped containers referencing this image — they are stale
+    # and would prevent `docker rmi` from succeeding.
+    stopped_ids=$(docker ps -aq --filter "ancestor=${IMAGE_NAME}" --filter "status=exited" --filter "status=created" --filter "status=dead")
+    if [ -n "${stopped_ids}" ]; then
+      echo "Removing stopped container(s) blocking image rebuild:"
+      for cid in ${stopped_ids}; do
+        docker inspect --format "  - {{.Name}} ({{.Id | printf \"%.12s\"}})" "${cid}"
+        docker rm "${cid}" >/dev/null
+      done
+    fi
+
+    # If running containers still reference the image, we cannot rebuild.
     running_containers=$(docker ps -q --filter "ancestor=${IMAGE_NAME}")
     if [ -n "${running_containers}" ]; then
-      echo "WARNING: Image '${IMAGE_NAME}' is stale ($(( age / 3600 ))h old) but cannot be rebuilt"
-      echo "         because it is currently used by running container(s):"
+      echo "WARNING: Cannot rebuild — image is still used by running container(s):"
       docker ps --filter "ancestor=${IMAGE_NAME}" --format "         - {{.Names}} ({{.ID}}, up {{.RunningFor}})"
       echo "         Reusing the existing image. Stop the above container(s) and re-run to rebuild."
     else
-      echo "Image '${IMAGE_NAME}' is older than 1 day ($(( age / 3600 ))h). Rebuilding..."
+      echo "Rebuilding..."
       docker rmi "${IMAGE_NAME}" || true
       build_image
     fi
