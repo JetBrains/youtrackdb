@@ -75,7 +75,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test
   public void create() {
+    session.begin();
     startRecordNumber = session.countClass("Account");
+    session.rollback();
 
     Entity address;
 
@@ -106,7 +108,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "create")
   public void testCreate() {
+    session.begin();
     Assert.assertEquals(session.countClass("Account") - startRecordNumber, TOT_RECORDS_ACCOUNT);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testCreate")
@@ -116,7 +120,9 @@ public class CRUDTest extends BaseDBTest {
     var dummyClass = schema.createClass("Dummy");
     dummyClass.createProperty("name", PropertyType.STRING);
 
+    session.begin();
     Assert.assertEquals(session.countClass("Dummy"), 0);
+    session.rollback();
     Assert.assertNotNull(schema.getClass("Dummy"));
   }
 
@@ -2492,7 +2498,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testUpdate")
   public void checkLazyLoadingOff() {
+    session.begin();
     var profiles = session.countClass("Profile");
+    session.rollback();
 
     session.begin();
     var neo = session.newEntity("Profile");
@@ -2601,7 +2609,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "queryCross3Levels")
   public void deleteFirst() {
+    session.begin();
     startRecordNumber = session.countClass("Account");
+    session.rollback();
 
     // DELETE ALL THE RECORD IN THE CLASS
     session.forEachInTx(session.browseClass("Account"),
@@ -2610,7 +2620,9 @@ public class CRUDTest extends BaseDBTest {
           return false;
         }));
 
+    session.begin();
     Assert.assertEquals(session.countClass("Account"), startRecordNumber - 1);
+    session.rollback();
   }
 
   @Test
@@ -2818,7 +2830,9 @@ public class CRUDTest extends BaseDBTest {
   public void testSaveMultiCircular() {
     session = createSessionInstance();
     try {
+      session.begin();
       startRecordNumber = session.countCollectionElements("Profile");
+      session.rollback();
       session.begin();
       var bObama = session.newInstance("Profile");
       bObama.setProperty("nick", "TheUSPresident");

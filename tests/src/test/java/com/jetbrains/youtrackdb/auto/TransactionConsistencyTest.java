@@ -61,8 +61,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     RID vDocA_Rid = vDocA_db1.getIdentity().copy();
     RID vDocB_Rid = vDocB_db1.getIdentity().copy();
 
-    var vDocA_version = -1;
-    var vDocB_version = -1;
+    var vDocA_version = -1L;
+    var vDocB_version = -1L;
 
     database2 = acquireSession();
     database2.begin();
@@ -465,7 +465,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     var chunkSize = 10;
     for (var initialValue = 0; initialValue < 10; initialValue++) {
+      session.begin();
       Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
+      session.rollback();
 
       System.out.println(
           "[testTransactionPopulateDelete] Populating chunk "
@@ -509,7 +511,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
       System.out.println("[testTransactionPopulateDelete] Deleted executed successfully");
 
+      session.begin();
       Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
+      session.rollback();
     }
 
     System.out.println("[testTransactionPopulateDelete] End of the test");

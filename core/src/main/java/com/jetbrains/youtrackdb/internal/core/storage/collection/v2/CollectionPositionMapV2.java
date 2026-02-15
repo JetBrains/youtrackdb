@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.Arrays;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.ArrayUtils;
 
@@ -219,7 +220,27 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     }
   }
 
-  public void remove(final long collectionPosition, final AtomicOperation atomicOperation)
+  @Nonnull
+  public CollectionPositionMapBucket.EntryWithStatus getWithStatus(
+      final long collectionPosition, final AtomicOperation atomicOperation) throws IOException {
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
+    final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    final var lastPage = getLastPage(atomicOperation);
+
+    if (pageIndex > lastPage) {
+      return new CollectionPositionMapBucket.EntryWithStatus(
+          CollectionPositionMapBucket.NOT_EXISTENT, null);
+    }
+
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var bucket = new CollectionPositionMapBucket(cacheEntry);
+      return bucket.getEntryWithStatus(index);
+    }
+  }
+
+  public void remove(final long collectionPosition, final long deletionVersion,
+      final AtomicOperation atomicOperation)
       throws IOException {
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
@@ -228,7 +249,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
 
-      bucket.remove(index);
+      bucket.remove(index, deletionVersion);
     }
   }
 
@@ -528,6 +549,41 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   /* void replaceFileId(final long newFileId) {
     this.fileId = newFileId;
   }*/
+
+  /// Visitor callback for iterating over all position map entries, including
+  /// both {@link CollectionPositionMapBucket#FILLED} and
+  /// {@link CollectionPositionMapBucket#REMOVED} entries.
+  interface EntryVisitor {
+
+    void visit(long position, byte status, long recordVersion);
+  }
+
+  /// Iterates over all entries in the position map, including removed (tombstone) entries.
+  /// For each entry with status {@link CollectionPositionMapBucket#FILLED} or
+  /// {@link CollectionPositionMapBucket#REMOVED}, the visitor is called with the entry's
+  /// collection position, status, and record version.
+  /// {@link CollectionPositionMapBucket#ALLOCATED} entries are skipped.
+  void forEachEntry(AtomicOperation atomicOperation, EntryVisitor visitor)
+      throws IOException {
+    final var lastPage = getLastPage(atomicOperation);
+    for (long pageIndex = 1; pageIndex <= lastPage; pageIndex++) {
+      try (final var cacheEntry =
+          loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var bucket = new CollectionPositionMapBucket(cacheEntry);
+        final var bucketSize = bucket.getSize();
+        final var startPosition =
+            (pageIndex - 1) * CollectionPositionMapBucket.MAX_ENTRIES;
+
+        for (var i = 0; i < bucketSize; i++) {
+          final var status = bucket.getStatus(i);
+          if (status == CollectionPositionMapBucket.FILLED
+              || status == CollectionPositionMapBucket.REMOVED) {
+            visitor.visit(startPosition + i, status, bucket.getRecordVersionAt(i));
+          }
+        }
+      }
+    }
+  }
 
   public static final class CollectionPositionEntry {
 

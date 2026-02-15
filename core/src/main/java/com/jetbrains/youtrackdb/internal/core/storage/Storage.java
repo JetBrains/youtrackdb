@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponents
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
@@ -45,7 +46,7 @@ import javax.annotation.Nullable;
  *
  * @see DirectMemoryStorage
  */
-public interface Storage extends StorageInfo {
+public interface Storage {
 
   enum STATUS {
     CLOSED,
@@ -76,16 +77,15 @@ public interface Storage extends StorageInfo {
 
   // CRUD OPERATIONS
   @Nonnull
-  RawBuffer readRecord(RecordIdInternal iRid);
+  RawBuffer readRecord(RecordIdInternal iRid, @Nonnull AtomicOperation atomicOperation);
 
-  boolean recordExists(DatabaseSessionEmbedded session, RID rid);
+  boolean recordExists(DatabaseSessionEmbedded session, RID rid, AtomicOperation atomicOperation);
 
   RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session, final RID rid);
 
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
 
-  @Override
   Set<String> getCollectionNames();
 
   Collection<? extends StorageCollection> getCollectionInstances();
@@ -125,10 +125,6 @@ public interface Storage extends StorageInfo {
 
   String getCollectionNameById(final int collectionId);
 
-  long getCollectionRecordsSizeById(final int collectionId);
-
-  long getCollectionRecordsSizeByName(final String collectionName);
-
   String getCollectionRecordConflictStrategy(final int collectionId);
 
   boolean isSystemCollection(final int collectionId);
@@ -141,11 +137,6 @@ public interface Storage extends StorageInfo {
 
   long count(DatabaseSessionEmbedded session, int[] iCollectionIds, boolean countTombstones);
 
-  /**
-   * Returns the size of the database.
-   */
-  long getSize(DatabaseSessionEmbedded session);
-
   AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session, RecordIdInternal identity,
       String fieldName, RID rid);
 
@@ -154,13 +145,10 @@ public interface Storage extends StorageInfo {
    */
   long countRecords(DatabaseSessionEmbedded session);
 
-  @Override
   int getCollectionIdByName(String iCollectionName);
 
-  @Override
   String getPhysicalCollectionNameById(int iCollectionId);
 
-  @Override
   String getName();
 
   long getVersion();
@@ -198,14 +186,12 @@ public interface Storage extends StorageInfo {
 
   boolean isRemote();
 
-  @Override
   boolean isAssigningCollectionIds();
 
   LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 
-  @Override
   RecordConflictStrategy getRecordConflictStrategy();
 
   void setConflictStrategy(RecordConflictStrategy iResolver);
@@ -232,10 +218,6 @@ public interface Storage extends StorageInfo {
   void setDateTimeFormat(String dateTimeFormat);
 
   void setLocaleCountry(String localeCountry);
-
-  void setCollectionSelection(String collectionSelection);
-
-  void setMinimumCollections(int minimumCollections);
 
   void setValidation(boolean validation);
 

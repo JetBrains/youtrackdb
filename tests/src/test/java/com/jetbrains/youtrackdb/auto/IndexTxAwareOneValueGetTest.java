@@ -31,12 +31,14 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
 
@@ -49,6 +51,7 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.rollback();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
@@ -58,6 +61,7 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     try (var stream = index.getRids(session, 3)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test
@@ -78,12 +82,14 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     final var tx = session.begin();
 
@@ -101,12 +107,14 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.rollback();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test
@@ -127,12 +135,14 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
 
@@ -174,9 +184,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     }
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test
@@ -198,9 +210,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     newDoc(2);
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test
@@ -222,9 +236,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test
@@ -247,9 +263,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void testInsertionDeletionInsideTx() {

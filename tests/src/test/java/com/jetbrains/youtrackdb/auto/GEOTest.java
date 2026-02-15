@@ -73,6 +73,7 @@ public class GEOTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "queryCreatePoints")
   public void queryDistance() {
+    session.begin();
     Assert.assertEquals(session.countClass("MapPoint"), 10000);
 
     var result =
@@ -85,6 +86,7 @@ public class GEOTest extends BaseDBTest {
       Assert.assertEquals(d.asEntity().getSchemaClassName(), "MapPoint");
       Assert.assertEquals(((EntityImpl) d.asEntity()).getRecordType(), EntityImpl.RECORD_TYPE);
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "queryCreatePoints")

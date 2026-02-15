@@ -540,7 +540,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         // SWITCH TO ABSTRACT
         if (defaultCollectionId != NOT_EXISTENT_COLLECTION_ID) {
           // CHECK
-          if (count(database) > 0) {
+          if (database.computeInTxInternal(tx -> count(database)) > 0) {
             throw new IllegalStateException(
                 "Cannot set the class as abstract because contains records.");
           }
@@ -588,7 +588,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   private void tryDropCollection(DatabaseSessionEmbedded session, final int collectionId) {
     if (name.toLowerCase(Locale.ENGLISH).equals(session.getCollectionNameById(collectionId))) {
       // DROP THE DEFAULT COLLECTION CALLED WITH THE SAME NAME ONLY IF EMPTY
-      if (session.countCollectionElements(collectionId) == 0) {
+      if (session.computeInTxInternal(
+          tx -> (long) session.countCollectionElements(collectionId)) == 0) {
         session.dropCollectionInternal(collectionId);
       }
     }

@@ -36,8 +36,8 @@ public class ConcurrentModificationException extends NeedRetryException
   private static final long serialVersionUID = 1L;
 
   private RID rid;
-  private int databaseVersion = 0;
-  private int recordVersion = 0;
+  private long databaseVersion = 0;
+  private long recordVersion = 0;
   private int recordOperation;
 
   public ConcurrentModificationException(ConcurrentModificationException exception) {
@@ -55,8 +55,8 @@ public class ConcurrentModificationException extends NeedRetryException
 
   public ConcurrentModificationException(
       String dbName, final RID iRID,
-      final int iDatabaseVersion,
-      final int iRecordVersion,
+      final long iDatabaseVersion,
+      final long iRecordVersion,
       final int iRecordOperation) {
     super(dbName,
         makeMessage(iRecordOperation, iRID, iDatabaseVersion, iRecordVersion),
@@ -88,11 +88,11 @@ public class ConcurrentModificationException extends NeedRetryException
     return Objects.hash(rid, databaseVersion, recordVersion, recordOperation);
   }
 
-  public int getEnhancedDatabaseVersion() {
+  public long getEnhancedDatabaseVersion() {
     return databaseVersion;
   }
 
-  public int getEnhancedRecordVersion() {
+  public long getEnhancedRecordVersion() {
     return recordVersion;
   }
 
@@ -101,7 +101,7 @@ public class ConcurrentModificationException extends NeedRetryException
   }
 
   private static String makeMessage(
-      int recordOperation, RID rid, int databaseVersion, int recordVersion) {
+      int recordOperation, RID rid, long databaseVersion, long recordVersion) {
     final var operation = RecordOperation.getName(recordOperation);
 
     final var sb =

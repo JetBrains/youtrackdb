@@ -323,8 +323,10 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
+    session.begin();
     Assert.assertNull(fetchDocumentFromIndex("Name2"));
     Assert.assertNull(fetchDocumentFromIndex("same"));
+    session.rollback();
   }
 
   @Test(expected = RecordDuplicatedException.class)

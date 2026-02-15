@@ -19,10 +19,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -36,6 +36,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -64,10 +65,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -90,6 +91,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         dataOutputStream.writeInt(startLsn.getPosition());
         dataOutputStream.writeLong(endLsn.getSegment());
         dataOutputStream.writeInt(endLsn.getPosition());
+        dataOutputStream.writeLong(42L);
 
         dataOutputStream.flush();
 
@@ -121,7 +123,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var dataOutputStream = new DataOutputStream(outputStream)) {
@@ -134,6 +136,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -157,7 +160,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -171,6 +174,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -198,7 +202,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -212,6 +216,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -257,7 +262,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 2;
+    final var backupFormatVersion = 3;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -271,6 +276,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -298,7 +304,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -312,6 +318,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -339,7 +346,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -353,6 +360,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -380,7 +388,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(-1, -1);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -394,6 +402,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -422,7 +431,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -436,6 +445,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -477,10 +487,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -494,6 +504,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -522,11 +533,11 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var sequenceNumber = 1;
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     // When startLsn is (-1, -1), the returned metadata should have null startLsn
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, null, endLsn);
+        sequenceNumber, null, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -540,6 +551,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(-1);  // startLsn position
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -569,10 +581,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -597,6 +609,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         dataOutputStream.writeInt(startLsn.getPosition());
         dataOutputStream.writeLong(endLsn.getSegment());
         dataOutputStream.writeInt(endLsn.getPosition());
+        dataOutputStream.writeLong(42L);
 
         dataOutputStream.flush();
 
@@ -627,7 +640,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -641,6 +654,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(-1); // Invalid segment
       dataOutputStream.writeInt(2);   // Valid position
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -668,7 +682,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -682,6 +696,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(2);  // Valid segment
       dataOutputStream.writeInt(-1);  // Invalid position
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -710,11 +725,11 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -728,6 +743,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -759,7 +775,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -773,6 +789,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -800,11 +817,11 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var sequenceNumber = 1;
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     // When only segment is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, null, endLsn);
+        sequenceNumber, null, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -818,6 +835,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(1);   // startLsn position is valid
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -847,11 +865,11 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var sequenceNumber = 1;
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     // When only position is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, null, endLsn);
+        sequenceNumber, null, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -865,6 +883,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(-1);  // startLsn position is -1
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -895,7 +914,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -909,6 +928,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -938,10 +958,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -965,6 +985,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         dataOutputStream.writeInt(startLsn.getPosition());
         dataOutputStream.writeLong(endLsn.getSegment());
         dataOutputStream.writeInt(endLsn.getPosition());
+        dataOutputStream.writeLong(42L);
 
         dataOutputStream.flush();
 
@@ -1024,10 +1045,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1041,6 +1062,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 
@@ -1113,11 +1135,11 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var sequenceNumber = 1;
     final var startLsn = new LogSequenceNumber(1, 1);
     final var endLsn = new LogSequenceNumber(2, 2);
-    final var backupFormatVersion = 1;
+    final var backupFormatVersion = 2;
 
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
-        sequenceNumber, startLsn, endLsn);
+        sequenceNumber, startLsn, endLsn, 42L);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1132,6 +1154,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeInt(startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
+      dataOutputStream.writeLong(42L);
 
       dataOutputStream.flush();
 

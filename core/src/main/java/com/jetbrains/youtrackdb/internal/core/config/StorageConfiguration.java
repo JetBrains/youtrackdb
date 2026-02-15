@@ -28,8 +28,6 @@ public interface StorageConfiguration {
 
   int getMinimumCollections();
 
-  boolean isStrictSql();
-
   String getIndexMgrRecordId();
 
   @Nullable
@@ -54,15 +52,15 @@ public interface StorageConfiguration {
   boolean isValidationEnabled();
 
   @Nullable
-  IndexEngineData getIndexEngine(String name, int defaultIndexId);
+  IndexEngineData getIndexEngine(String name, int defaultIndexId, AtomicOperation atomicOperation);
 
   String getRecordSerializer();
 
   int getRecordSerializerVersion();
 
-  int getBinaryFormatVersion();
+  int getBinaryFormatVersion(AtomicOperation atomicOperation);
 
-  int getVersion();
+  int getVersion(AtomicOperation atomicOperation);
 
   @Nullable
   String getName();
@@ -76,13 +74,13 @@ public interface StorageConfiguration {
 
   String getCreatedAtVersion();
 
-  Set<String> indexEngines();
+  Set<String> indexEngines(AtomicOperation atomicOperation);
 
-  int getPageSize();
+  int getPageSize(AtomicOperation atomicOperation);
 
-  int getFreeListBoundary();
+  int getFreeListBoundary(AtomicOperation atomicOperation);
 
-  int getMaxKeySize();
+  int getMaxKeySize(AtomicOperation atomicOperation);
 
   void setUuid(AtomicOperation atomicOperation, final String uuid);
 

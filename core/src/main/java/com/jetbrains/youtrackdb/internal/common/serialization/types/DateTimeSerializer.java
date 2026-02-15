@@ -81,14 +81,14 @@ public class DateTimeSerializer implements BinarySerializer<Date> {
       Object... hints) {
     final var calendar = Calendar.getInstance();
     calendar.setTime(object);
-    LongSerializer.INSTANCE.serializeNative(calendar.getTimeInMillis(), stream, startPosition);
+    LongSerializer.serializeNative(calendar.getTimeInMillis(), stream, startPosition);
   }
 
   @Override
   public Date deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     final var calendar = Calendar.getInstance();
-    calendar.setTimeInMillis(LongSerializer.INSTANCE.deserializeNative(stream, startPosition));
+    calendar.setTimeInMillis(LongSerializer.deserializeNative(stream, startPosition));
     return calendar.getTime();
   }
 

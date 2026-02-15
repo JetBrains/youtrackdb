@@ -162,7 +162,7 @@ public class SQLWhereClause extends SimpleNode {
         try (var rids = index.getRids(session, key)) {
           return rids.count();
         }
-      } else if (index.supportsOrderedIterations()) {
+      } else {
         final Spliterator<RawPair<Object, RID>> spliterator;
 
         try (var stream =

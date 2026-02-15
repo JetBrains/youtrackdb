@@ -50,7 +50,7 @@ public class FreeSpaceMapTestIT {
     final var databaseDocumentTx =
         youTrackDB.open(dbName, "admin", "admin");
 
-    storage = (AbstractStorage) databaseDocumentTx.getStorage();
+    storage = databaseDocumentTx.getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseDocumentTx.close();
   }
@@ -66,9 +66,7 @@ public class FreeSpaceMapTestIT {
     freeSpaceMap = new FreeSpaceMap(storage, "freeSpaceMap", ".fsm", "freeSpaceMap");
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        atomicOperation -> {
-          freeSpaceMap.create(atomicOperation);
-        });
+        atomicOperation -> freeSpaceMap.create(atomicOperation));
   }
 
   @Test
@@ -76,7 +74,7 @@ public class FreeSpaceMapTestIT {
     atomicOperationsManager.executeInsideAtomicOperation(
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 512);
-          Assert.assertEquals(3, freeSpaceMap.findFreePage(259));
+          Assert.assertEquals(3, freeSpaceMap.findFreePage(259, operation));
         });
   }
 
@@ -85,7 +83,7 @@ public class FreeSpaceMapTestIT {
     atomicOperationsManager.executeInsideAtomicOperation(
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 128956, 512);
-          Assert.assertEquals(128956, freeSpaceMap.findFreePage(259));
+          Assert.assertEquals(128956, freeSpaceMap.findFreePage(259, operation));
         });
   }
 
@@ -97,7 +95,7 @@ public class FreeSpaceMapTestIT {
           freeSpaceMap.updatePageFreeSpace(operation, 4, 2029);
           freeSpaceMap.updatePageFreeSpace(operation, 5, 3029);
 
-          Assert.assertEquals(4, freeSpaceMap.findFreePage(1024));
+          Assert.assertEquals(4, freeSpaceMap.findFreePage(1024, operation));
         });
   }
 
@@ -109,7 +107,7 @@ public class FreeSpaceMapTestIT {
           freeSpaceMap.updatePageFreeSpace(operation, 4, 2029);
           freeSpaceMap.updatePageFreeSpace(operation, 5, 3029);
 
-          Assert.assertEquals(5, freeSpaceMap.findFreePage(2050));
+          Assert.assertEquals(5, freeSpaceMap.findFreePage(2050, operation));
         });
   }
 
@@ -140,16 +138,18 @@ public class FreeSpaceMapTestIT {
           });
     }
 
-    for (var i = 0; i < checks; i++) {
-      final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
-      final var pageIndex = freeSpaceMap.findFreePage(freeSpace);
-      final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
-      if (freeSpaceIndex < maxFreeSpaceIndex[0]) {
-        Assert.assertTrue(pageSpaceMap.get(pageIndex) >= freeSpace);
-      } else {
-        Assert.assertEquals(-1, pageIndex);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (var i = 0; i < checks; i++) {
+        final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
+        final var pageIndex = freeSpaceMap.findFreePage(freeSpace, atomicOperation);
+        final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
+        if (freeSpaceIndex < maxFreeSpaceIndex[0]) {
+          Assert.assertTrue(pageSpaceMap.get(pageIndex) >= freeSpace);
+        } else {
+          Assert.assertEquals(-1, pageIndex);
+        }
       }
-    }
+    });
   }
 
   @Test
@@ -220,19 +220,21 @@ public class FreeSpaceMapTestIT {
           });
     }
 
-    final var maxFreeSpaceIndex =
-        inMemoryFreeSpaceMap.lastKey() / FreeSpaceMap.NORMALIZATION_INTERVAL;
-    for (var i = 0; i < checks; i++) {
-      final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
-      final var pageIndex = freeSpaceMap.findFreePage(freeSpace);
-      final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      final var maxFreeSpaceIndex =
+          inMemoryFreeSpaceMap.lastKey() / FreeSpaceMap.NORMALIZATION_INTERVAL;
+      for (var i = 0; i < checks; i++) {
+        final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
+        final var pageIndex = freeSpaceMap.findFreePage(freeSpace, atomicOperation);
+        final var freeSpaceIndex = freeSpace / FreeSpaceMap.NORMALIZATION_INTERVAL;
 
-      if (freeSpaceIndex < maxFreeSpaceIndex) {
-        Assert.assertTrue(pageFreeSpaceMap.get(pageIndex) >= freeSpace);
-      } else {
-        Assert.assertEquals(-1, pageIndex);
+        if (freeSpaceIndex < maxFreeSpaceIndex) {
+          Assert.assertTrue(pageFreeSpaceMap.get(pageIndex) >= freeSpace);
+        } else {
+          Assert.assertEquals(-1, pageIndex);
+        }
       }
-    }
+    });
   }
 
   @After

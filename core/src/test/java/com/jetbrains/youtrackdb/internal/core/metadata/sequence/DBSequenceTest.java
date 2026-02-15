@@ -305,7 +305,9 @@ public class DBSequenceTest {
           }
         });
 
+    db.begin();
     assertThat(db.countClass("Person")).isEqualTo(10);
+    db.rollback();
   }
 
   @Test
@@ -327,7 +329,9 @@ public class DBSequenceTest {
 
     db.commit();
 
+    db.begin();
     assertThat(db.countClass("Person")).isEqualTo(10);
+    db.rollback();
   }
 
   @Test
@@ -831,8 +835,12 @@ public class DBSequenceTest {
     assertThat(myseq.next(db)).isEqualTo(6);
     db.commit();
 
+
     db.begin();
     assertThat(myseq.next(db)).isEqualTo(7);
+    db.commit();
+
+    db.begin();
     sequences.dropSequence("MYSEQ");
     db.commit();
   }

@@ -54,10 +54,11 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
    * Search for entry with specific key and return its value.
    *
    * @param key
+   * @param atomicOperation
    * @return value associated with given key, NULL if no value is associated.
    */
   @Nullable
-  V get(K key);
+  V get(K key, AtomicOperation atomicOperation);
 
   boolean put(AtomicOperation atomicOperation, K key, V value) throws IOException;
 
@@ -75,22 +76,24 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
    */
   void delete(AtomicOperation atomicOperation);
 
-  boolean isEmpty();
+  boolean isEmpty(AtomicOperation atomicOperation);
 
   V remove(AtomicOperation atomicOperation, K key) throws IOException;
 
   void loadEntriesMajor(
-      K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener);
+      K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener,
+      AtomicOperation atomicOperation);
 
   @Nonnull
   Spliterator<ObjectIntPair<K>> spliteratorEntriesBetween(
-      @Nonnull K keyFrom, boolean fromInclusive,@Nonnull K keyTo, boolean toInclusive, boolean ascSortOrder);
+      @Nonnull K keyFrom, boolean fromInclusive,@Nonnull K keyTo, boolean toInclusive, boolean ascSortOrder,
+      AtomicOperation atomicOperation);
 
   @Nullable
-  K firstKey();
+  K firstKey(AtomicOperation atomicOperation);
 
   @Nullable
-  K lastKey();
+  K lastKey(AtomicOperation atomicOperation);
 
   /**
    * Hardcoded method for Bag to avoid creation of extra layer.
@@ -99,7 +102,7 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
    *
    * @return real bag size
    */
-  int getRealBagSize();
+  int getRealBagSize(AtomicOperation atomicOperation);
 
   BinarySerializer<K> getKeySerializer();
 

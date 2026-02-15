@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.config;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -43,8 +44,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public final class CollectionBasedStorageConfiguration implements StorageConfiguration {
@@ -121,6 +122,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           CREATED_AT_VERSION_PROPERTY,
           UUID
       };
+  public static final String VALIDATION_PROPERTY = "validation";
 
   private ContextConfiguration configuration;
   private boolean validation;
@@ -129,7 +131,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private final PaginatedCollection collection;
 
   private final AbstractStorage storage;
-  private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+  private final ScalableRWLock lock = new ScalableRWLock();
 
   private final HashMap<String, Object> cache = new HashMap<>();
 
@@ -169,14 +171,18 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       init(atomicOperation);
 
-      preloadIntProperties();
-      preloadStringProperties();
-      preloadCollections();
-      preloadConfigurationProperties();
-      setValidation(
-          atomicOperation,
-          getContextConfiguration().getValueAsBoolean(GlobalConfiguration.DB_VALIDATION));
+      preloadIntProperties(atomicOperation);
+      preloadStringProperties(atomicOperation);
+      preloadCollections(atomicOperation);
+      preloadConfigurationProperties(atomicOperation);
+
+      doSetProperty(atomicOperation, VALIDATION_PROPERTY,
+          configuration.getValueAsBoolean(GlobalConfiguration.DB_VALIDATION) ? "true" : "false");
       recalculateLocale();
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Can not create storage configuration."), e, storage.getName());
     } finally {
       lock.writeLock().unlock();
     }
@@ -201,26 +207,32 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     try {
       updateListener = null;
 
-      final var firstPosition = collection.getFirstPosition();
+      final var firstPosition = collection.getFirstPosition(atomicOperation);
       var positions =
-          collection.ceilingPositions(new PhysicalPosition(firstPosition), Integer.MAX_VALUE);
+          collection.ceilingPositions(new PhysicalPosition(firstPosition), Integer.MAX_VALUE,
+              atomicOperation);
       while (positions.length > 0) {
         for (var position : positions) {
           collection.deleteRecord(atomicOperation, position.collectionPosition);
         }
 
-        positions = collection.higherPositions(positions[positions.length - 1], Integer.MAX_VALUE);
+        positions = collection.higherPositions(positions[positions.length - 1], Integer.MAX_VALUE,
+            atomicOperation);
       }
 
       collection.delete(atomicOperation);
 
-      try (var keyStream = btree.keyStream()) {
+      try (var keyStream = btree.keyStream(atomicOperation)) {
         keyStream.forEach((key) -> btree.remove(atomicOperation, key));
       }
 
       btree.delete(atomicOperation);
 
       cache.clear();
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Can not delete collection " + collection.getName()), e, storage.getName());
     } finally {
       lock.writeLock().unlock();
     }
@@ -235,8 +247,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       updateMinimumCollections(atomicOperation);
 
       cache.clear();
-
-      // tree and collection will be closed by storage automatically
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Can not close collection " + collection.getName()), e, storage.getName());
     } finally {
       lock.writeLock().unlock();
     }
@@ -250,18 +264,29 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       this.configuration = configuration;
 
       collection.open(atomicOperation);
-      btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE);
+      btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
 
-      readConfiguration();
-      readMinimumCollections();
+      readConfiguration(atomicOperation);
 
-      preloadIntProperties();
-      preloadStringProperties();
-      preloadConfigurationProperties();
-      preloadCollections();
+      preloadIntProperties(atomicOperation);
+      preloadStringProperties(atomicOperation);
+      preloadConfigurationProperties(atomicOperation);
+      preloadCollections(atomicOperation);
+
+      readMinimumCollections(atomicOperation);
       recalculateLocale();
 
-      validation = "true".equalsIgnoreCase(getProperty("validation"));
+      // Access the cache directly instead of going through getProperty() which
+      // would try to acquire the read lock, causing a deadlock with the write lock
+      // already held by this method (ScalableRWLock is non-reentrant).
+      @SuppressWarnings("unchecked")
+      final var properties = (Map<String, String>) cache.get(PROPERTIES);
+      validation = properties != null
+          && "true".equalsIgnoreCase(properties.get(VALIDATION_PROPERTY));
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Can not load storage configuration."), e, storage.getName());
     } finally {
       lock.writeLock().unlock();
     }
@@ -305,12 +330,19 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private void updateMinimumCollections(AtomicOperation atomicOperation) {
-    updateIntProperty(atomicOperation, MINIMUM_COLLECTIONS_PROPERTY, getMinimumCollections());
+    updateIntProperty(atomicOperation, MINIMUM_COLLECTIONS_PROPERTY, doGetMinimalCollections());
   }
 
-  private void readMinimumCollections() {
-    if (containsProperty(MINIMUM_COLLECTIONS_PROPERTY)) {
-      setMinimumCollections(readIntProperty(MINIMUM_COLLECTIONS_PROPERTY, false));
+  /// Reads the minimumCollections property from the cache and applies it.
+  /// Called while the write lock is already held (from load()), so it accesses
+  /// the configuration field directly instead of going through lock-acquiring
+  /// methods (setMinimumCollections/getContextConfiguration) to avoid deadlock
+  /// with the non-reentrant ScalableRWLock.
+  private void readMinimumCollections(AtomicOperation atomicOperation) {
+    if (containsProperty(MINIMUM_COLLECTIONS_PROPERTY, atomicOperation)) {
+      var minimumCollections = readIntProperty(MINIMUM_COLLECTIONS_PROPERTY, true);
+      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, minimumCollections);
+      autoInitCollections();
     }
   }
 
@@ -318,17 +350,21 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getMinimumCollections() {
     lock.readLock().lock();
     try {
-      final var mc =
-          getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
-      if (mc == 0) {
-        autoInitCollections();
-        return (Integer)
-            getContextConfiguration().getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
-      }
-      return mc;
+      return doGetMinimalCollections();
     } finally {
       lock.readLock().unlock();
     }
+  }
+
+  private int doGetMinimalCollections() {
+    final var mc =
+        configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
+    if (mc == 0) {
+      autoInitCollections();
+      return (Integer)
+          configuration.getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
+    }
+    return mc;
   }
 
   @Override
@@ -342,9 +378,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   /**
-   * Added version used for managed Network Versioning.
+   * Added a version used for managed Network Versioning.
    */
-  public byte[] toStream(final int iNetworkVersion, final Charset charset)
+  public byte[] toStream(final int iNetworkVersion, final Charset charset,
+      AtomicOperation atomicOperation)
       throws SerializationException {
     lock.readLock().lock();
     try {
@@ -400,7 +437,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
             write(buffer, paginatedCollectionConfiguration.conflictStrategy);
           }
 
-          if (iNetworkVersion >= Integer.MAX_VALUE) {
+          if (iNetworkVersion == Integer.MAX_VALUE) {
             write(buffer, paginatedCollectionConfiguration.getBinaryVersion());
           }
         }
@@ -423,7 +460,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         entryToStream(buffer, e);
       }
 
-      write(buffer, getBinaryFormatVersion());
+      write(buffer, getBinaryFormatVersion(atomicOperation));
       write(buffer, getCollectionSelection());
       write(buffer, getMinimumCollections());
 
@@ -450,7 +487,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         }
       }
 
-      final var engines = loadIndexEngines();
+      final var engines = loadIndexEngines(atomicOperation);
       write(buffer, engines.size());
       for (final var engineData : engines) {
         write(buffer, engineData.getName());
@@ -461,7 +498,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         write(buffer, engineData.getKeySerializedId());
 
         write(buffer, engineData.isAutomatic());
-        write(buffer, engineData.getDurableInNonTxMode());
+        //Index is durable in a TX mode flag, kept for backward compatibility
+        write(buffer, true);
 
         write(buffer, engineData.getVersion());
         write(buffer, engineData.isNullValuesSupport());
@@ -489,14 +527,15 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           }
         }
 
-        write(buffer, engineData.getApiVersion());
+        //index engine api version
+        write(buffer, 1);
         write(buffer, engineData.isMultivalue());
       }
 
       write(buffer, getCreatedAtVersion());
-      write(buffer, getPageSize());
-      write(buffer, getFreeListBoundary());
-      write(buffer, getMaxKeySize());
+      write(buffer, getPageSize(atomicOperation));
+      write(buffer, getFreeListBoundary(atomicOperation));
+      write(buffer, getMaxKeySize(atomicOperation));
 
       // PLAIN: ALLOCATE ENOUGH SPACE TO REUSE IT EVERY TIME
       buffer.append("|");
@@ -549,7 +588,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  public int getVersion() {
+  public int getVersion(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
       return readIntProperty(VERSION_PROPERTY, true);
@@ -813,7 +852,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  public int getBinaryFormatVersion() {
+  public int getBinaryFormatVersion(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
       return readIntProperty(BINARY_FORMAT_VERSION_PROPERTY, true);
@@ -826,7 +865,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final AtomicOperation atomicOperation, final String collectionSelection) {
     lock.writeLock().lock();
     try {
-      updateStringProperty(atomicOperation, COLLECTION_SELECTION_PROPERTY, collectionSelection, true);
+      updateStringProperty(atomicOperation, COLLECTION_SELECTION_PROPERTY, collectionSelection,
+          true);
     } finally {
       lock.writeLock().unlock();
     }
@@ -921,8 +961,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         atomicOperation, CONFIGURATION_PROPERTY, property, CONFIGURATION_PROPERTY_VERSION);
   }
 
-  private void readConfiguration() {
-    final var pair = readProperty(CONFIGURATION_PROPERTY);
+  private void readConfiguration(AtomicOperation atomicOperation) {
+    final var pair = readProperty(CONFIGURATION_PROPERTY, atomicOperation);
     if (pair == null) {
       return;
     }
@@ -981,7 +1021,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  public int getPageSize() {
+  public int getPageSize(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
       return readIntProperty(PAGE_SIZE_PROPERTY, true);
@@ -1001,7 +1041,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  public int getFreeListBoundary() {
+  public int getFreeListBoundary(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
       return readIntProperty(FREE_LIST_BOUNDARY_PROPERTY, true);
@@ -1020,7 +1060,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  public int getMaxKeySize() {
+  public int getMaxKeySize(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
       return readIntProperty(MAX_KEY_SIZE_PROPERTY, true);
@@ -1033,23 +1073,31 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final AtomicOperation atomicOperation, final String name, final String value) {
     lock.writeLock().lock();
     try {
-      if ("validation".equalsIgnoreCase(name)) {
-        validation = "true".equalsIgnoreCase(value);
-      }
-
-      final var key = PROPERTY_PREFIX_PROPERTY + name;
-      updateStringProperty(atomicOperation, key, value, false);
-
-      @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
-          PROPERTIES);
-      properties.put(name, value);
+      doSetProperty(atomicOperation, name, value);
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Can not set property " + name), e, storage.getName());
     } finally {
       lock.writeLock().unlock();
     }
   }
 
+  private void doSetProperty(AtomicOperation atomicOperation, String name, String value) {
+    if (VALIDATION_PROPERTY.equalsIgnoreCase(name)) {
+      validation = "true".equalsIgnoreCase(value);
+    }
+
+    final var key = PROPERTY_PREFIX_PROPERTY + name;
+    updateStringProperty(atomicOperation, key, value, false);
+
+    @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
+        PROPERTIES);
+    properties.put(name, value);
+  }
+
   public void setValidation(final AtomicOperation atomicOperation, final boolean validation) {
-    setProperty(atomicOperation, "validation", validation ? "true" : "false");
+    setProperty(atomicOperation, VALIDATION_PROPERTY, validation ? "true" : "false");
   }
 
   @Override
@@ -1103,10 +1151,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  private void preloadConfigurationProperties() {
+  private void preloadConfigurationProperties(AtomicOperation atomicOperation) {
     final Map<String, String> properties;
     try (var stream =
-        btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true)) {
+        btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true, atomicOperation)) {
       properties =
           stream
               .filter((pair) -> pair.first().startsWith(PROPERTY_PREFIX_PROPERTY))
@@ -1114,7 +1162,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                   (entry) -> {
                     final RawBuffer buffer;
                     try {
-                      buffer = collection.readRecord(entry.second().getCollectionPosition());
+                      buffer = collection.readRecord(entry.second().getCollectionPosition(),
+                          atomicOperation);
                       return new RawPair<>(
                           entry.first().substring(PROPERTY_PREFIX_PROPERTY.length()),
                           deserializeStringValue(buffer.buffer(), 0));
@@ -1147,13 +1196,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private void recalculateLocale() {
     Locale locale;
     try {
-      final var localeLanguage = getLocaleLanguage();
-      final var localeCountry = getLocaleCountry();
+      final var localeLanguage = readStringProperty(LOCALE_LANGUAGE_PROPERTY);
+      final var localeCountry = readStringProperty(LOCALE_COUNTRY_PROPERTY);
 
       if (localeLanguage == null || localeCountry == null) {
         locale = Locale.getDefault();
       } else {
-        locale = new Locale(getLocaleLanguage(), getLocaleCountry());
+        locale = Locale.of(localeLanguage, localeCountry);
       }
     } catch (final RuntimeException e) {
       locale = Locale.getDefault();
@@ -1162,18 +1211,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     cache.put(LOCALE_PROPERTY_INSTANCE, locale);
   }
 
-  @Override
-  public boolean isStrictSql() {
-    return true;
-  }
-
   public void clearProperties(AtomicOperation atomicOperation) {
     lock.writeLock().lock();
     try {
       final List<String> keysToRemove;
       final List<RID> ridsToRemove;
       try (var stream =
-          btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true)) {
+          btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true, atomicOperation)) {
 
         keysToRemove = new ArrayList<>(8);
         ridsToRemove = new ArrayList<>(8);
@@ -1198,6 +1242,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
           PROPERTIES);
       properties.clear();
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Can not clear properties"), e, storage.getName());
     } finally {
       lock.writeLock().unlock();
     }
@@ -1216,7 +1264,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final AtomicOperation atomicOperation, final String name, final IndexEngineData engineData) {
     lock.writeLock().lock();
     try {
-      final var identifiable = btree.get(ENGINE_PREFIX_PROPERTY + name);
+      final var identifiable = btree.get(ENGINE_PREFIX_PROPERTY + name, atomicOperation);
       if (identifiable != null) {
         LogManager.instance()
             .warn(
@@ -1246,11 +1294,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  public Set<String> indexEngines() {
+  public Set<String> indexEngines(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
       try (var stream =
-          btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true)) {
+          btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true, atomicOperation)) {
         return stream
             .filter((entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY))
             .map((entry) -> entry.first().substring(ENGINE_PREFIX_PROPERTY.length()))
@@ -1261,9 +1309,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  private List<IndexEngineData> loadIndexEngines() {
+  private List<IndexEngineData> loadIndexEngines(AtomicOperation atomicOperation) {
     try (var stream =
-        btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true)) {
+        btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true, atomicOperation)) {
       return stream
           .filter((entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY))
           .map(
@@ -1272,9 +1320,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                 try {
                   name = entry.first().substring(ENGINE_PREFIX_PROPERTY.length());
                   final var buffer =
-                      collection.readRecord(entry.second().getCollectionPosition());
+                      collection.readRecord(entry.second().getCollectionPosition(),
+                          atomicOperation);
                   return deserializeIndexEngineProperty(
-                      name, buffer.buffer(), Integer.MIN_VALUE, entry.second().getCollectionId());
+                      name, buffer.buffer(), Integer.MIN_VALUE, entry.second().getCollectionId(),
+                      atomicOperation);
                 } catch (IOException e) {
                   throw BaseException.wrapException(
                       new StorageException(storage.getName(),
@@ -1291,16 +1341,18 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   @Override
   @Nullable
-  public IndexEngineData getIndexEngine(final String name, int defaultIndexId) {
+  public IndexEngineData getIndexEngine(final String name, int defaultIndexId,
+      AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
-      final var pair = readProperty(ENGINE_PREFIX_PROPERTY + name);
+      final var pair = readProperty(ENGINE_PREFIX_PROPERTY + name, atomicOperation);
       if (pair == null) {
         return null;
       }
 
       final var property = pair.first;
-      return deserializeIndexEngineProperty(name, property, defaultIndexId, pair.second);
+      return deserializeIndexEngineProperty(name, property, defaultIndexId, pair.second,
+          atomicOperation);
     } finally {
       lock.readLock().unlock();
     }
@@ -1339,16 +1391,17 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     lock.readLock().lock();
     try {
       //noinspection unchecked
-      return Collections.unmodifiableList((List<StorageCollectionConfiguration>) cache.get(COLLECTIONS));
+      return Collections.unmodifiableList(
+          (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS));
     } finally {
       lock.readLock().unlock();
     }
   }
 
-  private void preloadCollections() {
+  private void preloadCollections(AtomicOperation atomicOperation) {
     final List<StorageCollectionConfiguration> collections = new ArrayList<>(1024);
     try (var stream =
-        btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true)) {
+        btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true, atomicOperation)) {
 
       stream
           .filter((entry) -> entry.first().startsWith(COLLECTIONS_PREFIX_PROPERTY))
@@ -1359,7 +1412,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
                 try {
                   final var buffer =
-                      collection.readRecord(entry.second().getCollectionPosition());
+                      collection.readRecord(entry.second().getCollectionPosition(),
+                          atomicOperation);
 
                   if (collections.size() <= id) {
                     final var diff = id - collections.size();
@@ -1426,8 +1480,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       IntegerSerializer.serializeNative(
           indexEngineData.getVersion(), numericProperties, pos);
       pos += IntegerSerializer.INT_SIZE;
+      //index engine api version, kept for compatibility
       IntegerSerializer.serializeNative(
-          indexEngineData.getApiVersion(), numericProperties, pos);
+          1, numericProperties, pos);
       pos += IntegerSerializer.INT_SIZE;
 
       numericProperties[pos] = indexEngineData.getValueSerializerId();
@@ -1498,7 +1553,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private IndexEngineData deserializeIndexEngineProperty(
-      final String name, final byte[] property, final int defaultIndexId, final int binaryVersion) {
+      final String name, final byte[] property, final int defaultIndexId, final int binaryVersion,
+      AtomicOperation atomicOperation) {
     var pos = 0;
 
     final var version = IntegerSerializer.deserializeNative(property, pos);
@@ -1526,7 +1582,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     pos += IntegerSerializer.INT_SIZE;
 
     final int indexId;
-    if (getVersion() >= 23 || binaryVersion >= 1) {
+    if (getVersion(atomicOperation) >= 23 || binaryVersion >= 1) {
       final var iid = IntegerSerializer.deserializeNative(property, pos);
       if (iid == Integer.MIN_VALUE) {
         indexId = defaultIndexId;
@@ -1757,37 +1813,46 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final String name,
       final byte[] property,
       final int propertyBinaryVersion) {
-    var identity = btree.get(name);
+    try {
+      var identity = btree.get(name, atomicOperation);
 
-    if (identity == null) {
-      final var position =
-          collection.createRecord(property, 0, (byte) 0, null, atomicOperation);
-      identity = new RecordId(propertyBinaryVersion, position.collectionPosition);
-      btree.put(atomicOperation, name, identity);
-    } else {
-      collection.updateRecord(identity.getCollectionPosition(), property, -1, (byte) 0, atomicOperation);
-    }
-
-    final var pausedNotificationsState = pauseNotifications.get();
-    if (updateListener != null) {
-      if (!pausedNotificationsState.notificationsPaused) {
-        pausedNotificationsState.pendingChanges = 0;
-        updateListener.onUpdate(this);
+      if (identity == null) {
+        final var position =
+            collection.createRecord(property, (byte) 0, null, atomicOperation);
+        identity = new RecordId(propertyBinaryVersion, position.collectionPosition);
+        btree.put(atomicOperation, name, identity);
       } else {
-        pausedNotificationsState.pendingChanges++;
+        collection.updateRecord(identity.getCollectionPosition(), property, (byte) 0,
+            atomicOperation);
       }
+
+      final var pausedNotificationsState = pauseNotifications.get();
+      if (updateListener != null) {
+        if (!pausedNotificationsState.notificationsPaused) {
+          pausedNotificationsState.pendingChanges = 0;
+          updateListener.onUpdate(this);
+        } else {
+          pausedNotificationsState.pendingChanges++;
+        }
+      }
+    } catch (Exception e) {
+      cache.clear();
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(), "Can not store property " + name), e,
+          storage.getName());
     }
   }
 
   @Nullable
-  private RawPairObjectInteger<byte[]> readProperty(final String name) {
+  private RawPairObjectInteger<byte[]> readProperty(final String name,
+      @Nonnull AtomicOperation atomicOperation) {
     try {
-      final var rid = btree.get(name);
+      final var rid = btree.get(name, atomicOperation);
       if (rid == null) {
         return null;
       }
 
-      final var buffer = collection.readRecord(rid.getCollectionPosition());
+      final var buffer = collection.readRecord(rid.getCollectionPosition(), atomicOperation);
       return new RawPairObjectInteger<>(buffer.buffer(), rid.getCollectionId());
     } catch (final IOException e) {
       throw BaseException.wrapException(
@@ -1796,8 +1861,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  private boolean containsProperty(@SuppressWarnings("SameParameterValue") final String name) {
-    return btree.get(name) != null;
+  private boolean containsProperty(@SuppressWarnings("SameParameterValue") final String name,
+      AtomicOperation atomicOperation) {
+    return btree.get(name, atomicOperation) != null;
   }
 
   private String readStringProperty(final String name) {
@@ -1810,24 +1876,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       return (int) cachedValue;
     }
 
-    var pair = readProperty(name);
-    if (pair == null) {
-      throw new IllegalStateException("Property " + name + " is absent");
-    }
-
-    final var property = pair.first;
-
-    if (property.length < 4) {
-      throw new IllegalStateException(
-          "Invalid length of property " + name + " len = " + property.length);
-    }
-
-    return IntegerSerializer.deserializeNative(property, 0);
+    throw new IllegalStateException("Property " + name + " is absent");
   }
 
-  private void preloadIntProperties() {
+  private void preloadIntProperties(AtomicOperation atomicOperation) {
     for (final var name : INT_PROPERTIES) {
-      final var pair = readProperty(name);
+      final var pair = readProperty(name, atomicOperation);
 
       if (pair != null) {
         cache.put(name, IntegerSerializer.deserializeNative(pair.first, 0));
@@ -1835,9 +1889,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  private void preloadStringProperties() {
+  private void preloadStringProperties(AtomicOperation atomicOperation) {
     for (final var name : STRING_PROPERTIES) {
-      final var property = readProperty(name);
+      final var property = readProperty(name, atomicOperation);
       if (property != null) {
         cache.put(name, deserializeStringValue(property.first, 0));
       }
@@ -1848,16 +1902,22 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     updateVersion(atomicOperation);
     updateBinaryFormatVersion(atomicOperation);
 
-    setCharset(atomicOperation, DEFAULT_CHARSET);
-    setDateFormat(atomicOperation, DEFAULT_DATE_FORMAT);
-    setDateTimeFormat(atomicOperation, DEFAULT_DATETIME_FORMAT);
-    setLocaleLanguage(atomicOperation, Locale.getDefault().getLanguage());
-    setLocaleCountry(atomicOperation, Locale.getDefault().getCountry());
-    setTimeZone(atomicOperation, TimeZone.getDefault());
+    updateStringProperty(atomicOperation, CHARSET_PROPERTY, DEFAULT_CHARSET, true);
+    updateStringProperty(atomicOperation, DATE_FORMAT_PROPERTY, DEFAULT_DATE_FORMAT, true);
+    updateStringProperty(atomicOperation, DATE_TIME_FORMAT_PROPERTY, DEFAULT_DATETIME_FORMAT, true);
 
-    setPageSize(atomicOperation, -1);
-    setFreeListBoundary(atomicOperation, -1);
-    setMaxKeySize(atomicOperation, -1);
+    updateStringProperty(atomicOperation, LOCALE_LANGUAGE_PROPERTY,
+        Locale.getDefault().getLanguage(), true);
+    updateStringProperty(atomicOperation, LOCALE_COUNTRY_PROPERTY,
+        Locale.getDefault().getCountry(), true);
+
+    recalculateLocale();
+
+    updateStringProperty(atomicOperation, TIME_ZONE_PROPERTY, TimeZone.getDefault().getID(), true);
+
+    updateIntProperty(atomicOperation, PAGE_SIZE_PROPERTY, -1);
+    updateIntProperty(atomicOperation, FREE_LIST_BOUNDARY_PROPERTY, -1);
+    updateIntProperty(atomicOperation, MAX_KEY_SIZE_PROPERTY, -1);
 
     if (!configuration
         .getContextKeys()
@@ -1870,7 +1930,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     updateMinimumCollections(atomicOperation); // store inside of configuration
 
-    setRecordSerializerVersion(atomicOperation, 0);
+    updateIntProperty(
+        atomicOperation, RECORD_SERIALIZER_VERSION_PROPERTY, 0);
   }
 
   private void copy(
@@ -1903,15 +1964,17 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     setValidation(atomicOperation, storageConfiguration.isValidationEnabled());
 
     var counter = 0;
-    final var indexEngines = storageConfiguration.indexEngines();
+    final var indexEngines = storageConfiguration.indexEngines(atomicOperation);
 
     for (final var engine : indexEngines) {
-      addIndexEngine(atomicOperation, engine, storageConfiguration.getIndexEngine(engine, counter));
+      addIndexEngine(atomicOperation, engine,
+          storageConfiguration.getIndexEngine(engine, counter, atomicOperation));
       counter++;
     }
 
     setRecordSerializer(atomicOperation, storageConfiguration.getRecordSerializer());
-    setRecordSerializerVersion(atomicOperation, storageConfiguration.getRecordSerializerVersion());
+    setRecordSerializerVersion(atomicOperation,
+        storageConfiguration.getRecordSerializerVersion());
 
     final var collections = storageConfiguration.getCollections();
     for (final var collection : collections) {
@@ -1921,15 +1984,15 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
 
     setCreationVersion(atomicOperation, storageConfiguration.getCreatedAtVersion());
-    setPageSize(atomicOperation, storageConfiguration.getPageSize());
-    setFreeListBoundary(atomicOperation, storageConfiguration.getFreeListBoundary());
-    setMaxKeySize(atomicOperation, storageConfiguration.getMaxKeySize());
+    setPageSize(atomicOperation, storageConfiguration.getPageSize(atomicOperation));
+    setFreeListBoundary(atomicOperation, storageConfiguration.getFreeListBoundary(atomicOperation));
+    setMaxKeySize(atomicOperation, storageConfiguration.getMaxKeySize(atomicOperation));
   }
 
   private void autoInitCollections() {
-    if (getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT)
+    if (configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT)
         == 0) {
-      getContextConfiguration().setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 8);
+      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 8);
     }
   }
 

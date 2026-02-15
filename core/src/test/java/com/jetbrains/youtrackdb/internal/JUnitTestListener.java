@@ -79,6 +79,21 @@ public class JUnitTestListener extends RunListener {
   }
 
   @Override
+  public void testAssumptionFailure(Failure failure) {
+    // Some test runners (e.g. TinkerPop's Gremlin suite) may call testStarted() followed
+    // by an assumption failure without a corresponding testFinished(). Clean up here to
+    // prevent the watchdog from seeing the test as stuck.
+    runningTests.remove(failure.getDescription().getDisplayName());
+  }
+
+  @Override
+  public void testIgnored(Description description) throws Exception {
+    super.testIgnored(description);
+    // Safety net: remove in case testStarted() was called before the runner decided to skip.
+    runningTests.remove(description.getDisplayName());
+  }
+
+  @Override
   public void testRunFinished(Result result) throws Exception {
     super.testRunFinished(result);
 

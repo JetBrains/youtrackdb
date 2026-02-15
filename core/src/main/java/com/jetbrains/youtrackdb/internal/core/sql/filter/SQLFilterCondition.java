@@ -387,10 +387,9 @@ public class SQLFilterCondition {
       return null;
     }
 
-    final var config = session.getStorageInfo().getConfiguration();
-
+    var storage = session.getStorage();
     if (value instanceof Long) {
-      var calendar = Calendar.getInstance(config.getTimeZone());
+      var calendar = Calendar.getInstance(storage.getTimeZone());
       calendar.setTimeInMillis(((Long) value));
       return calendar.getTime();
     }
@@ -406,15 +405,15 @@ public class SQLFilterCondition {
     }
 
     if (Pattern.matches("^\\d+$", stringValue)) {
-      return new Date(Long.valueOf(stringValue).longValue());
+      return new Date(Long.parseLong(stringValue));
     }
 
-    var formatter = config.getDateFormatInstance();
+    var formatter = storage.getDateFormatInstance();
 
-    if (stringValue.length() > config.getDateFormat().length())
+    if (stringValue.length() >storage.getDateFormat().length())
     // ASSUMES YOU'RE USING THE DATE-TIME FORMATTE
     {
-      formatter = config.getDateTimeFormatInstance();
+      formatter = storage.getDateTimeFormatInstance();
     }
 
     try {

@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.index.engine.RemoteIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -89,7 +89,7 @@ public class DefaultIndexFactory implements IndexFactory {
 
   @Override
   public Index createIndex(@Nonnull String indexType, @Nullable RID identity,
-      @Nonnull FrontendTransaction transaction,
+      @Nonnull FrontendTransactionImpl transaction,
       @Nonnull Storage storage)
       throws ConfigurationException {
     if (SchemaClass.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {

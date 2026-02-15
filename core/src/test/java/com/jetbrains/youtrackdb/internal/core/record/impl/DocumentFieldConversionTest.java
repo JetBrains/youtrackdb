@@ -67,7 +67,7 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     calendare.set(Calendar.MILLISECOND, 0);
     var date = calendare.getTime();
 
-    var dateString = session.getStorage().getConfiguration().getDateTimeFormatInstance()
+    var dateString = session.getStorage().getDateTimeFormatInstance()
         .format(date);
     var doc = (EntityImpl) session.newEntity(clazz);
     doc.setProperty("date", dateString);

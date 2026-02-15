@@ -45,7 +45,9 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "create")
   public void testCreate() {
+    session.begin();
     Assert.assertEquals(session.countClass("Company"), TOT_COMPANY_RECORDS);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testCreate")
@@ -101,7 +103,9 @@ public class CRUDInheritanceTest extends BaseDBTest {
     }
     session.commit();
 
+    session.begin();
     Assert.assertEquals(session.countClass("Company"), TOT_COMPANY_RECORDS - 1);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "deleteFirst")

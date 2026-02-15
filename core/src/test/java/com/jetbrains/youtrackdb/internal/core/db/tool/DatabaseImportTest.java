@@ -10,9 +10,6 @@ import java.io.IOException;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class DatabaseImportTest {
 
   @Test
@@ -42,7 +39,7 @@ public class DatabaseImportTest {
     databaseName = "import";
 
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
-    try (var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin",
+    try (var db = youTrackDB.open(databaseName, "admin",
         "admin")) {
       final var importer =
           new DatabaseImport(

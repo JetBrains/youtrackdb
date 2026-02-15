@@ -388,7 +388,7 @@ public class JSONSerializerJackson {
     Map<String, String> fieldTypes = new HashMap<>();
     var entityType = EntityType.PUBLIC;
     Boolean embeddedFlag = null;
-    Integer recordVersion = null;
+    Long recordVersion = null;
 
     var fieldsCount = 0;
 
@@ -501,7 +501,7 @@ public class JSONSerializerJackson {
               throw new SerializationException(session,
                   "Expected field value integer");
             }
-            recordVersion = jsonParser.getIntValue();
+            recordVersion = jsonParser.getLongValue();
             token = jsonParser.nextToken();
           }
           default -> throw new SerializationException(session,
@@ -1338,7 +1338,7 @@ public class JSONSerializerJackson {
       @Nullable String className,
       Map<String, String> fieldTypes,
       boolean isEmbedded,
-      @Nullable Integer recordVersion,
+      @Nullable Long recordVersion,
       @Nullable EntityType entityType
   ) {
 

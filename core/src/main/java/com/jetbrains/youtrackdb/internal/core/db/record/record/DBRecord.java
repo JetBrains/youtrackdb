@@ -58,12 +58,13 @@ public interface DBRecord extends Identifiable, Element {
 
   /**
    * Returns the current version number of the record. When the record is created has version = 0.
-   * At every change the storage increment the version number. Version number is used by Optimistic
-   * transactions to check if the record is changed in the meanwhile of the transaction.
+   * At every change, the storage assigns the frontend transaction ID as a new version number.
+   * Version number is used by Optimistic transactions to check if the record is changed in the
+   * meanwhile of the transaction.
    *
    * @return The version number. 0 if it's a brand new record.
    */
-  int getVersion();
+  long getVersion();
 
   /**
    * Checks if the record is dirty, namely if it was changed in memory.

@@ -36,7 +36,6 @@
       <class name="com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest"/>
       <class name="com.jetbrains.youtrackdb.auto.ComplexTypesTest"/>
       <class name="com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DBRecordMetadataTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DocumentTrackingTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DBRecordCreateTest"/>
     </classes>

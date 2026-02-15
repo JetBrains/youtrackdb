@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
-import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -253,12 +253,14 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public @Nonnull RawBuffer readRecord(RecordIdInternal iRid) {
+        public @Nonnull RawBuffer readRecord(RecordIdInternal iRid,
+            @Nonnull AtomicOperation atomicOperation) {
           return null;
         }
 
         @Override
-        public boolean recordExists(DatabaseSessionEmbedded session, RID rid) {
+        public boolean recordExists(DatabaseSessionEmbedded session, RID rid,
+            AtomicOperation atomicOperation) {
           return false;
         }
 
@@ -269,16 +271,6 @@ public class PostponedEngineStartTest {
 
         @Override
         public void commit(FrontendTransactionImpl iTx) {
-        }
-
-        @Override
-        public CollectionBasedStorageConfiguration getConfiguration() {
-          return null;
-        }
-
-        @Override
-        public int getCollections() {
-          return 0;
         }
 
         @Override
@@ -324,16 +316,6 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public long getCollectionRecordsSizeById(int collectionId) {
-          return 0;
-        }
-
-        @Override
-        public long getCollectionRecordsSizeByName(String collectionName) {
-          return 0;
-        }
-
-        @Override
         public String getCollectionRecordConflictStrategy(int collectionId) {
           return null;
         }
@@ -366,11 +348,6 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public long getSize(DatabaseSessionEmbedded session) {
-          return 0;
-        }
-
-        @Override
         public AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session,
             RecordIdInternal identity,
             String fieldName, RID rid) {
@@ -394,11 +371,6 @@ public class PostponedEngineStartTest {
 
         @Override
         public String getName() {
-          return null;
-        }
-
-        @Override
-        public String getURL() {
           return null;
         }
 
@@ -518,14 +490,6 @@ public class PostponedEngineStartTest {
 
         @Override
         public void setLocaleCountry(String localeCountry) {
-        }
-
-        @Override
-        public void setCollectionSelection(String collectionSelection) {
-        }
-
-        @Override
-        public void setMinimumCollections(int minimumCollections) {
         }
 
         @Override

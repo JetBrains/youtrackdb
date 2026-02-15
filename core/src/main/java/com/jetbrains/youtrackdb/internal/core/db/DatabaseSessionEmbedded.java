@@ -126,8 +126,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycle
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
@@ -228,7 +226,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final HashSet<Identifiable> inHook = new HashSet<>();
 
   private RecordSerializer serializer = RecordSerializerBinary.INSTANCE;
-  private final String url;
+  private String url;
 
   private STATUS status;
   private MetadataDefault metadata;
@@ -318,13 +316,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         return;
       }
 
-      var serializeName = getStorageInfo().getConfiguration().getRecordSerializer();
+      var serializeName = storage.getRecordSerializer();
       if (serializeName == null) {
         throw new DatabaseException(getDatabaseName(),
             "Impossible to open database from version before 2.x use export import instead");
       }
 
-      if (getStorageInfo().getConfiguration().getRecordSerializerVersion()
+      if (storage.getRecordSerializerVersion()
           > serializer.getMinSupportedVersion()) {
         throw new DatabaseException(getDatabaseName(),
             "Persistent record serializer version is not support by the current implementation");
@@ -635,14 +633,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     hooks.clear();
   }
 
-  public Storage getStorage() {
+  public AbstractStorage getStorage() {
     return storage;
   }
-
-  public StorageInfo getStorageInfo() {
-    return storage;
-  }
-
 
   public ResultSet query(String query, Object... args) {
     checkOpenness();
@@ -1215,7 +1208,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         recordBuffer = prefetchedBuffer;
       } else {
         try {
-          recordBuffer = storage.readRecord(rid);
+          var tx = getActiveTransaction();
+          recordBuffer = storage.readRecord(rid, tx.getAtomicOperation());
         } catch (RecordNotFoundException e) {
           if (throwExceptionIfRecordNotFound) {
             throw e;
@@ -1371,18 +1365,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  public FrontendTransaction begin() {
+  public FrontendTransactionImpl begin() {
     assert assertIfNotActive();
 
     checkOpenness();
 
     if (currentTx.isActive()) {
       currentTx.beginInternal();
-      return currentTx;
+      return (FrontendTransactionImpl) currentTx;
     }
 
+    // Preserving atomicOperationTableState on the beginning of the transaction to support snapshot isolation
+    var atomicOperationsManager = storage.getAtomicOperationsManager();
+    var atomicOperationsSnapshot = atomicOperationsManager.snapshotAtomicOperationTableState();
+
     begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
-    return currentTx;
+    return (FrontendTransactionImpl)currentTx;
   }
 
   public void beginReadOnly() {
@@ -1765,8 +1763,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           Role.PERMISSION_READ,
           getCollectionNameById(rid.getCollectionId()));
 
-      var txInternal = getTransactionInternal();
-      if (txInternal.isDeletedInTx(rid)) {
+      var tx = getActiveTransaction();
+      if (tx.isDeletedInTx(rid)) {
         // DELETED IN TX
         return false;
       }
@@ -1783,7 +1781,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         return true;
       }
 
-      return storage.recordExists(this, rid);
+      return storage.recordExists(this, rid, tx.getAtomicOperation());
     } catch (Exception t) {
       throw BaseException.wrapException(
           new DatabaseException(getDatabaseName(),
@@ -1931,7 +1929,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
 
-    return getStorageInfo().getRecordConflictStrategy();
+    return storage.getRecordConflictStrategy();
   }
 
   @SuppressWarnings("unused")
@@ -1953,37 +1951,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     storage.setConflictStrategy(iResolver);
     return this;
-  }
-
-  @SuppressWarnings("unused")
-  public long getCollectionRecordSizeByName(final String collectionName) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    try {
-      return storage.getCollectionRecordsSizeByName(collectionName);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on reading records size for collection '" + collectionName + "'"),
-          e, getDatabaseName());
-    }
-  }
-
-  public long getCollectionRecordSizeById(final int collectionId) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    try {
-      return storage.getCollectionRecordsSizeById(collectionId);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on reading records size for collection with id '" + collectionId + "'"),
-          e, getDatabaseName());
-    }
   }
 
   /**
@@ -2109,14 +2076,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.dropCollection(this, collectionId);
   }
 
-  public long getSize() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    return storage.getSize(this);
-  }
-
   public DatabaseStats getStats() {
     assert assertIfNotActive();
     var stats = new DatabaseStats();
@@ -2182,7 +2141,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    return storage.getConfiguration().getTimeZone();
+    return storage.getTimeZone();
   }
 
   public RecordMetadata getRecordMetadata(final RID rid) {
@@ -2319,10 +2278,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       status = STATUS.CLOSED;
       if (!recycle) {
         sharedContext = null;
-
-        if (storage != null) {
-          storage.close(this);
-        }
+        storage.close(this);
       }
 
     } finally {
@@ -2752,10 +2708,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Nullable
   public ContextConfiguration getConfiguration() {
     assert assertIfNotActive();
-    if (getStorageInfo() != null) {
-      return getStorageInfo().getConfiguration().getContextConfiguration();
-    }
-    return null;
+
+    return storage.getContextConfiguration();
   }
 
   @Override
@@ -2769,27 +2723,29 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   public String getDatabaseName() {
-
-    return getStorageInfo() != null ? getStorageInfo().getName() : url;
+    return storage.getName();
   }
 
 
   public String getURL() {
-    return url != null ? url : getStorageInfo().getURL();
+    if (url == null) {
+      url = storage.getURL();
+    }
+
+    return url;
   }
 
   public int getCollections() {
     assert assertIfNotActive();
 
-    return getStorageInfo().getCollections();
+    return storage.getCollections();
   }
 
   public boolean existsCollection(final String iCollectionName) {
     assert assertIfNotActive();
-
     checkOpenness();
 
-    return getStorageInfo().getCollectionNames()
+    return storage.getCollectionNames()
         .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
@@ -2798,7 +2754,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    return getStorageInfo().getCollectionNames();
+    return storage.getCollectionNames();
   }
 
   public int getCollectionIdByName(final String iCollectionName) {
@@ -2810,12 +2766,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
+    return storage.getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
   @Nullable
-  public String getCollectionNameById(final int iCollectionId) {
-    if (iCollectionId < 0) {
+  public String getCollectionNameById(final int collectionId) {
+    if (collectionId < 0) {
       return null;
     }
 
@@ -2823,7 +2779,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    return getStorageInfo().getPhysicalCollectionNameById(iCollectionId);
+    return storage.getPhysicalCollectionNameById(collectionId);
   }
 
   public Object setProperty(final String iName, final Object iValue) {
@@ -2862,14 +2818,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
-    final var storage = getStorageInfo();
+
     return switch (iAttribute) {
-      case DATEFORMAT -> storage.getConfiguration().getDateFormat();
-      case DATE_TIME_FORMAT -> storage.getConfiguration().getDateTimeFormat();
-      case TIMEZONE -> storage.getConfiguration().getTimeZone().getID();
-      case LOCALE_COUNTRY -> storage.getConfiguration().getLocaleCountry();
-      case LOCALE_LANGUAGE -> storage.getConfiguration().getLocaleLanguage();
-      case CHARSET -> storage.getConfiguration().getCharset();
+      case DATEFORMAT -> storage.getDateFormat();
+      case DATE_TIME_FORMAT -> storage.getDateTimeFormat();
+      case TIMEZONE -> storage.getTimeZone().getID();
+      case LOCALE_COUNTRY -> storage.getLocaleCountry();
+      case LOCALE_LANGUAGE -> storage.getLocaleLanguage();
+      case CHARSET -> storage.getCharset();
     };
   }
 
@@ -2882,9 +2838,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    final var storage = getStorageInfo();
     if (attribute == ATTRIBUTES_INTERNAL.VALIDATION) {
-      return storage.getConfiguration().isValidationEnabled();
+      return storage.isValidationEnabled();
     }
 
     throw new IllegalArgumentException("attribute is not supported: " + attribute);
@@ -2952,7 +2907,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
 
-    if (!getStorageInfo().isAssigningCollectionIds()) {
+    if (!storage.isAssigningCollectionIds()) {
       return RID.COLLECTION_ID_INVALID;
     }
 
@@ -3049,7 +3004,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     currentTx = transaction;
-
     return currentTx.beginInternal();
   }
 
@@ -3556,6 +3510,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void queryClosed(String id) {
     assert assertIfNotActive();
 
+    @SuppressWarnings("resource")
     var removed = this.activeQueries.remove(id);
     getListeners().forEach((it) -> it.onCommandEnd(this, removed));
   }
@@ -3626,7 +3581,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   public <X extends Exception> void executeInTxInternal(
-      @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
+      @Nonnull TxConsumer<FrontendTransactionImpl, X> code) throws X {
     if (currentTx.getStatus() == TXSTATUS.COMMITTING ||
         currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
       throw new TransactionException(getDatabaseName(),
@@ -3636,7 +3591,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     begin();
     try {
-      code.accept(currentTx);
+      code.accept((FrontendTransactionImpl) currentTx);
       ok = true;
     } finally {
       finishTx(ok);
@@ -4072,26 +4027,26 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nonnull
-  public FrontendTransaction getActiveTransaction() {
+  public FrontendTransactionImpl getActiveTransaction() {
     assert assertIfNotActive();
 
     checkOpenness();
 
     if (currentTx.isActive()) {
-      return currentTx;
+      return (FrontendTransactionImpl) currentTx;
     }
 
     throw new DatabaseException(this, "There is no active transaction in session");
   }
 
   @Nullable
-  public FrontendTransaction getActiveTransactionOrNull() {
+  public FrontendTransactionImpl getActiveTransactionOrNull() {
     assert assertIfNotActive();
 
     checkOpenness();
 
     if (currentTx.isActive()) {
-      return currentTx;
+      return (FrontendTransactionImpl) currentTx;
     }
 
     return null;

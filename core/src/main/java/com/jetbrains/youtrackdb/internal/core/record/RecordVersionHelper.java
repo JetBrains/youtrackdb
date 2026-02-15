@@ -27,60 +27,44 @@ import com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol;
  */
 public class RecordVersionHelper {
 
-  public static final int SERIALIZED_SIZE = BinaryProtocol.SIZE_INT;
+  public static final int SERIALIZED_SIZE = BinaryProtocol.SIZE_LONG;
 
   protected RecordVersionHelper() {
   }
 
-  public static int increment(final int version) {
-    if (isTombstone(version)) {
-      throw new IllegalStateException("Record was deleted and cannot be updated.");
-    }
-
-    return version + 1;
-  }
-
-  public static int decrement(final int version) {
-    if (isTombstone(version)) {
-      throw new IllegalStateException("Record was deleted and cannot be updated.");
-    }
-
-    return version - 1;
-  }
-
-  public static boolean isValid(final int version) {
+  public static boolean isValid(final long version) {
     return version > -1;
   }
 
-  public static boolean isTombstone(final int version) {
+  public static boolean isTombstone(final long version) {
     return version < 0;
   }
 
-  public static byte[] toStream(final int version) {
-    return BinaryProtocol.int2bytes(version);
+  public static byte[] toStream(final long version) {
+    return BinaryProtocol.long2bytes(version);
   }
 
-  public static int fromStream(final byte[] stream) {
-    return BinaryProtocol.bytes2int(stream);
+  public static long fromStream(final byte[] stream) {
+    return BinaryProtocol.bytes2long(stream);
   }
 
-  public static int reset() {
+  public static long reset() {
     return 0;
   }
 
-  public static int disable() {
+  public static long disable() {
     return -1;
   }
 
-  public static int compareTo(final int v1, final int v2) {
-    final int myVersion;
+  public static int compareTo(final long v1, final long v2) {
+    final long myVersion;
     if (isTombstone(v1)) {
       myVersion = -v1;
     } else {
       myVersion = v1;
     }
 
-    final int otherVersion;
+    final long otherVersion;
     if (isTombstone(v2)) {
       otherVersion = -v2;
     } else {
@@ -98,11 +82,11 @@ public class RecordVersionHelper {
     return 1;
   }
 
-  public static String toString(final int version) {
+  public static String toString(final long version) {
     return String.valueOf(version);
   }
 
-  public static int fromString(final String string) {
-    return Integer.parseInt(string);
+  public static long fromString(final String string) {
+    return Long.parseLong(string);
   }
 }
