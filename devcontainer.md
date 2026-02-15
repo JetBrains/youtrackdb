@@ -13,7 +13,7 @@ A sandboxed Docker environment for running Claude Code against the YouTrackDB co
 ./run-devcontainer.sh
 ```
 
-On first launch the script builds the Docker image (takes a few minutes). Subsequent launches reuse the cached image; it rebuilds automatically after 24 hours.
+On first launch the script builds the Docker image (takes a few minutes). Subsequent launches reuse the cached image; it rebuilds automatically after 24 hours. If stopped containers still reference the old image they are removed automatically. If a running container holds the image, the rebuild is skipped with a warning — stop that container and re-run to force a rebuild.
 
 Once the container starts you are dropped into a zsh shell at `/workspace`.
 
@@ -156,7 +156,14 @@ JETBRAINS_MCP_PORT=12345 ./run-devcontainer.sh
 
 ## Forcing a Rebuild
 
-The image auto-rebuilds after 24 hours. To force an immediate rebuild:
+The image auto-rebuilds after 24 hours. Stopped containers referencing the old image are removed automatically during rebuild. If a running container still uses the image, the script prints a warning and reuses the stale image — stop the container first:
+
+```bash
+docker stop <container-name>
+./run-devcontainer.sh
+```
+
+To force an immediate rebuild (when the image is younger than 24 hours):
 
 ```bash
 docker rmi ytdb-devcontainer
