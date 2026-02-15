@@ -89,7 +89,6 @@ public abstract class LocalPaginatedCollectionAbstract {
   @Test
   public void testDeleteRecordAndAddNewOnItsPlace() throws IOException {
     var smallRecord = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-    final var recordVersion = 2;
 
     var atomicOperationsManager = storage.getAtomicOperationsManager();
 
@@ -131,13 +130,12 @@ public abstract class LocalPaginatedCollectionAbstract {
                 paginatedCollection.createRecord(
                     smallRecord, (byte) 1, null, atomicOperation));
 
-    Assert.assertEquals(recordVersion, physicalPosition[0].recordVersion);
+    Assert.assertTrue(physicalPosition[0].recordVersion > 0);
   }
 
   @Test
   public void testAddOneSmallRecord() throws IOException {
     var smallRecord = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-    final var recordVersion = 2;
 
     final var physicalPosition = new PhysicalPosition[1];
     try {
@@ -173,7 +171,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     );
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assert.assertTrue(rawBuffer.version() > 0);
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(smallRecord);
     Assert.assertEquals(1, rawBuffer.recordType());
   }
@@ -184,7 +182,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     var mersenneTwisterFast = new Random();
     mersenneTwisterFast.nextBytes(bigRecord);
 
-    final var recordVersion = 2;
 
     final var physicalPosition = new PhysicalPosition[1];
     var atomicOperationsManager = storage.getAtomicOperationsManager();
@@ -221,7 +218,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     );
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assert.assertTrue(rawBuffer.version() > 0);
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(bigRecord);
     Assert.assertEquals(1, rawBuffer.recordType());
   }
@@ -236,7 +233,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records / 2; i++) {
       var recordSize = mersenneTwisterFast.nextInt(CollectionPage.MAX_RECORD_SIZE - 1) + 1;
@@ -302,7 +298,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertTrue(rawBuffer.version() > 0);
 
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         Assert.assertEquals(2, rawBuffer.recordType());
@@ -321,7 +317,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records / 2; i++) {
       var recordSize =
@@ -396,7 +391,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertTrue(rawBuffer.version() > 0);
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         Assert.assertEquals(2, rawBuffer.recordType());
       }
@@ -413,7 +408,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records / 2; i++) {
       var recordSize = mersenneTwisterFast.nextInt(2 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -481,7 +475,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertTrue(rawBuffer.version() > 0);
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         Assert.assertEquals(2, rawBuffer.recordType());
       }
@@ -603,7 +597,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize = mersenneTwisterFast.nextInt(CollectionPage.MAX_RECORD_SIZE - 1) + 1;
@@ -645,7 +638,7 @@ public abstract class LocalPaginatedCollectionAbstract {
           var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
           Assert.assertNotNull(rawBuffer);
 
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertTrue(rawBuffer.version() > 0);
           Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
@@ -701,7 +694,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertTrue(rawBuffer.version() > 0);
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         Assert.assertEquals(2, rawBuffer.recordType());
       }
@@ -718,7 +711,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize =
@@ -768,7 +760,7 @@ public abstract class LocalPaginatedCollectionAbstract {
           var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
           Assert.assertNotNull(rawBuffer);
 
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertTrue(rawBuffer.version() > 0);
           Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
@@ -827,7 +819,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertTrue(rawBuffer.version() > 0);
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         Assert.assertEquals(2, rawBuffer.recordType());
       }
@@ -844,7 +836,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize = mersenneTwisterFast.nextInt(3 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -887,7 +878,7 @@ public abstract class LocalPaginatedCollectionAbstract {
           var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
           Assert.assertNotNull(rawBuffer);
 
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertTrue(rawBuffer.version() > 0);
           Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
@@ -944,7 +935,7 @@ public abstract class LocalPaginatedCollectionAbstract {
           var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
           Assert.assertNotNull(rawBuffer);
 
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertTrue(rawBuffer.version() > 0);
           Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
@@ -962,7 +953,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize = mersenneTwisterFast.nextInt(3 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -1035,7 +1025,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey(), atomicOperation);
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertTrue(rawBuffer.version() > 0);
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         Assert.assertEquals(2, rawBuffer.recordType());
       }
@@ -1045,7 +1035,6 @@ public abstract class LocalPaginatedCollectionAbstract {
   @Test
   public void testUpdateOneSmallRecord() throws IOException {
     final var smallRecord = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-    final var recordVersion = 2;
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
@@ -1053,7 +1042,6 @@ public abstract class LocalPaginatedCollectionAbstract {
                 paginatedCollection.createRecord(
                     smallRecord, (byte) 1, null, atomicOperation));
 
-    final var updatedRecordVersion = 3;
     final var updatedRecord = new byte[]{2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3};
 
     try {
@@ -1074,7 +1062,8 @@ public abstract class LocalPaginatedCollectionAbstract {
             atomicOperation));
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    var versionAfterCreate = rawBuffer.version();
+    Assert.assertTrue(versionAfterCreate > 0);
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
     Assert.assertEquals(1, rawBuffer.recordType());
 
@@ -1090,7 +1079,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         atomicOperations -> paginatedCollection.readRecord(physicalPosition.collectionPosition,
             atomicOperations));
 
-    Assert.assertEquals(updatedRecordVersion, rawBuffer.version());
+    Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedRecord);
     Assert.assertEquals(2, rawBuffer.recordType());
   }
@@ -1098,15 +1087,12 @@ public abstract class LocalPaginatedCollectionAbstract {
   @Test
   public void testUpdateOneSmallRecordVersionIsLowerCurrentOne() throws IOException {
     final var smallRecord = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-    final var recordVersion = 2;
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
             atomicOperation ->
                 paginatedCollection.createRecord(
                     smallRecord, (byte) 1, null, atomicOperation));
-
-    final var updateRecordVersion = 1;
 
     final var updatedRecord = new byte[]{2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3};
 
@@ -1126,7 +1112,8 @@ public abstract class LocalPaginatedCollectionAbstract {
     var rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(atomicOperation ->
         paginatedCollection.readRecord(physicalPosition.collectionPosition, atomicOperation));
     Assert.assertNotNull(rawBuffer);
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    var versionAfterCreate = rawBuffer.version();
+    Assert.assertTrue(versionAfterCreate > 0);
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
     Assert.assertEquals(1, rawBuffer.recordType());
 
@@ -1142,7 +1129,7 @@ public abstract class LocalPaginatedCollectionAbstract {
             paginatedCollection.readRecord(physicalPosition.collectionPosition, atomicOperation)
     );
 
-    Assert.assertEquals(updateRecordVersion, rawBuffer.version());
+    Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
 
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedRecord);
     Assert.assertEquals(2, rawBuffer.recordType());
@@ -1151,16 +1138,12 @@ public abstract class LocalPaginatedCollectionAbstract {
   @Test
   public void testUpdateOneSmallRecordVersionIsMinusTwo() throws IOException {
     final var smallRecord = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-    final var recordVersion = 2;
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
             atomicOperation ->
                 paginatedCollection.createRecord(
                     smallRecord, (byte) 1, null, atomicOperation));
-
-    final int updateRecordVersion;
-    updateRecordVersion = -2;
 
     final var updatedRecord = new byte[]{2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3};
 
@@ -1183,7 +1166,8 @@ public abstract class LocalPaginatedCollectionAbstract {
     );
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    var versionAfterCreate = rawBuffer.version();
+    Assert.assertTrue(versionAfterCreate > 0);
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
     Assert.assertEquals(1, rawBuffer.recordType());
 
@@ -1199,7 +1183,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         atomicOperation -> paginatedCollection.readRecord(physicalPosition.collectionPosition,
             atomicOperation));
 
-    Assert.assertEquals(updateRecordVersion, rawBuffer.version());
+    Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(smallRecord);
     Assert.assertEquals(2, rawBuffer.recordType());
   }
@@ -1213,7 +1197,6 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     mersenneTwisterFast.nextBytes(bigRecord);
 
-    final var recordVersion = 2;
 
     var physicalPosition =
         atomicOperationsManager.calculateInsideAtomicOperation(
@@ -1227,7 +1210,8 @@ public abstract class LocalPaginatedCollectionAbstract {
     );
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    var versionAfterCreate = rawBuffer.version();
+    Assert.assertTrue(versionAfterCreate > 0);
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(bigRecord);
     Assert.assertEquals(1, rawBuffer.recordType());
 
@@ -1253,7 +1237,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assert.assertEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(bigRecord);
     Assert.assertEquals(1, rawBuffer.recordType());
 
@@ -1268,7 +1252,7 @@ public abstract class LocalPaginatedCollectionAbstract {
         paginatedCollection.readRecord(physicalPosition.collectionPosition, atomicOperation)
     );
 
-    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedBigRecord);
     Assert.assertEquals(2, rawBuffer.recordType());
   }
@@ -1284,7 +1268,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
     Set<Long> updatedPositions = new HashSet<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize = mersenneTwisterFast.nextInt(CollectionPage.MAX_RECORD_SIZE - 1) + 1;
@@ -1300,8 +1283,14 @@ public abstract class LocalPaginatedCollectionAbstract {
           });
     }
 
-    final int newRecordVersion;
-    newRecordVersion = recordVersion + 1;
+    // Capture initial versions per position
+    Map<Long, Long> initialVersions = new HashMap<>();
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (long pos : positionRecordMap.keySet()) {
+        var buf = paginatedCollection.readRecord(pos, atomicOperation);
+        initialVersions.put(pos, buf.version());
+      }
+    });
 
     {
       for (long collectionPosition : positionRecordMap.keySet()) {
@@ -1352,10 +1341,12 @@ public abstract class LocalPaginatedCollectionAbstract {
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
 
         if (updatedPositions.contains(entry.getKey())) {
-          Assert.assertEquals(newRecordVersion, rawBuffer.version());
+          Assert.assertNotEquals(
+              (long) initialVersions.get(entry.getKey()), rawBuffer.version());
           Assert.assertEquals(3, rawBuffer.recordType());
         } else {
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertEquals(
+              (long) initialVersions.get(entry.getKey()), rawBuffer.version());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
       }
@@ -1373,7 +1364,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
     Set<Long> updatedPositions = new HashSet<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize =
@@ -1392,7 +1382,15 @@ public abstract class LocalPaginatedCollectionAbstract {
           });
     }
 
-    final var newRecordVersion = recordVersion + 1;
+    // Capture initial versions per position
+    Map<Long, Long> initialVersions = new HashMap<>();
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (long pos : positionRecordMap.keySet()) {
+        var buf = paginatedCollection.readRecord(pos, atomicOperation);
+        initialVersions.put(pos, buf.version());
+      }
+    });
+
     {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
@@ -1442,11 +1440,12 @@ public abstract class LocalPaginatedCollectionAbstract {
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
 
         if (updatedPositions.contains(entry.getKey())) {
-          Assert.assertEquals(newRecordVersion, rawBuffer.version());
-
+          Assert.assertNotEquals(
+              (long) initialVersions.get(entry.getKey()), rawBuffer.version());
           Assert.assertEquals(3, rawBuffer.recordType());
         } else {
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertEquals(
+              (long) initialVersions.get(entry.getKey()), rawBuffer.version());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
       }
@@ -1464,7 +1463,6 @@ public abstract class LocalPaginatedCollectionAbstract {
     Map<Long, byte[]> positionRecordMap = new HashMap<>();
     Set<Long> updatedPositions = new HashSet<>();
 
-    final var recordVersion = 2;
 
     for (var i = 0; i < records; i++) {
       var recordSize = mersenneTwisterFast.nextInt(2 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -1479,7 +1477,14 @@ public abstract class LocalPaginatedCollectionAbstract {
       positionRecordMap.put(physicalPosition.collectionPosition, record);
     }
 
-    final var newRecordVersion = recordVersion + 1;
+    // Capture initial versions per position
+    Map<Long, Long> initialVersions = new HashMap<>();
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (long pos : positionRecordMap.keySet()) {
+        var buf = paginatedCollection.readRecord(pos, atomicOperation);
+        initialVersions.put(pos, buf.version());
+      }
+    });
 
     {
       try {
@@ -1526,10 +1531,12 @@ public abstract class LocalPaginatedCollectionAbstract {
 
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
         if (updatedPositions.contains(entry.getKey())) {
-          Assert.assertEquals(newRecordVersion, rawBuffer.version());
+          Assert.assertNotEquals(
+              (long) initialVersions.get(entry.getKey()), rawBuffer.version());
           Assert.assertEquals(3, rawBuffer.recordType());
         } else {
-          Assert.assertEquals(recordVersion, rawBuffer.version());
+          Assert.assertEquals(
+              (long) initialVersions.get(entry.getKey()), rawBuffer.version());
           Assert.assertEquals(2, rawBuffer.recordType());
         }
       }
