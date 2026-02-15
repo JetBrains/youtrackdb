@@ -55,9 +55,18 @@ else
   age=$(( now_epoch - created_epoch ))
 
   if [ "${age}" -ge "${MAX_AGE_SECONDS}" ]; then
-    echo "Image '${IMAGE_NAME}' is older than 1 day ($(( age / 3600 ))h). Rebuilding..."
-    docker rmi "${IMAGE_NAME}" || true
-    build_image
+    # Safety check: refuse to rebuild if the image is in use by running containers
+    running_containers=$(docker ps -q --filter "ancestor=${IMAGE_NAME}")
+    if [ -n "${running_containers}" ]; then
+      echo "WARNING: Image '${IMAGE_NAME}' is stale ($(( age / 3600 ))h old) but cannot be rebuilt"
+      echo "         because it is currently used by running container(s):"
+      docker ps --filter "ancestor=${IMAGE_NAME}" --format "         - {{.Names}} ({{.ID}}, up {{.RunningFor}})"
+      echo "         Reusing the existing image. Stop the above container(s) and re-run to rebuild."
+    else
+      echo "Image '${IMAGE_NAME}' is older than 1 day ($(( age / 3600 ))h). Rebuilding..."
+      docker rmi "${IMAGE_NAME}" || true
+      build_image
+    fi
   else
     echo "Image '${IMAGE_NAME}' is fresh ($(( age / 3600 ))h old). Reusing."
   fi
