@@ -17,19 +17,16 @@ flowchart TB
         pr_title["pr-title-prefix.yml<br/>Auto-add YTDB-* prefix to PR title"]
     end
 
-    subgraph qodana_pipeline["qodana-scan.yml"]
-        direction TB
-        qodana_scan["Qodana Code Analysis<br/>JetBrains static analysis"]
-        qodana_cleanup["Optional: Push cleanup fixes"]
-        qodana_scan --> qodana_cleanup
-    end
-
     subgraph maven_pipeline["maven-pipeline.yml<br/>(develop branch)"]
         direction TB
         mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>ubuntu-latest, ubuntu-24.04-arm, windows-latest"]
+        mp_coverage["Coverage Report<br/>JaCoCo PR comment"]
+        mp_qodana["Qodana Scan<br/>JetBrains static analysis"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
+        mp_test --> mp_coverage
+        mp_test --> mp_qodana
         mp_test --> mp_deploy
         mp_deploy --> mp_annotate
         mp_deploy --> mp_notify
@@ -74,15 +71,12 @@ flowchart TB
 
 %% PR validation triggers
     pr_develop --> pr_checks
-    pr_develop --> qodana_pipeline
 %% Main pipeline triggers
     push_develop --> maven_pipeline
-    push_develop --> qodana_pipeline
     pr_develop --> maven_pipeline
     manual --> maven_pipeline
     manual --> integration_pipeline
     manual --> main_pipeline
-    manual --> qodana_pipeline
     schedule --> integration_pipeline
     push_main --> main_pipeline
 %% Pipelines use Maven mirror for dependency resolution
@@ -109,7 +103,6 @@ flowchart TB
     class maven_pipeline pipeline
     class integration_pipeline pipeline
     class main_pipeline pipeline
-    class qodana_pipeline pipeline
     class pr_checks validation
     class maven_dev artifact
     class maven_release artifact
@@ -141,19 +134,24 @@ Automatically adds the issue prefix to the PR title based on the branch name. If
 `ytdb-123-feature-name` or `YTDB/123/feature`, the workflow extracts `YTDB-123` and prepends it to
 the PR title if not already present.
 
-### qodana-scan.yml
-
-Runs JetBrains Qodana static code analysis on every push to `develop` and on pull requests. Uses a
-baseline file to track known issues and can optionally apply automatic cleanup fixes when triggered
-manually with the `cleanup` input set to true. Cleanup fixes are pushed to a separate branch for
-review.
-
 ### maven-pipeline.yml (Develop Branch)
 
-This is the primary CI pipeline triggered on every push or pull request to the `develop` branch. It runs the full test matrix across multiple JDK versions (21, 25), distributions
-(temurin, corretto, oracle, zulu, microsoft), and platforms (ubuntu-latest, ubuntu-24.04-arm,
-windows-latest). On successful push (not PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT`
-suffix to Maven Central. Each deployment is annotated with the exact version for traceability.
+This is the primary CI pipeline triggered on every push or pull request to the `develop` branch. It
+uses a concurrency group (`cancel-in-progress: true`) to cancel redundant in-progress builds when
+new commits arrive on the same PR or branch.
+
+It runs the full test matrix across multiple JDK versions (21, 25), distributions (temurin, oracle),
+and platforms (self-hosted Linux x86/arm, GitHub-hosted Windows). After tests complete, two
+downstream jobs run in parallel:
+
+- **Coverage Report** (PRs only) — Posts a detailed JaCoCo coverage summary as a PR comment using
+  [Madrapps/jacoco-report](https://github.com/Madrapps/jacoco-report), updating the same comment on
+  each push.
+- **Qodana Scan** — Runs JetBrains Qodana static code analysis in PR mode, using a baseline file to
+  track known issues. Uploads the SARIF report as an artifact.
+
+On successful push (not PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
+Central. Each deployment is annotated with the exact version for traceability.
 
 ### maven-integration-tests-pipeline.yml (Nightly / Manual)
 
@@ -225,8 +223,7 @@ For complete setup and configuration instructions, see [testflows-runner-setup.m
 | **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                  | GitHub-hosted runners                               | N/A                                                             |
 | **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix             | GitHub-hosted runners                               | N/A                                                             |
 | **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title            | GitHub-hosted runners                               | N/A                                                             |
-| **qodana-scan.yml**                      | Push/PR to `develop`, Manual | Static code analysis                         | GitHub-hosted runners                               | N/A (optional cleanup branch)                                   |
-| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Run tests, deploy dev artifacts              | GitHub-hosted runners                               | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`        |
+| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Run tests, coverage report, Qodana scan, deploy dev artifacts | Self-hosted (Linux) + GitHub-hosted (Windows) | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT` |
 | **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main         | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
 | **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify) | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
 | **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker            | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
