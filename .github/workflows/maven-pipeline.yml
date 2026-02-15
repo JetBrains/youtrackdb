@@ -136,7 +136,7 @@ jobs:
   # ------------------------------------------------------------------
   coverage-report:
     name: Coverage Report
-    needs: [test-linux]
+    needs: [ test-linux ]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -165,7 +165,7 @@ jobs:
   # ------------------------------------------------------------------
   qodana:
     name: Qodana Scan
-    needs: [test-linux]
+    needs: [ test-linux ]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     permissions:
