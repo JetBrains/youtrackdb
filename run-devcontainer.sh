@@ -153,6 +153,8 @@ run_cmd=(
   -e "HOST_GID=$(id -g)"
   -e "MAIN_REPO_PATH=${MAIN_REPO_PATH}"
   -e "YTDB_DEV_CONTAINER=1"
+  -e "GIT_USER_NAME=$(git config user.name || true)"
+  -e "GIT_USER_EMAIL=$(git config user.email || true)"
 )
 
 run_cmd+=(

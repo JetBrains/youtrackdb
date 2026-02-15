@@ -41,6 +41,14 @@ export HOME=/home/node
 # Configure git to use gh as credential helper (HTTPS-only, no SSH keys needed)
 runuser -u node -- git config --global credential.helper '!gh auth git-credential'
 
+# Propagate host user's git identity into the container
+if [ -n "${GIT_USER_NAME:-}" ]; then
+    runuser -u node -- git config --global user.name "$GIT_USER_NAME"
+fi
+if [ -n "${GIT_USER_EMAIL:-}" ]; then
+    runuser -u node -- git config --global user.email "$GIT_USER_EMAIL"
+fi
+
 # Hint if GitHub CLI is not authenticated
 if ! runuser -u node -- gh auth status >/dev/null 2>&1; then
     echo ""
