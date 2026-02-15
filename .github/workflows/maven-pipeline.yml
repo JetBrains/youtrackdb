@@ -130,10 +130,10 @@ jobs:
           comment_mode: off
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
-    # ------------------------------------------------------------------
-    # JOB 3: COVERAGE REPORT
-    # Posts JaCoCo coverage summary as a PR comment
-    # ------------------------------------------------------------------
+  # ------------------------------------------------------------------
+  # JOB 3: COVERAGE REPORT
+  # Posts JaCoCo coverage summary as a PR comment
+  # ------------------------------------------------------------------
   coverage-report:
     name: Coverage Report
     needs: [test-linux]
@@ -159,10 +159,10 @@ jobs:
           min-coverage-overall: 0
           min-coverage-changed-files: 0
 
-    # ------------------------------------------------------------------
-    # JOB 4: QODANA
-    # Runs after Linux tests to pick up coverage data
-    # ------------------------------------------------------------------
+  # ------------------------------------------------------------------
+  # JOB 4: QODANA
+  # Runs after Linux tests to pick up coverage data
+  # ------------------------------------------------------------------
   qodana:
     name: Qodana Scan
     needs: [test-linux]
@@ -199,10 +199,10 @@ jobs:
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
 
-    # ------------------------------------------------------------------
-    # JOB 5: DEPLOY
-    # Runs only if all Test jobs pass. Uses JDK 21
-    # ------------------------------------------------------------------
+  # ------------------------------------------------------------------
+  # JOB 5: DEPLOY
+  # Runs only if all Test jobs pass. Uses JDK 21
+  # ------------------------------------------------------------------
   deploy:
     needs: [ test-linux, test-windows ]
     runs-on: ubuntu-latest
