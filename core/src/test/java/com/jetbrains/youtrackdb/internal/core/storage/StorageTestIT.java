@@ -34,6 +34,7 @@ public class StorageTestIT {
     config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
         ChecksumMode.StoreAndSwitchReadOnlyMode.name());
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
+    config.setProperty(GlobalConfiguration.STORAGE_USE_DOUBLE_WRITE_LOG.getKey(), false);
 
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
@@ -66,7 +67,9 @@ public class StorageTestIT {
     var nativeFileName = wowCache.nativeFileNameById(fileId);
     youTrackDB.close();
 
-    var position = 3 << 10;
+    // Corrupt a byte in a data page (skip past metadata page at page 0)
+    var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    var position = File.HEADER_SIZE + pageSize + (3 << 10);
 
     var file =
         new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
@@ -99,6 +102,7 @@ public class StorageTestIT {
     config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
         ChecksumMode.StoreAndSwitchReadOnlyMode.name());
     config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
+    config.setProperty(GlobalConfiguration.STORAGE_USE_DOUBLE_WRITE_LOG.getKey(), false);
 
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
@@ -130,7 +134,9 @@ public class StorageTestIT {
     var nativeFileName = wowCache.nativeFileNameById(fileId);
     youTrackDB.close();
 
-    var position = File.HEADER_SIZE + DurablePage.MAGIC_NUMBER_OFFSET;
+    // Corrupt magic number of a data page (skip past metadata page at page 0)
+    var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    var position = File.HEADER_SIZE + pageSize + DurablePage.MAGIC_NUMBER_OFFSET;
 
     var file =
         new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
