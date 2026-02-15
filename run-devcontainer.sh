@@ -10,12 +10,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKTREE_SUFFIX="$(basename "${SCRIPT_DIR}")"
 CONTAINER_NAME="ytdb-claude-sandbox-${WORKTREE_SUFFIX}"
 
-# Build args — read from devcontainer.json (single source of truth)
+# Build args (single source of truth — no external config file)
 TZ="${TZ:-Europe/Berlin}"
-DEVCONTAINER_JSON="${SCRIPT_DIR}/.devcontainer/devcontainer.json"
-CLAUDE_CODE_VERSION=$(jq -r '.build.args.CLAUDE_CODE_VERSION' "$DEVCONTAINER_JSON")
-GIT_DELTA_VERSION=$(jq -r '.build.args.GIT_DELTA_VERSION' "$DEVCONTAINER_JSON")
-ZSH_IN_DOCKER_VERSION=$(jq -r '.build.args.ZSH_IN_DOCKER_VERSION' "$DEVCONTAINER_JSON")
+CLAUDE_CODE_VERSION="latest"
+GIT_DELTA_VERSION="0.18.2"
+ZSH_IN_DOCKER_VERSION="1.2.0"
 
 # Cross-platform date-to-epoch (GNU and BSD/macOS)
 date_to_epoch() {
@@ -74,22 +73,25 @@ fi
 CPU_LIMIT=$(nproc | awk '{printf "%.2f", $1 * 0.85}')
 echo "CPU limit: ${CPU_LIMIT} cores (85% of $(nproc))"
 
-# Resolve git worktree parent directory for mounting.
+# Resolve git worktree main repo for mounting.
 # Git worktrees store a .git *file* (not directory) whose gitdir points to
-# <parent-repo>/.git/worktrees/<name>.  Inside the container only /workspace
-# is mounted, so the parent .git is unreachable.  We mount it at the same
-# absolute host path so the gitdir reference works inside the container.
-GIT_WORKTREE_MOUNT=()
+# <main-repo>/.git/worktrees/<name>.  Inside the container only /workspace
+# is mounted, so the main repo is unreachable.  We mount the entire main repo
+# at its host absolute path so that (a) the gitdir reference works and (b) main
+# repo working-tree files are accessible.
+MAIN_REPO_MOUNT=()
+MAIN_REPO_PATH=""
 if [ -f "${SCRIPT_DIR}/.git" ]; then
-  # Git worktree — .git is a file pointing to the parent repo
+  # Git worktree — .git is a file pointing to the main repo
   WORKTREE_GITDIR=$(sed 's/^gitdir: //' "${SCRIPT_DIR}/.git" | tr -d '[:space:]')
   if [ ! -d "${WORKTREE_GITDIR}" ]; then
     echo "ERROR: Git worktree gitdir '${WORKTREE_GITDIR}' not found."
     exit 1
   fi
   GIT_COMMON_DIR=$(cd "${WORKTREE_GITDIR}" && cd "$(cat commondir)" && pwd)
-  echo "Git worktree detected. Mounting parent .git: ${GIT_COMMON_DIR}"
-  GIT_WORKTREE_MOUNT=(-v "${GIT_COMMON_DIR}:${GIT_COMMON_DIR}:delegated")
+  MAIN_REPO_PATH="$(dirname "${GIT_COMMON_DIR}")"
+  echo "Git worktree detected. Mounting main repo: ${MAIN_REPO_PATH}"
+  MAIN_REPO_MOUNT=(-v "${MAIN_REPO_PATH}:${MAIN_REPO_PATH}:delegated")
 elif [ ! -d "${SCRIPT_DIR}/.git" ]; then
   echo "ERROR: '${SCRIPT_DIR}' is not a git repository."
   exit 1
@@ -110,8 +112,8 @@ run_cmd=(
   # Workspace bind mount
   -v "${SCRIPT_DIR}:/workspace:delegated"
 
-  # Git worktree parent .git directory (resolved above, empty for regular clones)
-  "${GIT_WORKTREE_MOUNT[@]}"
+  # Main repo mount (resolved above, empty for regular clones)
+  "${MAIN_REPO_MOUNT[@]}"
 
   # Persistent volumes
   -v "ytdb-claude-bashhistory:/commandhistory"
@@ -128,6 +130,8 @@ run_cmd=(
   -e "JETBRAINS_MCP_PORT=${JETBRAINS_MCP_PORT:-64342}"
   -e "HOST_UID=$(id -u)"
   -e "HOST_GID=$(id -g)"
+  -e "MAIN_REPO_PATH=${MAIN_REPO_PATH}"
+  -e "YTDB_DEV_CONTAINER=1"
 )
 
 run_cmd+=(

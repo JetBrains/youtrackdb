@@ -5,7 +5,6 @@ A sandboxed Docker environment for running Claude Code against the YouTrackDB co
 ## Prerequisites
 
 - Docker Engine installed and running
-- `jq` installed on the host (used by the launcher script)
 - A GitHub fine-grained personal access token (PAT) for git and PR operations (see [GitHub Authentication](#github-authentication))
 
 ## Quick Start
@@ -65,7 +64,7 @@ Both are stored in persistent Docker volumes and survive container restarts — 
 |---|---|
 | Image build | Builds (or reuses) the `ytdb-devcontainer` Docker image |
 | UID mapping | Adjusts the container `node` user UID/GID to match the host user |
-| Git worktree | Detects git worktrees and mounts the parent `.git` directory |
+| Git worktree | Detects git worktrees and mounts the entire main repo at its host path |
 | Workspace | Bind-mounts the repository to `/workspace` |
 | Post-create | Copies container-specific Claude settings, generates JetBrains MCP config |
 | Firewall | Locks down the network to an allowlist of domains |
@@ -110,7 +109,7 @@ docker volume rm ytdb-claude-ghconfig
 
 ## Git
 
-Full git operations work inside the container over HTTPS, including for git worktrees. The launcher detects worktree layouts and mounts the parent `.git` directory automatically. Git authentication is handled by the `gh` credential helper — no SSH keys are needed.
+Full git operations work inside the container over HTTPS, including for git worktrees. The launcher detects worktree layouts and mounts the entire main repo at its host absolute path so that git refs resolve correctly. Git authentication is handled by the `gh` credential helper — no SSH keys are needed.
 
 ```bash
 git status
@@ -128,6 +127,16 @@ cd ~/Projects/ytdb/feature-a && ./run-devcontainer.sh
 cd ~/Projects/ytdb/feature-b && ./run-devcontainer.sh
 ```
 
+When running from a worktree the container provides:
+
+- **`/main-repo`** — a convenience symlink pointing to the main repository root
+- **`MAIN_REPO_PATH`** — environment variable containing the host path of the main repo
+
+```bash
+ls /main-repo        # browse main repo files
+echo $MAIN_REPO_PATH # e.g. /home/user/Projects/ytdb
+```
+
 ## JetBrains MCP
 
 If you have the JetBrains MCP server running in your IDE, the container auto-configures access to it. The default port is 64342; override with:
@@ -142,6 +151,8 @@ JETBRAINS_MCP_PORT=12345 ./run-devcontainer.sh
 |---|---|---|
 | `TZ` | `Europe/Berlin` | Container timezone |
 | `JETBRAINS_MCP_PORT` | `64342` | JetBrains MCP server port on the host |
+| `MAIN_REPO_PATH` | _(empty)_ | Host path to the main repo (set automatically for worktrees) |
+| `YTDB_DEV_CONTAINER` | `1` | Always set inside the dev container; use to detect the environment |
 
 ## Forcing a Rebuild
 

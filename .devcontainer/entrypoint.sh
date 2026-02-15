@@ -13,6 +13,12 @@ if [ "$HOST_UID" != "1000" ] || [ "$HOST_GID" != "1000" ]; then
     chown -R "$HOST_UID:$HOST_GID" /home/node /commandhistory /home/node/.config/gh
 fi
 
+# Create convenience symlink to main repo when running from a worktree
+if [ -n "${MAIN_REPO_PATH:-}" ]; then
+    ln -sfn "${MAIN_REPO_PATH}" /main-repo
+    chown -h node:node /main-repo
+fi
+
 # Run lifecycle scripts
 runuser -u node -- /usr/local/bin/post-create.sh
 
