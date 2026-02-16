@@ -26,6 +26,8 @@ public class DeepLinkedDocumentSaveTest extends DbTestBase {
     }
     session.commit();
 
+    assertEquals(3001, docs.size());
+
     session.begin();
     assertEquals(3001, session.countClass("Test"));
     session.rollback();
