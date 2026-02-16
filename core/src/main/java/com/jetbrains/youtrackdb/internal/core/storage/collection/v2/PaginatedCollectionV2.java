@@ -1768,24 +1768,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return true;
   }
 
-  /// Validates the entry-point chunk of a record: verifies that the chunk is large enough to
-  /// contain the full metadata header and that the stored collection position matches. Must only be
-  /// called within {@code assert} statements.
-  @SuppressWarnings("SameReturnValue")
-  private static boolean assertFirstChunkPositionConsistency(
-      byte[] chunkContent, long expectedPosition) {
-    final var dataLen =
-        chunkContent.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
-    if (dataLen < METADATA_SIZE) {
-      throw new AssertionError(
-          "Entry-point chunk too small for metadata: dataLen=" + dataLen
-              + " required=" + METADATA_SIZE);
-    }
-    final var storedPosition = LongSerializer.deserializeNative(
-        chunkContent, ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
-    return assertPositionConsistency(expectedPosition, storedPosition);
-  }
-
   /// Safely narrows a {@code long} record version to {@code int}. Throws if the value does not fit,
   /// preventing silent truncation during the transition period before the rest of the codebase
   /// migrates from {@code int} to {@code long} versions.
@@ -1852,63 +1834,4 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return meters;
   }
 
-  public void cleanUnreachableRecordVersions(long minimalReachableVersion) {
-    var reachabilityKey = new CompositeKey(minimalReachableVersion);
-    var unreachableRecords = visibleSnapshotIndex.headMap(reachabilityKey);
-    for (var unreachableRecord : unreachableRecords.values()) {
-      var positionEntry = snapshotIndex.get(unreachableRecord);
-      // should clean space in a record heap
-      try {
-        removeRecord(positionEntry);
-      } catch (IOException e) {
-        throw BaseException.wrapException(
-            new PaginatedCollectionException(storageName,
-                "Error during cleanup of unreachable record versions in '"
-                    + getName() + "' collection", this),
-            e, storageName);
-      }
-      snapshotIndex.remove(unreachableRecord);
-    }
-    unreachableRecords.clear();
-  }
-
-  private void removeRecord(PositionEntry positionEntry) throws IOException {
-    atomicOperationsManager.executeInsideAtomicOperation(
-        atomicOperation -> {
-          acquireExclusiveLock();
-          try {
-            var pageIndex = positionEntry.getPageIndex();
-            var recordPosition = positionEntry.getRecordPosition();
-
-            long nextPagePointer;
-            do {
-              var cacheEntryReleased = false;
-              final int maxRecordSize;
-              var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-              try {
-                var localPage = new CollectionPage(cacheEntry);
-
-                final var content = localPage.deleteRecord(recordPosition, true);
-                assert content != null;
-
-                maxRecordSize = localPage.getMaxRecordSize();
-                nextPagePointer =
-                    LongSerializer.deserializeNative(
-                        content, content.length - LongSerializer.LONG_SIZE);
-              } finally {
-                if (!cacheEntryReleased) {
-                  cacheEntry.close();
-                }
-              }
-
-              freeSpaceMap.updatePageFreeSpace(atomicOperation, (int) pageIndex, maxRecordSize);
-
-              pageIndex = getPageIndex(nextPagePointer);
-              recordPosition = getRecordPosition(nextPagePointer);
-            } while (nextPagePointer >= 0);
-          } finally {
-            releaseExclusiveLock();
-          }
-        });
-  }
 }

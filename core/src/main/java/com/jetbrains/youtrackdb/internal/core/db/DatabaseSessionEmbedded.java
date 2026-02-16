@@ -125,7 +125,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
@@ -1375,10 +1374,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return (FrontendTransactionImpl) currentTx;
     }
 
-    // Preserving atomicOperationTableState on the beginning of the transaction to support snapshot isolation
-    var atomicOperationsManager = storage.getAtomicOperationsManager();
-    var atomicOperationsSnapshot = atomicOperationsManager.snapshotAtomicOperationTableState();
-
     begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
     return (FrontendTransactionImpl) currentTx;
   }
@@ -2144,14 +2139,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getTimeZone();
   }
 
-  public RecordMetadata getRecordMetadata(final RID rid) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    return storage.getRecordMetadata(this, rid);
-  }
-
   /**
    * {@inheritDoc}
    */
@@ -2365,12 +2352,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
       return count[0];
     }
-  }
-
-  public void truncateCollection(String collectionName) {
-    assert assertIfNotActive();
-
-    truncateCollectionInternal(collectionName);
   }
 
   public TransactionMeters transactionMeters() {

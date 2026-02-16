@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -48,22 +47,6 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     result.setProperty("type", storage.getType());
     result.setProperty("version", storage.getVersion());
     result.setProperty("createdAtVersion", storage.getCreatedAtVersion());
-    return result;
-  }
-
-  private static Object toResult(DatabaseSessionEmbedded db,
-      StorageConfiguration configuration) {
-    var result = new ResultInternal(db);
-    result.setProperty("charset", configuration.getCharset());
-    result.setProperty("collectionSelection", configuration.getCollectionSelection());
-    result.setProperty("conflictStrategy", configuration.getConflictStrategy());
-    result.setProperty("dateFormat", configuration.getDateFormat());
-    result.setProperty("dateTimeFormat", configuration.getDateTimeFormat());
-    result.setProperty("localeCountry", configuration.getLocaleCountry());
-    result.setProperty("localeLanguage", configuration.getLocaleLanguage());
-    result.setProperty("recordSerializer", configuration.getRecordSerializer());
-    result.setProperty("timezone", String.valueOf(configuration.getTimeZone()));
-    result.setProperty("properties", toResult(db, configuration.getProperties()));
     return result;
   }
 

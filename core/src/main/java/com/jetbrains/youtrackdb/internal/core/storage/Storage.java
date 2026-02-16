@@ -76,6 +76,7 @@ public interface Storage {
   boolean isClosed(DatabaseSessionEmbedded database);
 
   // CRUD OPERATIONS
+  @SuppressWarnings("unused")
   @Nonnull
   RawBuffer readRecord(RecordIdInternal iRid, @Nonnull AtomicOperation atomicOperation);
 
@@ -86,8 +87,10 @@ public interface Storage {
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
 
+  @SuppressWarnings("unused")
   Set<String> getCollectionNames();
 
+  @SuppressWarnings("unused")
   Collection<? extends StorageCollection> getCollectionInstances();
 
   /**
@@ -112,6 +115,7 @@ public interface Storage {
 
   String getCollectionName(DatabaseSessionEmbedded database, final int collectionId);
 
+  @SuppressWarnings("unused")
   void setCollectionAttribute(final int id, ATTRIBUTES attribute,
       Object value);
 
@@ -143,29 +147,37 @@ public interface Storage {
   /**
    * Returns the total number of records.
    */
+  @SuppressWarnings("unused")
   long countRecords(DatabaseSessionEmbedded session);
 
+  @SuppressWarnings("unused")
   int getCollectionIdByName(String iCollectionName);
 
+  @SuppressWarnings("unused")
   String getPhysicalCollectionNameById(int iCollectionId);
 
   String getName();
 
+  @SuppressWarnings("unused")
   long getVersion();
 
   /**
    * @return Version of product release under which storage was created.
    */
+  @SuppressWarnings("unused")
   String getCreatedAtVersion();
 
+  @SuppressWarnings("unused")
   void synch();
 
+  @SuppressWarnings("unused")
   PhysicalPosition[] higherPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
   PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
+  @SuppressWarnings("unused")
   PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
@@ -175,6 +187,7 @@ public interface Storage {
   /**
    * Returns the current storage's status
    */
+  @SuppressWarnings("unused")
   STATUS getStatus();
 
   /**
@@ -186,12 +199,15 @@ public interface Storage {
 
   boolean isRemote();
 
+  @SuppressWarnings("unused")
   boolean isAssigningCollectionIds();
 
+  @SuppressWarnings("unused")
   LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 
+  @SuppressWarnings("unused")
   RecordConflictStrategy getRecordConflictStrategy();
 
   void setConflictStrategy(RecordConflictStrategy iResolver);
@@ -203,6 +219,7 @@ public interface Storage {
    */
   void shutdown();
 
+  @SuppressWarnings("unused")
   void setSchemaRecordId(String schemaRecordId);
 
   void setDateFormat(String dateFormat);
@@ -213,6 +230,7 @@ public interface Storage {
 
   void setCharset(String charset);
 
+  @SuppressWarnings("unused")
   void setIndexMgrRecordId(String indexMgrRecordId);
 
   void setDateTimeFormat(String dateTimeFormat);

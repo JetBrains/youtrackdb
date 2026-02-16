@@ -257,7 +257,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         toKeyIncluded,
         condition,
         isOrderAsc,
-        additionalRangeCondition,
         ctx);
   }
 
@@ -298,7 +297,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       boolean toKeyIncluded,
       SQLBooleanExpression condition,
       boolean isOrderAsc,
-      SQLBinaryCondition additionalRangeCondition,
       CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
@@ -531,24 +529,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       return result;
     }
     return types[0].convert(val, null, null, session);
-  }
-
-  private static boolean allEqualities(SQLAndBlock condition) {
-    if (condition == null) {
-      return false;
-    }
-    for (var exp : condition.getSubBlocks()) {
-      if (exp instanceof SQLBinaryCondition) {
-        if (!(((SQLBinaryCondition) exp).getOperator() instanceof SQLEqualsOperator)
-            && !(((SQLBinaryCondition) exp).getOperator() instanceof SQLContainsKeyOperator)
-            && !(((SQLBinaryCondition) exp).getOperator() instanceof SQLContainsValueOperator)) {
-          return false;
-        }
-      } else if (!(exp instanceof SQLInCondition)) {
-        return false;
-      } // OK
-    }
-    return true;
   }
 
   private static List<Stream<RawPair<Object, RID>>> processBetweenCondition(

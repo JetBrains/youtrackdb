@@ -57,10 +57,6 @@ public class RemoteIndexEngine implements IndexEngine {
     return name;
   }
 
-  public String getIndexNameByKey(Object key) {
-    return name;
-  }
-
   @Override
   public void init(DatabaseSessionEmbedded session, IndexMetadata metadata) {
   }

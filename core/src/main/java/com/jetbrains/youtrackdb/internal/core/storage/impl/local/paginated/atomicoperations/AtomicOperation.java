@@ -67,5 +67,6 @@ public interface AtomicOperation {
 
   IntSet getBookedRecordPositions(final int collectionId, final int pageIndex);
 
+  @SuppressWarnings("unused")
   boolean isActive();
 }

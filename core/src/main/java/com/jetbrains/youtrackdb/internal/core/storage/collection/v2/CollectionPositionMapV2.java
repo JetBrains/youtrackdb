@@ -529,19 +529,6 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     return RID.COLLECTION_POS_INVALID;
   }
 
-  /**
-   * Returns the next position available.
-   */
-  long getNextPosition(final AtomicOperation atomicOperation) throws IOException {
-    final var pageIndex = getLastPage(atomicOperation);
-
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-      final var bucket = new CollectionPositionMapBucket(cacheEntry);
-      final var bucketSize = bucket.getSize();
-      return pageIndex * CollectionPositionMapBucket.MAX_ENTRIES + bucketSize;
-    }
-  }
-
   public long getFileId() {
     return fileId;
   }

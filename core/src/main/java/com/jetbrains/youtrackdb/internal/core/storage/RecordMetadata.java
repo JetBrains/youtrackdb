@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 /**
  * @since 18.12.12
  */
+@SuppressWarnings("unused")
 public final class RecordMetadata {
 
   private final RID recordId;
