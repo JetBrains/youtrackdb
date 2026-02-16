@@ -1,0 +1,231 @@
+package com.jetbrains.youtrackdb.api.gremlin;
+
+import java.lang.Class;
+import java.lang.Object;
+import java.lang.Override;
+import java.lang.String;
+import java.util.Optional;
+import java.util.function.BinaryOperator;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
+import org.apache.tinkerpop.gremlin.process.computer.Computer;
+import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
+import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeStartStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexStartStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.InjectStep;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+
+public class YTDBGraphTraversalSource extends YTDBGraphTraversalSourceDSL {
+  public YTDBGraphTraversalSource(Graph graph) {
+    super(graph);
+  }
+
+  public YTDBGraphTraversalSource(Graph graph, TraversalStrategies strategies) {
+    super(graph, strategies);
+  }
+
+  public YTDBGraphTraversalSource(RemoteConnection connection) {
+    super(connection);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource clone() {
+    return (YTDBGraphTraversalSource) super.clone();
+  }
+
+  @Override
+  public YTDBGraphTraversalSource with(final String key) {
+    return (YTDBGraphTraversalSource) super.with(key);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource with(final String key, final Object value) {
+    return (YTDBGraphTraversalSource) super.with(key,value);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withStrategies(final TraversalStrategy... traversalStrategies) {
+    return (YTDBGraphTraversalSource) super.withStrategies(traversalStrategies);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withoutStrategies(
+      final Class<? extends TraversalStrategy>... traversalStrategyClasses) {
+    return (YTDBGraphTraversalSource) super.withoutStrategies(traversalStrategyClasses);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withComputer(final Computer computer) {
+    return (YTDBGraphTraversalSource) super.withComputer(computer);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withComputer(
+      final Class<? extends GraphComputer> graphComputerClass) {
+    return (YTDBGraphTraversalSource) super.withComputer(graphComputerClass);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withComputer() {
+    return (YTDBGraphTraversalSource) super.withComputer();
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSideEffect(final String key,
+      final Supplier<A> initialValue, final BinaryOperator<A> reducer) {
+    return (YTDBGraphTraversalSource) super.withSideEffect(key,initialValue,reducer);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSideEffect(final String key, final A initialValue,
+      final BinaryOperator<A> reducer) {
+    return (YTDBGraphTraversalSource) super.withSideEffect(key,initialValue,reducer);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSideEffect(final String key, final A initialValue) {
+    return (YTDBGraphTraversalSource) super.withSideEffect(key,initialValue);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSideEffect(final String key,
+      final Supplier<A> initialValue) {
+    return (YTDBGraphTraversalSource) super.withSideEffect(key,initialValue);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final Supplier<A> initialValue,
+      final UnaryOperator<A> splitOperator, final BinaryOperator<A> mergeOperator) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue,splitOperator,mergeOperator);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final A initialValue,
+      final UnaryOperator<A> splitOperator, final BinaryOperator<A> mergeOperator) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue,splitOperator,mergeOperator);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final A initialValue) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final Supplier<A> initialValue) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final Supplier<A> initialValue,
+      final UnaryOperator<A> splitOperator) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue,splitOperator);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final A initialValue,
+      final UnaryOperator<A> splitOperator) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue,splitOperator);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final Supplier<A> initialValue,
+      final BinaryOperator<A> mergeOperator) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue,mergeOperator);
+  }
+
+  @Override
+  public <A> YTDBGraphTraversalSource withSack(final A initialValue,
+      final BinaryOperator<A> mergeOperator) {
+    return (YTDBGraphTraversalSource) super.withSack(initialValue,mergeOperator);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withBulk(final boolean useBulk) {
+    return (YTDBGraphTraversalSource) super.withBulk(useBulk);
+  }
+
+  @Override
+  public YTDBGraphTraversalSource withPath() {
+    return (YTDBGraphTraversalSource) super.withPath();
+  }
+
+  @Override
+  public YTDBGraphTraversal<Vertex, Vertex> addV() {
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new AddVertexStartStep(traversal, (String) null));
+  }
+
+  @Override
+  public YTDBGraphTraversal<Vertex, Vertex> addV(String label) {
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV, label);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new AddVertexStartStep(traversal, label));
+  }
+
+  @Override
+  public YTDBGraphTraversal<Vertex, Vertex> addV(Traversal vertexLabelTraversal) {
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV, vertexLabelTraversal);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new AddVertexStartStep(traversal, vertexLabelTraversal));
+  }
+
+  @Override
+  public YTDBGraphTraversal<Edge, Edge> addE(String label) {
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addE, label);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new AddEdgeStartStep(traversal, label));
+  }
+
+  @Override
+  public YTDBGraphTraversal<Edge, Edge> addE(Traversal edgeLabelTraversal) {
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addE, edgeLabelTraversal);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new AddEdgeStartStep(traversal, edgeLabelTraversal));
+  }
+
+  @Override
+  public YTDBGraphTraversal<Vertex, Vertex> V(Object... vertexIds) {
+    final Object[] ids = null == vertexIds ? new Object[] { null } : vertexIds;;
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.V, ids);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new GraphStep(traversal, Vertex.class, true, ids));
+  }
+
+  @Override
+  public YTDBGraphTraversal<Edge, Edge> E(Object... edgeIds) {
+    final Object[] ids = null == edgeIds ? new Object[] { null } : edgeIds;;
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.E, ids);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new GraphStep(traversal, Edge.class, true, ids));
+  }
+
+  @Override
+  public <S> YTDBGraphTraversal<S, S> inject(S... starts) {
+    final S[] s = null == starts ? (S[]) new Object[] { null } : starts;;
+    YTDBGraphTraversalSource clone = this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.inject, s);
+    DefaultYTDBGraphTraversal traversal = new DefaultYTDBGraphTraversal(clone);
+    return (YTDBGraphTraversal) traversal.asAdmin().addStep(new InjectStep(traversal, s));
+  }
+
+  @Override
+  public Optional<Class<?>> getAnonymousTraversalClass() {
+    return Optional.of(__.class);
+  }
+}
