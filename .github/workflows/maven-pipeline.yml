@@ -144,7 +144,7 @@ jobs:
 
   test-linux:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
-    needs: [detect-changes]
+    needs: [ detect-changes ]
     if: needs.detect-changes.outputs.should_build == 'true'
     runs-on:
       - self-hosted
@@ -219,7 +219,7 @@ jobs:
 
   test-windows:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
-    needs: [detect-changes]
+    needs: [ detect-changes ]
     if: needs.detect-changes.outputs.should_build == 'true'
     runs-on: windows-latest
     strategy:
@@ -383,7 +383,7 @@ jobs:
   ci-status:
     name: CI Status
     if: always()
-    needs: [detect-changes, test-linux, test-windows, qodana]
+    needs: [ detect-changes, test-linux, test-windows, qodana ]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
@@ -405,7 +405,9 @@ jobs:
           if [[ "$LINUX_RESULT" != "success" ]] || \
              [[ "$WINDOWS_RESULT" != "success" ]] || \
              [[ "$QODANA_RESULT" != "success" ]]; then
-            echo "Not all required jobs succeeded (linux=$LINUX_RESULT, windows=$WINDOWS_RESULT, qodana=$QODANA_RESULT)"
+            echo "Not all required jobs succeeded" \
+              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT," \
+              "qodana=$QODANA_RESULT)"
             exit 1
           fi
           echo "All required jobs passed"
