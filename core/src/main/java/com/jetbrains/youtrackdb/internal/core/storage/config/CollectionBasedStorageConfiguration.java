@@ -190,8 +190,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public void create(
       final AtomicOperation atomicOperation,
       final ContextConfiguration contextConfiguration,
-      final StorageConfiguration source)
-      throws IOException {
+      final StorageConfiguration source) {
     lock.writeLock().lock();
     try {
       create(atomicOperation, contextConfiguration);

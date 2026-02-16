@@ -489,8 +489,7 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void initConfiguration(
       final ContextConfiguration contextConfiguration,
-      AtomicOperation atomicOperation)
-      throws IOException {
+      AtomicOperation atomicOperation) {
     configuration = new CollectionBasedStorageConfiguration(this);
     ((CollectionBasedStorageConfiguration) configuration)
         .load(contextConfiguration, atomicOperation);
