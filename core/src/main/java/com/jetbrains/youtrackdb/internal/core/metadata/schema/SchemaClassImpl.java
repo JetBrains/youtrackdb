@@ -1199,9 +1199,9 @@ public abstract class SchemaClassImpl {
       try (var result =
           database.query(
               "select from "
-                  + getEscapedName(name, true)
+                  + getEscapedName(name)
                   + " where "
-                  + getEscapedName(propertyName, true)
+                  + getEscapedName(propertyName)
                   + ".type() <> \""
                   + type.name()
                   + "\"")) {
@@ -1232,9 +1232,9 @@ public abstract class SchemaClassImpl {
       try (var result =
           database.query(
               "select from "
-                  + getEscapedName(name, true)
+                  + getEscapedName(name)
                   + " where "
-                  + getEscapedName(propertyName, true)
+                  + getEscapedName(propertyName)
                   + " is not null ")) {
         return result.toRidList();
       }
@@ -1254,9 +1254,9 @@ public abstract class SchemaClassImpl {
       SchemaClassImpl linkedClass) {
     final var builder = new StringBuilder(256);
     builder.append("select from ");
-    builder.append(getEscapedName(name, true));
+    builder.append(getEscapedName(name));
     builder.append(" where ");
-    builder.append(getEscapedName(propertyName, true));
+    builder.append(getEscapedName(propertyName));
     builder.append(".type() not in [");
 
     final var cur = type.getCastable().iterator();
@@ -1268,12 +1268,12 @@ public abstract class SchemaClassImpl {
     }
     builder
         .append("] and ")
-        .append(getEscapedName(propertyName, true))
+        .append(getEscapedName(propertyName))
         .append(" is not null ");
     if (type.isMultiValue()) {
       builder
           .append(" and ")
-          .append(getEscapedName(propertyName, true))
+          .append(getEscapedName(propertyName))
           .append(".size() <> 0 limit 1");
     }
 
@@ -1302,11 +1302,11 @@ public abstract class SchemaClassImpl {
       SchemaClassImpl linkedClass) {
     final var builder = new StringBuilder(256);
     builder.append("select from ");
-    builder.append(getEscapedName(name, true));
+    builder.append(getEscapedName(name));
     builder.append(" where ");
-    builder.append(getEscapedName(propertyName, true)).append(" is not null ");
+    builder.append(getEscapedName(propertyName)).append(" is not null ");
     if (type.isMultiValue()) {
-      builder.append(" and ").append(getEscapedName(propertyName, true)).append(".size() > 0");
+      builder.append(" and ").append(getEscapedName(propertyName)).append(".size() > 0");
     }
 
     db.executeInTx(tx -> {
@@ -1382,13 +1382,8 @@ public abstract class SchemaClassImpl {
         || linkedClass.getName().equalsIgnoreCase(((EntityImpl) x).getSchemaClassName());
   }
 
-  protected static String getEscapedName(final String iName, final boolean iStrictSQL) {
-    if (iStrictSQL)
-    // ESCAPE NAME
-    {
-      return "`" + iName + "`";
-    }
-    return iName;
+  protected static String getEscapedName(final String iName) {
+    return "`" + iName + "`";
   }
 
   public SchemaShared getOwner() {

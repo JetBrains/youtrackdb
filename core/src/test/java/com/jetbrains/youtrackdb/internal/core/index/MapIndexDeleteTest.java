@@ -399,7 +399,7 @@ public class MapIndexDeleteTest extends DbTestBase {
     // commit() only decrements txStartCounter from 2 to 1, does NOT actually commit
     session.commit();
 
-    // The delete was silently discarded! Rollback to clean up the remaining tx.
+    // The deletion was silently discarded! Rollback to clean up the remaining tx.
     session.rollback();
 
     // Verify that index entries are NOT cleaned up (the bug behavior)
