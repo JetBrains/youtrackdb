@@ -589,7 +589,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     if (name.toLowerCase(Locale.ENGLISH).equals(session.getCollectionNameById(collectionId))) {
       // DROP THE DEFAULT COLLECTION CALLED WITH THE SAME NAME ONLY IF EMPTY
       if (session.computeInTxInternal(
-          tx -> (long) session.countCollectionElements(collectionId)) == 0) {
+          tx -> session.countCollectionElements(collectionId)) == 0) {
         session.dropCollectionInternal(collectionId);
       }
     }

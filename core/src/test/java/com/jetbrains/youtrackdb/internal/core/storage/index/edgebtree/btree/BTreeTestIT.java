@@ -73,7 +73,7 @@ public class BTreeTestIT {
     youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
 
     var databaseSession = youTrackDB.open(DB_NAME, "admin", "admin");
-    storage = (AbstractStorage) databaseSession.getStorage();
+    storage = databaseSession.getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseSession.close();
   }
