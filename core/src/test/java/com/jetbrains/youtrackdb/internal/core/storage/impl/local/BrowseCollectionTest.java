@@ -12,8 +12,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.ArrayList;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.lang3.ArrayUtils;
@@ -54,10 +52,10 @@ public class BrowseCollectionTest {
     var collection = db.getSchema().getClass("One").getCollectionIds()[0];
 
     db.begin();
-    var activeTx = (FrontendTransactionImpl) db.getActiveTransaction();
+    var activeTx = db.getActiveTransaction();
     var atomicOperation = activeTx.getAtomicOperation();
     var forwardBrowser =
-        ((AbstractStorage) db.getStorage())
+        db.getStorage()
             .browseCollection(collection, true, atomicOperation);
 
     final var forwardPositions = new ArrayList<Long>();
@@ -72,7 +70,7 @@ public class BrowseCollectionTest {
     assertTrue(ArrayUtils.isSorted(forwardPositions.stream().mapToLong(Long::longValue).toArray()));
 
     var backwardBrowser =
-        ((AbstractStorage) db.getStorage())
+        db.getStorage()
             .browseCollection(collection, false, atomicOperation);
     final var backwardPositions = new ArrayList<Long>();
     while (backwardBrowser.hasNext()) {
