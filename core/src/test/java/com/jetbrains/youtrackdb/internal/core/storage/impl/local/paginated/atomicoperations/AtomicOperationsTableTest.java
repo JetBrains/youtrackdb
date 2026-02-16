@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -147,7 +148,7 @@ public class AtomicOperationsTableTest {
 
     var snapshot = table.snapshotAtomicOperationTableState(100);
 
-    // With no active operations, records at or below currentTs should be visible
+    // With no active operations, records at or below currentTimestamp should be visible
     assertTrue(snapshot.isEntryVisible(50));
     assertTrue(snapshot.isEntryVisible(100));
     assertFalse(snapshot.isEntryVisible(101));
@@ -161,14 +162,14 @@ public class AtomicOperationsTableTest {
 
     var snapshot = table.snapshotAtomicOperationTableState(100);
 
-    // Records below minActiveOperationTs are visible
+    // Records below minActiveOperationTimestamp are visible
     assertTrue(snapshot.isEntryVisible(0));
     assertTrue(snapshot.isEntryVisible(49));
 
-    // minActiveOperationTs itself is not visible (it's in progress)
+    // minActiveOperationTimestamp itself is not visible (it's in progress)
     assertFalse(snapshot.isEntryVisible(50));
 
-    // Records at or above maxActiveOperationTs are not visible
+    // Records at or above maxActiveOperationTimestamp are not visible
     assertFalse(snapshot.isEntryVisible(51));
     assertFalse(snapshot.isEntryVisible(100));
   }
@@ -238,7 +239,7 @@ public class AtomicOperationsTableTest {
 
     // Now only 20 is in progress
     var snapshot2 = table.snapshotAtomicOperationTableState(100);
-    // Operation 10 is still not visible to snapshot2 because minActiveOperationTs is now 20
+    // Operation 10 is still not visible to snapshot2 because minActiveOperationTimestamp is now 20
     // and 10 < 20, so it should be visible
     assertTrue(snapshot2.isEntryVisible(10));
     assertFalse(snapshot2.isEntryVisible(20));
@@ -582,7 +583,7 @@ public class AtomicOperationsTableTest {
           for (var i = 0; i < snapshotsPerReader; i++) {
             var snapshot = table.snapshotAtomicOperationTableState(Long.MAX_VALUE);
             // Just ensure snapshot is consistent (no exceptions)
-            snapshot.inProgressTxs().size();
+            assertNotNull(snapshot.inProgressTxs());
             Thread.yield();
           }
         } catch (Throwable e) {
@@ -764,7 +765,7 @@ public class AtomicOperationsTableTest {
 
     var snapshot = table.snapshotAtomicOperationTableState(20);
 
-    // minActiveOperationTs = 5, maxActiveOperationTs = 15
+    // minActiveOperationTimestamp = 5, maxActiveOperationTimestamp = 15
     // Boundary conditions:
     assertTrue(snapshot.isEntryVisible(4));   // Just below min - visible
     assertFalse(snapshot.isEntryVisible(5));  // Exactly min - not visible

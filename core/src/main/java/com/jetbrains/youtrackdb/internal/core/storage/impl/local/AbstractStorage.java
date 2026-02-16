@@ -278,7 +278,7 @@ public abstract class AbstractStorage
   private final Stopwatch shutdownDuration;
 
   // Tracking active transactions, should be used for unreachable record versions cleanup
-  protected Map<Long, FrontendTransaction> transactionsTracker = new ConcurrentHashMap<>();
+  protected final Map<Long, FrontendTransaction> transactionsTracker = new ConcurrentHashMap<>();
 
   public AbstractStorage(
       final String name, final String filePath, final int id,
