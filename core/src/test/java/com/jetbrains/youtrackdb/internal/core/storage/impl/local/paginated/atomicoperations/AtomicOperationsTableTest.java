@@ -423,28 +423,27 @@ public class AtomicOperationsTableTest {
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
 
-    var executor = Executors.newFixedThreadPool(threadCount);
-
-    for (var t = 0; t < threadCount; t++) {
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < operationsPerThread; i++) {
-            var opTs = nextTs.getAndIncrement();
-            table.startOperation(opTs, opTs);
-            table.commitOperation(opTs);
+    try (var executor = Executors.newFixedThreadPool(threadCount)) {
+      for (var t = 0; t < threadCount; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < operationsPerThread; i++) {
+              var opTs = nextTs.getAndIncrement();
+              table.startOperation(opTs, opTs);
+              table.commitOperation(opTs);
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    }
 
     if (!errors.isEmpty()) {
       fail("Errors occurred during concurrent start/commit: " + errors.peek().getMessage());
@@ -464,29 +463,28 @@ public class AtomicOperationsTableTest {
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
 
-    var executor = Executors.newFixedThreadPool(threadCount);
-
-    for (var t = 0; t < threadCount; t++) {
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < operationsPerThread; i++) {
-            var opTs = nextTs.getAndIncrement();
-            table.startOperation(opTs, opTs);
-            table.commitOperation(opTs);
-            table.persistOperation(opTs);
+    try (var executor = Executors.newFixedThreadPool(threadCount)) {
+      for (var t = 0; t < threadCount; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < operationsPerThread; i++) {
+              var opTs = nextTs.getAndIncrement();
+              table.startOperation(opTs, opTs);
+              table.commitOperation(opTs);
+              table.persistOperation(opTs);
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    }
 
     if (!errors.isEmpty()) {
       fail("Errors occurred during concurrent lifecycle: " + errors.peek().getMessage());
@@ -512,28 +510,27 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
 
-    var executor = Executors.newFixedThreadPool(threadCount);
-
-    for (var t = 0; t < threadCount; t++) {
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < snapshotsPerThread; i++) {
-            var snapshot = table.snapshotAtomicOperationTableState(200);
-            // All started operations should be in the snapshot
-            assertEquals(100, snapshot.inProgressTxs().size());
+    try (var executor = Executors.newFixedThreadPool(threadCount)) {
+      for (var t = 0; t < threadCount; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < snapshotsPerThread; i++) {
+              var snapshot = table.snapshotAtomicOperationTableState(200);
+              // All started operations should be in the snapshot
+              assertEquals(100, snapshot.inProgressTxs().size());
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    }
 
     if (!errors.isEmpty()) {
       fail("Errors occurred during concurrent snapshots: " + errors.peek().getMessage());
@@ -552,51 +549,50 @@ public class AtomicOperationsTableTest {
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
 
-    var executor = Executors.newFixedThreadPool(writerThreads + readerThreads);
-
-    // Writer threads
-    for (var t = 0; t < writerThreads; t++) {
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < operationsPerWriter; i++) {
-            var opTs = nextTs.getAndIncrement();
-            table.startOperation(opTs, opTs);
-            Thread.yield(); // Allow interleaving
-            table.commitOperation(opTs);
-            Thread.yield();
-            table.persistOperation(opTs);
+    try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
+      // Writer threads
+      for (var t = 0; t < writerThreads; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < operationsPerWriter; i++) {
+              var opTs = nextTs.getAndIncrement();
+              table.startOperation(opTs, opTs);
+              Thread.yield(); // Allow interleaving
+              table.commitOperation(opTs);
+              Thread.yield();
+              table.persistOperation(opTs);
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    // Reader threads
-    for (var t = 0; t < readerThreads; t++) {
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < snapshotsPerReader; i++) {
-            var snapshot = table.snapshotAtomicOperationTableState(Long.MAX_VALUE);
-            // Just ensure snapshot is consistent (no exceptions)
-            assertNotNull(snapshot.inProgressTxs());
-            Thread.yield();
+      // Reader threads
+      for (var t = 0; t < readerThreads; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < snapshotsPerReader; i++) {
+              var snapshot = table.snapshotAtomicOperationTableState(Long.MAX_VALUE);
+              // Just ensure snapshot is consistent (no exceptions)
+              assertNotNull(snapshot.inProgressTxs());
+              Thread.yield();
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
 
     if (!errors.isEmpty()) {
       fail("Errors occurred during concurrent operations with snapshots: " + errors.peek()
@@ -614,33 +610,32 @@ public class AtomicOperationsTableTest {
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
 
-    var executor = Executors.newFixedThreadPool(threadCount);
-
-    for (var t = 0; t < threadCount; t++) {
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < operationsPerThread; i++) {
-            var opTs = nextTs.getAndIncrement();
-            table.startOperation(opTs, opTs);
-            table.commitOperation(opTs);
-            table.persistOperation(opTs);
-            // Trigger manual compaction occasionally
-            if (i % 10 == 0) {
-              table.compactTable();
+    try (var executor = Executors.newFixedThreadPool(threadCount)) {
+      for (var t = 0; t < threadCount; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < operationsPerThread; i++) {
+              var opTs = nextTs.getAndIncrement();
+              table.startOperation(opTs, opTs);
+              table.commitOperation(opTs);
+              table.persistOperation(opTs);
+              // Trigger manual compaction occasionally
+              if (i % 10 == 0) {
+                table.compactTable();
+              }
             }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    }
 
     if (!errors.isEmpty()) {
       fail("Errors occurred during concurrent compaction: " + errors.peek().getMessage());
@@ -662,37 +657,36 @@ public class AtomicOperationsTableTest {
     var nextTs = new AtomicLong(0);
     var completedOps = new AtomicInteger(0);
 
-    var executor = Executors.newFixedThreadPool(threadCount);
+    try (var executor = Executors.newFixedThreadPool(threadCount)) {
+      for (var t = 0; t < threadCount; t++) {
+        final var threadId = t;
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < operationsPerThread; i++) {
+              var opTs = nextTs.getAndIncrement();
+              table.startOperation(opTs, opTs);
 
-    for (var t = 0; t < threadCount; t++) {
-      final var threadId = t;
-      executor.submit(() -> {
-        try {
-          startLatch.await();
-          for (var i = 0; i < operationsPerThread; i++) {
-            var opTs = nextTs.getAndIncrement();
-            table.startOperation(opTs, opTs);
-
-            // Mix of commit+persist and rollback
-            if ((threadId + i) % 3 == 0) {
-              table.rollbackOperation(opTs);
-            } else {
-              table.commitOperation(opTs);
-              table.persistOperation(opTs);
+              // Mix of commit+persist and rollback
+              if ((threadId + i) % 3 == 0) {
+                table.rollbackOperation(opTs);
+              } else {
+                table.commitOperation(opTs);
+                table.persistOperation(opTs);
+              }
+              completedOps.incrementAndGet();
             }
-            completedOps.incrementAndGet();
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
           }
-        } catch (Throwable e) {
-          errors.add(e);
-        } finally {
-          doneLatch.countDown();
-        }
-      });
-    }
+        });
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
 
     if (!errors.isEmpty()) {
       fail("Errors occurred during concurrent mixed operations: " + errors.peek().getMessage());
@@ -842,7 +836,7 @@ public class AtomicOperationsTableTest {
     table.commitOperation(1);
 
     assertEquals(-1, table.getSegmentEarliestOperationInProgress());
-    // Earliest not persisted should be segment 10 (operation 0)
+    // Earliest not-persisted operation should map to WAL segment 10 (operation 0)
     assertEquals(10, table.getSegmentEarliestNotPersistedOperation());
 
     // Persist out of order
