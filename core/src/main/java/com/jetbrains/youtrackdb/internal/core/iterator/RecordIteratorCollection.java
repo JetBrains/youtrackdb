@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
