@@ -341,7 +341,7 @@ public class TransactionTest {
     var recordValue = "Foo";
     var updateRecordValue = "Bar";
 
-    var user = db.createVertexClass("Userr");
+    var user = db.createVertexClass("User");
     user.createProperty("name", PropertyType.STRING);
 
     user.createIndex(

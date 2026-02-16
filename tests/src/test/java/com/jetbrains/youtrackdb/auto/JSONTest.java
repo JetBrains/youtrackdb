@@ -953,7 +953,7 @@ public class JSONTest extends BaseDBTest {
       return jaimeEntity.getIdentity();
     });
 
-    final var cerseRecord = session.computeInTx(tx -> {
+    final var cerseiRecord = session.computeInTx(tx -> {
       final var jaimeEntity = session.loadEntity(jaimeRid);
       final var cerseiEntity = session.newEntity("NestedLinkCreation");
 
@@ -964,25 +964,25 @@ public class JSONTest extends BaseDBTest {
     });
 
     checkJsonSerialization(jaimeRid);
-    checkJsonSerialization(cerseRecord.getIdentity());
+    checkJsonSerialization(cerseiRecord.getIdentity());
 
     final var jaimeMap = Map.of(
         "name", "jaime",
         "@rid", jaimeRid,
         "@class", "NestedLinkCreation",
         //both entities were update because a new link was added.
-        "@version", cerseRecord.getVersion()
+        "@version", cerseiRecord.getVersion()
     );
     checkJsonSerialization(jaimeRid, jaimeMap);
 
     final var cerseiMap = Map.of(
         "name", "cersei",
         "valonqar", jaimeRid,
-        "@rid", cerseRecord.getIdentity(),
+        "@rid", cerseiRecord.getIdentity(),
         "@class", "NestedLinkCreation",
-        "@version", cerseRecord.getVersion()
+        "@version", cerseiRecord.getVersion()
     );
-    checkJsonSerialization(cerseRecord.getIdentity(), cerseiMap);
+    checkJsonSerialization(cerseiRecord.getIdentity(), cerseiMap);
   }
 
   @Test
