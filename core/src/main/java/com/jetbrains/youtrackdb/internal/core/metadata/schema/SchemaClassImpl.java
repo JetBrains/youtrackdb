@@ -283,7 +283,6 @@ public abstract class SchemaClassImpl {
       boolean validateIndexes);
 
 
-
   public String getDescription() {
     acquireSchemaReadLock();
     try {

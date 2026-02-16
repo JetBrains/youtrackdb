@@ -835,7 +835,6 @@ public class DBSequenceTest {
     assertThat(myseq.next(db)).isEqualTo(6);
     db.commit();
 
-
     db.begin();
     assertThat(myseq.next(db)).isEqualTo(7);
     db.commit();

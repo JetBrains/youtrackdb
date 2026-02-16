@@ -13,6 +13,7 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 public final class SpliteratorBackward implements Spliterator<RawPairObjectInteger<EdgeKey>> {
+
   private final SharedLinkBagBTree bTree;
 
   private final EdgeKey fromKey;

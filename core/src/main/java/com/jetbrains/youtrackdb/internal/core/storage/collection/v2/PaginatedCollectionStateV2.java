@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 public final class PaginatedCollectionStateV2 extends DurablePage {
+
   private static final int RECORDS_SIZE_OFFSET = NEXT_FREE_POSITION;
   private static final int SIZE_OFFSET = RECORDS_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
   private static final int FILE_SIZE_OFFSET = SIZE_OFFSET + IntegerSerializer.INT_SIZE;

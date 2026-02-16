@@ -354,164 +354,164 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     listener.onMessage("\nStarting index comparison:");
 
-      var ok = true;
+    var ok = true;
 
-      final var indexManagerOne = sessionOne.getSharedContext().getIndexManager();
-      final var indexManagerTwo = sessionTwo.getSharedContext().getIndexManager();
+    final var indexManagerOne = sessionOne.getSharedContext().getIndexManager();
+    final var indexManagerTwo = sessionTwo.getSharedContext().getIndexManager();
 
-      final var indexesOne = indexManagerOne.getIndexes();
-      var indexesSizeOne = indexesOne.size();
+    final var indexesOne = indexManagerOne.getIndexes();
+    var indexesSizeOne = indexesOne.size();
 
-      var indexesSizeTwo = indexManagerTwo.getIndexes().size();
+    var indexesSizeTwo = indexManagerTwo.getIndexes().size();
 
-      if (indexManagerTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
-        indexesSizeTwo--;
+    if (indexManagerTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
+      indexesSizeTwo--;
+    }
+
+    if (indexesSizeOne != indexesSizeTwo) {
+      ok = false;
+      listener.onMessage("\n- ERR: Amount of indexes are different.");
+      listener.onMessage("\n--- DB1: " + indexesSizeOne);
+      listener.onMessage("\n--- DB2: " + indexesSizeTwo);
+      listener.onMessage("\n");
+      ++differences;
+    }
+
+    for (var indexOne : indexesOne) {
+      final var indexName = indexOne.getName();
+      if (excludeIndexes.contains(indexName)) {
+        continue;
       }
 
-      if (indexesSizeOne != indexesSizeTwo) {
+      final var indexTwo = indexManagerTwo.getIndex(indexOne.getName());
+      if (indexTwo == null) {
         ok = false;
-        listener.onMessage("\n- ERR: Amount of indexes are different.");
-        listener.onMessage("\n--- DB1: " + indexesSizeOne);
-        listener.onMessage("\n--- DB2: " + indexesSizeTwo);
+        listener.onMessage("\n- ERR: Index " + indexOne.getName() + " is absent in DB2.");
+        ++differences;
+        continue;
+      }
+
+      if (!indexOne.getType().equals(indexTwo.getType())) {
+        ok = false;
+        listener.onMessage(
+            "\n- ERR: Index types for index " + indexOne.getName() + " are different.");
+        listener.onMessage("\n--- DB1: " + indexOne.getType());
+        listener.onMessage("\n--- DB2: " + indexTwo.getType());
+        listener.onMessage("\n");
+        ++differences;
+        continue;
+      }
+
+      if (!indexOne.getCollections().equals(indexTwo.getCollections())) {
+        ok = false;
+        listener.onMessage(
+            "\n- ERR: Collections to index for index " + indexOne.getName() + " are different.");
+        listener.onMessage("\n--- DB1: " + indexOne.getCollections());
+        listener.onMessage("\n--- DB2: " + indexTwo.getCollections());
+        listener.onMessage("\n");
+        ++differences;
+        continue;
+      }
+
+      if (indexOne.getDefinition() == null && indexTwo.getDefinition() != null) {
+        // THIS IS NORMAL SINCE 3.0 DUE OF REMOVING OF INDEX WITHOUT THE DEFINITION,  THE IMPORTER
+        // WILL CREATE THE DEFINITION
+        listener.onMessage(
+            "\n- WARN: Index definition for index " + indexOne.getName()
+                + " for DB2 is not null.");
+        continue;
+      } else {
+        if (indexOne.getDefinition() != null && indexTwo.getDefinition() == null) {
+          ok = false;
+          listener.onMessage(
+              "\n- ERR: Index definition for index " + indexOne.getName() + " for DB2 is null.");
+          ++differences;
+          continue;
+        } else {
+          if (indexOne.getDefinition() != null
+              && !indexOne.getDefinition().equals(indexTwo.getDefinition())) {
+            ok = false;
+            listener.onMessage(
+                "\n- ERR: Index definitions for index " + indexOne.getName() + " are different.");
+            listener.onMessage("\n--- DB1: " + indexOne.getDefinition());
+            listener.onMessage("\n--- DB2: " + indexTwo.getDefinition());
+            listener.onMessage("\n");
+            ++differences;
+            continue;
+          }
+        }
+      }
+
+      final var indexOneSize = indexOne.size(sessionOne);
+      final var indexTwoSize = indexTwo.size(sessionTwo);
+
+      if (indexOneSize != indexTwoSize) {
+        ok = false;
+        listener.onMessage(
+            "\n- ERR: Amount of entries for index " + indexOne.getName() + " are different.");
+        listener.onMessage("\n--- DB1: " + indexOneSize);
+        listener.onMessage("\n--- DB2: " + indexTwoSize);
         listener.onMessage("\n");
         ++differences;
       }
 
-      for (var indexOne : indexesOne) {
-        final var indexName = indexOne.getName();
-        if (excludeIndexes.contains(indexName)) {
-          continue;
-        }
+      if (compareIndexMetadata) {
+        final var metadataOne = indexOne.getMetadata();
+        final var metadataTwo = indexTwo.getMetadata();
 
-        final var indexTwo = indexManagerTwo.getIndex(indexOne.getName());
-        if (indexTwo == null) {
-          ok = false;
-          listener.onMessage("\n- ERR: Index " + indexOne.getName() + " is absent in DB2.");
-          ++differences;
-          continue;
-        }
-
-        if (!indexOne.getType().equals(indexTwo.getType())) {
+        if (metadataOne == null && metadataTwo != null) {
           ok = false;
           listener.onMessage(
-              "\n- ERR: Index types for index " + indexOne.getName() + " are different.");
-          listener.onMessage("\n--- DB1: " + indexOne.getType());
-          listener.onMessage("\n--- DB2: " + indexTwo.getType());
+              "\n- ERR: Metadata for index "
+                  + indexOne.getName()
+                  + " for DB1 is null but for DB2 is not.");
           listener.onMessage("\n");
           ++differences;
-          continue;
-        }
-
-        if (!indexOne.getCollections().equals(indexTwo.getCollections())) {
-          ok = false;
-          listener.onMessage(
-              "\n- ERR: Collections to index for index " + indexOne.getName() + " are different.");
-          listener.onMessage("\n--- DB1: " + indexOne.getCollections());
-          listener.onMessage("\n--- DB2: " + indexTwo.getCollections());
-          listener.onMessage("\n");
-          ++differences;
-          continue;
-        }
-
-        if (indexOne.getDefinition() == null && indexTwo.getDefinition() != null) {
-          // THIS IS NORMAL SINCE 3.0 DUE OF REMOVING OF INDEX WITHOUT THE DEFINITION,  THE IMPORTER
-          // WILL CREATE THE DEFINITION
-          listener.onMessage(
-              "\n- WARN: Index definition for index " + indexOne.getName()
-                  + " for DB2 is not null.");
-          continue;
         } else {
-          if (indexOne.getDefinition() != null && indexTwo.getDefinition() == null) {
-            ok = false;
-            listener.onMessage(
-                "\n- ERR: Index definition for index " + indexOne.getName() + " for DB2 is null.");
-            ++differences;
-            continue;
-          } else {
-            if (indexOne.getDefinition() != null
-                && !indexOne.getDefinition().equals(indexTwo.getDefinition())) {
-              ok = false;
-              listener.onMessage(
-                  "\n- ERR: Index definitions for index " + indexOne.getName() + " are different.");
-              listener.onMessage("\n--- DB1: " + indexOne.getDefinition());
-              listener.onMessage("\n--- DB2: " + indexTwo.getDefinition());
-              listener.onMessage("\n");
-              ++differences;
-              continue;
-            }
-          }
-        }
-
-        final var indexOneSize = indexOne.size(sessionOne);
-        final var indexTwoSize = indexTwo.size(sessionTwo);
-
-        if (indexOneSize != indexTwoSize) {
-          ok = false;
-          listener.onMessage(
-              "\n- ERR: Amount of entries for index " + indexOne.getName() + " are different.");
-          listener.onMessage("\n--- DB1: " + indexOneSize);
-          listener.onMessage("\n--- DB2: " + indexTwoSize);
-          listener.onMessage("\n");
-          ++differences;
-        }
-
-        if (compareIndexMetadata) {
-          final var metadataOne = indexOne.getMetadata();
-          final var metadataTwo = indexTwo.getMetadata();
-
-          if (metadataOne == null && metadataTwo != null) {
+          if (metadataOne != null && metadataTwo == null) {
             ok = false;
             listener.onMessage(
                 "\n- ERR: Metadata for index "
                     + indexOne.getName()
-                    + " for DB1 is null but for DB2 is not.");
+                    + " for DB1 is not null but for DB2 is null.");
             listener.onMessage("\n");
             ++differences;
           } else {
-            if (metadataOne != null && metadataTwo == null) {
+            if (!Objects.equals(metadataOne, metadataTwo)) {
               ok = false;
               listener.onMessage(
                   "\n- ERR: Metadata for index "
                       + indexOne.getName()
-                      + " for DB1 is not null but for DB2 is null.");
+                      + " for DB1 and for DB2 are different.");
+
+              listener.onMessage("\n--- M1: " + metadataOne);
+              listener.onMessage("\n--- M2: " + metadataTwo);
+
               listener.onMessage("\n");
               ++differences;
-            } else {
-              if (!Objects.equals(metadataOne, metadataTwo)) {
-                ok = false;
-                listener.onMessage(
-                    "\n- ERR: Metadata for index "
-                        + indexOne.getName()
-                        + " for DB1 and for DB2 are different.");
-
-                listener.onMessage("\n--- M1: " + metadataOne);
-                listener.onMessage("\n--- M2: " + metadataTwo);
-
-                listener.onMessage("\n");
-                ++differences;
-              }
-            }
-          }
-        }
-
-        if (((compareEntriesForAutomaticIndexes && !indexOne.getType().equals("DICTIONARY"))
-            || !indexOne.isAutomatic())) {
-          try (final var keyStream = indexOne.keyStream(txOne.getAtomicOperation())) {
-            final var indexKeyIteratorOne = keyStream.iterator();
-            while (indexKeyIteratorOne.hasNext()) {
-              final var indexKey = indexKeyIteratorOne.next();
-              try (var indexOneStream = indexOne.getRids(sessionOne, indexKey)) {
-                try (var indexTwoValue = indexTwo.getRids(sessionTwo, indexKey)) {
-                  differences +=
-                      compareIndexStreams(
-                          indexKey, indexOneStream, indexTwoValue, ridMapper, listener);
-                }
-              }
-              ok = ok && differences > 0;
             }
           }
         }
       }
+
+      if (((compareEntriesForAutomaticIndexes && !indexOne.getType().equals("DICTIONARY"))
+          || !indexOne.isAutomatic())) {
+        try (final var keyStream = indexOne.keyStream(txOne.getAtomicOperation())) {
+          final var indexKeyIteratorOne = keyStream.iterator();
+          while (indexKeyIteratorOne.hasNext()) {
+            final var indexKey = indexKeyIteratorOne.next();
+            try (var indexOneStream = indexOne.getRids(sessionOne, indexKey)) {
+              try (var indexTwoValue = indexTwo.getRids(sessionTwo, indexKey)) {
+                differences +=
+                    compareIndexStreams(
+                        indexKey, indexOneStream, indexTwoValue, ridMapper, listener);
+              }
+            }
+            ok = ok && differences > 0;
+          }
+        }
+      }
+    }
 
     if (ok) {
       listener.onMessage("OK");
@@ -670,211 +670,211 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     var txTwo = sessionTwo.getActiveTransaction();
 
     for (final var collectionName : collectionNames1) {
-        // CHECK IF THE COLLECTION IS INCLUDED
-        final var collectionId1 = sessionOne.getCollectionIdByName(collectionName);
-        RecordIdInternal rid1 = null;
+      // CHECK IF THE COLLECTION IS INCLUDED
+      final var collectionId1 = sessionOne.getCollectionIdByName(collectionName);
+      RecordIdInternal rid1 = null;
 
-        var physicalPositions = sessionOne.getStorage()
-            .ceilingPhysicalPositions(sessionOne, collectionId1, new PhysicalPosition(0),
-                Integer.MAX_VALUE);
+      var physicalPositions = sessionOne.getStorage()
+          .ceilingPhysicalPositions(sessionOne, collectionId1, new PhysicalPosition(0),
+              Integer.MAX_VALUE);
 
-        var storageType1 = sessionOne.getStorage().getType();
-        var storageType2 = sessionTwo.getStorage().getType();
+      var storageType1 = sessionOne.getStorage().getType();
+      var storageType2 = sessionTwo.getStorage().getType();
 
-        var schemaRecordId1 = sessionOne.getStorage().getSchemaRecordId();
-        var schemaRecordId2 = sessionTwo.getStorage().getSchemaRecordId();
+      var schemaRecordId1 = sessionOne.getStorage().getSchemaRecordId();
+      var schemaRecordId2 = sessionTwo.getStorage().getSchemaRecordId();
 
-        var indexManagerRecordId1 = sessionOne.getStorage().getIndexMgrRecordId();
-        var indexManagerRecordId2 = sessionTwo.getStorage().getIndexMgrRecordId();
+      var indexManagerRecordId1 = sessionOne.getStorage().getIndexMgrRecordId();
+      var indexManagerRecordId2 = sessionTwo.getStorage().getIndexMgrRecordId();
 
-        long recordsCounter = 0;
-        while (physicalPositions.length > 0) {
-          for (var physicalPosition : physicalPositions) {
-            try {
-              recordsCounter++;
+      long recordsCounter = 0;
+      while (physicalPositions.length > 0) {
+        for (var physicalPosition : physicalPositions) {
+          try {
+            recordsCounter++;
 
-              final var entity1 = new EntityImpl(sessionOne,
-                  new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
-              final var entity2 = new EntityImpl(sessionTwo,
-                  new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
+            final var entity1 = new EntityImpl(sessionOne,
+                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
+            final var entity2 = new EntityImpl(sessionTwo,
+                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
 
-              final var position = physicalPosition.collectionPosition;
-              rid1 = new RecordId(collectionId1, position);
+            final var position = physicalPosition.collectionPosition;
+            rid1 = new RecordId(collectionId1, position);
 
-              final RecordIdInternal rid2;
-              if (ridMapper == null) {
+            final RecordIdInternal rid2;
+            if (ridMapper == null) {
+              rid2 = rid1;
+            } else {
+              final var newRid = ridMapper.map(rid1);
+              if (newRid == null) {
                 rid2 = rid1;
               } else {
-                final var newRid = ridMapper.map(rid1);
-                if (newRid == null) {
-                  rid2 = rid1;
-                } else {
-                  rid2 = new RecordId(newRid);
-                }
+                rid2 = new RecordId(newRid);
               }
+            }
 
-              if (skipRecord(
-                  rid1, rid2, schemaRecordId1, schemaRecordId2, indexManagerRecordId1,
-                  indexManagerRecordId2, storageType1, storageType2)) {
-                continue;
-              }
-              final var buffer1 = sessionOne.getStorage()
-                  .readRecord(rid1, txOne.getAtomicOperation());
-              final var buffer2 = sessionTwo.getStorage()
-                  .readRecord(rid2, txTwo.getAtomicOperation());
+            if (skipRecord(
+                rid1, rid2, schemaRecordId1, schemaRecordId2, indexManagerRecordId1,
+                indexManagerRecordId2, storageType1, storageType2)) {
+              continue;
+            }
+            final var buffer1 = sessionOne.getStorage()
+                .readRecord(rid1, txOne.getAtomicOperation());
+            final var buffer2 = sessionTwo.getStorage()
+                .readRecord(rid2, txTwo.getAtomicOperation());
 
-              if (buffer1.recordType() != buffer2.recordType()) {
+            if (buffer1.recordType() != buffer2.recordType()) {
+              listener.onMessage(
+                  "\n- ERR: RID="
+                      + collectionId1
+                      + ":"
+                      + position
+                      + " recordType is different: "
+                      + (char) buffer1.recordType()
+                      + " <-> "
+                      + (char) buffer2.recordType());
+              ++differences;
+            }
+
+            //noinspection StatementWithEmptyBody
+            if (buffer1.buffer() == null && buffer2.buffer() == null) {
+              // Both null so both equals
+            } else {
+              if (buffer1.buffer() == null) {
                 listener.onMessage(
                     "\n- ERR: RID="
                         + collectionId1
                         + ":"
                         + position
-                        + " recordType is different: "
-                        + (char) buffer1.recordType()
-                        + " <-> "
-                        + (char) buffer2.recordType());
+                        + " content is different: null <-> "
+                        + buffer2.buffer().length);
                 ++differences;
-              }
 
-              //noinspection StatementWithEmptyBody
-              if (buffer1.buffer() == null && buffer2.buffer() == null) {
-                // Both null so both equals
               } else {
-                if (buffer1.buffer() == null) {
+                if (buffer2.buffer() == null) {
                   listener.onMessage(
                       "\n- ERR: RID="
                           + collectionId1
                           + ":"
                           + position
-                          + " content is different: null <-> "
-                          + buffer2.buffer().length);
+                          + " content is different: "
+                          + buffer1.buffer().length
+                          + " <-> null");
                   ++differences;
 
                 } else {
-                  if (buffer2.buffer() == null) {
-                    listener.onMessage(
-                        "\n- ERR: RID="
-                            + collectionId1
-                            + ":"
-                            + position
-                            + " content is different: "
-                            + buffer1.buffer().length
-                            + " <-> null");
-                    ++differences;
+                  if (EntityHelper.isEntity(buffer1.recordType())) {
+                    // ENTITY: TRY TO INSTANTIATE AND COMPARE
 
+                    final var rec1 = (RecordAbstract) entity1;
+                    rec1.unsetDirty();
+                    final var rec3 = (RecordAbstract) entity1;
+                    rec3.fromStream(buffer1.buffer());
+
+                    final var rec = (RecordAbstract) entity2;
+                    rec.unsetDirty();
+                    final var rec2 = (RecordAbstract) entity2;
+                    rec2.fromStream(buffer2.buffer());
+
+                    if (rid1.toString().equals(schemaRecordId1)
+                        && rid1.toString().equals(schemaRecordId2)) {
+                      convertSchemaDoc(entity1);
+                      convertSchemaDoc(entity2);
+                    }
+
+                    if (!EntityHelper.hasSameContentOf(
+                        entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
+                      listener.onMessage(
+                          "\n- ERR: RID="
+                              + collectionId1
+                              + ":"
+                              + position
+                              + " entity content is different");
+                      listener.onMessage("\n--- REC1: " + new String(buffer1.buffer()));
+                      listener.onMessage("\n--- REC2: " + new String(buffer2.buffer()));
+                      listener.onMessage("\n");
+                      ++differences;
+                    }
                   } else {
-                    if (EntityHelper.isEntity(buffer1.recordType())) {
-                      // ENTITY: TRY TO INSTANTIATE AND COMPARE
+                    if (buffer1.buffer().length != buffer2.buffer().length) {
+                      // CHECK IF THE TRIMMED SIZE IS THE SAME
+                      @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
+                          buffer1.buffer()).trim();
+                      @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
+                          buffer2.buffer()).trim();
 
-                      final var rec1 = (RecordAbstract) entity1;
-                      rec1.unsetDirty();
-                      final var rec3 = (RecordAbstract) entity1;
-                      rec3.fromStream(buffer1.buffer());
-
-                      final var rec = (RecordAbstract) entity2;
-                      rec.unsetDirty();
-                      final var rec2 = (RecordAbstract) entity2;
-                      rec2.fromStream(buffer2.buffer());
-
-                      if (rid1.toString().equals(schemaRecordId1)
-                          && rid1.toString().equals(schemaRecordId2)) {
-                        convertSchemaDoc(entity1);
-                        convertSchemaDoc(entity2);
-                      }
-
-                      if (!EntityHelper.hasSameContentOf(
-                          entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
+                      if (rec1.length() != rec2.length()) {
                         listener.onMessage(
                             "\n- ERR: RID="
                                 + collectionId1
                                 + ":"
                                 + position
-                                + " entity content is different");
-                        listener.onMessage("\n--- REC1: " + new String(buffer1.buffer()));
-                        listener.onMessage("\n--- REC2: " + new String(buffer2.buffer()));
+                                + " content length is different: "
+                                + buffer1.buffer().length
+                                + " <-> "
+                                + buffer2.buffer().length);
+
+                        if (EntityHelper.isEntity(buffer2.recordType())) {
+                          listener.onMessage("\n--- REC2: " + rec2);
+                        }
+
                         listener.onMessage("\n");
+
                         ++differences;
                       }
                     } else {
-                      if (buffer1.buffer().length != buffer2.buffer().length) {
-                        // CHECK IF THE TRIMMED SIZE IS THE SAME
-                        @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
-                            buffer1.buffer()).trim();
-                        @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
-                            buffer2.buffer()).trim();
-
-                        if (rec1.length() != rec2.length()) {
+                      // CHECK BYTE PER BYTE
+                      for (var b = 0; b < buffer1.buffer().length; ++b) {
+                        if (buffer1.buffer()[b] != buffer2.buffer()[b]) {
                           listener.onMessage(
                               "\n- ERR: RID="
                                   + collectionId1
                                   + ":"
                                   + position
-                                  + " content length is different: "
-                                  + buffer1.buffer().length
+                                  + " content is different at byte #"
+                                  + b
+                                  + ": "
+                                  + buffer1.buffer()[b]
                                   + " <-> "
-                                  + buffer2.buffer().length);
-
-                          if (EntityHelper.isEntity(buffer2.recordType())) {
-                            listener.onMessage("\n--- REC2: " + rec2);
-                          }
-
+                                  + buffer2.buffer()[b]);
+                          listener.onMessage("\n--- REC1: " + new String(buffer1.buffer()));
+                          listener.onMessage("\n--- REC2: " + new String(buffer2.buffer()));
                           listener.onMessage("\n");
-
                           ++differences;
-                        }
-                      } else {
-                        // CHECK BYTE PER BYTE
-                        for (var b = 0; b < buffer1.buffer().length; ++b) {
-                          if (buffer1.buffer()[b] != buffer2.buffer()[b]) {
-                            listener.onMessage(
-                                "\n- ERR: RID="
-                                    + collectionId1
-                                    + ":"
-                                    + position
-                                    + " content is different at byte #"
-                                    + b
-                                    + ": "
-                                    + buffer1.buffer()[b]
-                                    + " <-> "
-                                    + buffer2.buffer()[b]);
-                            listener.onMessage("\n--- REC1: " + new String(buffer1.buffer()));
-                            listener.onMessage("\n--- REC2: " + new String(buffer2.buffer()));
-                            listener.onMessage("\n");
-                            ++differences;
-                            break;
-                          }
+                          break;
                         }
                       }
                     }
                   }
                 }
               }
-            } catch (RuntimeException e) {
-              LogManager.instance()
-                  .error(this, "Error during data comparison of records with rid " + rid1, e);
-              throw e;
             }
-          }
-          final var curPosition = physicalPositions;
-          physicalPositions = sessionOne.getStorage()
-              .higherPhysicalPositions(sessionOne, collectionId1,
-                  curPosition[curPosition.length - 1], Integer.MAX_VALUE);
-          if (recordsCounter % 10000 == 0) {
-            listener.onMessage(
-                "\n"
-                    + recordsCounter
-                    + " records were processed for collection "
-                    + collectionName
-                    + " ...");
+          } catch (RuntimeException e) {
+            LogManager.instance()
+                .error(this, "Error during data comparison of records with rid " + rid1, e);
+            throw e;
           }
         }
+        final var curPosition = physicalPositions;
+        physicalPositions = sessionOne.getStorage()
+            .higherPhysicalPositions(sessionOne, collectionId1,
+                curPosition[curPosition.length - 1], Integer.MAX_VALUE);
+        if (recordsCounter % 10000 == 0) {
+          listener.onMessage(
+              "\n"
+                  + recordsCounter
+                  + " records were processed for collection "
+                  + collectionName
+                  + " ...");
+        }
+      }
 
-        listener.onMessage(
-            "\nCollection comparison was finished, "
-                + recordsCounter
-                + " records were processed for collection "
-                + collectionName
-                + " ...");
+      listener.onMessage(
+          "\nCollection comparison was finished, "
+              + recordsCounter
+              + " records were processed for collection "
+              + collectionName
+              + " ...");
     }
   }
 

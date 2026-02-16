@@ -125,8 +125,8 @@ public class SequenceLibraryImpl {
     try {
       final var seq = getSequence(session, iName);
       if (seq != null) {
-          var entity = session.loadEntity(seq.entityRid);
-          session.delete(entity);
+        var entity = session.loadEntity(seq.entityRid);
+        session.delete(entity);
 
         session.registerListener(new SessionListener() {
           @Override

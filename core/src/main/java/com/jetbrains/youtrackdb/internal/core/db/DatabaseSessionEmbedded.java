@@ -1380,7 +1380,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var atomicOperationsSnapshot = atomicOperationsManager.snapshotAtomicOperationTableState();
 
     begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
-    return (FrontendTransactionImpl)currentTx;
+    return (FrontendTransactionImpl) currentTx;
   }
 
   public void beginReadOnly() {

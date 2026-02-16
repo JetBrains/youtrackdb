@@ -598,7 +598,8 @@ public class AtomicOperationsTableTest {
     executor.shutdown();
 
     if (!errors.isEmpty()) {
-      fail("Errors occurred during concurrent operations with snapshots: " + errors.peek().getMessage());
+      fail("Errors occurred during concurrent operations with snapshots: " + errors.peek()
+          .getMessage());
     }
   }
 
