@@ -371,6 +371,11 @@
           <artifactId>jacoco-maven-plugin</artifactId>
           <version>0.8.14</version>
         </plugin>
+        <plugin>
+          <groupId>org.pitest</groupId>
+          <artifactId>pitest-maven</artifactId>
+          <version>1.22.1</version>
+        </plugin>
 
         <plugin>
           <artifactId>maven-install-plugin</artifactId>
@@ -934,7 +939,7 @@
                 <phase>test</phase>
                 <goals><goal>report</goal></goals>
                 <configuration>
-                  <outputDirectory>${maven.multiModuleProjectDirectory}/.qodana/code-coverage/${project.artifactId}</outputDirectory>
+                  <outputDirectory>${maven.multiModuleProjectDirectory}/.coverage/reports/${project.artifactId}</outputDirectory>
                   <formats>
                     <format>XML</format>
                   </formats>
@@ -949,7 +954,7 @@
                 <phase>post-integration-test</phase>
                 <goals><goal>report-integration</goal></goals>
                 <configuration>
-                  <outputDirectory>${maven.multiModuleProjectDirectory}/.qodana/code-coverage/${project.artifactId}-it</outputDirectory>
+                  <outputDirectory>${maven.multiModuleProjectDirectory}/.coverage/reports/${project.artifactId}-it</outputDirectory>
                   <formats>
                     <format>XML</format>
                   </formats>
@@ -1020,6 +1025,37 @@
                 <goals><goal>restore</goal></goals>
               </execution>
             </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>mutation-testing</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <configuration>
+              <mutationThreshold>85</mutationThreshold>
+              <failWhenNoMutations>false</failWhenNoMutations>
+              <threads>1</threads>
+              <timeoutConstant>10000</timeoutConstant>
+              <timeoutFactor>1.5</timeoutFactor>
+              <verbose>false</verbose>
+              <excludedClasses>
+                <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
+                <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
+              </excludedClasses>
+              <targetTests>
+                <param>com.jetbrains.youtrackdb.*</param>
+              </targetTests>
+              <outputFormats>
+                <param>XML</param>
+                <param>HTML</param>
+              </outputFormats>
+            </configuration>
           </plugin>
         </plugins>
       </build>
