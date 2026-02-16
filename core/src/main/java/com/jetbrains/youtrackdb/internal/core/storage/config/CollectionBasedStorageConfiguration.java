@@ -339,7 +339,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   /// with the non-reentrant ScalableRWLock.
   private void readMinimumCollections(AtomicOperation atomicOperation) {
     if (containsProperty(MINIMUM_COLLECTIONS_PROPERTY, atomicOperation)) {
-      var minimumCollections = readIntProperty(MINIMUM_COLLECTIONS_PROPERTY, true);
+      var minimumCollections = readIntProperty(MINIMUM_COLLECTIONS_PROPERTY);
       configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, minimumCollections);
       autoInitCollections();
     }
@@ -590,7 +590,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getVersion(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
-      return readIntProperty(VERSION_PROPERTY, true);
+      return readIntProperty(VERSION_PROPERTY);
     } finally {
       lock.readLock().unlock();
     }
@@ -854,7 +854,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getBinaryFormatVersion(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
-      return readIntProperty(BINARY_FORMAT_VERSION_PROPERTY, true);
+      return readIntProperty(BINARY_FORMAT_VERSION_PROPERTY);
     } finally {
       lock.readLock().unlock();
     }
@@ -916,7 +916,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getRecordSerializerVersion() {
     lock.readLock().lock();
     try {
-      return readIntProperty(RECORD_SERIALIZER_VERSION_PROPERTY, true);
+      return readIntProperty(RECORD_SERIALIZER_VERSION_PROPERTY);
     } finally {
       lock.readLock().unlock();
     }
@@ -1023,7 +1023,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getPageSize(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
-      return readIntProperty(PAGE_SIZE_PROPERTY, true);
+      return readIntProperty(PAGE_SIZE_PROPERTY);
     } finally {
       lock.readLock().unlock();
     }
@@ -1043,7 +1043,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getFreeListBoundary(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
-      return readIntProperty(FREE_LIST_BOUNDARY_PROPERTY, true);
+      return readIntProperty(FREE_LIST_BOUNDARY_PROPERTY);
     } finally {
       lock.readLock().unlock();
     }
@@ -1062,7 +1062,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public int getMaxKeySize(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
-      return readIntProperty(MAX_KEY_SIZE_PROPERTY, true);
+      return readIntProperty(MAX_KEY_SIZE_PROPERTY);
     } finally {
       lock.readLock().unlock();
     }
@@ -1869,13 +1869,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     return (String) cache.get(name);
   }
 
-  private int readIntProperty(final String name, final boolean useCache) {
-    if (useCache) {
-      final var cachedValue = cache.get(name);
-      return (int) cachedValue;
-    }
-
-    throw new IllegalStateException("Property " + name + " is absent");
+  private int readIntProperty(final String name) {
+    final var cachedValue = cache.get(name);
+    return (int) cachedValue;
   }
 
   private void preloadIntProperties(AtomicOperation atomicOperation) {
