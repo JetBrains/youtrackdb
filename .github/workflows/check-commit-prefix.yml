@@ -86,6 +86,7 @@ jobs:
             console.log(`Found ${commits.length} commit(s) between fork point and HEAD`);
 
             const failingCommits = [];
+            // noinspection SpellCheckingInspection
             const anyYtdbPrefixRegex = /ytdb-\d+/i;
 
             for (const commit of commits) {

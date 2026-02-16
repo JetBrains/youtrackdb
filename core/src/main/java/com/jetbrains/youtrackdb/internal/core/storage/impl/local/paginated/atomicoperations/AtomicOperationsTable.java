@@ -116,9 +116,9 @@ public class AtomicOperationsTable {
   /// - Otherwise → **Visible** (committed between min and max)
   ///
   /// @param minActiveOperationTs the minimum timestamp among all in-progress operations,
-  ///                             or `currentTs + 1` if no operations are active
+  ///                             or `currentTimestamp + 1` if no operations are active
   /// @param maxActiveOperationTs the maximum timestamp among all in-progress operations,
-  ///                             or `currentTs + 1` if no operations are active
+  ///                             or `currentTimestamp + 1` if no operations are active
   /// @param inProgressTxs        set of timestamps for all currently in-progress transactions
   public record AtomicOperationsSnapshot(long minActiveOperationTs,
                                          long maxActiveOperationTs,
@@ -136,7 +136,7 @@ public class AtomicOperationsTable {
     /// @param recordTs the timestamp of the record version to check
     /// @return `true` if the record version is visible to this snapshot, `false` otherwise
     public boolean isEntryVisible(long recordTs) {
-      //TX is for sure committed, we do keep rolledback entries
+      //TX is for sure committed, we do keep rolled-back entries
       if (recordTs < minActiveOperationTs) {
         return true;
       }
@@ -174,17 +174,17 @@ public class AtomicOperationsTable {
   /// determine record visibility under Snapshot Isolation.
   ///
   /// If no operations are currently in progress, the snapshot is configured such that:
-  /// - All records with `timestamp <= currentTs` are visible
-  /// - All records with `timestamp > currentTs` are not visible
+  /// - All records with `timestamp <= currentTimestamp` are visible
+  /// - All records with `timestamp > currentTimestamp` are not visible
   ///
   /// This method acquires a shared lock and can be called concurrently with other
   /// read operations and status changes, but will block during compaction.
   ///
-  /// @param currentTs the current transaction's timestamp, used as a boundary when
+  /// @param currentTimestamp the current transaction's timestamp, used as a boundary when
   ///                  no other operations are in progress
   /// @return an immutable snapshot containing the min/max active timestamps and
   ///         the set of all in-progress transaction timestamps
-  public AtomicOperationsSnapshot snapshotAtomicOperationTableState(long currentTs) {
+  public AtomicOperationsSnapshot snapshotAtomicOperationTableState(long currentTimestamp) {
     var minOp = Long.MAX_VALUE;
     var maxOp = Long.MIN_VALUE;
 
@@ -209,12 +209,12 @@ public class AtomicOperationsTable {
         }
       }
 
-      //There are no active operations, so any operation above currentTs is invisible,
-      // and any operation below or equal is visible, we always check if an entry version equals currentTs
+      //There are no active operations, so any operation above currentTimestamp is invisible,
+      // and any operation below or equal is visible, we always check if an entry version equals currentTimestamp
       // so a thread be able to read our onw writes.
       if (maxOp == Long.MIN_VALUE) {
-        maxOp = currentTs + 1;
-        minOp = currentTs + 1;
+        maxOp = currentTimestamp + 1;
+        minOp = currentTimestamp + 1;
       }
 
       return new AtomicOperationsSnapshot(minOp, maxOp, inProgressTs);
