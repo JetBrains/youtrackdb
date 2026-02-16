@@ -71,15 +71,7 @@ public class RecordVersionHelper {
       otherVersion = v2;
     }
 
-    if (myVersion == otherVersion) {
-      return 0;
-    }
-
-    if (myVersion < otherVersion) {
-      return -1;
-    }
-
-    return 1;
+    return Long.compare(myVersion, otherVersion);
   }
 
   public static String toString(final long version) {
