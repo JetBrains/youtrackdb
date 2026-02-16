@@ -115,9 +115,7 @@ public class LongSerializer implements BinarySerializer<Long> {
   @Override
   public Long deserializeNativeObject(BinarySerializerFactory serializerFactory,
       final byte[] stream, final int startPosition) {
-    checkBoundaries(stream, startPosition);
-
-    return CONVERTER.getLong(stream, startPosition, ByteOrder.nativeOrder());
+    return deserializeNative(stream, startPosition);
   }
 
   public static void serializeNative(final long object, final byte[] stream,

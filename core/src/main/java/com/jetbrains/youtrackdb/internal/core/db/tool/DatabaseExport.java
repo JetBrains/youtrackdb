@@ -35,7 +35,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -204,9 +203,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
           while (it.hasNext()) {
             rec = it.next();
-            if (rec instanceof EntityImpl entity) {
-              // CHECK IF THE CLASS OF THE DOCUMENT IS INCLUDED
-            }
 
             if (exportRecord(
                 collectionExportedRecordsTot, collectionExportedRecordsCurrent, rec, brokenRids)) {

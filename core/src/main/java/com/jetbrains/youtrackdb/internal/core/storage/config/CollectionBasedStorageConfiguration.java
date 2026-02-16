@@ -160,8 +160,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   public void create(
-      final AtomicOperation atomicOperation, final ContextConfiguration contextConfiguration)
-      throws IOException {
+      final AtomicOperation atomicOperation, final ContextConfiguration contextConfiguration) {
     lock.writeLock().lock();
     try {
       collection.create(atomicOperation);
@@ -202,7 +201,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  public void delete(AtomicOperation atomicOperation) throws IOException {
+  public void delete(AtomicOperation atomicOperation) {
     lock.writeLock().lock();
     try {
       updateListener = null;
@@ -258,7 +257,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   public void load(
       final ContextConfiguration configuration, final AtomicOperation atomicOperation)
-      throws SerializationException, IOException {
+      throws SerializationException {
     lock.writeLock().lock();
     try {
       this.configuration = configuration;
