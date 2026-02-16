@@ -245,38 +245,26 @@
         <version>3.4.0</version>
         <executions>
           <execution>
-            <id>add-antlr-sources</id>
+            <id>add-generated-sources</id>
             <phase>generate-sources</phase>
             <goals>
               <goal>add-source</goal>
             </goals>
             <configuration>
               <sources>
-                <source>${generated.antlr.dir}</source>
+                <source>${generated.sources.dir}</source>
               </sources>
             </configuration>
           </execution>
           <execution>
-            <id>add-antlr-test-sources</id>
+            <id>add-generated-test-sources</id>
             <phase>generate-test-sources</phase>
             <goals>
               <goal>add-test-source</goal>
             </goals>
             <configuration>
               <sources>
-                <source>${generated.antlr.dir}</source>
-              </sources>
-            </configuration>
-          </execution>
-          <execution>
-            <id>add-gremlin-sources</id>
-            <phase>initialize</phase>
-            <goals>
-              <goal>add-source</goal>
-            </goals>
-            <configuration>
-              <sources>
-                <source>${generated.gremlin.dir}</source>
+                <source>${generated.sources.dir}</source>
               </sources>
             </configuration>
           </execution>
