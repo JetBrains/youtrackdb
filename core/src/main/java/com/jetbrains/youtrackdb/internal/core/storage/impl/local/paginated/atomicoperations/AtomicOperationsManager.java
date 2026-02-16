@@ -32,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -202,10 +201,6 @@ public class AtomicOperationsManager {
 
   public void unfreezeWriteOperations(long id) {
     writeOperationsFreezer.releaseOperations(id);
-  }
-
-  public AtomicOperationsSnapshot snapshotAtomicOperationTableState() {
-    return atomicOperationsTable.snapshotAtomicOperationTableState(storage.getIdGen().getLastId());
   }
 
   /**

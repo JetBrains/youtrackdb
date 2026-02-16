@@ -82,6 +82,7 @@ public interface Storage {
 
   boolean recordExists(DatabaseSessionEmbedded session, RID rid, AtomicOperation atomicOperation);
 
+  @SuppressWarnings("unused")
   RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session, final RID rid);
 
   // TX OPERATIONS
