@@ -87,12 +87,12 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       var record2 = session2.load(record.getIdentity());
 
       final RID rid2 = record2.getIdentity();
-      final long version2 = record2.getVersion();
+      final var version2 = record2.getVersion();
       final var rec2 = (RecordAbstract) record2;
       rec2.fill(version2, "This is the second version".getBytes(), true);
 
       final RID rid1 = record1.getIdentity();
-      final long version1 = record1.getVersion();
+      final var version1 = record1.getVersion();
       final var rec1 = (RecordAbstract) record1;
       rec1.fill(version1, "This is the third version".getBytes(), true);
 
