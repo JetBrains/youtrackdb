@@ -172,7 +172,7 @@ public class MapIndexDeleteTest extends DbTestBase {
     // Reproduce the tests module environment: create many schema classes
     // BEFORE creating the Mapper class, to ensure the database has a complex
     // schema similar to the shared test database
-    for (int i = 0; i < 20; i++) {
+    for (var i = 0; i < 20; i++) {
       var cls = session.createClass("BulkClass" + i);
       cls.createProperty("name", PropertyType.STRING);
       cls.createProperty("value", PropertyType.INTEGER);
@@ -187,9 +187,9 @@ public class MapIndexDeleteTest extends DbTestBase {
         "intMap by value");
 
     // Insert some data into other classes to create storage activity
-    for (int i = 0; i < 20; i++) {
+    for (var i = 0; i < 20; i++) {
       session.begin();
-      for (int j = 0; j < 10; j++) {
+      for (var j = 0; j < 10; j++) {
         var entity = session.newEntity("BulkClass" + i);
         entity.setProperty("name", "name" + j);
         entity.setProperty("value", j);
