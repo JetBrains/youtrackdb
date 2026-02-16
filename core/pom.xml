@@ -27,9 +27,11 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
     <generated.sources.dir>${basedir}/src/main/generated/java</generated.sources.dir>
+    <generated.antlr.dir>${generated.sources.dir}/antlr</generated.antlr.dir>
+    <generated.gremlin.dir>${generated.sources.dir}/gremlin</generated.gremlin.dir>
     <gql.antlr.package>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</gql.antlr.package>
     <gql.antlr.output.dir>
-      ${generated.sources.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen
+      ${generated.antlr.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen
     </gql.antlr.output.dir>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
@@ -243,26 +245,38 @@
         <version>3.4.0</version>
         <executions>
           <execution>
-            <id>add-generated-sources</id>
+            <id>add-antlr-sources</id>
             <phase>generate-sources</phase>
             <goals>
               <goal>add-source</goal>
             </goals>
             <configuration>
               <sources>
-                <source>${generated.sources.dir}</source>
+                <source>${generated.antlr.dir}</source>
               </sources>
             </configuration>
           </execution>
           <execution>
-            <id>add-generated-test-sources</id>
+            <id>add-antlr-test-sources</id>
             <phase>generate-test-sources</phase>
             <goals>
               <goal>add-test-source</goal>
             </goals>
             <configuration>
               <sources>
-                <source>${generated.sources.dir}</source>
+                <source>${generated.antlr.dir}</source>
+              </sources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>add-gremlin-sources</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${generated.gremlin.dir}</source>
               </sources>
             </configuration>
           </execution>
@@ -273,14 +287,13 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
           <encoding>${project.build.sourceEncoding}</encoding>
+          <useIncrementalCompilation>true</useIncrementalCompilation>
           <annotationProcessors>
             <annotationProcessor>
               com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
             </annotationProcessor>
           </annotationProcessors>
-          <generatedSourcesDirectory>
-            ${generated.sources.dir}/annotations
-          </generatedSourcesDirectory>
+          <generatedSourcesDirectory>${generated.gremlin.dir}</generatedSourcesDirectory>
           <compilerArgs>
             <arg>-parameters</arg>
             <arg>-XDcompilePolicy=simple</arg>
