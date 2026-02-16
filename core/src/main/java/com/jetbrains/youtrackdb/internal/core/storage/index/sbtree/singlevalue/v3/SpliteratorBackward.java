@@ -14,6 +14,7 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 public final class SpliteratorBackward<K> implements Spliterator<RawPair<K, RID>> {
+
   private final BTree<K> btree;
 
   private final K fromKey;

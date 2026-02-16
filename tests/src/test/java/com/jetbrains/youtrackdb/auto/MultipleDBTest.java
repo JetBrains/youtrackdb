@@ -27,6 +27,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 public class MultipleDBTest extends BaseDBTest {
+
   int oldCollectionCount = 8;
 
   public MultipleDBTest() {

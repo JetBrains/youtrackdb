@@ -104,7 +104,9 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return readEntry(position);
   }
 
-  public record EntryWithStatus(byte status, @Nullable PositionEntry entry) {}
+  public record EntryWithStatus(byte status, @Nullable PositionEntry entry) {
+
+  }
 
   @Nonnull
   public EntryWithStatus getEntryWithStatus(int index) {
