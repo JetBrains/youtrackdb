@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -47,20 +46,6 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     result.setProperty("type", storage.getType());
     result.setProperty("version", storage.getVersion());
     result.setProperty("createdAtVersion", storage.getCreatedAtVersion());
-    return result;
-  }
-
-  private static List<Result> toResult(DatabaseSessionEmbedded db,
-      List<StorageEntryConfiguration> properties) {
-    List<Result> result = new ArrayList<>();
-    if (properties != null) {
-      for (var entry : properties) {
-        var item = new ResultInternal(db);
-        item.setProperty("name", entry.name);
-        item.setProperty("value", entry.value);
-        result.add(item);
-      }
-    }
     return result;
   }
 

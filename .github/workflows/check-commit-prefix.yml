@@ -86,8 +86,7 @@ jobs:
             console.log(`Found ${commits.length} commit(s) between fork point and HEAD`);
 
             const failingCommits = [];
-            // noinspection SpellCheckingInspection
-            const anyYtdbPrefixRegex = /ytdb-\d+/i;
+            const anyPrefixRegex = /ytdb-\d+/i;
 
             for (const commit of commits) {
               // Skip merge commits (they have more than one parent)
@@ -100,7 +99,7 @@ jobs:
 
               // Skip commits that reference a different YTDB issue (e.g., cherry-picked
               // from develop with different SHAs)
-              if (!messageLower.includes(issuePrefixLower) && anyYtdbPrefixRegex.test(commit.message)) {
+              if (!messageLower.includes(issuePrefixLower) && anyPrefixRegex.test(commit.message)) {
                 console.log(`Skipping commit with different YTDB prefix: ${commit.sha.substring(0, 7)} - ${commit.message}`);
                 continue;
               }

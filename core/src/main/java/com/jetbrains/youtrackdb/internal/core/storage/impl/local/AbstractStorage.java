@@ -3697,8 +3697,7 @@ public abstract class AbstractStorage
 
   protected void initConfiguration(
       final ContextConfiguration contextConfiguration,
-      AtomicOperation atomicOperation)
-      throws IOException {
+      AtomicOperation atomicOperation) {
   }
 
   @SuppressWarnings({"EmptyMethod"})
