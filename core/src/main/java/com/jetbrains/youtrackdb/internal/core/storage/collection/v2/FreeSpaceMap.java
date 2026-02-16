@@ -44,7 +44,8 @@ public final class FreeSpaceMap extends DurableComponent {
     }
   }
 
-  public int findFreePage(final int requiredSize, AtomicOperation atomicOperation) throws IOException {
+  public int findFreePage(final int requiredSize, AtomicOperation atomicOperation)
+      throws IOException {
     final var normalizedSize = requiredSize / NORMALIZATION_INTERVAL + 1;
 
     final int localSecondLevelPageIndex;

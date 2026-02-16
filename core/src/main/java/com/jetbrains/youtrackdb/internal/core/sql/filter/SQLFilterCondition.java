@@ -410,7 +410,7 @@ public class SQLFilterCondition {
 
     var formatter = storage.getDateFormatInstance();
 
-    if (stringValue.length() >storage.getDateFormat().length())
+    if (stringValue.length() > storage.getDateFormat().length())
     // ASSUMES YOU'RE USING THE DATE-TIME FORMATTE
     {
       formatter = storage.getDateTimeFormatInstance();

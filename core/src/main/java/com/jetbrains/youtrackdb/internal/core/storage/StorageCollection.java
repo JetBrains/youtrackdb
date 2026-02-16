@@ -99,7 +99,8 @@ public interface StorageCollection {
    * Fills and return the PhysicalPosition object received as parameter with the physical position
    * of logical record iPosition
    */
-  PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition, AtomicOperation atomicOperation) throws IOException;
+  PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition, AtomicOperation atomicOperation)
+      throws IOException;
 
   /**
    * Check if a rid is existent and deleted or not existent
@@ -144,7 +145,8 @@ public interface StorageCollection {
    */
   void acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
 
-  CollectionBrowsePage nextPage(long lastPosition, boolean forward, AtomicOperation atomicOperation) throws IOException;
+  CollectionBrowsePage nextPage(long lastPosition, boolean forward, AtomicOperation atomicOperation)
+      throws IOException;
 
   default Meters meters() {
     return Meters.NOOP;
