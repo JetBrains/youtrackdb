@@ -210,7 +210,7 @@ jobs:
           comment_mode: off
           check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Coverage Data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
         with:
           name: coverage-data
