@@ -7,6 +7,8 @@ exclude:
   - name: All
     paths:
       - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser
+      - core/src/main/generated/java/
+  - name: CoverageReport
   - name: MavenModelInspection
 
 failureConditions:
