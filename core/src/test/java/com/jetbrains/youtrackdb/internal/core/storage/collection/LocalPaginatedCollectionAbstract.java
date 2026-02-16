@@ -731,9 +731,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     {
-      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-        Assert.assertEquals(records, paginatedCollection.getEntries(atomicOperation));
-      });
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+          Assert.assertEquals(records, paginatedCollection.getEntries(atomicOperation))
+      );
 
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
@@ -768,9 +768,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     var deletedRecords = 0;
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      Assert.assertEquals(records, paginatedCollection.getEntries(atomicOperation));
-    });
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+        Assert.assertEquals(records, paginatedCollection.getEntries(atomicOperation))
+    );
     Set<Long> deletedPositions = new HashSet<>();
     var positionIterator = positionRecordMap.keySet().iterator();
     while (positionIterator.hasNext()) {
@@ -794,9 +794,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     var delRecords = deletedRecords;
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords);
-    });
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+        Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords)
+    );
 
     for (long deletedPosition : deletedPositions) {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -911,9 +911,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       }
 
       var delRecords = deletedRecords;
-      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-        Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords);
-      });
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+          Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords)
+      );
 
       for (long deletedPosition : deletedPositions) {
         atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -986,19 +986,19 @@ public abstract class LocalPaginatedCollectionAbstract {
         deletedRecords++;
 
         var delRecords = deletedRecords;
-        atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-          Assert.assertEquals(paginatedCollection.getEntries(atomicOperation),
-              records - delRecords);
-        });
+        atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+            Assert.assertEquals(paginatedCollection.getEntries(atomicOperation),
+                records - delRecords)
+        );
 
         positionIterator.remove();
       }
     }
 
     var delRecords = deletedRecords;
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords);
-    });
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+        Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords)
+    );
 
     for (var i = 0; i < records / 2; i++) {
       var recordSize = mersenneTwisterFast.nextInt(3 * CollectionPage.MAX_RECORD_SIZE) + 1;
@@ -1015,10 +1015,10 @@ public abstract class LocalPaginatedCollectionAbstract {
       positionRecordMap.put(physicalPosition.collectionPosition, bigRecord);
     }
 
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      Assert.assertEquals(paginatedCollection.getEntries(atomicOperation),
-          (long) (1.5 * records - delRecords));
-    });
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
+        Assert.assertEquals(paginatedCollection.getEntries(atomicOperation),
+            (long) (1.5 * records - delRecords))
+    );
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
