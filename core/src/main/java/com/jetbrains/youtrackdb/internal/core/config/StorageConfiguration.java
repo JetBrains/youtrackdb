@@ -58,8 +58,10 @@ public interface StorageConfiguration {
 
   int getRecordSerializerVersion();
 
+  @SuppressWarnings("unused")
   int getBinaryFormatVersion(AtomicOperation atomicOperation);
 
+  @SuppressWarnings("unused")
   int getVersion(AtomicOperation atomicOperation);
 
   @Nullable
@@ -76,10 +78,13 @@ public interface StorageConfiguration {
 
   Set<String> indexEngines(AtomicOperation atomicOperation);
 
+  @SuppressWarnings("unused")
   int getPageSize(AtomicOperation atomicOperation);
 
+  @SuppressWarnings("unused")
   int getFreeListBoundary(AtomicOperation atomicOperation);
 
+  @SuppressWarnings("unused")
   int getMaxKeySize(AtomicOperation atomicOperation);
 
   void setUuid(AtomicOperation atomicOperation, final String uuid);
