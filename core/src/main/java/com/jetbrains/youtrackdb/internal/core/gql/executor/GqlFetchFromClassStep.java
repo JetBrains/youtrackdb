@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.HashMap;
-import java.util.Map;
 
 /// Execution step that fetches all vertices of a class.
 ///
@@ -46,6 +45,7 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
     }
 
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    assert schema != null;
     if (schema.getClass(className) == null) {
       throw new CommandExecutionException(session.getDatabaseName(),
           "Class '" + className + "' not found");
