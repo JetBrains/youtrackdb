@@ -315,7 +315,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       var ctx = new GqlExecutionContext(graphInternal, session);
 
       // Small capacity: after overfill the first entry should be evicted (Guava eviction is best-effort)
-      var cache = new GqlExecutionPlanCache(GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());
+      var cache = new GqlExecutionPlanCache(
+          GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());
 
       var query0 = "MATCH (n:Type0)";
       var query1 = "MATCH (n:Type1)";
