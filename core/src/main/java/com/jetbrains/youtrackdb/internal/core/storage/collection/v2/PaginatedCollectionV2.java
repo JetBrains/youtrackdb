@@ -740,7 +740,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       if (historicalEntry == null) {
         throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
       }
-      return internalReadRecord(collectionPosition, historicalEntry.getPageIndex(),
+      return readRecordFromHistoricalEntry(collectionPosition, historicalEntry.getPageIndex(),
           historicalEntry.getRecordPosition(), historicalEntry.getRecordVersion(),
           atomicOperation);
     }
@@ -826,7 +826,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           snapshot);
 
       if (historicalPositionEntry != null) {
-        return internalReadRecord(
+        return readRecordFromHistoricalEntry(
             collectionPosition,
             historicalPositionEntry.getPageIndex(),
             historicalPositionEntry.getRecordPosition(),
@@ -836,6 +836,79 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
       throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
     }
+
+    return parseRecordContent(collectionPosition, recordVersion, recordChunks, contentSize);
+  }
+
+  /// Reads record data from a known-valid historical position without re-checking version
+  /// visibility. Used when the caller has already determined which historical version is
+  /// appropriate (e.g., via {@link #findHistoricalPositionEntry} or from a REMOVED tombstone).
+  /// The page-level version may have been updated in-place by {@link #updateRecordVersion},
+  /// so the version from the historical position entry is used directly.
+  @Nonnull
+  private RawBuffer readRecordFromHistoricalEntry(
+      final long collectionPosition,
+      long pageIndex,
+      int recordPosition,
+      final long recordVersion,
+      final AtomicOperation atomicOperation)
+      throws IOException {
+
+    final List<byte[]> recordChunks = new ArrayList<>(2);
+    var contentSize = 0;
+    long nextPagePointer;
+    var firstEntry = true;
+
+    do {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var localPage = new CollectionPage(cacheEntry);
+
+        if (localPage.isDeleted(recordPosition)) {
+          if (recordChunks.isEmpty()) {
+            throw new RecordNotFoundException(storageName,
+                new RecordId(id, collectionPosition));
+          } else {
+            throw new PaginatedCollectionException(storageName,
+                "Content of record " + new RecordId(id, collectionPosition)
+                    + " was broken", this);
+          }
+        }
+
+        final var content =
+            localPage.getRecordBinaryValue(
+                recordPosition, 0, localPage.getRecordSize(recordPosition));
+        assert content != null;
+
+        if (firstEntry
+            && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
+            == 0) {
+          throw new RecordNotFoundException(storageName,
+              new RecordId(id, collectionPosition));
+        }
+
+        recordChunks.add(content);
+        nextPagePointer =
+            LongSerializer.deserializeNative(
+                content, content.length - LongSerializer.LONG_SIZE);
+        contentSize += content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
+
+        firstEntry = false;
+      }
+
+      pageIndex = getPageIndex(nextPagePointer);
+      recordPosition = getRecordPosition(nextPagePointer);
+    } while (nextPagePointer >= 0);
+
+    return parseRecordContent(collectionPosition, recordVersion, recordChunks, contentSize);
+  }
+
+  /// Parses the metadata header and extracts the record content from assembled chunks.
+  @Nonnull
+  private RawBuffer parseRecordContent(
+      long collectionPosition,
+      long recordVersion,
+      List<byte[]> recordChunks,
+      int contentSize) {
 
     var fullContent = convertRecordChunksToSingleChunk(recordChunks, contentSize);
 
@@ -883,26 +956,25 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Nullable
   private PositionEntry findHistoricalPositionEntry(long collectionPosition,
       long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot) {
+
+    // Search historical entries for this collection position in reverse version order.
+    // Upper bound: max(currentOperationTs, maxActiveOperationTs). Since the assertion
+    // guarantees currentOperationTs >= maxActiveOperationTs when >= 0, this simplifies to
+    // currentOperationTs when assigned, maxActiveOperationTs otherwise. Versions at or
+    // above this bound are never visible per snapshot isolation rules.
+    // Lower bound: Long.MIN_VALUE to cover all possible historical versions.
+    // The subMap is scoped to the exact collection position to avoid spilling into
+    // adjacent positions.
     var maxActiveOperationTs = snapshot.maxActiveOperationTs();
 
     assert currentOperationTs == -1 || currentOperationTs >= maxActiveOperationTs;
 
-    if (currentOperationTs >= 0) {
-      //optimization to avoid two log(N) lookups
-      if (currentOperationTs == maxActiveOperationTs
-          || currentOperationTs == maxActiveOperationTs + 1) {
-        maxActiveOperationTs = currentOperationTs;
-      } else {
-        var versionedPositionEntry = snapshotIndex.get(
-            new CompositeKey(collectionPosition, currentOperationTs));
-        if (versionedPositionEntry != null) {
-          return versionedPositionEntry;
-        }
-      }
-    }
-
+    var searchBound = currentOperationTs >= 0
+        ? currentOperationTs : maxActiveOperationTs;
+    var lowerKey = new CompositeKey(collectionPosition, Long.MIN_VALUE);
+    var upperKey = new CompositeKey(collectionPosition, searchBound);
     var versionedChain =
-        snapshotIndex.headMap(new CompositeKey(collectionPosition, maxActiveOperationTs))
+        snapshotIndex.subMap(lowerKey, true, upperKey, true)
             .reversed().entrySet();
     for (var versionedEntry : versionedChain) {
       var version = (Long) versionedEntry.getKey().getKeys().get(1);
@@ -927,17 +999,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               return false;
             }
 
-            var deleted = false;
-            // If there are no parallel transactions, don't need to preserve a previous record version
-            if (storage.getActiveTransactionsCount() == 0) {
-              deleted = deleteRecord(atomicOperation, collectionPosition, positionEntry);
-            } else {
-              deleteRecordWithPreservingPreviousVersion(atomicOperation, collectionPosition,
-                  positionEntry);
-              deleted = true;
-            }
+            deleteRecordWithPreservingPreviousVersion(atomicOperation, collectionPosition,
+                positionEntry);
 
-            return deleted;
+            return true;
           } finally {
             releaseExclusiveLock();
           }
@@ -1040,14 +1105,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
     }
 
-    // If there are no parallel transactions, don't need to preserve a previous record version
-    if (storage.getActiveTransactionsCount() == 0) {
-      updateRecord(collectionPosition, content, recordType, atomicOperation,
-          positionEntry);
-    } else {
-      updateRecordWithPreservingPreviousVersion(collectionPosition, content,
-          recordType, atomicOperation, positionEntry);
-    }
+    updateRecordWithPreservingPreviousVersion(collectionPosition, content,
+        recordType, atomicOperation, positionEntry);
   }
 
   private void updateRecord(long collectionPosition, byte[] content,
@@ -1152,6 +1211,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           collectionPosition,
           new PositionEntry(nextPageIndex, nextRecordPosition, recordVersion),
           atomicOperation);
+    } else if (recordVersion != positionEntry.getRecordVersion()) {
+      collectionPositionMap.updateVersion(
+          collectionPosition, recordVersion, atomicOperation);
     }
   }
 
@@ -1195,6 +1257,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           collectionPosition,
           new PositionEntry(nextPageIndex, nextRecordPosition, newRecordVersion),
           atomicOperation);
+    } else if (newRecordVersion != positionEntry.getRecordVersion()) {
+      collectionPositionMap.updateVersion(
+          collectionPosition, newRecordVersion, atomicOperation);
     }
   }
 
@@ -1238,6 +1303,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             final var pageIndex = positionEntry.getPageIndex();
             final var recordPosition = positionEntry.getRecordPosition();
             final var newRecordVersion = atomicOperation.getCommitTs();
+
+            keepPreviousRecordVersion(
+                collectionPosition, newRecordVersion, atomicOperation, positionEntry);
 
             try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex,
                 true)) {
