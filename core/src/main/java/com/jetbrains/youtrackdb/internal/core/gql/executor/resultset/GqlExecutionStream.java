@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
-import org.apache.groovy.internal.util.Function;
+import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /// Stream of GQL execution results.
@@ -26,8 +26,7 @@ public interface GqlExecutionStream extends CloseableIterator<Object> {
   }
 
   /// Create a stream from an iterator with mapping function.
-  static <T> GqlExecutionStream fromIterator(Iterator<T> iterator,
-      java.util.function.Function<T, ?> mapper) {
+  static <T> GqlExecutionStream fromIterator(Iterator<T> iterator, Function<T, ?> mapper) {
     return new IteratorGqlExecutionStream<>(iterator, mapper);
   }
 
