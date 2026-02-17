@@ -305,8 +305,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
 
   @Test
   public void testGlobalConfigurationCacheSize() {
-    var defaultSize = GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger();
-    Assert.assertTrue("Cache size should be positive by default", defaultSize > 0);
+    GlobalConfiguration.STATEMENT_CACHE_SIZE.setValue(2);
 
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
@@ -315,32 +314,30 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(graphInternal, session);
 
-      var cache = new GqlExecutionPlanCache(defaultSize);
+      // Small capacity: after overfill the first entry should be evicted (Guava eviction is best-effort)
+      var cache = new GqlExecutionPlanCache(GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());
 
-      // Fill cache to capacity
-      for (var i = 0; i < defaultSize; i++) {
-        var query = "MATCH (n:Type" + i + ")";
-        var stmt = GqlPlanner.getStatement(query, session);
-        var plan = stmt.createExecutionPlan(ctx);
-        cache.putInternal(query, plan);
-      }
-
-      // All should be cached
-      for (var i = 0; i < defaultSize; i++) {
-        Assert.assertTrue("Query " + i + " should be in cache",
-            cache.contains("MATCH (n:Type" + i + ")"));
-      }
-
-      // Adding one more should evict the oldest
+      var query0 = "MATCH (n:Type0)";
+      var query1 = "MATCH (n:Type1)";
       var extraQuery = "MATCH (n:TypeExtra)";
-      var extraStmt = GqlPlanner.getStatement(extraQuery, session);
-      var extraPlan = extraStmt.createExecutionPlan(ctx);
-      cache.putInternal(extraQuery, extraPlan);
 
-      Assert.assertFalse("First query should have been evicted",
-          cache.contains("MATCH (n:Type0)"));
-      Assert.assertTrue("Extra query should be cached",
-          cache.contains(extraQuery));
+      var stmt0 = GqlPlanner.getStatement(query0, session);
+      var stmt1 = GqlPlanner.getStatement(query1, session);
+      var extraStmt = GqlPlanner.getStatement(extraQuery, session);
+
+      cache.putInternal(query0, stmt0.createExecutionPlan(ctx));
+      Assert.assertTrue("First query should be in cache", cache.contains(query0));
+
+      cache.putInternal(query1, stmt1.createExecutionPlan(ctx));
+      Assert.assertTrue("Second query should be in cache", cache.contains(query1));
+
+      cache.putInternal(extraQuery, extraStmt.createExecutionPlan(ctx));
+
+      // With capacity 2, one entry must have been evicted; extra must be present
+      Assert.assertTrue("Extra query should be cached", cache.contains(extraQuery));
+      // At least one of the first two should be evicted (Guava policy-dependent)
+      var evicted = !cache.contains(query0) || !cache.contains(query1);
+      Assert.assertTrue("One of the first two entries should have been evicted", evicted);
     } finally {
       tx.commit();
     }

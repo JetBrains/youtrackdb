@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
@@ -41,7 +40,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @SuppressWarnings("unused")
   public boolean contains(String statement) {
-    if (capacity == 0 || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (capacity == 0) {
       return false;
     }
     return cache.asMap().containsKey(statement);
@@ -92,8 +91,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * Internal method to store a plan in cache.
    */
   public void putInternal(String statement, GqlExecutionPlan plan) {
-    if (statement == null || capacity == 0
-        || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (statement == null || capacity == 0) {
       return;
     }
     cache.put(statement, plan.copy());
@@ -107,8 +105,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   @SuppressWarnings("unused")
   @Nullable
   public GqlExecutionPlan getInternal(String statement, GqlExecutionContext ctx) {
-    if (statement == null || capacity == 0
-        || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (statement == null || capacity == 0) {
       return null;
     }
     var cached = cache.getIfPresent(statement);
