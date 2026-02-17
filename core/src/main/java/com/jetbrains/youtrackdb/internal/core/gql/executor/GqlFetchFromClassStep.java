@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import java.util.HashMap;
 import java.util.Map;
 
 /// Execution step that fetches all vertices of a class.
@@ -54,7 +55,9 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
       entityIterator = session.browseClass(className, polymorphic);
       return GqlExecutionStream.fromIterator(entityIterator, entity -> {
         var vertex = new YTDBVertexImpl(graph, entity.asVertex());
-        return Map.of(alias, vertex);
+        var row = new HashMap<String, Object>();
+        row.put(alias, vertex);
+        return row;
       });
     } catch (Exception e) {
       if (entityIterator != null) {
