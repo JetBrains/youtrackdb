@@ -19,8 +19,133 @@ permissions:
   actions: read
 
 jobs:
+  detect-changes:
+    name: Detect Build-Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.filter.outputs.should_build }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Check for build-relevant changes
+        id: filter
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          # Determine comparison base
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            BASE_SHA="$PR_BASE_SHA"
+          elif [[ "$EVENT_NAME" == "merge_group" ]]; then
+            BASE_SHA="$MERGE_GROUP_BASE_SHA"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            BASE_SHA="$PUSH_BEFORE_SHA"
+          else
+            echo "Manual trigger — always build"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Initial push (all-zeros SHA) — always build
+          if [[ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+            echo "Initial push — always build"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Unreachable base SHA (e.g. after force-push) — always build
+          if ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+            echo "Base SHA $BASE_SHA not reachable — always build"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "No changed files detected — skipping build"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
+
+          # Extract Maven module directories using Maven itself
+          set +e
+          MODULES=$(./mvnw -s .github/workflows/settings.xml -q help:evaluate \
+            -Dexpression=project.modules -DforceStdout -N \
+            | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
+          MVN_EXIT=$?
+          set -e
+
+          if [[ -z "$MODULES" ]]; then
+            echo "Failed to extract Maven modules (mvn exit code: $MVN_EXIT) — always build"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Maven modules detected:"
+          echo "$MODULES"
+          echo ""
+
+          # A file is build-relevant when it is NOT a *.md file AND
+          # resides inside a Maven module directory or is a root build file.
+          SHOULD_BUILD=false
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+
+            # Markdown files are never build-relevant
+            if [[ "$file" == *.md ]]; then
+              continue
+            fi
+
+            # Root build infrastructure
+            if [[ "$file" == pom.xml ]] || [[ "$file" == .mvn/* ]] || \
+               [[ "$file" == mvnw ]] || [[ "$file" == mvnw.cmd ]] || \
+               [[ "$file" == qodana.yaml ]] || [[ "$file" == .github/workflows/* ]]; then
+              SHOULD_BUILD=true
+              echo "Build-relevant file found: $file"
+              break
+            fi
+
+            # Check if the file belongs to any Maven module
+            while IFS= read -r module; do
+              [[ -z "$module" ]] && continue
+              if [[ "$file" == "$module"/* ]]; then
+                SHOULD_BUILD=true
+                echo "Build-relevant file found: $file (module: $module)"
+                break 2
+              fi
+            done <<< "$MODULES"
+          done <<< "$CHANGED_FILES"
+
+          if [[ "$SHOULD_BUILD" == "false" ]]; then
+            echo "No build-relevant changes — skipping build"
+          fi
+
+          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+
   test-linux:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    needs: [ detect-changes ]
+    if: needs.detect-changes.outputs.should_build == 'true'
     runs-on:
       - self-hosted
       - in-nbg1
@@ -94,6 +219,8 @@ jobs:
 
   test-windows:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    needs: [ detect-changes ]
+    if: needs.detect-changes.outputs.should_build == 'true'
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -136,8 +263,8 @@ jobs:
   # ------------------------------------------------------------------
   coverage-report:
     name: Coverage Report
-    needs: [ test-linux ]
-    if: github.event_name == 'pull_request'
+    needs: [ detect-changes, test-linux ]
+    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -165,8 +292,8 @@ jobs:
   # ------------------------------------------------------------------
   qodana:
     name: Qodana Scan
-    needs: [ test-linux ]
-    if: "!cancelled()"
+    needs: [ detect-changes, test-linux ]
+    if: "!cancelled() && needs.detect-changes.outputs.should_build == 'true'"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -204,9 +331,9 @@ jobs:
   # Runs only if all Test jobs pass. Uses JDK 21
   # ------------------------------------------------------------------
   deploy:
-    needs: [ test-linux, test-windows ]
+    needs: [ detect-changes, test-linux, test-windows ]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' # Only deploy on push, not PRs
+    if: github.event_name == 'push' && needs.detect-changes.outputs.should_build == 'true'
 
     steps:
       - name: Checkout Source Code
@@ -248,10 +375,51 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
+  # ------------------------------------------------------------------
+  # GATE JOB: CI STATUS
+  # Always runs — reports success when build is skipped or all jobs pass.
+  # Configure this as the single required status check in branch protection.
+  # ------------------------------------------------------------------
+  ci-status:
+    name: CI Status
+    if: always()
+    needs: [ detect-changes, test-linux, test-windows, qodana ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          SHOULD_BUILD: ${{ needs.detect-changes.outputs.should_build }}
+          LINUX_RESULT: ${{ needs.test-linux.result }}
+          WINDOWS_RESULT: ${{ needs.test-windows.result }}
+          QODANA_RESULT: ${{ needs.qodana.result }}
+        run: |
+          if [[ "$DETECT_RESULT" != "success" ]]; then
+            echo "detect-changes job did not succeed (result: $DETECT_RESULT)"
+            exit 1
+          fi
+          if [[ "$SHOULD_BUILD" == "false" ]]; then
+            echo "Build skipped — no relevant changes"
+            exit 0
+          fi
+          if [[ "$LINUX_RESULT" != "success" ]] || \
+             [[ "$WINDOWS_RESULT" != "success" ]] || \
+             [[ "$QODANA_RESULT" != "success" ]]; then
+            echo "Not all required jobs succeeded" \
+              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT," \
+              "qodana=$QODANA_RESULT)"
+            exit 1
+          fi
+          echo "All required jobs passed"
+
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ test-linux, test-windows, deploy ]
-    if: failure() && github.event_name == 'push' && contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
+    needs: [ detect-changes, test-linux, test-windows, deploy ]
+    if: >-
+      failure() &&
+      needs.detect-changes.outputs.should_build == 'true' &&
+      github.event_name == 'push' &&
+      contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
     steps:
       - name: Determine Branch Name
@@ -272,9 +440,10 @@ jobs:
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ test-linux, test-windows, deploy ]
+    needs: [ detect-changes, test-linux, test-windows, deploy ]
     if: >-
       always() &&
+      needs.detect-changes.outputs.should_build == 'true' &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
       github.event_name == 'push' &&
