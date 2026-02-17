@@ -12,12 +12,12 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 /// `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
 ///
 /// Default values:
-/// - Missing label → "V" (all vertices)
+/// - Missing type → "V" (all vertices)
 /// - Missing alias → default alias ("$cN" where N is a number)
 public class GqlMatchPlanner {
 
-  /// Default label when not specified (base vertex class = all vertices).
-  private static final String DEFAULT_LABEL = "V";
+  /// Default type when not specified (base vertex class = all vertices).
+  private static final String DEFAULT_TYPE = "V";
 
   private final GqlMatchStatement statement;
   private int anonymousCounter = 0;
@@ -38,24 +38,24 @@ public class GqlMatchPlanner {
     for (var i = 0; i < patterns.size(); i++) {
       var pattern = patterns.get(i);
       var alias = effectiveAlias(pattern.alias());
-      var label = effectiveLabel(pattern.label());
+      var type = effectiveType(pattern.label());
 
       if (i == 0) {
-        plan.chain(new GqlFetchFromClassStep(alias, label, true));
+        plan.chain(new GqlFetchFromClassStep(alias, type, true));
       } else {
-        plan.chain(new GqlCrossJoinClassStep(alias, label, true));
+        plan.chain(new GqlCrossJoinClassStep(alias, type, true));
       }
     }
 
     return plan;
   }
 
-  /// Returns effective label, defaulting to "V" (all vertices) if not provided.
-  private static String effectiveLabel(String label) {
-    return (label == null || label.isBlank()) ? DEFAULT_LABEL : label;
+  /// Returns an effective vertex type (class name), defaulting to "V" (all vertices) if not provided.
+  private static String effectiveType(String type) {
+    return (type == null || type.isBlank()) ? DEFAULT_TYPE : type;
   }
 
-  /// Returns effective label, defaulting to "$c{anonymousCounter}" if not provided.
+  /// Returns effective alias, defaulting to "$c{anonymousCounter}" if not provided.
   private String effectiveAlias(String alias) {
     return (alias == null || alias.isBlank()) ? generateDefaultAlias() : alias;
   }
