@@ -31,11 +31,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -107,9 +107,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
   }
 
 
-  @Ignore("Collection position mismatch during concurrent SI operations - "
-      + "embedded positions in serialized records get out of sync with position map "
-      + "under concurrent writes. Passes with single thread.")
   @Test
   public void testSimpleRestore() throws Exception {
     baseDocumentTx.freeze();
@@ -271,8 +268,10 @@ public class LocalPaginatedStorageRestoreFromWALIT {
                 db.delete(entityToDelete);
               }
             });
-          } catch (ConcurrentModificationException e) {
-            // Under SI, concurrent transactions may conflict on version checks.
+          } catch (ConcurrentModificationException | RecordNotFoundException e) {
+            // Under SI, concurrent transactions may conflict on version checks
+            // or encounter records not visible in the current snapshot during
+            // commit-time link consistency processing.
             // Restore lists to pre-transaction state since the tx was rolled back.
             firstDocs.clear();
             firstDocs.addAll(firstDocsSnapshot);
