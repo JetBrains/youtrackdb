@@ -119,7 +119,8 @@ jobs:
             # Root build infrastructure
             if [[ "$file" == pom.xml ]] || [[ "$file" == .mvn/* ]] || \
                [[ "$file" == mvnw ]] || [[ "$file" == mvnw.cmd ]] || \
-               [[ "$file" == qodana.yaml ]] || [[ "$file" == .github/workflows/* ]]; then
+               [[ "$file" == qodana.yaml ]] || [[ "$file" == .github/workflows/* ]] || \
+               [[ "$file" == .idea/inspectionProfiles/* ]]; then
               SHOULD_BUILD=true
               echo "Build-relevant file found: $file"
               break
