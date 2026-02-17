@@ -63,19 +63,27 @@ def get_branch_data(xml_files, changed_lines):
     total_missed = 0
     total_covered = 0
 
+    changed_files_by_basename = {}
+    for f in changed_lines:
+        basename = f.split("/")[-1]
+        changed_files_by_basename.setdefault(basename, []).append(f)
+
     for xml_path in xml_files:
         tree = ET.parse(xml_path)
         for package in tree.findall(".//package"):
             pkg_path = package.get("name", "")
             for sourcefile in package.findall("sourcefile"):
                 src_name = sourcefile.get("name")
-                suffix = f"{pkg_path}/{src_name}"
 
+                possible_files = changed_files_by_basename.get(src_name, [])
                 matching_file = None
-                for f in changed_lines:
-                    if f.endswith(suffix):
-                        matching_file = f
-                        break
+                if possible_files:
+                    suffix = f"{pkg_path}/{src_name}"
+                    for f in possible_files:
+                        if f.endswith(suffix):
+                            matching_file = f
+                            break
+
                 if not matching_file:
                     continue
 
