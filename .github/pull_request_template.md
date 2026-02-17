@@ -4,13 +4,12 @@ If this PR is related to an issue, prefix the title with the issue number (e.g.,
 
 #### Motivation:
 
-A clear and concise explanation of why this change is necessary and what problem it solves.
-This section should provide context and justify the need for the change.
-This section is **MANDATORY**.
+A clear and concise explanation of **WHY** this change is necessary — the problem it solves,
+the context, and any trade-offs considered. Do not restate the diff; the code changes speak
+for themselves. This section is **MANDATORY**.
 
-#### Changes:
+#### ADR:
 
-A detailed description of the changes made in this pull request.
-This section should include any relevant code snippets, screenshots, or other supporting materials
-such as design documents and APRs.
-This section is **MANDATORY**.
+If this PR involves significant architectural decisions, add an Architecture Decision Record
+(ADR) to `docs/adrs/` (see `docs/adrs/0000-adr-template.md`) and link it here.
+Otherwise, write "N/A".
