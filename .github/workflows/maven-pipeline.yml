@@ -432,9 +432,11 @@ jobs:
           # The Ekstazi profile skips compilation (classes already exist from previous step).
           # The restored cache is from the base branch (develop), so Ekstazi sees the
           # PR's changes as "new" and selects only the affected integration tests.
-          ./mvnw -s .github/workflows/settings.xml \
+          if ! ./mvnw -s .github/workflows/settings.xml \
             -pl ${{ steps.changes.outputs.modules }} \
-            process-test-classes -P ekstazi -B || true
+            process-test-classes -P ekstazi -B; then
+            echo "::warning::Ekstazi selection failed (missing cache, stale data, or build issue). Falling back to running PIT against all integration tests — no exclusions will be applied."
+          fi
 
           # Collect IT test classes excluded by Ekstazi (not affected by changes)
           EXCLUDED_IT=""

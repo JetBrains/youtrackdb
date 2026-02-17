@@ -57,7 +57,7 @@ A mutation score of 85% means that at least 85% of the mutations introduced into
 
 ### Integration Test Selection with Ekstazi
 
-PIT uses both unit tests and integration tests to kill mutations. To avoid running irrelevant integration tests, the CI restores the [Ekstazi](https://www.ekstazi.org/) cache from the base branch and runs Ekstazi's selection algorithm. Only integration tests affected by the PR's changes are included in PIT's test pool.
+PIT uses both unit tests and integration tests to kill mutations. To avoid running irrelevant integration tests, the CI restores the [Ekstazi](https://github.com/gliga/ekstazi) cache from the base branch and runs Ekstazi's selection algorithm. Only integration tests affected by the PR's changes are included in PIT's test pool.
 
 - **Unit tests**: all unit tests matching `com.jetbrains.youtrackdb.*` are available to PIT.
 - **Integration tests**: only Ekstazi-selected `*IT` and `*IntegrationTest` classes participate.
