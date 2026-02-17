@@ -115,6 +115,11 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 - **Binary operators**: Sign on next line when wrapping
 - **Blank lines**: 1 blank line after class header, max 1 blank line in code
 
+### Comments and Documentation
+- **Comment non-obvious code**: Add comments to any logic that is not immediately self-evident, so reviewers can easily verify intent without reverse-engineering the code.
+- **Test descriptions**: Every test must have a detailed description (in a comment or descriptive method name) explaining what scenario is being tested and what the expected outcome is, so a reviewer can quickly grasp the purpose.
+- **Keep comments in sync**: When modifying code, always update the surrounding comments to match the new behavior. Stale or contradictory comments are worse than no comments.
+
 ## Testing
 
 ### Unit Tests
@@ -154,6 +159,13 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - **Must** contain a YTDB issue prefix: `YTDB-123: Fix description`
 - Enforced by `check-commit-prefix.yml` CI workflow
 - Git hook `.githooks/prepare-commit-msg` auto-prepends prefix based on branch name
+- **Format**:
+  ```
+  YTDB-123: <imperative summary, under 50 chars>
+
+  <detailed explanation of WHY this change was made — motivation, context,
+  trade-offs. Not a restatement of the diff.>
+  ```
 
 ### Pull Requests
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
@@ -163,10 +175,19 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 
 ## CI/CD
 
-- **maven-pipeline.yml**: Primary CI on `develop` - tests across JDK 21+25, 5 distributions (temurin, corretto, oracle, zulu, microsoft), 3 platforms (ubuntu, ubuntu-arm, windows)
-- **maven-integration-tests-pipeline.yml**: Nightly integration tests, auto-merges `develop` to `main` on success
-- **maven-main-deploy-pipeline.yml**: Deploys snapshots to Maven Central, builds/pushes Docker images
-- **qodana-scan.yml**: JetBrains Qodana static analysis (zero tolerance for critical/high/moderate issues)
+- **maven-pipeline.yml**: Primary CI on `develop` — runs on self-hosted Hetzner runners (Linux x86 + ARM) and GitHub-hosted Windows runners. Tests across JDK 21+25, 2 distributions (temurin, oracle). Includes:
+  - `detect-changes` job that skips CI for non-build-relevant changes (e.g., markdown-only)
+  - Unit tests + integration tests on Linux, unit tests on Windows
+  - Ekstazi regression test selection (caches `.ekstazi` data between runs)
+  - JaCoCo coverage reporting on PRs
+  - Qodana static analysis (integrated as a pipeline job, not a standalone workflow)
+  - Deploy to Maven Central with `-dev-SNAPSHOT` suffix on push to develop
+  - Zulip notifications for build failures/fixes
+- **maven-integration-tests-pipeline.yml**: Nightly integration tests, auto-merges `develop` to `main` on success (fast-forward only)
+- **maven-main-deploy-pipeline.yml**: Deploys stable snapshots to Maven Central from `main`, builds/pushes Docker images to Docker Hub
+- **pr-title-prefix.yml**: Auto-prefixes PR titles with YTDB issue number from branch name
+- **block-merge-commits.yml**: Rejects PRs containing merge commits
+- **check-commit-prefix.yml**: Enforces YTDB issue prefix in commit messages
 - Qodana excludes generated SQL parser code from analysis
 
 ## Key Entry Points
@@ -186,7 +207,7 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 
 ## Key Dependencies
 
-- Apache TinkerPop Gremlin (custom fork: `io.youtrackdb:gremlin-*` v3.8.1)
+- Apache TinkerPop Gremlin (custom fork: `io.youtrackdb:gremlin-*`, version tracks upstream 3.8.x — the SNAPSHOT suffix contains the SHA of the latest ported upstream commit)
 - GraalVM (JavaScript scripting via Gremlin)
 - Jackson 2.x (JSON serialization)
 - SLF4J + Log4j 2 (logging)
