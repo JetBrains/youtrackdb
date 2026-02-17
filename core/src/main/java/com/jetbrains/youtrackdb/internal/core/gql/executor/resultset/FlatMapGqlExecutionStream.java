@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
-import org.apache.groovy.internal.util.Function;
+import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class FlatMapGqlExecutionStream implements GqlExecutionStream {
@@ -47,7 +47,7 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
   public void close() {
     if (currentChildStream != null)
       currentChildStream.close();
-    if (upstream instanceof AutoCloseable) {
+    if (upstream != null) {
       try {
         ((AutoCloseable) upstream).close();
       } catch (Exception ignored) {
