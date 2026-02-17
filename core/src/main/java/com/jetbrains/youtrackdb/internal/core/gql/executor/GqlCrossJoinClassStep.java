@@ -34,6 +34,7 @@ public class GqlCrossJoinClassStep extends GqlAbstractExecutionStep {
     var session = ctx.session();
 
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    assert schema != null;
     if (schema.getClass(className) == null) {
       upstream.close();
       throw new com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException(
