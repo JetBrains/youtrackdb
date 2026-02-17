@@ -1,48 +1,36 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 
 /**
- * LRU cache for already prepared GQL execution plans.
- * Analogous to SQL's ExecutionPlanCache.
- * <p>
+ * LRU cache for already prepared GQL execution plans using Guava Cache.
  * Stores itself in SharedContext as a resource and acts as an entry point for the GQL executor.
  */
 public class GqlExecutionPlanCache implements MetadataUpdateListener {
 
-  final Map<String, GqlExecutionPlan> map;
-  final int mapSize;
-
-  protected long lastInvalidation = -1;
+  private final Cache<String, GqlExecutionPlan> cache;
+  private final AtomicLong lastInvalidation = new AtomicLong(-1);
 
   /**
    * @param size the size of the cache
    */
   public GqlExecutionPlanCache(int size) {
-    this.mapSize = size;
-    map =
-        new LinkedHashMap<>(size) {
-          @Override
-          protected boolean removeEldestEntry(
-              final Map.Entry<String, GqlExecutionPlan> eldest) {
-            return super.size() > mapSize;
-          }
-        };
+    this.cache = CacheBuilder.newBuilder()
+        .maximumSize(Math.max(1, size))
+        .build();
   }
 
   public static long getLastInvalidation(DatabaseSessionEmbedded db) {
-    var resource = instance(db);
-    synchronized (resource) {
-      return resource.lastInvalidation;
-    }
+    return instance(db).lastInvalidation.get();
   }
 
   /**
@@ -54,9 +42,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return false;
     }
-    synchronized (map) {
-      return map.containsKey(statement);
-    }
+    return cache.asMap().containsKey(statement);
   }
 
   /**
@@ -104,19 +90,10 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * Internal method to store a plan in cache.
    */
   public void putInternal(String statement, GqlExecutionPlan plan) {
-    if (statement == null) {
+    if (statement == null || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return;
     }
-
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
-      return;
-    }
-
-    synchronized (map) {
-      // Create a copy for caching (to avoid shared state issues)
-      var cachedPlan = plan.copy();
-      map.put(statement, cachedPlan);
-    }
+    cache.put(statement, plan.copy());
   }
 
   /**
@@ -127,42 +104,16 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   @SuppressWarnings("unused")
   @Nullable
   public GqlExecutionPlan getInternal(String statement, GqlExecutionContext ctx) {
-    if (statement == null) {
+    if (statement == null || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return null;
     }
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
-      return null;
-    }
-
-    GqlExecutionPlan result;
-    synchronized (map) {
-      // LRU: remove and re-insert to update access order
-      result = map.remove(statement);
-      if (result != null) {
-        map.put(statement, result);
-        // Return a copy to avoid concurrent modification issues
-        result = result.copy();
-      }
-    }
-
-    return result;
+    var cached = cache.getIfPresent(statement);
+    return cached != null ? cached.copy() : null;
   }
 
-  /**
-   * Invalidates (clears) the entire cache.
-   */
   public void invalidate() {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
-      lastInvalidation = System.nanoTime();
-      return;
-    }
-
-    synchronized (this) {
-      synchronized (map) {
-        map.clear();
-      }
-      lastInvalidation = System.nanoTime();
-    }
+    cache.invalidateAll();
+    lastInvalidation.set(System.nanoTime());
   }
 
   @Override
