@@ -779,12 +779,16 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       var recId = ridChangeRawPair.first();
       assert recId.isPersistent();
 
-      var change = ridChangeRawPair.second().getValue();
-      assert change >= 0;
-      if (change > 0) {
+      var change = ridChangeRawPair.second();
+      var counter = change.getValue();
+      assert counter >= 0;
+      if (counter > 0) {
         HelperClasses.writeByte(bytes, (byte) 1);
         HelperClasses.writeLinkOptimized(bytes, recId);
-        VarIntSerializer.write(bytes, change);
+        VarIntSerializer.write(bytes, counter);
+        var secondaryRid = change.getSecondaryRid();
+        HelperClasses.writeLinkOptimized(bytes,
+            secondaryRid != null ? secondaryRid : recId);
       }
     });
     HelperClasses.writeByte(bytes, (byte) 0);
@@ -848,7 +852,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     while (continueFlag > 0) {
       var rid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
       var counter = VarIntSerializer.readAsInteger(bytes);
-      changes.add(new RawPair<>(rid, new AbsoluteChange(counter)));
+      var secondaryRid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
+      changes.add(new RawPair<>(rid, new AbsoluteChange(counter, secondaryRid)));
       continueFlag = readByte(bytes);
     }
 

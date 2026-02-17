@@ -4023,7 +4023,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
         for (var link : oppositeLinksContainer) {
           var transaction = getActiveTransaction();
-          var oppositeEntity = (EntityImpl) transaction.loadEntityOrNull(link);
+          var oppositeEntity = (EntityImpl) transaction.loadEntityOrNull(link.primaryRid());
           //skip self-links and already deleted entities
           if (oppositeEntity == null || oppositeEntity.equals(entity)) {
             continue;
@@ -4141,15 +4141,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               || currentPropertyValue instanceof EntityLinkSetImpl ||
               currentPropertyValue instanceof LinkBag
               || currentPropertyValue instanceof EntityLinkMapIml) {
+            var isLinkBag = currentPropertyValue instanceof LinkBag;
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
-                  assert event.getValue() != null;
-                  incrementLinkCounter((RecordIdInternal) event.getValue(), linksToUpdateMap);
+                  var addedRid = isLinkBag ? event.getKey() : event.getValue();
+                  assert addedRid != null;
+                  incrementLinkCounter((RecordIdInternal) addedRid, linksToUpdateMap);
                 }
                 case REMOVE -> {
-                  assert event.getOldValue() != null;
-                  decrementLinkCounter((RecordIdInternal) event.getOldValue(), linksToUpdateMap);
+                  var removedRid = isLinkBag ? event.getKey() : event.getOldValue();
+                  assert removedRid != null;
+                  decrementLinkCounter((RecordIdInternal) removedRid, linksToUpdateMap);
                 }
                 case UPDATE -> {
                   assert event.getValue() != null;
@@ -4295,7 +4298,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
       case LinkBag linkBag -> {
         for (var link : linkBag) {
-          incrementLinkCounter((RecordIdInternal) link, links);
+          incrementLinkCounter((RecordIdInternal) link.primaryRid(), links);
         }
       }
       default -> {
@@ -4336,7 +4339,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
       case LinkBag linkBag -> {
         for (var link : linkBag) {
-          decrementLinkCounter((RecordIdInternal) link, links);
+          decrementLinkCounter((RecordIdInternal) link.primaryRid(), links);
         }
       }
       default -> {

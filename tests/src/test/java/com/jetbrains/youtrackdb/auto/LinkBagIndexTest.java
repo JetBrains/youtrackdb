@@ -31,6 +31,16 @@ public class LinkBagIndexTest extends BaseDBTest {
     ridBagIndexTestClass.createIndex("ridBagIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "ridBag");
 
+    final var vertexClass =
+        session.getMetadata().getSchema().createVertexClass("RidBagIndexVertexClass");
+
+    vertexClass.createProperty("ridBag", PropertyType.LINKBAG);
+
+    vertexClass.createIndex("ridBagVertexIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "ridBag");
+
+    session.createEdgeClass("RidBagIndexEdgeClass");
+
     session.close();
   }
 
@@ -40,6 +50,8 @@ public class LinkBagIndexTest extends BaseDBTest {
       session = acquireSession();
     }
 
+    session.getMetadata().getSchema().dropClass("RidBagIndexEdgeClass");
+    session.getMetadata().getSchema().dropClass("RidBagIndexVertexClass");
     session.getMetadata().getSchema().dropClass("RidBagIndexTestClass");
     session.close();
   }
@@ -49,6 +61,7 @@ public class LinkBagIndexTest extends BaseDBTest {
   public void afterMethod() {
     session.begin();
     session.execute("DELETE FROM RidBagIndexTestClass").close();
+    session.execute("DELETE VERTEX RidBagIndexVertexClass").close();
     session.commit();
 
     session.begin();
@@ -58,6 +71,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     if (!session.getStorage().isRemote()) {
       final var index = getIndex("ridBagIndex");
       Assert.assertEquals(index.size(session), 0);
+
+      final var vertexIndex = getIndex("ridBagVertexIndex");
+      Assert.assertEquals(vertexIndex.size(session), 0);
     }
     result.close();
     session.commit();
@@ -319,13 +335,8 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session
-        .execute(
-            "UPDATE "
-                + document.getIdentity()
-                + " set ridBag = ridBag || "
-                + docThree.getIdentity())
-        .close();
+    EntityImpl loaded = session.load(document.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag").add(docThree.getIdentity());
     session.commit();
 
     var activeTx = session.begin();
@@ -555,9 +566,8 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session
-        .execute("UPDATE " + document.getIdentity() + " remove ridBag = " + docTwo.getIdentity())
-        .close();
+    EntityImpl loaded = session.load(document.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag").remove(docTwo.getIdentity());
     session.commit();
 
     var activeTx = session.begin();
@@ -711,8 +721,8 @@ public class LinkBagIndexTest extends BaseDBTest {
     var res = result.next();
 
     var resultSet = new HashSet<>();
-    for (Identifiable identifiable : res.<LinkBag>getProperty("ridBag")) {
-      resultSet.add(identifiable);
+    for (var ridPair : res.<LinkBag>getProperty("ridBag")) {
+      resultSet.add(ridPair.primaryRid());
     }
     result.close();
 
@@ -720,4 +730,218 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
   }
+
+  public void testIndexRidBagWithPairsOnVertex() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var target1 = session.newVertex("V");
+    final var target2 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge2 = session.newStatefulEdge(vertex, target2, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    ridBag.add(edge2.getIdentity(), target2.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 4);
+
+    var expectedKeys = Set.of(
+        edge1.getIdentity(), target1.getIdentity(),
+        edge2.getIdentity(), target2.getIdentity());
+    try (var keyStream = index.keyStream()) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+  }
+
+  public void testIndexRidBagWithMixedSingleAndPairOnVertex() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 3);
+
+    var expectedKeys = Set.of(
+        single1.getIdentity(),
+        edge1.getIdentity(), target1.getIdentity());
+    try (var keyStream = index.keyStream()) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+  }
+
+  public void testIndexRidBagUpdateAddPairItemOnVertex() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    session.begin();
+    EntityImpl loaded = session.load(vertex.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag")
+        .add(edge1.getIdentity(), target1.getIdentity());
+    session.commit();
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 3);
+
+    var expectedKeys = Set.of(
+        single1.getIdentity(),
+        edge1.getIdentity(), target1.getIdentity());
+    try (var keyStream = index.keyStream()) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+  }
+
+  public void testIndexRidBagUpdateAddPairItemOnVertexInTx() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    try {
+      session.begin();
+      EntityImpl loaded = session.load(vertex.getIdentity());
+      loaded.<LinkBag>getProperty("ridBag")
+          .add(edge1.getIdentity(), target1.getIdentity());
+      session.commit();
+    } catch (Exception e) {
+      session.rollback();
+      throw e;
+    }
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 3);
+
+    var expectedKeys = Set.of(
+        single1.getIdentity(),
+        edge1.getIdentity(), target1.getIdentity());
+    try (var keyStream = index.keyStream()) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+  }
+
+  public void testIndexRidBagUpdateRemovePairItemOnVertex() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    session.begin();
+    EntityImpl loaded = session.load(vertex.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag").remove(edge1.getIdentity());
+    session.commit();
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 1);
+
+    try (var keyStream = index.keyStream()) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertEquals(key.getIdentity(), single1.getIdentity());
+      }
+    }
+  }
+
+  public void testIndexRidBagReplaceWithEmptyOnVertex() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 2);
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    var loaded = (EntityImpl) activeTx.load(vertex);
+    loaded.setProperty("ridBag", new LinkBag(session));
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
+  public void testIndexRidBagRemoveVertexWithPairs() {
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    final var index = getIndex("ridBagVertexIndex");
+    Assert.assertEquals(index.size(session), 2);
+
+    session.begin();
+    session.execute("DELETE VERTEX " + vertex.getIdentity()).close();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
 }

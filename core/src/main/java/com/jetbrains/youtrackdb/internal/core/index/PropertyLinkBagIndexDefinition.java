@@ -60,12 +60,22 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
-      case ADD ->
-          processAdd(
-              createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-      case REMOVE ->
-          processRemoval(
-              createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+      case ADD -> {
+        var secondaryKey = createSingleValue(transaction, changeEvent.getValue());
+        processAdd(secondaryKey, keysToAdd, keysToRemove);
+        var primaryKey = createSingleValue(transaction, changeEvent.getKey());
+        if (!primaryKey.equals(secondaryKey)) {
+          processAdd(primaryKey, keysToAdd, keysToRemove);
+        }
+      }
+      case REMOVE -> {
+        var secondaryKey = createSingleValue(transaction, changeEvent.getOldValue());
+        processRemoval(secondaryKey, keysToAdd, keysToRemove);
+        var primaryKey = createSingleValue(transaction, changeEvent.getKey());
+        if (!primaryKey.equals(secondaryKey)) {
+          processRemoval(primaryKey, keysToAdd, keysToRemove);
+        }
+      }
       default ->
           throw new IllegalArgumentException(
               "Invalid change type : " + changeEvent.getChangeType());
@@ -84,8 +94,11 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       return null;
     }
     final List<Object> values = new ArrayList<>();
-    for (final Identifiable item : linkBag) {
-      values.add(createSingleValue(transaction, item.getIdentity()));
+    for (final var item : linkBag) {
+      values.add(createSingleValue(transaction, item.primaryRid()));
+      if (!item.isLightweight()) {
+        values.add(createSingleValue(transaction, item.secondaryRid()));
+      }
     }
 
     return values;
@@ -105,8 +118,11 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     }
 
     final List<Object> values = new ArrayList<>();
-    for (final Identifiable item : linkBag) {
-      values.add(createSingleValue(transaction, item.getIdentity()));
+    for (final var item : linkBag) {
+      values.add(createSingleValue(transaction, item.primaryRid()));
+      if (!item.isLightweight()) {
+        values.add(createSingleValue(transaction, item.secondaryRid()));
+      }
     }
 
     return values;
