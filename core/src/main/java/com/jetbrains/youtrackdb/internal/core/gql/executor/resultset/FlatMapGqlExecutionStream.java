@@ -38,15 +38,17 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
 
   @Override
   public Object next() {
-    if (!hasNext())
+    if (!hasNext()) {
       throw new java.util.NoSuchElementException();
+    }
     return currentChildStream.next();
   }
 
   @Override
   public void close() {
-    if (currentChildStream != null)
+    if (currentChildStream != null) {
       currentChildStream.close();
+    }
     if (upstream != null) {
       try {
         ((AutoCloseable) upstream).close();
