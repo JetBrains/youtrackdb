@@ -14,10 +14,11 @@
       <option name="ignoreSetterCallsOnOtherObjects" value="false" />
       <option name="onlyReportPrivateSetter" value="false" />
     </inspection_tool>
-    <inspection_tool class="DataFlowIssue" enabled="false" level="WARNING" enabled_by_default="false">
-      <scope name="Production" level="WARNING" enabled="false">
+    <inspection_tool class="DataFlowIssue" enabled="true" level="WARNING" enabled_by_default="false">
+      <scope name="Production" level="WARNING" enabled="true">
         <option name="SUGGEST_NULLABLE_ANNOTATIONS" value="true" />
-        <option name="DONT_REPORT_TRUE_ASSERT_STATEMENTS" value="false" />
+        <option name="DONT_REPORT_TRUE_ASSERT_STATEMENTS" value="true" />
+        <option name="IGNORE_ASSERT_STATEMENTS" value="true" />
         <option name="TREAT_UNKNOWN_MEMBERS_AS_NULLABLE" value="true" />
       </scope>
       <scope name="Project Files" level="WARNING" enabled="false">
