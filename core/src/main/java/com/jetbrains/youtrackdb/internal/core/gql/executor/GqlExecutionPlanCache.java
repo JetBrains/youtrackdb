@@ -17,16 +17,18 @@ import javax.annotation.Nullable;
  */
 public class GqlExecutionPlanCache implements MetadataUpdateListener {
 
+  private final int capacity;
   private final Cache<String, GqlExecutionPlan> cache;
   private final AtomicLong lastInvalidation = new AtomicLong(-1);
 
   /**
-   * @param size the size of the cache
+   * @param size maximum number of plans to cache; 0 means cache disabled (no storage)
    */
   public GqlExecutionPlanCache(int size) {
-    this.cache = CacheBuilder.newBuilder()
-        .maximumSize(Math.max(1, size))
-        .build();
+    this.capacity = size;
+    this.cache = size > 0
+        ? CacheBuilder.newBuilder().maximumSize(size).build()
+        : null;
   }
 
   public static long getLastInvalidation(DatabaseSessionEmbedded db) {
@@ -39,7 +41,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @SuppressWarnings("unused")
   public boolean contains(String statement) {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (capacity == 0 || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return false;
     }
     return cache.asMap().containsKey(statement);
@@ -90,7 +92,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * Internal method to store a plan in cache.
    */
   public void putInternal(String statement, GqlExecutionPlan plan) {
-    if (statement == null || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (statement == null || capacity == 0
+        || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return;
     }
     cache.put(statement, plan.copy());
@@ -104,7 +107,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   @SuppressWarnings("unused")
   @Nullable
   public GqlExecutionPlan getInternal(String statement, GqlExecutionContext ctx) {
-    if (statement == null || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (statement == null || capacity == 0
+        || GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return null;
     }
     var cached = cache.getIfPresent(statement);
@@ -112,7 +116,9 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   }
 
   public void invalidate() {
-    cache.invalidateAll();
+    if (cache != null) {
+      cache.invalidateAll();
+    }
     lastInvalidation.set(System.nanoTime());
   }
 
