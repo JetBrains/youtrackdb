@@ -62,8 +62,7 @@ public class MultiValue {
    * @return true if it's an array, a collection or a map, otherwise false
    */
   public static boolean isMultiValue(final Class<?> iType) {
-    return DataContainer.class.isAssignableFrom(iType)
-        || Collection.class.isAssignableFrom(iType)
+    return Collection.class.isAssignableFrom(iType)
         || iType.isArray()
         || Map.class.isAssignableFrom(iType)
         || MultiCollectionIterator.class.isAssignableFrom(iType)
@@ -448,42 +447,9 @@ public class MultiValue {
    */
   public static Object add(final Object iObject, final Object iToAdd) {
     if (iObject != null) {
-      if (iObject instanceof Collection<?> || iObject instanceof DataContainer<?>) {
+      if (iObject instanceof Collection<?>) {
         // COLLECTION - ?
-        final DataContainer<Object> coll;
-        if (iObject instanceof Collection<?>) {
-          final var collection = (Collection<Object>) iObject;
-          coll =
-              new DataContainer<Object>() {
-                @Override
-                public void add(Object value) {
-                  collection.add(value);
-                }
-
-                @Override
-                public boolean remove(Object value) {
-                  return collection.remove(value);
-                }
-
-                @Nonnull
-                @Override
-                public Iterator<Object> iterator() {
-                  return collection.iterator();
-                }
-
-                @Override
-                public int size() {
-                  return collection.size();
-                }
-
-                @Override
-                public boolean isSizeable() {
-                  return true;
-                }
-              };
-        } else {
-          coll = (DataContainer<Object>) iObject;
-        }
+        final var coll = (Collection<Object>) iObject;
 
         if (!(iToAdd instanceof Map) && isMultiValue(iToAdd)) {
           // COLLECTION - COLLECTION
@@ -577,42 +543,9 @@ public class MultiValue {
         iToRemove = set;
       }
 
-      if (iObject instanceof Collection<?> || iObject instanceof DataContainer<?>) {
+      if (iObject instanceof Collection<?>) {
         // COLLECTION - ?
-
-        final DataContainer<Object> coll;
-        if (iObject instanceof Collection<?>) {
-          final var collection = (Collection<Object>) iObject;
-          coll =
-              new DataContainer<Object>() {
-                @Override
-                public void add(Object value) {
-                  collection.add(value);
-                }
-
-                @Override
-                public boolean remove(Object value) {
-                  return collection.remove(value);
-                }
-
-                @Override
-                public Iterator<Object> iterator() {
-                  return collection.iterator();
-                }
-
-                @Override
-                public int size() {
-                  return collection.size();
-                }
-
-                @Override
-                public boolean isSizeable() {
-                  return true;
-                }
-              };
-        } else {
-          coll = (DataContainer<Object>) iObject;
-        }
+        final var coll = (Collection<Object>) iObject;
 
         if (iToRemove instanceof Collection<?>) {
           // COLLECTION - COLLECTION
@@ -620,7 +553,7 @@ public class MultiValue {
             if (isMultiValue(o)) {
               remove(coll, o, iAllOccurrences);
             } else {
-              removeFromOCollection(iObject, coll, o, iAllOccurrences);
+              removeFromOCollection(coll, o, iAllOccurrences);
             }
           }
         } else if (iToRemove != null && iToRemove.getClass().isArray()) {
@@ -630,7 +563,7 @@ public class MultiValue {
             if (isMultiValue(o)) {
               remove(coll, o, iAllOccurrences);
             } else {
-              removeFromOCollection(iObject, coll, o, iAllOccurrences);
+              removeFromOCollection(coll, o, iAllOccurrences);
             }
           }
 
@@ -646,14 +579,8 @@ public class MultiValue {
           }
 
           if (iAllOccurrences) {
-            if (iObject instanceof DataContainer) {
-              throw new IllegalStateException(
-                  "Mutable collection cannot be used to remove all occurrences.");
-            }
-
-            final Collection<Object> collection = (Collection) iObject;
             var it = (MultiCollectionIterator<?>) iToRemove;
-            batchRemove(collection, it);
+            batchRemove(coll, it);
           } else {
             var it = (Iterator<?>) iToRemove;
             if (it.hasNext()) {
@@ -662,7 +589,7 @@ public class MultiValue {
             }
           }
         } else {
-          removeFromOCollection(iObject, coll, iToRemove, iAllOccurrences);
+          removeFromOCollection(coll, iToRemove, iAllOccurrences);
         }
 
       } else if (iObject.getClass().isArray()) {
@@ -713,11 +640,10 @@ public class MultiValue {
   }
 
   protected static void removeFromOCollection(
-      final Object iObject,
-      final DataContainer<Object> coll,
+      final Collection<Object> coll,
       final Object iToRemove,
       final boolean iAllOccurrences) {
-    if (iAllOccurrences && !(iObject instanceof Set)) {
+    if (iAllOccurrences && !(coll instanceof Set)) {
       // BROWSE THE COLLECTION ONE BY ONE TO REMOVE ALL THE OCCURRENCES
       final var it = coll.iterator();
       while (it.hasNext()) {

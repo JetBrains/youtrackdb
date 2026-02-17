@@ -43,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -1198,8 +1199,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var ridBagCopy = new LinkBag(seession);
-    for (var rid : linkBag) {
-      ridBagCopy.add(rid);
+    for (var ridPair : linkBag) {
+      ridBagCopy.add(ridPair.primaryRid(), ridPair.secondaryRid());
     }
 
     return ridBagCopy;
@@ -1913,7 +1914,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
-    if (!(propertyValue instanceof Identifiable identifiable)) {
+    final RID rid;
+    if (propertyValue instanceof RidPair ridPair) {
+      rid = ridPair.primaryRid();
+    } else if (propertyValue instanceof Identifiable identifiable) {
+      rid = identifiable.getIdentity();
+    } else {
       throw new ValidationException(session.getDatabaseName(),
           "The property '"
               + p.getFullName()
@@ -1925,7 +1931,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     final var schemaClass = p.getLinkedClass();
     if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
-      final var rid = identifiable.getIdentity();
       if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD
         // COULD BE PARTIAL
@@ -1933,7 +1938,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         var collectionId = rid.getCollectionId();
         if (collectionId != RID.COLLECTION_ID_INVALID) {
           cls = schema.getClassByCollectionId(rid.getCollectionId());
-        } else if (identifiable instanceof EntityImpl entity) {
+        } else if (propertyValue instanceof EntityImpl entity) {
           cls = entity.getImmutableSchemaClass(session);
         } else {
           cls = null;
@@ -3795,10 +3800,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
           case EntityLinkListImpl list -> iterables.add(
               new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
                   list, -1, list));
-          case LinkBag bag -> iterables.add(
-              new EntityRelationsIterable(
-                  this, new Pair<>(direction, linkName), linkNames, session,
-                  bag, -1, bag));
+          case LinkBag bag -> {
+            Iterable<RID> ridIterable =
+                () -> bag.stream().map(RidPair::primaryRid).iterator();
+            iterables.add(
+                new EntityRelationsIterable(
+                    this, new Pair<>(direction, linkName), linkNames, session,
+                    ridIterable, bag.size(), bag));
+          }
           case EntityLinkMapIml map -> {
             var values = map.values();
             iterables.add(

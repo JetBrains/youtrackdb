@@ -976,7 +976,7 @@ public class JSONSerializerJackson {
         case LinkBag linkBag -> {
           jsonGenerator.writeStartArray();
           for (var link : linkBag) {
-            serializeLink(jsonGenerator, link.getIdentity());
+            serializeLink(jsonGenerator, link.primaryRid());
           }
           jsonGenerator.writeEndArray();
         }

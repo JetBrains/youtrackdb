@@ -1,23 +1,3 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -31,8 +11,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LinkB
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree.BTreeReadEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
 import java.util.Spliterator;
 import javax.annotation.Nonnull;
@@ -69,8 +50,8 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     assert assertIfNotActive();
 
     final var reverted = new BTreeBasedLinkBag(this.session, counterMaxValue);
-    for (var rid : this) {
-      reverted.add(rid);
+    for (var pair : this) {
+      reverted.add(pair.primaryRid(), pair.secondaryRid());
     }
 
     doRollBackChanges(multiValueChangeEvents, reverted);
@@ -110,7 +91,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
       final var event = listIterator.previous();
       switch (event.getChangeType()) {
         case ADD -> reverted.remove(event.getKey());
-        case REMOVE -> reverted.add(event.getOldValue());
+        case REMOVE -> reverted.add(event.getKey(), event.getOldValue());
         default ->
             throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
@@ -159,26 +140,24 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   @Override
   protected int getAbsoluteValue(RID rid) {
     final var tree = loadTree();
-    Integer oldValue;
+    LinkBagValue oldValue;
 
     if (tree == null) {
-      oldValue = 0;
+      oldValue = null;
     } else {
       oldValue = tree.get(rid, atomicOperation);
     }
 
-    if (oldValue == null) {
-      oldValue = 0;
-    }
+    int oldCounter = oldValue != null ? oldValue.counter() : 0;
 
     final var change = localChanges.getChange(rid);
 
-    var newValue = change == null ? oldValue : change.applyTo(oldValue, counterMaxValue);
+    var newValue = change == null ? oldCounter : change.applyTo(oldCounter, counterMaxValue);
     if (newValue < 0) {
       throw new DatabaseException(
           "More entries were removed from link collection than it contains. For rid : "
-              + rid + " collection contains : " + oldValue + " entries, but " + (
-              newValue - oldValue) +
+              + rid + " collection contains : " + oldCounter + " entries, but " + (
+              newValue - oldCounter) +
               " entries were removed.");
     }
     return newValue;
@@ -186,7 +165,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   }
 
   @Nullable
-  protected IsolatedLinkBagBTree<RID, Integer> loadTree() {
+  protected IsolatedLinkBagBTree<RID, LinkBagValue> loadTree() {
     if (collectionPointer == null) {
       return null;
     }
@@ -200,8 +179,8 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(AtomicOperation atomicOperation) {
-    Spliterator<ObjectIntPair<RID>> btreeRecordsSpliterator = null;
+  protected Spliterator<BTreeReadEntry<RID>> btreeSpliterator(AtomicOperation atomicOperation) {
+    Spliterator<BTreeReadEntry<RID>> btreeRecordsSpliterator = null;
 
     var tree = loadTree();
     if (tree != null) {

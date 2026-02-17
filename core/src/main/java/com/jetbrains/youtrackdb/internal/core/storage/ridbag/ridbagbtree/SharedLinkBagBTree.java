@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -92,14 +92,14 @@ public final class SharedLinkBagBTree extends DurableComponent {
         });
   }
 
-  public int get(final EdgeKey key, AtomicOperation atomicOperation) {
+  public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         final var bucketSearchResult = findBucket(key, atomicOperation);
         if (bucketSearchResult.getItemIndex() < 0) {
-          return -1;
+          return null;
         }
 
         final var pageIndex = bucketSearchResult.getPageIndex();
@@ -122,7 +122,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  public boolean put(final AtomicOperation atomicOperation, final EdgeKey key, final int value) {
+  public boolean put(final AtomicOperation atomicOperation, final EdgeKey key,
+      final LinkBagValue value) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -150,7 +151,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
             }
 
             final var serializedValue =
-                IntSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, value,
+                LinkBagValueSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, value,
                     (Object[]) null);
 
             int insertionIndex;
@@ -236,7 +237,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
-              "Error during finding first key in btree [" + getName() + "]"), e, storage.getName());
+              "Error during finding first key in btree [" + getName() + "]"), e,
+          storage.getName());
     } finally {
       atomicOperationsManager.releaseReadLock(this);
     }
@@ -765,17 +767,17 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  public int remove(final AtomicOperation atomicOperation, final EdgeKey key) {
+  public LinkBagValue remove(final AtomicOperation atomicOperation, final EdgeKey key) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
           acquireExclusiveLock();
           try {
-            final int removedValue;
+            final LinkBagValue removedValue;
             final var bucketSearchResult = findBucket(key, atomicOperation);
 
             if (bucketSearchResult.getItemIndex() < 0) {
-              return -1;
+              return null;
             }
 
             final var serializedKey = EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(
@@ -792,8 +794,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
               updateSize(-1, atomicOperation);
             }
 
-            removedValue = IntSerializer.INSTANCE.deserializeNativeObject(serializerFactory,
-                rawValue, 0);
+            removedValue = LinkBagValueSerializer.INSTANCE.deserializeNativeObject(
+                serializerFactory, rawValue, 0);
             return removedValue;
           } finally {
             releaseExclusiveLock();
@@ -801,7 +803,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
         });
   }
 
-  public Stream<RawPairObjectInteger<EdgeKey>> iterateEntriesMinor(
+  public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
@@ -822,7 +824,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  public Stream<RawPairObjectInteger<EdgeKey>> iterateEntriesMajor(
+  public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
@@ -843,7 +845,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  public Stream<RawPairObjectInteger<EdgeKey>> streamEntriesBetween(
+  public Stream<RawPair<EdgeKey, LinkBagValue>> streamEntriesBetween(
       final EdgeKey keyFrom,
       final boolean fromInclusive,
       final EdgeKey keyTo,
@@ -870,7 +872,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  public Spliterator<RawPairObjectInteger<EdgeKey>> spliteratorEntriesBetween(
+  public Spliterator<RawPair<EdgeKey, LinkBagValue>> spliteratorEntriesBetween(
       final EdgeKey keyFrom,
       final boolean fromInclusive,
       final EdgeKey keyTo,
@@ -897,37 +899,37 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMinorDesc(
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinorDesc(
       EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
     return new SpliteratorBackward(this, null, key, false, inclusive, atomicOperation);
   }
 
-  private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMinorAsc(
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinorAsc(
       EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
     return new SpliteratorForward(this, null, key, false,
         inclusive, atomicOperation);
   }
 
-  private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMajorAsc(
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajorAsc(
       EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
     return new SpliteratorForward(this, key, null, inclusive, false,
         atomicOperation);
   }
 
-  private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMajorDesc(
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajorDesc(
       EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
     return new SpliteratorBackward(this, key, null, inclusive, false,
         atomicOperation);
   }
 
-  private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesBetweenAscOrder(
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesBetweenAscOrder(
       EdgeKey keyFrom, final boolean fromInclusive, EdgeKey keyTo, final boolean toInclusive,
       AtomicOperation atomicOperation) {
     return new SpliteratorForward(this, keyFrom, keyTo, fromInclusive, toInclusive,
         atomicOperation);
   }
 
-  private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesBetweenDescOrder(
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesBetweenDescOrder(
       EdgeKey keyFrom, final boolean fromInclusive, EdgeKey keyTo, final boolean toInclusive,
       AtomicOperation atomicOperation) {
     return new SpliteratorBackward(this, keyFrom, keyTo, fromInclusive, toInclusive,
@@ -938,7 +940,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
       AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
     if (!iter.getDataCache().isEmpty()) {
-      lastKey = iter.getDataCache().getLast().first;
+      lastKey = iter.getDataCache().getLast().first();
     } else {
       lastKey = null;
     }
@@ -1055,7 +1057,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
             }
 
             //noinspection ObjectAllocationInLoop
-            iter.getDataCache().add(new RawPairObjectInteger<>(entry.getKey(), entry.getValue()));
+            iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
           }
 
           if (iter.getDataCache().size() >= 10) {
@@ -1076,7 +1078,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     if (iter.getDataCache().isEmpty()) {
       lastKey = null;
     } else {
-      lastKey = iter.getDataCache().getLast().first;
+      lastKey = iter.getDataCache().getLast().first();
     }
 
     iter.clearCache();
@@ -1186,7 +1188,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
             }
 
             //noinspection ObjectAllocationInLoop
-            iter.getDataCache().add(new RawPairObjectInteger<>(entry.getKey(), entry.getValue()));
+            iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
           }
 
           if (iter.getDataCache().size() >= 10) {

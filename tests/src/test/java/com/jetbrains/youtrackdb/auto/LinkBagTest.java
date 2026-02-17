@@ -2,13 +2,17 @@ package com.jetbrains.youtrackdb.auto;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
+import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -38,8 +42,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     var iterator = bag.iterator();
     assertTrue(iterator.hasNext());
 
-    Identifiable identifiable = iterator.next();
-    assertEquals(identifiable, RecordIdInternal.fromString("#77:1", false));
+    var ridPair = iterator.next();
+    assertEquals(ridPair.primaryRid(), RecordIdInternal.fromString("#77:1", false));
     Assert.assertFalse(iterator.hasNext());
     assertEmbedded(bag.isEmbedded());
     session.commit();
@@ -124,14 +128,14 @@ public abstract class LinkBagTest extends BaseDBTest {
     rids.add(id4);
     rids.add(id5);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     var doc = ((EntityImpl) session.newEntity());
@@ -157,8 +161,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(bag.contains(id1));
     Assert.assertFalse(bag.contains(id0));
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -212,14 +216,14 @@ public abstract class LinkBagTest extends BaseDBTest {
     rids.add(id4);
     rids.add(id5);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     var doc = ((EntityImpl) session.newEntity());
@@ -245,8 +249,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(bag.contains(id1));
     Assert.assertFalse(bag.contains(id0));
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -308,20 +312,20 @@ public abstract class LinkBagTest extends BaseDBTest {
     rids.add(id4);
     rids.add(id5);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     doc = ((EntityImpl) session.newEntity());
     var otherBag = new LinkBag(session);
-    for (var id : bag) {
-      otherBag.add(id);
+    for (var ridPair : bag) {
+      otherBag.add(ridPair.primaryRid());
     }
 
     assertEmbedded(otherBag.isEmbedded());
@@ -338,8 +342,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -400,39 +404,39 @@ public abstract class LinkBagTest extends BaseDBTest {
     rids.add(id4);
     rids.add(id5);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     var iterator = bag.iterator();
     while (iterator.hasNext()) {
-      final var identifiable = iterator.next();
-      if (identifiable.equals(id4)) {
+      final var ridPair = iterator.next();
+      if (ridPair.primaryRid().equals(id4)) {
         iterator.remove();
-        assertTrue(rids.remove(identifiable));
+        assertTrue(rids.remove(ridPair.primaryRid()));
       }
     }
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
-    for (Identifiable identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     assertEmbedded(bag.isEmbedded());
     doc = ((EntityImpl) session.newEntity());
 
     final var otherBag = new LinkBag(session);
-    for (var id : bag) {
-      otherBag.add(id);
+    for (var ridPair : bag) {
+      otherBag.add(ridPair.primaryRid());
     }
 
     assertEmbedded(otherBag.isEmbedded());
@@ -449,8 +453,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -463,7 +467,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
     assertEquals(bag.size(), 0);
 
-    for (@SuppressWarnings("unused") Identifiable id : bag) {
+    for (@SuppressWarnings("unused") var id : bag) {
       Assert.fail();
     }
     session.commit();
@@ -560,14 +564,14 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     assertEmbedded(bag.isEmbedded());
 
-    for (var identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (var identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     session.commit();
@@ -579,8 +583,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (var identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -639,8 +643,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertEquals(bag.size(), 5);
 
     Set<Identifiable> actual = new HashSet<>(8);
-    for (Identifiable id : bag) {
-      actual.add(id);
+    for (var ridPair : bag) {
+      actual.add(ridPair.primaryRid());
     }
 
     assertEquals(actual, expected);
@@ -720,20 +724,20 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     assertEmbedded(bag.isEmbedded());
 
-    for (var identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (var identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     doc = ((EntityImpl) session.newEntity());
     final var otherBag = new LinkBag(session);
-    for (var id : bag) {
-      otherBag.add(id);
+    for (var ridPair : bag) {
+      otherBag.add(ridPair.primaryRid());
     }
 
     doc.setProperty("ridbag", otherBag);
@@ -749,8 +753,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (var entry : bag) {
-      assertTrue(rids.remove(entry));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -791,8 +795,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     docTwo = session.load(docTwo.getIdentity());
     ridBagTwo = docTwo.getProperty("ridBag");
 
-    assertEquals(ridBagOne.iterator().next(), docTwo);
-    assertEquals(ridBagTwo.iterator().next(), docOne);
+    assertEquals(ridBagOne.iterator().next().primaryRid(), docTwo.getIdentity());
+    assertEquals(ridBagTwo.iterator().next().primaryRid(), docOne.getIdentity());
     session.commit();
   }
 
@@ -887,44 +891,44 @@ public abstract class LinkBagTest extends BaseDBTest {
     var r7c = 0;
 
     while (iterator.hasNext()) {
-      Identifiable identifiable = iterator.next();
-      if (identifiable.equals(id2)) {
+      var ridPair = iterator.next();
+      if (ridPair.primaryRid().equals(id2)) {
         if (r2c < 2) {
           r2c++;
           iterator.remove();
-          rids.remove(identifiable);
+          rids.remove(ridPair.primaryRid());
         }
       }
 
-      if (identifiable.equals(id3)) {
+      if (ridPair.primaryRid().equals(id3)) {
         if (r3c < 1) {
           r3c++;
           iterator.remove();
-          rids.remove(identifiable);
+          rids.remove(ridPair.primaryRid());
         }
       }
 
-      if (identifiable.equals(id6)) {
+      if (ridPair.primaryRid().equals(id6)) {
         if (r6c < 1) {
           r6c++;
           iterator.remove();
-          rids.remove(identifiable);
+          rids.remove(ridPair.primaryRid());
         }
       }
 
-      if (identifiable.equals(id4)) {
+      if (ridPair.primaryRid().equals(id4)) {
         if (r4c < 1) {
           r4c++;
           iterator.remove();
-          rids.remove(identifiable);
+          rids.remove(ridPair.primaryRid());
         }
       }
 
-      if (identifiable.equals(id7)) {
+      if (ridPair.primaryRid().equals(id7)) {
         if (r7c < 1) {
           r7c++;
           iterator.remove();
-          rids.remove(identifiable);
+          rids.remove(ridPair.primaryRid());
         }
       }
     }
@@ -935,21 +939,21 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertEquals(r4c, 1);
     assertEquals(r7c, 1);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
-      rids.add(identifiable);
+    for (var ridPair : bag) {
+      rids.add(ridPair.primaryRid());
     }
 
     doc = ((EntityImpl) session.newEntity());
 
     final var otherBag = new LinkBag(session);
-    for (var id : bag) {
-      otherBag.add(id);
+    for (var ridPair : bag) {
+      otherBag.add(ridPair.primaryRid());
     }
 
     assertEmbedded(otherBag.isEmbedded());
@@ -967,8 +971,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -996,8 +1000,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     final Set<Identifiable> expectedTwo = new HashSet<>(8);
     expectedTwo.addAll(expected);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(expectedTwo.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(expectedTwo.remove(ridPair.primaryRid()));
     }
 
     assertTrue(expectedTwo.isEmpty());
@@ -1008,8 +1012,8 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     expectedTwo.addAll(expected);
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(expectedTwo.remove(identifiable));
+    for (var ridPair : bag) {
+      assertTrue(expectedTwo.remove(ridPair.primaryRid()));
     }
     session.rollback();
   }
@@ -1068,8 +1072,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertEmbedded(loaded.isEmbedded());
 
     assertEquals(loaded.size(), expected.size());
-    for (var identifiable : loaded) {
-      assertTrue(expected.remove(identifiable));
+    for (var ridPair : loaded) {
+      assertTrue(expected.remove(ridPair.primaryRid()));
     }
 
     assertTrue(expected.isEmpty());
@@ -1100,8 +1104,8 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     var result = new HashSet<Identifiable>();
 
-    for (Identifiable oIdentifiable : ridBag) {
-      result.add(oIdentifiable);
+    for (var ridPair : ridBag) {
+      result.add(ridPair.primaryRid());
     }
 
     assertTrue(result.contains(docA));
@@ -1171,10 +1175,10 @@ public abstract class LinkBagTest extends BaseDBTest {
     ridBag = document.getProperty("ridBag");
 
     Set<Identifiable> docs = Collections.newSetFromMap(new IdentityHashMap<>());
-    for (Identifiable id : ridBag) {
+    for (var ridPair : ridBag) {
       // cache record inside session
       var transaction = session.getActiveTransaction();
-      docs.add(transaction.load(id));
+      docs.add(transaction.load(ridPair.primaryRid()));
     }
 
     ridBag = document.getProperty("ridBag");
@@ -1200,16 +1204,16 @@ public abstract class LinkBagTest extends BaseDBTest {
     }
 
     assertEmbedded(ridBag.isEmbedded());
-    for (Identifiable identifiable : ridBag) {
+    for (var ridPair : ridBag) {
       var transaction1 = session.getActiveTransaction();
-      assertTrue(docs.remove(transaction1.load(identifiable)));
-      ridBag.remove(identifiable.getIdentity());
+      assertTrue(docs.remove(transaction1.load(ridPair.primaryRid())));
+      ridBag.remove(ridPair.primaryRid());
       assertEquals(ridBag.size(), docs.size());
 
       var counter = 0;
-      for (Identifiable id : ridBag) {
+      for (var innerRidPair : ridBag) {
         var transaction = session.getActiveTransaction();
-        assertTrue(docs.contains(transaction.load(id)));
+        assertTrue(docs.contains(transaction.load(innerRidPair.primaryRid())));
         counter++;
       }
 
@@ -1314,8 +1318,8 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     assertEquals(ridBag.size(), itemsToAdd.size());
 
-    for (Identifiable id : ridBag) {
-      assertTrue(itemsToAdd.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(itemsToAdd.remove(ridPair.primaryRid()));
     }
 
     assertTrue(itemsToAdd.isEmpty());
@@ -1384,8 +1388,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(ridBag.isEmbedded());
 
     List<RID> addedItemsCopy = new ArrayList<>(addedItems);
-    for (Identifiable id : ridBag) {
-      assertTrue(addedItems.remove(id.getIdentity()));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1398,8 +1402,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
-    for (Identifiable id : ridBag) {
-      assertTrue(addedItems.remove(id.getIdentity()));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1421,8 +1425,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
-    for (var id : ridBag) {
-      assertTrue(addedItems.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1431,8 +1435,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
-    for (var id : ridBag) {
-      assertTrue(addedItems.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1500,8 +1504,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(ridBag.isEmbedded());
 
     List<Identifiable> addedItemsCopy = new ArrayList<>(addedItems);
-    for (Identifiable id : ridBag) {
-      assertTrue(addedItems.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1510,8 +1514,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
-    for (Identifiable id : ridBag) {
-      assertTrue(addedItems.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1533,8 +1537,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
-    for (Identifiable id : ridBag) {
-      assertTrue(addedItems.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1543,8 +1547,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
-    for (Identifiable id : ridBag) {
-      assertTrue(addedItems.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(addedItems.remove(ridPair.primaryRid()));
     }
 
     assertTrue(addedItems.isEmpty());
@@ -1610,8 +1614,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertEmbedded(ridBag.isEmbedded());
 
     List<Identifiable> docsToAddCopy = new ArrayList<>(docsToAdd);
-    for (Identifiable id : ridBag) {
-      assertTrue(docsToAdd.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     assertTrue(docsToAdd.isEmpty());
@@ -1620,8 +1624,8 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     ridBag = document.getProperty("ridBag");
 
-    for (Identifiable id : ridBag) {
-      assertTrue(docsToAdd.remove(id));
+    for (var ridPair : ridBag) {
+      assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     assertTrue(docsToAdd.isEmpty());
@@ -1670,7 +1674,7 @@ public abstract class LinkBagTest extends BaseDBTest {
     teamMates.add(bob.getIdentity());
 
     assertEquals(teamMates.size(), 1);
-    assertEquals(teamMates.iterator().next().getIdentity(), bob.getIdentity());
+    assertEquals(teamMates.iterator().next().primaryRid(), bob.getIdentity());
   }
 
   public void testAddNewItemsAndRemoveThem() {
@@ -1732,10 +1736,10 @@ public abstract class LinkBagTest extends BaseDBTest {
       }
     }
 
-    for (var identifiable : ridBag) {
-      if (newDocs.contains(identifiable) && rnd.nextBoolean()) {
-        ridBag.remove(identifiable.getIdentity());
-        if (rids.remove(identifiable)) {
+    for (var ridPair : ridBag) {
+      if (newDocs.contains(ridPair.primaryRid()) && rnd.nextBoolean()) {
+        ridBag.remove(ridPair.primaryRid());
+        if (rids.remove(ridPair.primaryRid())) {
           size--;
         }
       }
@@ -1751,8 +1755,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     assertEquals(ridBag.size(), size);
     List<RID> ridsCopy = new ArrayList<>(rids);
 
-    for (var identifiable : ridBag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : ridBag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -1762,8 +1766,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     ridBag = document.getProperty("ridBag");
 
     rids.addAll(ridsCopy);
-    for (var identifiable : ridBag) {
-      assertTrue(rids.remove(identifiable));
+    for (var ridPair : ridBag) {
+      assertTrue(rids.remove(ridPair.primaryRid()));
     }
 
     assertTrue(rids.isEmpty());
@@ -1871,8 +1875,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     linkBag.rollbackChanges(tx);
 
     var linkBagBulkSet = new BulkSet<RID>();
-    for (var rid : linkBag) {
-      linkBagBulkSet.add(rid);
+    for (var ridPair : linkBag) {
+      linkBagBulkSet.add(ridPair.primaryRid());
     }
 
     Assert.assertEquals(originalBulkSet, linkBagBulkSet);
@@ -1936,8 +1940,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     linkBag.rollbackChanges(tx);
 
     var linkBagBulkSet = new BulkSet<RID>();
-    for (var rid : linkBag) {
-      linkBagBulkSet.add(rid);
+    for (var ridPair : linkBag) {
+      linkBagBulkSet.add(ridPair.primaryRid());
     }
 
     Assert.assertEquals(originalBulkSet, linkBagBulkSet);
@@ -1951,8 +1955,8 @@ public abstract class LinkBagTest extends BaseDBTest {
     var bagIterator = bag.iterator();
 
     while (bagIterator.hasNext()) {
-      Identifiable bagValue = bagIterator.next();
-      assertTrue(rids.contains(bagValue));
+      var bagValue = bagIterator.next();
+      assertTrue(rids.contains(bagValue.primaryRid()));
     }
 
     assertEquals(bag.size(), rids.size());
@@ -1972,11 +1976,11 @@ public abstract class LinkBagTest extends BaseDBTest {
     bagIterator = bag.iterator();
 
     while (bagIterator.hasNext()) {
-      final Identifiable bagValue = bagIterator.next();
-      assertTrue(rids.contains(bagValue));
+      final var bagValue = bagIterator.next();
+      assertTrue(rids.contains(bagValue.primaryRid()));
       if (rnd.nextDouble() < 0.05) {
         bagIterator.remove();
-        assertTrue(rids.remove(bagValue));
+        assertTrue(rids.remove(bagValue.primaryRid()));
 
       }
     }
@@ -1985,8 +1989,328 @@ public abstract class LinkBagTest extends BaseDBTest {
     bagIterator = bag.iterator();
 
     while (bagIterator.hasNext()) {
-      final Identifiable bagValue = bagIterator.next();
-      assertTrue(rids.contains(bagValue));
+      final var bagValue = bagIterator.next();
+      assertTrue(rids.contains(bagValue.primaryRid()));
     }
+  }
+
+  public void testAddTrackingWithSecondaryRid() {
+    session.begin();
+
+    var primaryRid = RecordIdInternal.fromString("#77:1", false);
+    var secondaryRid = RecordIdInternal.fromString("#88:2", false);
+
+    var bag = new LinkBag(session);
+    var entity = (EntityImpl) session.newEntity();
+    bag.setOwner(entity);
+    bag.enableTracking(entity);
+
+    bag.add(primaryRid, secondaryRid);
+
+    var timeLine = bag.getTimeLine();
+    assertNotNull(timeLine);
+
+    var events = timeLine.getMultiValueChangeEvents();
+    assertNotNull(events);
+    assertEquals(events.size(), 1);
+
+    var event = events.get(0);
+    assertEquals(event.getChangeType(), ChangeType.ADD);
+    assertEquals(event.getKey(), primaryRid);
+    assertEquals(event.getValue(), secondaryRid);
+
+    assertEmbedded(bag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testAddTrackingSingleSidedRid() {
+    session.begin();
+
+    var rid = RecordIdInternal.fromString("#77:1", false);
+
+    var bag = new LinkBag(session);
+    var entity = (EntityImpl) session.newEntity();
+    bag.setOwner(entity);
+    bag.enableTracking(entity);
+
+    bag.add(rid);
+
+    var timeLine = bag.getTimeLine();
+    assertNotNull(timeLine);
+
+    var events = timeLine.getMultiValueChangeEvents();
+    assertNotNull(events);
+    assertEquals(events.size(), 1);
+
+    var event = events.get(0);
+    assertEquals(event.getChangeType(), ChangeType.ADD);
+    assertEquals(event.getKey(), rid);
+    assertEquals(event.getValue(), rid);
+
+    assertEmbedded(bag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testAddMultipleTrackingWithSecondaryRids() {
+    session.begin();
+
+    var primaryRid1 = RecordIdInternal.fromString("#77:1", false);
+    var secondaryRid1 = RecordIdInternal.fromString("#88:10", false);
+    var primaryRid2 = RecordIdInternal.fromString("#77:2", false);
+    var secondaryRid2 = RecordIdInternal.fromString("#88:20", false);
+
+    var bag = new LinkBag(session);
+    var entity = (EntityImpl) session.newEntity();
+    bag.setOwner(entity);
+    bag.enableTracking(entity);
+
+    bag.add(primaryRid1, secondaryRid1);
+    bag.add(primaryRid2, secondaryRid2);
+
+    var timeLine = bag.getTimeLine();
+    assertNotNull(timeLine);
+
+    var events = timeLine.getMultiValueChangeEvents();
+    assertNotNull(events);
+    assertEquals(events.size(), 2);
+
+    var expectedEvents = new ArrayList<MultiValueChangeEvent<RID, RID>>();
+    expectedEvents.add(new MultiValueChangeEvent<>(ChangeType.ADD, primaryRid1, secondaryRid1));
+    expectedEvents.add(new MultiValueChangeEvent<>(ChangeType.ADD, primaryRid2, secondaryRid2));
+    assertEquals(events, expectedEvents);
+
+    assertEmbedded(bag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testRemoveTrackingPreservesSecondaryRid() {
+    session.begin();
+
+    var primaryRid = session.newEntity().getIdentity();
+    var secondaryRid = session.newEntity().getIdentity();
+
+    var bag = new LinkBag(session);
+    var entity = (EntityImpl) session.newEntity();
+    bag.setOwner(entity);
+
+    bag.add(primaryRid, secondaryRid);
+
+    bag.enableTracking(entity);
+
+    bag.remove(primaryRid);
+
+    var timeLine = bag.getTimeLine();
+    assertNotNull(timeLine);
+
+    var events = timeLine.getMultiValueChangeEvents();
+    assertNotNull(events);
+    assertEquals(events.size(), 1);
+
+    var event = events.get(0);
+    assertEquals(event.getChangeType(), ChangeType.REMOVE);
+    assertEquals(event.getKey(), primaryRid);
+    assertEquals(event.getOldValue(), secondaryRid);
+
+    assertEmbedded(bag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testAddAndRemoveTrackingWithSecondaryRids() {
+    session.begin();
+
+    var primaryRid1 = session.newEntity().getIdentity();
+    var secondaryRid1 = session.newEntity().getIdentity();
+    var primaryRid2 = session.newEntity().getIdentity();
+    var secondaryRid2 = session.newEntity().getIdentity();
+
+    var bag = new LinkBag(session);
+    var entity = (EntityImpl) session.newEntity();
+    bag.setOwner(entity);
+    bag.enableTracking(entity);
+
+    bag.add(primaryRid1, secondaryRid1);
+    bag.add(primaryRid2, secondaryRid2);
+    bag.remove(primaryRid1);
+
+    var timeLine = bag.getTimeLine();
+    assertNotNull(timeLine);
+
+    var events = timeLine.getMultiValueChangeEvents();
+    assertNotNull(events);
+    assertEquals(events.size(), 3);
+
+    assertEquals(events.get(0),
+        new MultiValueChangeEvent<>(ChangeType.ADD, primaryRid1, secondaryRid1));
+    assertEquals(events.get(1),
+        new MultiValueChangeEvent<>(ChangeType.ADD, primaryRid2, secondaryRid2));
+
+    var removeEvent = events.get(2);
+    assertEquals(removeEvent.getChangeType(), ChangeType.REMOVE);
+    assertEquals(removeEvent.getKey(), primaryRid1);
+    assertEquals(removeEvent.getOldValue(), secondaryRid1);
+
+    assertEmbedded(bag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testTransactionTimeLineTrackingWithSecondaryRid() {
+    session.begin();
+
+    var primaryRid = RecordIdInternal.fromString("#77:1", false);
+    var secondaryRid = RecordIdInternal.fromString("#88:2", false);
+
+    var bag = new LinkBag(session);
+    var entity = (EntityImpl) session.newEntity();
+    bag.setOwner(entity);
+    bag.enableTracking(entity);
+
+    bag.add(primaryRid, secondaryRid);
+
+    var txTimeLine = bag.getTransactionTimeLine();
+    assertNotNull(txTimeLine);
+
+    var events = txTimeLine.getMultiValueChangeEvents();
+    assertNotNull(events);
+    assertEquals(events.size(), 1);
+
+    var event = events.get(0);
+    assertEquals(event.getChangeType(), ChangeType.ADD);
+    assertEquals(event.getKey(), primaryRid);
+    assertEquals(event.getValue(), secondaryRid);
+
+    assertEmbedded(bag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testRollBackChangesWithSecondaryRids() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    var primary1 = session.newEntity().getIdentity();
+    var secondary1 = session.newEntity().getIdentity();
+    var primary2 = session.newEntity().getIdentity();
+    var secondary2 = session.newEntity().getIdentity();
+    var primary3 = session.newEntity().getIdentity();
+    var secondary3 = session.newEntity().getIdentity();
+
+    final var linkBag = new LinkBag(session);
+    entity.setProperty("linkBag", linkBag);
+    linkBag.add(primary1, secondary1);
+    linkBag.add(primary2, secondary2);
+    linkBag.add(primary3, secondary3);
+
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    var primary4 = session.newEntity().getIdentity();
+    var secondary4 = session.newEntity().getIdentity();
+    linkBag.add(primary4, secondary4);
+
+    linkBag.remove(primary2);
+
+    var primary5 = session.newEntity().getIdentity();
+    var secondary5 = session.newEntity().getIdentity();
+    linkBag.add(primary5, secondary5);
+
+    linkBag.rollbackChanges(tx);
+
+    assertEquals(linkBag.size(), 3);
+
+    var resultPairs = new ArrayList<RidPair>();
+    for (var ridPair : linkBag) {
+      resultPairs.add(ridPair);
+    }
+    assertEquals(resultPairs.size(), 3);
+
+    var expectedPairs = new ArrayList<RidPair>();
+    expectedPairs.add(new RidPair(primary1, secondary1));
+    expectedPairs.add(new RidPair(primary2, secondary2));
+    expectedPairs.add(new RidPair(primary3, secondary3));
+    expectedPairs.sort(RidPair::compareTo);
+    resultPairs.sort(RidPair::compareTo);
+
+    assertEquals(resultPairs, expectedPairs);
+
+    assertEmbedded(linkBag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testRollBackAddOnlyWithSecondaryRids() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    var primary1 = session.newEntity().getIdentity();
+    var secondary1 = session.newEntity().getIdentity();
+
+    final var linkBag = new LinkBag(session);
+    entity.setProperty("linkBag", linkBag);
+    linkBag.add(primary1, secondary1);
+
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    var primary2 = session.newEntity().getIdentity();
+    var secondary2 = session.newEntity().getIdentity();
+    linkBag.add(primary2, secondary2);
+
+    var primary3 = session.newEntity().getIdentity();
+    var secondary3 = session.newEntity().getIdentity();
+    linkBag.add(primary3, secondary3);
+
+    linkBag.rollbackChanges(tx);
+
+    assertEquals(linkBag.size(), 1);
+
+    var resultPairs = new ArrayList<RidPair>();
+    for (var ridPair : linkBag) {
+      resultPairs.add(ridPair);
+    }
+    assertEquals(resultPairs.size(), 1);
+    assertEquals(resultPairs.get(0), new RidPair(primary1, secondary1));
+
+    assertEmbedded(linkBag.isEmbedded());
+    session.rollback();
+  }
+
+  public void testRollBackRemoveRestoresSecondaryRid() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    var primary1 = session.newEntity().getIdentity();
+    var secondary1 = session.newEntity().getIdentity();
+    var primary2 = session.newEntity().getIdentity();
+    var secondary2 = session.newEntity().getIdentity();
+
+    final var linkBag = new LinkBag(session);
+    entity.setProperty("linkBag", linkBag);
+    linkBag.add(primary1, secondary1);
+    linkBag.add(primary2, secondary2);
+
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    linkBag.remove(primary1);
+
+    assertEquals(linkBag.size(), 1);
+
+    linkBag.rollbackChanges(tx);
+
+    assertEquals(linkBag.size(), 2);
+
+    var resultPairs = new ArrayList<RidPair>();
+    for (var ridPair : linkBag) {
+      resultPairs.add(ridPair);
+    }
+    resultPairs.sort(RidPair::compareTo);
+
+    var expectedPairs = new ArrayList<RidPair>();
+    expectedPairs.add(new RidPair(primary1, secondary1));
+    expectedPairs.add(new RidPair(primary2, secondary2));
+    expectedPairs.sort(RidPair::compareTo);
+
+    assertEquals(resultPairs, expectedPairs);
+
+    assertEmbedded(linkBag.isEmbedded());
+    session.rollback();
   }
 }

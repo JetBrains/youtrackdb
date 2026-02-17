@@ -1627,8 +1627,8 @@ public class SecurityShared implements SecurityInternal {
     // TODO move it to some helper class
     if (value instanceof LinkBag linkBag) {
       List<Identifiable> result = new ArrayList<>(linkBag.size());
-      for (Identifiable identifiable : linkBag) {
-        result.add(identifiable);
+      for (var ridPair : linkBag) {
+        result.add(ridPair.primaryRid());
       }
 
       return result;

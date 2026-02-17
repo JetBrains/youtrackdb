@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
-import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -32,6 +31,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTreeImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValueSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -121,25 +122,27 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
       fileIdBTreeMap.put(intFileId, bTree);
 
       return new IsolatedLinkBagBTreeImpl(
-          bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE, IntegerSerializer.INSTANCE);
+          bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE,
+          LinkBagValueSerializer.INSTANCE);
     } else {
       final var intFileId = AbstractWriteCache.extractFileId(fileId);
       final var bTree = fileIdBTreeMap.get(intFileId);
       final var nextRidBagId = -ridBagIdCounter.incrementAndGet();
 
       return new IsolatedLinkBagBTreeImpl(
-          bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE, IntegerSerializer.INSTANCE);
+          bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE,
+          LinkBagValueSerializer.INSTANCE);
     }
   }
 
   @Override
-  public IsolatedLinkBagBTree<RID, Integer> loadIsolatedBTree(
+  public IsolatedLinkBagBTree<RID, LinkBagValue> loadIsolatedBTree(
       LinkBagPointer collectionPointer) {
     final var intFileId = AbstractWriteCache.extractFileId(collectionPointer.fileId());
     final var bTree = fileIdBTreeMap.get(intFileId);
     return new IsolatedLinkBagBTreeImpl(
         bTree, intFileId, collectionPointer.linkBagId(), LinkSerializer.INSTANCE,
-        IntegerSerializer.INSTANCE);
+        LinkBagValueSerializer.INSTANCE);
   }
 
   @Override
@@ -172,7 +175,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true, atomicOperation)) {
-      stream.forEach(pair -> bTree.remove(atomicOperation, pair.first));
+      stream.forEach(pair -> bTree.remove(atomicOperation, pair.first()));
+
     }
 
     return true;

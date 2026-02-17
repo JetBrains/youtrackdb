@@ -140,9 +140,9 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     bag.remove(cygni.getIdentity());
 
     Set<EntityImpl> result = new HashSet<>();
-    for (Identifiable identifiable : bag) {
+    for (var ridPair : bag) {
       var transaction = session.getActiveTransaction();
-      result.add(transaction.load(identifiable));
+      result.add(transaction.load(ridPair.primaryRid()));
     }
 
     final var tx = session.getActiveTransaction();
@@ -209,8 +209,8 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     docs.add(doc_5.getIdentity());
     docs.add(doc_6.getIdentity());
 
-    for (Identifiable rid : bag) {
-      Assert.assertTrue(docs.remove(rid));
+    for (var ridPair : bag) {
+      Assert.assertTrue(docs.remove(ridPair.primaryRid()));
     }
 
     Assert.assertTrue(docs.isEmpty());

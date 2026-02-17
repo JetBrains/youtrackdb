@@ -147,8 +147,8 @@ public class ResultInternal implements Result, BasicResultInternal {
       }
       case LinkBag linkBag -> {
         List<RID> list = new ArrayList<>(linkBag.size());
-        for (var rid : linkBag) {
-          list.add(rid);
+        for (var ridPair : linkBag) {
+          list.add(ridPair.primaryRid());
         }
         yield list;
       }
@@ -225,8 +225,8 @@ public class ResultInternal implements Result, BasicResultInternal {
     switch (value) {
       case LinkBag linkBag -> {
         var list = new ArrayList<RID>(linkBag.size());
-        for (var rid : linkBag) {
-          list.add(rid);
+        for (var ridPair : linkBag) {
+          list.add(ridPair.primaryRid());
         }
 
         return list;

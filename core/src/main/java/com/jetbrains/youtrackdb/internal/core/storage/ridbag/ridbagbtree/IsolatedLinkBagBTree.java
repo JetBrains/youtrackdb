@@ -1,23 +1,3 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
@@ -25,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.TreeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.io.IOException;
 import java.util.Spliterator;
 import javax.annotation.Nonnull;
@@ -92,9 +71,9 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
       AtomicOperation atomicOperation);
 
   @Nonnull
-  Spliterator<ObjectIntPair<K>> spliteratorEntriesBetween(
-      @Nonnull K keyFrom, boolean fromInclusive,@Nonnull K keyTo, boolean toInclusive, boolean ascSortOrder,
-      AtomicOperation atomicOperation);
+  Spliterator<BTreeReadEntry<K>> spliteratorEntriesBetween(
+      @Nonnull K keyFrom, boolean fromInclusive, @Nonnull K keyTo, boolean toInclusive,
+      boolean ascSortOrder, AtomicOperation atomicOperation);
 
   @Nullable
   @Override
@@ -115,4 +94,8 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
   BinarySerializer<K> getKeySerializer();
 
   BinarySerializer<V> getValueSerializer();
+
+  record BTreeReadEntry<K>(K primaryRid, int counter, int secondaryCollectionId,
+                           long secondaryPosition) {
+  }
 }

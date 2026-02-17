@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import javax.annotation.Nullable;
 
 public interface Change {
 
@@ -20,4 +22,9 @@ public interface Change {
   int serialize(byte[] stream, int offset);
 
   int clear();
+
+  @Nullable
+  default RID getSecondaryRid() {
+    return null;
+  }
 }

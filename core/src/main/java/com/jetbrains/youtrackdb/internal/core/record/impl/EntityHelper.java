@@ -1258,20 +1258,20 @@ public class EntityHelper {
     }
 
     final var otherBagCopy = new ArrayList<RID>();
-    for (Identifiable identifiable : otherFieldValue) {
-      otherBagCopy.add(identifiable.getIdentity());
+    for (var ridPair : otherFieldValue) {
+      otherBagCopy.add(ridPair.primaryRid());
     }
-    for (var myIdentifiable : myFieldValue) {
+    for (var myRidPair : myFieldValue) {
       final RID otherRid;
       if (ridMapper != null) {
-        var convertedRid = ridMapper.map(myIdentifiable.getIdentity());
+        var convertedRid = ridMapper.map(myRidPair.primaryRid());
         if (convertedRid != null) {
           otherRid = convertedRid;
         } else {
-          otherRid = myIdentifiable.getIdentity();
+          otherRid = myRidPair.primaryRid();
         }
       } else {
-        otherRid = myIdentifiable.getIdentity();
+        otherRid = myRidPair.primaryRid();
       }
 
       otherBagCopy.remove(otherRid);

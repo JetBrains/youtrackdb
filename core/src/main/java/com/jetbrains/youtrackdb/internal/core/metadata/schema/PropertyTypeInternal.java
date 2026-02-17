@@ -1282,7 +1282,7 @@ public enum PropertyTypeInternal {
       var ridBag = (LinkBag) value;
       var copy = new LinkBag(session);
       for (var item : ridBag) {
-        copy.add(item);
+        copy.add(item.primaryRid(), item.secondaryRid());
       }
 
       return copy;
