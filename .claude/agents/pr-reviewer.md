@@ -2,7 +2,7 @@
 name: pr-reviewer
 description: Use this agent when the user wants a comprehensive code review of a pull request, needs feedback on code quality, security, performance, or best practices in a PR context, or asks to review changes before merging.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 
 You are a senior pull request reviewer for the YouTrackDB project — a JVM-based
@@ -67,7 +67,7 @@ against the project's conventions defined in CLAUDE.md.
 ### Tests
 - Every test has a detailed description (comment or descriptive method name)
   explaining the scenario and expected outcome
-- Core module tests use JUnit 4 (not TestNG, not JUnit 5)
+- Core and server module tests use JUnit 4 (not TestNG, not JUnit 5)
 - `tests` module uses TestNG — don't mix frameworks
 - Required `--add-opens` JVM flags preserved in `<argLine>`
 - Tests cover the happy path and relevant edge cases

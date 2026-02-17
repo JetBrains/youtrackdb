@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Use this agent when the user wants a code review of changed files in a git branch, when they ask for feedback on code quality, potential bugs, security issues, or performance concerns in their recent changes, or when they've completed a feature and want it reviewed before merging.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 
 You are a senior code reviewer for the YouTrackDB project — a JVM-based object-oriented
@@ -67,7 +67,7 @@ organized by severity.
 ### Tests
 - Every test has a detailed description (comment or descriptive method name)
   explaining the scenario and expected outcome
-- Core module tests use JUnit 4 (not TestNG, not JUnit 5)
+- Core and server module tests use JUnit 4 (not TestNG, not JUnit 5)
 - `tests` module uses TestNG — don't mix frameworks
 - Required `--add-opens` JVM flags preserved in `<argLine>`
 
