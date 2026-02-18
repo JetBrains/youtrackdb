@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.core.sql.executor;
+package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -6,6 +6,20 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.OrderByStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -41,38 +55,245 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
+ * Converts a parsed `MATCH` statement into a physical execution plan.
  *
+ * ## Overview
+ *
+ * The `MATCH` statement is YouTrackDB's graph pattern-matching query language construct,
+ * inspired by the pattern-matching semantics of graph query languages such as Cypher.
+ * A typical `MATCH` query defines one or more **patterns** — chains of nodes connected by
+ * directed or bidirectional edges — along with optional `WHERE` filters, `WHILE` recursive
+ * traversal conditions, and a `RETURN` projection.
+ *
+ * ### Example
+ *
+ * ```sql
+ * MATCH {class: Person, as: p, where: (name = 'Alice')}
+ *         .out('Knows') {as: friend}
+ *         .out('Lives') {as: city, where: (name = 'Berlin')}
+ * RETURN p.name, friend.name, city.name
+ * ```
+ *
+ * This planner takes the AST produced by the SQL parser ({@link SQLMatchStatement}) and
+ * produces a {@link SelectExecutionPlan} composed of execution steps that evaluate the
+ * pattern at runtime.
+ *
+ * ## End-to-end flow
+ *
+ * <pre>
+ *   SQL text ──→ Parser ──→ SQLMatchStatement (AST)
+ *                                   │
+ *                          MatchExecutionPlanner
+ *                                   │
+ *                  ┌────────────────┼────────────────────┐
+ *                  │                │                    │
+ *           buildPatterns()   estimateRoots()   topologicalSort()
+ *            (Pattern graph)  (cardinality map)  (EdgeTraversal schedule)
+ *                  │                │                    │
+ *                  └────────────────┼────────────────────┘
+ *                                   │
+ *                          Step generation:
+ *                  MatchPrefetchStep (small aliases)
+ *                  MatchFirstStep (initial scan)
+ *                  MatchStep / OptionalMatchStep (per edge)
+ *                  FilterNotMatchPatternStep (NOT patterns)
+ *                  RemoveEmptyOptionalsStep (optional cleanup)
+ *                  ReturnMatch*Step (projection)
+ *                                   │
+ *                                   ▼
+ *                        SelectExecutionPlan (ready to execute)
+ * </pre>
+ *
+ * ## Planning phases
+ *
+ * The phases below correspond to the inline comments in
+ * {@link #createExecutionPlan(CommandContext, boolean)}:
+ *
+ * 1. **Build the pattern graph** — converts the list of {@link SQLMatchExpression}s into a
+ *    {@link Pattern} (an adjacency structure of {@link PatternNode}s and
+ *    {@link PatternEdge}s), and extracts per-alias metadata such as class constraints,
+ *    RID constraints, and `WHERE` filters.
+ *
+ * 2. **Split disjoint sub-patterns** — if the `MATCH` contains multiple disconnected
+ *    sub-graphs (e.g. `MATCH {as: a}.out(){as: b}, {as: x}.out(){as: y}`), each connected
+ *    component is planned independently and later joined via a
+ *    {@link CartesianProductStep}.
+ *
+ * 3. **Estimate root cardinalities** — for every aliased node that has a class or RID
+ *    constraint, estimate the number of root records using schema statistics. Aliases
+ *    whose estimated cardinality falls below {@link #THRESHOLD} are **prefetched** and
+ *    cached in the execution context so that the traversal can start from the smallest
+ *    set. Aliases whose filters reference `$matched` cannot be prefetched because their
+ *    filter depends on values produced during traversal (see
+ *    {@link #dependsOnExecutionContext}).
+ *
+ * 4. **Prefetch small alias sets** — for each alias below the threshold, a
+ *    {@link MatchPrefetchStep} eagerly loads all matching records into the execution
+ *    context under a well-known key.
+ *
+ * 5. **Topological scheduling and step generation** — edges in the pattern graph are
+ *    ordered via a cost-driven depth-first traversal
+ *    ({@link #getTopologicalSortedSchedule}). The algorithm picks the cheapest root node
+ *    first, then greedily expands outward, respecting dependency constraints introduced
+ *    by `$matched` references in `WHERE` clauses. The sorted list of
+ *    {@link EdgeTraversal}s is mapped to execution steps:
+ *    - The first node becomes a {@link MatchFirstStep} (initial record scan/lookup).
+ *    - Each subsequent edge becomes either a {@link MatchStep} or an
+ *      {@link OptionalMatchStep}.
+ *
+ * 6. **NOT patterns** — any `NOT { … }` sub-patterns are appended as
+ *    {@link FilterNotMatchPatternStep}s that discard rows matching the negative pattern.
+ *
+ * 7. **Optional cleanup** — if the query contains optional nodes, a
+ *    {@link RemoveEmptyOptionalsStep} replaces sentinel
+ *    {@link OptionalMatchEdgeTraverser#EMPTY_OPTIONAL} markers with `null`.
+ *
+ * 8. **Return projection** — depending on the `RETURN` clause, one of several
+ *    projection steps is appended (`$elements`, `$paths`, `$patterns`,
+ *    `$pathElements`, or a custom expression list).
+ *
+ * ## Result row evolution
+ *
+ * As each step in the pipeline processes a row, the row's property map grows.
+ * The diagram below shows a concrete example for the query:
+ *
+ * ```sql
+ * MATCH {class: Person, as: p, where: (name = 'Alice')}
+ *         .out('Knows') {as: friend, optional: true}
+ *         .out('Lives') {as: city}
+ * RETURN p.name, friend.name, city.name
+ * ```
+ *
+ * <pre>
+ *   Step                        Row contents
+ *   ─────────────────────────   ──────────────────────────────────────────────
+ *   MatchFirstStep (p)          {p: Person#1}
+ *   OptionalMatchStep (→friend) {p: Person#1, friend: Person#2}
+ *                            or {p: Person#1, friend: EMPTY_OPTIONAL}
+ *   MatchStep (→city)           {p: Person#1, friend: Person#2, city: City#3}
+ *   RemoveEmptyOptionalsStep    {p: Person#1, friend: null,     city: City#3}
+ *                                                    ^^ sentinel replaced
+ *   ReturnMatch*Step / project  {p.name: "Alice", friend.name: null, city.name: "Berlin"}
+ * </pre>
+ *
+ * When a `depthAlias` or `pathAlias` is declared on a WHILE edge, the
+ * corresponding metadata is also stored as a top-level property:
+ * `{p: Person#1, friend: Person#2, depth: 2, path: [Person#1, ...]}`.
+ *
+ * ## Cartesian product for disjoint sub-patterns
+ *
+ * When the MATCH query contains multiple disconnected sub-graphs (e.g.
+ * `MATCH {as: a}.out(){as: b}, {as: x}.out(){as: y}`), each connected
+ * component is planned independently via {@link #createPlanForPattern} and
+ * produces its own stream of partial rows. A {@link CartesianProductStep}
+ * then joins these streams by computing the Cartesian (cross) product:
+ * every row from sub-pattern 1 is combined with every row from sub-pattern 2,
+ * yielding a merged row that contains all aliases from both sub-patterns.
+ *
+ * <pre>
+ *   Sub-pattern 1: {a: A#1, b: B#2}   Sub-pattern 2: {x: X#5, y: Y#6}
+ *                  {a: A#3, b: B#4}                   {x: X#7, y: Y#8}
+ *
+ *   CartesianProductStep output:
+ *     {a: A#1, b: B#2, x: X#5, y: Y#6}
+ *     {a: A#1, b: B#2, x: X#7, y: Y#8}
+ *     {a: A#3, b: B#4, x: X#5, y: Y#6}
+ *     {a: A#3, b: B#4, x: X#7, y: Y#8}
+ * </pre>
+ *
+ * @see MatchStep
+ * @see MatchFirstStep
+ * @see MatchEdgeTraverser
+ * @see Pattern
+ * @see PatternNode
+ * @see PatternEdge
+ * @see EdgeTraversal
  */
 public class MatchExecutionPlanner {
 
+  /**
+   * Prefix prepended to auto-generated aliases for pattern nodes that the user did not
+   * name explicitly. Properties whose name starts with this prefix are treated as
+   * **internal** and are stripped from the final result set by
+   * {@link ReturnMatchPatternsStep} and {@link ReturnMatchElementsStep}.
+   */
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
+  /** Positive `MATCH` expressions (the main graph pattern). */
   protected List<SQLMatchExpression> matchExpressions;
+
+  /** Negative `NOT MATCH` expressions that filter out matching rows. */
   protected List<SQLMatchExpression> notMatchExpressions;
+
+  /** Expressions to evaluate in the `RETURN` clause. */
   protected List<SQLExpression> returnItems;
+
+  /** User-specified aliases for each return expression (may contain `null` entries). */
   protected List<SQLIdentifier> returnAliases;
+
+  /** Optional nested projections applied to return items. */
   protected List<SQLNestedProjection> returnNestedProjections;
+
+  /** `true` when the user wrote `RETURN $elements` — unrolls matched nodes. */
   private boolean returnElements = false;
+
+  /** `true` when the user wrote `RETURN $paths` — returns full matched paths. */
   private boolean returnPaths = false;
+
+  /** `true` when the user wrote `RETURN $patterns` — returns matched patterns. */
   private boolean returnPatterns = false;
+
+  /** `true` when the user wrote `RETURN $pathElements` — unrolls *all* path nodes. */
   private boolean returnPathElements = false;
+
+  /** `true` when the `RETURN` clause contains the `DISTINCT` keyword. */
   private boolean returnDistinct = false;
+
   protected SQLSkip skip;
   private final SQLGroupBy groupBy;
   private final SQLOrderBy orderBy;
   private final SQLUnwind unwind;
   protected SQLLimit limit;
 
-  // post-parsing
+  // ---- Post-parsing state (populated lazily by buildPatterns / splitDisjointPatterns) ----
+
+  /** The complete pattern graph built from {@link #matchExpressions}. */
   private Pattern pattern;
+
+  /** Connected components of {@link #pattern}, one per disjoint sub-graph. */
   private List<Pattern> subPatterns;
+
+  /**
+   * Accumulated `WHERE` filters per alias.  When the same alias appears in multiple
+   * `MATCH` expressions, all its `WHERE` predicates are AND-ed together.
+   */
   private Map<String, SQLWhereClause> aliasFilters;
+
+  /** Maps each alias to the schema class name it is constrained to. */
   private Map<String, String> aliasClasses;
+
+  /** Maps each alias to a specific RID if one was provided in the pattern. */
   private Map<String, SQLRid> aliasRids;
+
+  /** Set to `true` if at least one node in the pattern is marked `optional: true`. */
   private boolean foundOptional = false;
+
+  /**
+   * Aliases with an estimated record count below this threshold are **prefetched** into
+   * memory before the traversal starts. This avoids repeated scans of very small sets
+   * during the nested-loop pattern matching.
+   */
   private static final long THRESHOLD = 100;
 
+  /**
+   * Creates a planner by **deep-copying** every mutable component from the parsed
+   * statement so that planning can freely mutate state (e.g. assign default aliases,
+   * merge filters) without affecting the original AST.
+   *
+   * @param stm the parsed `MATCH` statement AST node
+   */
   public MatchExecutionPlanner(SQLMatchStatement stm) {
+    // Deep-copy all mutable AST components to allow safe in-place mutation during planning
     this.matchExpressions =
         stm.getMatchExpressions().stream().map(SQLMatchExpression::copy)
             .collect(Collectors.toList());
@@ -104,21 +325,44 @@ public class MatchExecutionPlanner {
     this.unwind = stm.getUnwind() == null ? null : stm.getUnwind().copy();
   }
 
+  /**
+   * Builds the complete physical execution plan for this `MATCH` query.
+   *
+   * The plan is assembled as a pipeline of {@link ExecutionStepInternal} instances chained
+   * inside a {@link SelectExecutionPlan}. See the class-level Javadoc for the full list
+   * of planning phases (1–8). The inline comments in this method reference those same
+   * phase numbers.
+   *
+   * @param context          the command execution context (holds the database session,
+   *                         variables, etc.)
+   * @param enableProfiling  when `true`, each step will collect timing/count statistics
+   * @return the assembled execution plan, ready to be {@linkplain InternalExecutionPlan#start()
+   *         started}
+   */
   public InternalExecutionPlan createExecutionPlan(
       CommandContext context, boolean enableProfiling) {
 
+    // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
+    // Phase 2: Identify disconnected sub-graphs that must be joined via Cartesian product
     splitDisjointPatterns(context);
 
     var result = new SelectExecutionPlan(context);
+
+    // Phase 3: Estimate how many root records each aliased node will produce
     var estimatedRootEntries =
         estimateRootEntries(aliasClasses, aliasRids, aliasFilters, context);
+
+    // Aliases with fewer records than THRESHOLD and no dependency on $matched are prefetched
     var aliasesToPrefetch =
         estimatedRootEntries.entrySet().stream()
             .filter(x -> x.getValue() < THRESHOLD)
             .filter(x -> !dependsOnExecutionContext(x.getKey()))
             .map(Entry::getKey)
             .collect(Collectors.toSet());
+
+    // Short-circuit: if any non-optional alias has zero estimated records, the query
+    // is guaranteed to produce no results
     for (var entry : estimatedRootEntries.entrySet()) {
       if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
         result.chain(new EmptyStep(context, enableProfiling));
@@ -126,9 +370,12 @@ public class MatchExecutionPlanner {
       }
     }
 
+    // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
+    // Phase 5: Topological scheduling + step generation for each connected component
     if (subPatterns.size() > 1) {
+      // Multiple disjoint sub-patterns → Cartesian product of their independent results
       var step = new CartesianProductStep(context, enableProfiling);
       for (var subPattern : subPatterns) {
         step.addSubPlan(
@@ -137,6 +384,7 @@ public class MatchExecutionPlanner {
       }
       result.chain(step);
     } else {
+      // Single connected pattern → inline the steps directly into the main plan
       var plan =
           createPlanForPattern(
               pattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling);
@@ -145,13 +393,17 @@ public class MatchExecutionPlanner {
       }
     }
 
+    // Phase 6: Append NOT-pattern filter steps
     manageNotPatterns(result, pattern, notMatchExpressions, context, enableProfiling);
 
+    // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
       result.chain(new RemoveEmptyOptionalsStep(context, enableProfiling));
     }
 
+    // Phase 8: Append return projection and post-processing steps
     if (returnElements || returnPaths || returnPatterns || returnPathElements) {
+      // Built-in return modes ($elements, $paths, $patterns, $pathElements)
       addReturnStep(result, context, enableProfiling);
 
       if (this.returnDistinct) {
@@ -178,6 +430,8 @@ public class MatchExecutionPlanner {
         result.chain(new LimitExecutionStep(limit, context, enableProfiling));
       }
     } else {
+      // Custom RETURN expressions — delegate to the SELECT planner for projection,
+      // GROUP BY, ORDER BY, UNWIND, SKIP, LIMIT handling
       var info = new QueryPlanningInfo();
       List<SQLProjectionItem> items = new ArrayList<>();
       for (var i = 0; i < this.returnItems.size(); i++) {
@@ -207,6 +461,11 @@ public class MatchExecutionPlanner {
     return result;
   }
 
+  /**
+   * Checks whether the filter for the given alias references runtime context variables
+   * such as `$matched`, which means the alias cannot be prefetched because its filter
+   * depends on values produced during pattern traversal.
+   */
   private boolean dependsOnExecutionContext(String key) {
     var filter = aliasFilters.get(key);
     if (filter == null) {
@@ -223,6 +482,24 @@ public class MatchExecutionPlanner {
     return node != null && node.isOptionalNode();
   }
 
+  /**
+   * Converts each `NOT { … }` expression into a {@link FilterNotMatchPatternStep} and
+   * appends it to the plan. The NOT pattern reuses the same traversal mechanics as
+   * positive patterns, but wraps them in a filter that **discards** rows for which the
+   * pattern matches.
+   *
+   * ### Constraints (current implementation)
+   *
+   * - The first alias in a NOT expression **must** already exist in the positive pattern.
+   * - `WHERE` conditions on the origin node of a NOT expression are not yet supported.
+   * - Multi-path items ({@link SQLMultiMatchPathItem}) inside NOT are not yet supported.
+   *
+   * @param result               the plan being assembled
+   * @param pattern              the positive pattern (used to validate alias references)
+   * @param notMatchExpressions  the list of negative match expressions
+   * @param context              the command context
+   * @param enableProfiling      whether to enable step profiling
+   */
   private static void manageNotPatterns(
       SelectExecutionPlan result,
       Pattern pattern,
@@ -265,6 +542,10 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Appends the appropriate return-projection step based on the `RETURN` mode
+   * (`$elements`, `$paths`, `$patterns`, or `$pathElements`).
+   */
   private void addReturnStep(
       SelectExecutionPlan result, CommandContext context, boolean profilingEnabled) {
     if (returnElements) {
@@ -289,6 +570,22 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Creates an execution plan for a single connected pattern (sub-graph).
+   *
+   * The method first computes a topological traversal order via
+   * {@link #getTopologicalSortedSchedule}, then emits one execution step per edge.
+   * If the pattern has no edges (a single isolated node), a standalone
+   * {@link MatchFirstStep} is emitted instead.
+   *
+   * @param pattern              the connected pattern to plan
+   * @param context              the command context
+   * @param estimatedRootEntries per-alias cardinality estimates used to pick the
+   *                             cheapest starting node
+   * @param prefetchedAliases    aliases whose records have already been prefetched
+   * @param profilingEnabled     whether to collect execution statistics
+   * @return an execution plan for this sub-pattern
+   */
   private InternalExecutionPlan createPlanForPattern(
       Pattern pattern,
       CommandContext context,
@@ -302,6 +599,8 @@ public class MatchExecutionPlanner {
     var first = true;
     if (!sortedEdges.isEmpty()) {
       for (var edge : sortedEdges) {
+        // Annotate each edge traversal with the source node's class/RID/filter constraints
+        // so that MatchReverseEdgeTraverser can apply them when traversing in reverse
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
@@ -312,12 +611,12 @@ public class MatchExecutionPlanner {
         first = false;
       }
     } else {
+      // No edges → single isolated node. Use prefetched data if available, otherwise
+      // build a SELECT execution plan to scan/fetch the node's records.
       var node = pattern.getAliasToNode().values().iterator().next();
       if (prefetchedAliases.contains(node.alias)) {
-        // from prefetch
         plan.chain(new MatchFirstStep(context, node, profilingEnabled));
       } else {
-        // from actual execution plan
         var clazz = aliasClasses.get(node.alias);
         var rid = aliasRids.get(node.alias);
         var filter = aliasFilters.get(node.alias);
@@ -334,7 +633,68 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * sort edges in the order they will be matched
+   * Computes the **edge schedule** — the order in which pattern edges will be traversed
+   * at runtime.
+   *
+   * The algorithm is a cost-driven, dependency-aware, depth-first graph traversal:
+   *
+   * 1. Compute per-alias dependencies from `$matched` references in `WHERE` clauses.
+   * 2. Sort candidate root nodes by their estimated cardinality (ascending) so that the
+   *    traversal starts from the smallest set.
+   * 3. Repeatedly pick the cheapest unvisited, dependency-free root node and perform a
+   *    depth-first expansion, appending each discovered edge to the schedule.
+   * 4. Continue until all edges have been scheduled.
+   *
+   * If the algorithm stalls before scheduling all edges (e.g. due to circular
+   * `$matched` dependencies), a {@link CommandExecutionException} is thrown.
+   *
+   * <pre>
+   * ┌────────────────────────────────────────────────────────────────┐
+   * │ getTopologicalSortedSchedule()                                │
+   * │                                                               │
+   * │ 1. Compute dependency map: alias → {aliases it depends on}    │
+   * │    (from $matched references in WHERE clauses)                │
+   * │                                                               │
+   * │ 2. Sort candidate roots by estimated cardinality (ascending)  │
+   * │    [cheapest first]                                           │
+   * │                                                               │
+   * │ 3. Main loop (while unscheduled edges remain):                │
+   * │    a. Pick cheapest unvisited root with no unmet dependencies │
+   * │    b. DFS from that root (updateScheduleStartingAt):          │
+   * │       ┌────────────────────────────────────────────┐          │
+   * │       │ Mark node visited, clear it from deps      │          │
+   * │       │ For each outgoing/bidirectional edge:      │          │
+   * │       │   neighbor has unmet deps? → skip          │          │
+   * │       │   neighbor visited, edge not? → add edge   │          │
+   * │       │   neighbor unvisited? → add edge, recurse  │          │
+   * │       └────────────────────────────────────────────┘          │
+   * │    c. Repeat until no more expansions possible               │
+   * │                                                               │
+   * │ 4. If edges remain unscheduled → circular dependency error    │
+   * └────────────────────────────────────────────────────────────────┘
+   *
+   * Worked example:
+   *
+   *   Query: MATCH {class:A, as:a}.out(){as:b}.out(){as:c}
+   *
+   *   Estimated roots: {a: 50, b: 10000, c: 500}
+   *   Sorted roots:    [a(50), c(500), b(10000)]
+   *
+   *   Pass 1: start at 'a' (cheapest, no unmet deps)
+   *     DFS: visit a
+   *            → edge(a→b): b unvisited, deps met → add edge(a→b, fwd), visit b
+   *              → edge(b→c): c unvisited, deps met → add edge(b→c, fwd), visit c
+   *     Schedule: [edge(a→b, fwd), edge(b→c, fwd)]
+   *
+   *   All 2 edges scheduled → done.
+   * </pre>
+   *
+   * @param estimatedRootEntries per-alias cardinality estimates
+   * @param pattern              the pattern graph to schedule
+   * @param session              the database session (used for error reporting)
+   * @return an ordered list of {@link EdgeTraversal}s representing the traversal schedule
+   * @throws CommandExecutionException if the pattern contains unresolvable circular
+   *                                    dependencies
    */
   private List<EdgeTraversal> getTopologicalSortedSchedule(
       Map<String, Long> estimatedRootEntries, Pattern pattern, DatabaseSessionEmbedded session) {
@@ -482,21 +842,42 @@ public class MatchExecutionPlanner {
           // - it has a neighboringNode that has already been visited;
           // - the edge between the startNode and the neighboringNode has not been scheduled yet.
           //
-          // The isOutbound value shows us whether the edge is outbound from the point of view of
-          // the startNode.
-          // However, if there are edges to the startNode, we must visit the startNode from an
-          // already-visited
-          // neighbor, to preserve the validity of the traversal. Therefore, we negate the value of
-          // isOutbound
-          // to ensure that the edge is always scheduled in the direction from the already-visited
-          // neighbor
-          // toward the startNode. Notably, this is also the case when evaluating "optional" nodes
-          // -- we always
-          // visit the optional node from its non-optional and already-visited neighbor.
+          // The isOutbound value shows us whether the edge is outbound from the point
+          // of view of the startNode. However, if there are edges to the startNode, we
+          // must visit the startNode from an already-visited neighbor, to preserve the
+          // validity of the traversal. Therefore, we negate the value of isOutbound to
+          // ensure that the edge is always scheduled in the direction from the
+          // already-visited neighbor toward the startNode. Notably, this is also the
+          // case when evaluating "optional" nodes -- we always visit the optional node
+          // from its non-optional and already-visited neighbor.
           //
-          // The only exception to the above is when we have edges with "while" conditions. We are
-          // not allowed
-          // to flip their directionality, so we leave them as-is.
+          // The only exception to the above is when we have edges with "while"
+          // conditions. We are not allowed to flip their directionality, so we leave
+          // them as-is.
+          //
+          // Example: bidirectional edge between visited node B and new node A
+          //
+          //   Pattern:    (A) ──both('Knows')──> (B)
+          //                        edge.out=A, edge.in=B
+          //
+          //   DFS state at this point:
+          //     - B is already in visitedNodes (it was reached earlier)
+          //     - A is the startNode being processed for the first time
+          //     - isOutbound = true (edge goes out from A's perspective)
+          //
+          //   Without flip:  schedule as EdgeTraversal(edge, fwd)  -> A is source
+          //     Problem: A hasn't been produced by any prior step yet, so
+          //     MatchStep cannot look up A in the upstream row.
+          //
+          //   With flip:     schedule as EdgeTraversal(edge, rev)  -> B is source
+          //     Correct: B was already matched in a previous step, so
+          //     MatchReverseEdgeTraverser starts from B and traverses to A.
+          //
+          // The flip is applied when:
+          //   - startNode is optional (must be reached FROM a visited node), or
+          //   - edge is bidirectional (direction is arbitrary; pick the valid one)
+          // The flip is NOT applied for WHILE edges because recursive traversal
+          // semantics depend on the original syntactic direction.
           boolean traversalDirection;
           if (startNode.optional || edge.item.isBidirectional()) {
             traversalDirection = !isOutbound;
@@ -529,6 +910,12 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Determines whether the given edge connects two nodes that belong to a fully-optional
+   * chain — i.e. every node reachable through outgoing edges from the start node is
+   * optional. If so, the scheduler is allowed to expand into the neighboring node even
+   * though the start node is itself optional.
+   */
   private static boolean isOptionalChain(
       PatternNode startNode, PatternEdge edge, PatternNode neighboringNode) {
     return isOptionalChain(startNode, edge, neighboringNode, new HashSet<>());
@@ -558,8 +945,12 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Calculate the set of dependency aliases for each alias in the pattern.
-   * @return map of alias to the set of aliases it depends on
+   * Computes a dependency map for the topological scheduler. An alias `A` depends on
+   * alias `B` if `A`'s `WHERE` clause contains a reference to `$matched.B` — meaning
+   * that `B` must be resolved (visited) before `A` can be evaluated.
+   *
+   * @param pattern the pattern whose nodes' filters are analyzed
+   * @return a map from alias name to the set of alias names it depends on
    */
   private Map<String, Set<String>> getDependencies(Pattern pattern) {
     Map<String, Set<String>> result = new HashMap<String, Set<String>>();
@@ -581,6 +972,11 @@ public class MatchExecutionPlanner {
     return result;
   }
 
+  /**
+   * Splits the global pattern graph into its connected components (disjoint sub-patterns).
+   * Each connected component will be planned independently; the results are later joined
+   * via a {@link CartesianProductStep}. This method is idempotent.
+   */
   private void splitDisjointPatterns(CommandContext context) {
     if (this.subPatterns != null) {
       return;
@@ -589,6 +985,26 @@ public class MatchExecutionPlanner {
     this.subPatterns = pattern.getDisjointPatterns();
   }
 
+  /**
+   * Emits execution steps for a single edge traversal.
+   *
+   * When {@code first} is {@code true}, two steps are chained: a {@link MatchFirstStep}
+   * (initial record scan for the source node) followed by a {@link MatchStep} or
+   * {@link OptionalMatchStep}. When {@code first} is {@code false}, only the traversal
+   * step is appended — the source node was already produced by a preceding step.
+   *
+   * <pre>
+   *   first=true:   plan ← MatchFirstStep(source) ← MatchStep(edge)
+   *   first=false:  plan ← MatchStep(edge)
+   *
+   *   Note: MatchStep is ALWAYS appended, even when first=true. The MatchFirstStep
+   *   only provides the initial record set — the MatchStep still performs the actual
+   *   edge traversal from that starting point.
+   * </pre>
+   *
+   * If the target node of the edge is optional, an {@link OptionalMatchStep} is used
+   * instead of a regular {@link MatchStep}.
+   */
   private void addStepsFor(
       SelectExecutionPlan plan,
       EdgeTraversal edge,
@@ -626,6 +1042,11 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * For each alias in `aliasesToPrefetch`, creates a {@link MatchPrefetchStep} that
+   * eagerly loads all matching records into the execution context under a well-known key.
+   * Subsequent {@link MatchFirstStep}s will read from this cache instead of re-scanning.
+   */
   private void addPrefetchSteps(
       SelectExecutionPlan result,
       Set<String> aliasesToPrefetch,
@@ -648,6 +1069,11 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Builds a synthetic `SELECT` statement that scans a class, a single RID, or applies a
+   * `WHERE` filter. This is used to generate the initial record source for
+   * {@link MatchFirstStep} and {@link MatchPrefetchStep}.
+   */
   private static SQLSelectStatement createSelectStatement(
       String targetClass, SQLRid targetRid, SQLWhereClause filter) {
     var prefetchStm = new SQLSelectStatement(-1);
@@ -664,6 +1090,20 @@ public class MatchExecutionPlanner {
     return prefetchStm;
   }
 
+  /**
+   * Lazily builds the internal pattern graph and extracts per-alias metadata.
+   *
+   * Steps performed:
+   * 1. Assign auto-generated aliases to any unnamed pattern nodes.
+   * 2. Convert each {@link SQLMatchExpression} into {@link PatternNode}/{@link PatternEdge}
+   *    pairs inside the {@link Pattern} graph.
+   * 3. Collect per-alias `WHERE` filters, class constraints, and RID constraints,
+   *    merging constraints when the same alias appears in multiple expressions.
+   * 4. Rebind the merged filters back onto the original expressions so that subsequent
+   *    traversal steps see the consolidated predicates.
+   *
+   * This method is idempotent — it returns immediately if already called.
+   */
   private void buildPatterns(CommandContext ctx) {
     if (this.pattern != null) {
       return;
@@ -694,6 +1134,11 @@ public class MatchExecutionPlanner {
     rebindFilters(aliasFilters);
   }
 
+  /**
+   * After per-alias filters have been merged in {@link #buildPatterns}, this method
+   * pushes the consolidated `WHERE` clause back into each {@link SQLMatchFilter} inside
+   * the original match expressions, so the traversal steps see the unified predicate.
+   */
   private void rebindFilters(Map<String, SQLWhereClause> aliasFilters) {
     for (var expression : matchExpressions) {
       var newFilter = aliasFilters.get(expression.getOrigin().getAlias());
@@ -706,6 +1151,10 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Extracts alias metadata (filters, class, collection, RID) from a single match
+   * expression and merges them into the accumulation maps.
+   */
   private static void addAliases(
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
@@ -721,6 +1170,18 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Merges a single {@link SQLMatchFilter}'s metadata into the accumulation maps.
+   *
+   * - **Filters**: all `WHERE` predicates for the same alias are AND-ed together into a
+   *   single {@link SQLAndBlock}.
+   * - **Classes**: if two expressions constrain the same alias to different classes, the
+   *   method keeps the more specific sub-class, or throws if the classes are unrelated.
+   * - **Collections / RIDs**: duplicates are validated for equality; mismatches throw.
+   *
+   * @throws CommandExecutionException if the same alias is constrained to unrelated
+   *         classes, conflicting collections, or conflicting RIDs
+   */
   private static void addAliases(
       SQLMatchFilter matchFilter,
       Map<String, SQLWhereClause> aliasFilters,
@@ -799,6 +1260,10 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Returns the more specific of two class names if one is a subclass of the other,
+   * or `null` if they are unrelated in the class hierarchy.
+   */
   @Nullable
   private static String getLowerSubclass(
       DatabaseSessionEmbedded db, String className1, String className2) {
@@ -815,7 +1280,10 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * assigns default aliases to pattern nodes that do not have an explicit alias
+   * Assigns auto-generated aliases (prefixed with {@link #DEFAULT_ALIAS_PREFIX}) to
+   * pattern nodes that the user did not name explicitly. This ensures every node in the
+   * pattern graph has a unique alias, which simplifies downstream processing (edge
+   * creation, filter merging, result projection).
    */
   private static void assignDefaultAliases(List<SQLMatchExpression> matchExpressions) {
     var counter = 0;
@@ -835,6 +1303,23 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /**
+   * Estimates the number of records each aliased root node will produce. These estimates
+   * drive two optimizations:
+   *
+   * - **Prefetching**: aliases below {@link #THRESHOLD} records are loaded eagerly.
+   * - **Root selection**: the topological scheduler starts from the cheapest root.
+   *
+   * Estimation strategy per alias:
+   * - RID constraint → exactly 1 record.
+   * - Class constraint with `WHERE` → uses the filter's own
+   *   {@link SQLWhereClause#estimate} method (which may use index statistics).
+   * - Class constraint without filter → uses the class's record count.
+   * - No constraint → omitted from the map (the alias is not a root candidate).
+   *
+   * @return a map from alias name to estimated record count
+   * @throws CommandExecutionException if a referenced class does not exist in the schema
+   */
   private static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
       Map<String, SQLRid> aliasRids,

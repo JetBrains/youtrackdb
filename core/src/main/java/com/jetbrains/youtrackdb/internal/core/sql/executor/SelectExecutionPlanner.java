@@ -214,7 +214,7 @@ public class SelectExecutionPlanner {
    *
    * @param projection the projection
    */
-  protected static SQLProjection translateDistinct(SQLProjection projection) {
+  public static SQLProjection translateDistinct(SQLProjection projection) {
     if (projection != null && projection.getItems().size() == 1) {
       if (isDistinct(projection.getItems().getFirst())) {
         projection = projection.copy();
@@ -507,7 +507,7 @@ public class SelectExecutionPlanner {
     }
   }
 
-  protected static void optimizeQuery(QueryPlanningInfo info, CommandContext ctx) {
+  public static void optimizeQuery(QueryPlanningInfo info, CommandContext ctx) {
     splitLet(info, ctx);
     rewriteIndexChainsAsSubqueries(info, ctx);
     extractSubQueries(info);
