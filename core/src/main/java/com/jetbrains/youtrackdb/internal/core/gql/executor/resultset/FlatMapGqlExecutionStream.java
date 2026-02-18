@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 import java.util.Objects;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 public class FlatMapGqlExecutionStream implements GqlExecutionStream {
 

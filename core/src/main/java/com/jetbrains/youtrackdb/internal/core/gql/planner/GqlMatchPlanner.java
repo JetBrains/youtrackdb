@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlFetchFromClassStep;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Planner for GQL MATCH statements.
 ///
