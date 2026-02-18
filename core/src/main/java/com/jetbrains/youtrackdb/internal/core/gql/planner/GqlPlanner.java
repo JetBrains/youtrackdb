@@ -7,11 +7,13 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlQueryVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatement;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLLexer;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLParser;
+import java.util.Objects;
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
+import org.jspecify.annotations.Nullable;
 
 /// Entry point for GQL query parsing.
 ///
@@ -26,13 +28,14 @@ import org.antlr.v4.runtime.Recognizer;
 /// Similar to SQL's SQLEngine.parse() returning SQLStatement.
 public class GqlPlanner {
 
-  public static GqlStatement getStatement(String query, DatabaseSessionEmbedded session) {
+  public static @Nullable GqlStatement getStatement(String query,
+      @Nullable DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(query);
     }
 
-    var cache = session.getSharedContext().getGqlStatementCache();
-    return cache.getCached(query);
+    var cache = Objects.requireNonNull(session.getSharedContext()).getGqlStatementCache();
+    return Objects.requireNonNull(cache).getCached(query);
   }
 
   /// Parse a GQL query string into a statement.
@@ -40,9 +43,9 @@ public class GqlPlanner {
   /// @param query The GQL query string
   /// @return The parsed statement
   /// @throws IllegalArgumentException if query type is not supported
-  public static GqlStatement parse(String query) {
+  public static GqlStatement parse(@Nullable String query) {
     // 1. Parse with ANTLR
-    var lexer = new GQLLexer(CharStreams.fromString(query));
+    var lexer = new GQLLexer(CharStreams.fromString(Objects.requireNonNull(query)));
     var tokens = new CommonTokenStream(lexer);
     var parser = new GQLParser(tokens);
 

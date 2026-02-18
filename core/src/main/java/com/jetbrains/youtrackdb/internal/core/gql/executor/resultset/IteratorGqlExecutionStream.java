@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 
 /// Stream backed by an iterator with optional mapping.
 ///
@@ -13,7 +15,7 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   /// Create a stream that passes elements through unchanged.
   public IteratorGqlExecutionStream(Iterator<?> source) {
-    this(source, Function.identity());
+    this(Objects.requireNonNull(source), Function.identity());
   }
 
   /// Create a stream that maps elements using the given function.
@@ -26,7 +28,7 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
   @Override
   public boolean hasNext() {
     try {
-      final var hasNext = source.hasNext();
+      final var hasNext = Objects.requireNonNull(source).hasNext();
       if (!hasNext) {
         close();
       }
@@ -38,9 +40,9 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
   }
 
   @Override
-  public Object next() {
+  public @Nullable Object next() {
     try {
-      return mapper.apply(source.next());
+      return Objects.requireNonNull(mapper).apply(Objects.requireNonNull(source).next());
     } catch (Exception e) {
       close();
       throw e;

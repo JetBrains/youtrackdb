@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 /// Abstract base class for GQL execution steps.
@@ -44,8 +45,8 @@ public abstract class GqlAbstractExecutionStep implements GqlExecutionStep {
   }
 
   @Override
-  public GqlExecutionStream start(GqlExecutionContext ctx) {
-    return internalStart(ctx);
+  public @Nullable GqlExecutionStream start(GqlExecutionContext ctx) {
+    return internalStart(Objects.requireNonNull(ctx));
   }
 
   /// Subclasses implement this to provide the actual execution logic.

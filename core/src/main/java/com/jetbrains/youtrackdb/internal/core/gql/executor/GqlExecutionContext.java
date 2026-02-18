@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
+import java.util.Objects;
 import javax.annotation.Nonnull;
+import org.jspecify.annotations.Nullable;
 
 /// Immutable context for GQL query execution.
 ///
@@ -27,7 +29,7 @@ public record GqlExecutionContext(YTDBGraphInternal graph, DatabaseSessionEmbedd
   }
 
   @SuppressWarnings("unused")
-  public Object getParameter(String name) {
-    return parameters.get(name);
+  public @Nullable Object getParameter(String name) {
+    return Objects.requireNonNull(parameters).get(name);
   }
 }
