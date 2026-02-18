@@ -278,6 +278,7 @@ Runs on `develop` pushes and PRs:
 - **Use the `Read` tool** to read file contents instead of `cat`, `head`, or `tail`.
 - **Use `Glob` and `Grep` tools** for file search instead of `find`, `grep`, or `rg` shell commands.
 - **Shell utilities in pipelines**: Commands like `grep`, `cat`, `head`, `find`, `sed`, `awk` are permitted when used in shell pipelines (e.g., `git log | grep ...`, `find ... | xargs ...`) where dedicated tools cannot substitute. Prefer dedicated tools for standalone file reads and searches.
+- **Temporary files**: Use `/tmp/claude-code-*` for scratch files, intermediate build artifacts, or staging data. This is the only `/tmp` path with read/write/edit permissions.
 - Reserve `Bash` exclusively for build commands (`./mvnw`), git operations, `gh` CLI, `docker`, and other tools that genuinely require shell execution.
 
 ## Tips for Working with This Codebase
