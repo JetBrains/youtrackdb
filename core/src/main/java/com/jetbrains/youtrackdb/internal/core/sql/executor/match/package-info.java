@@ -86,8 +86,12 @@
  * <h3>Phase 4 — Prefetch Small Alias Sets</h3>
  *
  * <p>Aliases with fewer than 100 estimated records whose filters do not reference
- * {@code $matched} are eagerly loaded into memory by {@code MatchPrefetchStep}. The cached
- * results are stored in a context variable for later use by {@code MatchFirstStep}.
+ * {@code $matched} (the context variable holding the current result row — see
+ * <b>Context Variables</b> below) are eagerly loaded into memory by
+ * {@code MatchPrefetchStep}. The cached results are stored in a context variable for
+ * later use by {@code MatchFirstStep}. Aliases that reference {@code $matched} in their
+ * WHERE clause cannot be prefetched because the filter depends on values bound at runtime
+ * by earlier traversal steps (e.g. {@code WHERE ($matched.p.age < age)}).
  *
  * <h3>Phase 5 — Topological Scheduling + Step Generation</h3>
  *
@@ -95,7 +99,8 @@
  * dependency-aware depth-first search:
  *
  * <pre>
- *   1. Build dependency map: alias A depends on B if A's WHERE references $matched.B
+ *   1. Build dependency map: alias A depends on B if A's WHERE clause references
+ *      $matched.B (i.e. it reads a property of the record already bound to alias B)
  *   2. Sort candidate roots by estimated cardinality (ascending)
  *   3. Loop while unscheduled edges remain:
  *        a. Pick cheapest unvisited root with no unmet dependencies
@@ -203,9 +208,10 @@
  *
  * <p>Each {@code MatchStep} wraps its traverser in a
  * {@code ResultSetEdgeTraverser} (from the {@code resultset} package), which drives
- * iteration and sets the {@code $matched} context variable before each downstream
- * evaluation. The traverser itself encapsulates per-edge navigation, filtering, and
- * join logic:
+ * iteration and updates the {@code $matched} context variable to point to the current
+ * result row after each successful traversal. This makes all previously bound aliases
+ * available to downstream WHERE filters via {@code $matched.<alias>}. The traverser
+ * itself encapsulates per-edge navigation, filtering, and join logic:
  *
  * <pre>
  *   MatchEdgeTraverser  (base: forward traversal, filtering, join checks)
@@ -319,14 +325,19 @@
  * <pre>
  *   Variable                                     | Set by                          | Purpose
  *   ---------------------------------------------+---------------------------------+-----------------------------
- *   $matched                                     | ResultSetEdgeTraverser.next()    | Current result row; enables
- *                                                | (in resultset package)           | correlated WHERE filters that
- *                                                |                                 | reference previously bound
- *                                                |                                 | aliases, e.g.:
- *                                                |                                 |   WHERE ($matched.a.name = name)
- *                                                |                                 | This is the mechanism by which
- *                                                |                                 | a later node's filter can depend
- *                                                |                                 | on values bound by earlier nodes
+ *   $matched                                     | ResultSetEdgeTraverser.next()    | The current result row containing
+ *                                                | and MatchFirstStep              | all aliases bound so far. After
+ *                                                |                                 | matching p and friend, the value
+ *                                                |                                 | is {p: Person#1, friend: Person#2}.
+ *                                                |                                 | This enables correlated WHERE
+ *                                                |                                 | filters in later nodes, e.g.:
+ *                                                |                                 |   WHERE ($matched.p.age < age)
+ *                                                |                                 | which reads the 'age' property of
+ *                                                |                                 | the record already bound to 'p'.
+ *                                                |                                 | Also drives the dependency graph
+ *                                                |                                 | in the topological scheduler
+ *                                                |                                 | (Phase 5) and the prefetch
+ *                                                |                                 | exclusion rule (Phase 4)
  *   $currentMatch                                | MatchEdgeTraverser              | Candidate record being
  *                                                |                                 | evaluated in a filter
  *   $current                                     | MatchEdgeTraverser              | Starting-point record for
