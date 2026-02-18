@@ -13,7 +13,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// TinkerPop service for executing GQL (Graph Query Language) queries.
 ///

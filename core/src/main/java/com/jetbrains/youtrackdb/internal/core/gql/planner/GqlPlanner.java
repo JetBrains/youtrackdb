@@ -13,7 +13,7 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Entry point for GQL query parsing.
 ///

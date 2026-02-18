@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlMatchPlanner;
 import java.util.List;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Represents a GQL MATCH statement.
 ///

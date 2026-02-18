@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.function.Function;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Stream backed by an iterator with optional mapping.
 ///

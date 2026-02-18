@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /**
  * LRU cache for already parsed GQL statements.
