@@ -173,6 +173,9 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
   trade-offs. Not a restatement of the diff.>
   ```
 
+### Force Pushing
+- **Always use `--force-with-lease`** instead of `--force` when force pushing. This prevents accidentally overwriting commits pushed by others since your last fetch.
+
 ### Pull Requests
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
