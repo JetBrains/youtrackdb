@@ -28,7 +28,11 @@ If there are NO unstaged or staged changes (working tree is clean), fall back to
    ```
    If this succeeds and returns a branch name, use that as the base branch.
 
-2. **If no PR exists** (the command fails or returns empty), use `develop` as the base branch.
+2. **If no PR exists** (the command fails or returns empty), detect the repository's default branch:
+   ```bash
+   gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null
+   ```
+   If this succeeds, use the returned branch name. Otherwise, fall back to `develop`.
 
 3. Get the changed files:
    ```bash
@@ -38,6 +42,7 @@ If there are NO unstaged or staged changes (working tree is clean), fall back to
 #### Filtering
 
 After obtaining the file list from either priority path:
+- Filter out deleted files (i.e., files that no longer exist on disk).
 - Filter to only `.java` files.
 - Exclude any files under `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/` (these are generated).
 
