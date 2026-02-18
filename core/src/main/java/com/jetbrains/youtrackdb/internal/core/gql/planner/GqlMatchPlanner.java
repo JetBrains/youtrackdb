@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlFetchFromClassStep;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /// Planner for GQL MATCH statements.
 ///
@@ -38,8 +39,8 @@ public class GqlMatchPlanner {
 
     for (var i = 0; i < patterns.size(); i++) {
       var pattern = patterns.get(i);
-      var alias = effectiveAlias(Objects.requireNonNull(Objects.requireNonNull(pattern).alias()));
-      var type = effectiveType(Objects.requireNonNull(pattern.label()));
+      var alias = effectiveAlias(Objects.requireNonNull(pattern).alias());
+      var type = effectiveType(pattern.label());
 
       if (i == 0) {
         plan.chain(new GqlFetchFromClassStep(alias, type, true));
@@ -52,12 +53,12 @@ public class GqlMatchPlanner {
   }
 
   /// Returns an effective vertex type (class name), defaulting to "V" (all vertices) if not provided.
-  private static String effectiveType(String type) {
+  private static String effectiveType(@Nullable String type) {
     return (type == null || type.isBlank()) ? DEFAULT_TYPE : type;
   }
 
   /// Returns effective alias, defaulting to "$c{anonymousCounter}" if not provided.
-  private String effectiveAlias(String alias) {
+  private String effectiveAlias(@Nullable String alias) {
     return (alias == null || alias.isBlank()) ? generateDefaultAlias() : alias;
   }
 
