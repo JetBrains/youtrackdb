@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 
 /**
  * Represents a **directed edge** in the MATCH pattern graph.
- *
+ * <p>
  * Each edge corresponds to a traversal step between two pattern nodes — for example,
  * `.out('Knows')` or `.in('Lives')`. The direction stored here (`out` → `in`) reflects
  * the **syntactic** direction in the `MATCH` expression, which may differ from the
@@ -19,7 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
  *        ↑ out                               ↑ in
  *     (source)                             (target)
  * </pre>
- *
+ * <p>
  * ### Fields
  *
  * | Field   | Meaning                                       |

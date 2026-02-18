@@ -17,14 +17,14 @@ import javax.annotation.Nullable;
 /**
  * Filters upstream MATCH results by applying a **NOT** pattern — rows that match the
  * negative pattern are discarded.
- *
+ * <p>
  * This step implements the `NOT { … }` syntax in MATCH queries. For each upstream
  * result row, it constructs a temporary execution plan consisting of:
- *
+ * <p>
  * 1. A {@link ChainStep} that injects the current row as the starting point.
  * 2. The list of sub-steps (typically {@link MatchStep}s) that represent the NOT
  *    pattern's edges.
- *
+ * <p>
  * If the temporary plan produces **any** result, the NOT pattern matched — meaning the
  * upstream row is discarded. If it produces no results, the row passes through.
  *

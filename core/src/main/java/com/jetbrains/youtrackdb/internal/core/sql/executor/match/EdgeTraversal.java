@@ -5,13 +5,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 
 /**
  * A scheduled traversal of a single {@link PatternEdge} in a specific direction.
- *
+ * <p>
  * While {@link PatternEdge} records the **syntactic** direction of an edge as written in
  * the `MATCH` expression, the topological scheduler (see
  * {@code MatchExecutionPlanner#getTopologicalSortedSchedule()}) may decide to traverse the
  * edge in either direction depending on cost estimates and dependency constraints.
  * `EdgeTraversal` captures this decision:
- *
+ * <p>
  * - **{@link #out} = `true`**  → traverse from `edge.out` to `edge.in` (forward / as
  *   written).
  * - **{@link #out} = `false`** → traverse from `edge.in` to `edge.out` (reverse).
@@ -39,7 +39,7 @@ public class EdgeTraversal {
    * The runtime traversal direction. `true` means forward (from `edge.out` to
    * `edge.in`); `false` means reverse (from `edge.in` to `edge.out`).
    */
-  protected boolean out = true;
+  protected boolean out;
 
   /** The pattern edge being traversed. */
   public PatternEdge edge;

@@ -13,25 +13,25 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 
 /**
  * Execution step that traverses a single edge in the MATCH pattern graph.
- *
+ * <p>
  * For each upstream result row (which already contains the previously matched aliases),
  * this step:
- *
+ * <p>
  * 1. Creates an appropriate {@link MatchEdgeTraverser} subclass based on the edge type.
  * 2. Executes the traversal, producing zero or more downstream result rows that include
  *    the newly matched alias.
- *
+ * <p>
  * ### Traverser selection
- *
+ * <p>
  * | Edge AST type                       | Traversal direction | Traverser class                      |
  * |-------------------------------------|---------------------|--------------------------------------|
  * | {@link SQLMultiMatchPathItem}        | —                   | {@link MatchMultiEdgeTraverser}       |
  * | {@link SQLFieldMatchPathItem}        | —                   | {@link MatchFieldTraverser}           |
  * | Any other, forward (`edge.out=true`) | forward             | {@link MatchEdgeTraverser}            |
  * | Any other, reverse (`edge.out=false`)| reverse             | {@link MatchReverseEdgeTraverser}     |
- *
+ * <p>
  * ### Pipeline position
- *
+ * <p>
  * <pre>
  * For each edge in the schedule:
  *

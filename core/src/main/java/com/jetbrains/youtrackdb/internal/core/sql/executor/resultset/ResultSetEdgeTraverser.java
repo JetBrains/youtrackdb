@@ -8,12 +8,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchStep;
 /**
  * Adapts a {@link MatchEdgeTraverser} into the {@link ExecutionStream} interface so it
  * can be used in the execution plan pipeline.
- *
+ * <p>
  * The traverser's {@link MatchEdgeTraverser#next(CommandContext)} method may return
  * `null` to signal that a particular candidate was rejected (e.g. consistency check
  * failure or filter mismatch). This adapter skips `null` results internally, only
  * exposing non-null results to the consumer.
- *
+ * <p>
  * After each result is consumed via {@link #next}, the context variable `$matched` is
  * updated to point to the current result row, making it available for downstream
  * `WHERE` predicates that reference `$matched.<alias>`.

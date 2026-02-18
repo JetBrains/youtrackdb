@@ -13,15 +13,15 @@ import java.util.List;
 
 /**
  * Unrolls a MATCH result row into its **individual elements** for `RETURN $elements`.
- *
+ * <p>
  * A MATCH result row is a map-like structure `{alias1: record, alias2: record, …}`.
  * This step extracts each non-default alias (skipping auto-generated aliases that start
  * with {@link MatchExecutionPlanner#DEFAULT_ALIAS_PREFIX}) and emits each record as a
  * separate result. This is useful when the caller wants a flat list of all matched
  * nodes rather than the full row structure.
- *
+ * <p>
  * ### Example
- *
+ * <p>
  * For input row `{p: Person#1, f: Person#2}`, this step produces two output rows:
  * `Person#1` and `Person#2`.
  *
@@ -44,9 +44,8 @@ public class ReturnMatchElementsStep extends AbstractUnrollStep {
       if (!s.startsWith(MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX)) {
         var elem = res.getProperty(s);
         if (elem instanceof Identifiable) {
-          var newelem = new ResultInternal(iContext.getDatabaseSession(),
+          elem = new ResultInternal(iContext.getDatabaseSession(),
               (Identifiable) elem);
-          elem = newelem;
         }
         if (elem instanceof Result) {
           result.add((Result) elem);

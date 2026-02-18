@@ -12,20 +12,20 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 
 /**
  * Edge traverser that walks a pattern edge in the **reverse** direction.
- *
+ * <p>
  * When the topological scheduler decides to traverse an edge from `edge.in` to `edge.out`
  * (i.e., backwards relative to the syntactic direction), {@link MatchStep} instantiates
  * this class instead of the base {@link MatchEdgeTraverser}.
- *
+ * <p>
  * ### Key differences from the forward traverser
- *
+ * <p>
  * | Aspect                | Forward (`MatchEdgeTraverser`)     | Reverse (`MatchReverseEdgeTraverser`) |
  * |-----------------------|-----------------------------------|---------------------------------------|
  * | Starting alias        | `edge.out.alias`                   | `edge.in.alias`                        |
  * | Endpoint alias        | `edge.in.alias`                    | `edge.out.alias`                       |
  * | Traversal method      | `item.getMethod().execute()`       | `item.getMethod().executeReverse()`    |
  * | Target class/RID/filter | From item's filter               | From `EdgeTraversal.leftClass/Rid/Filter` |
- *
+ * <p>
  * The "left" constraints (class, RID, WHERE) are set on the {@link EdgeTraversal} by
  * the planner — they represent the **original source node's** constraints which, in
  * reverse mode, become the target to validate against.
@@ -49,16 +49,19 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
   }
 
   /** Uses the planner-provided left-class constraint (the original source node's class). */
+  @Override
   protected String targetClassName(SQLMatchPathItem item, CommandContext iCommandContext) {
     return edge.getLeftClass();
   }
 
   /** Uses the planner-provided left-RID constraint (the original source node's RID). */
+  @Override
   protected SQLRid targetRid(SQLMatchPathItem item, CommandContext iCommandContext) {
     return edge.getLeftRid();
   }
 
   /** Uses the planner-provided left-filter (the original source node's WHERE clause). */
+  @Override
   protected SQLWhereClause getTargetFilter(SQLMatchPathItem item) {
     return edge.getLeftFilter();
   }

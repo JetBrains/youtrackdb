@@ -12,7 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 /**
  * Post-processing step that replaces {@link OptionalMatchEdgeTraverser#EMPTY_OPTIONAL}
  * sentinel values with `null` in all result row properties.
- *
+ * <p>
  * This step is appended to the plan only when at least one node in the MATCH pattern is
  * marked `optional: true`. During traversal, {@link OptionalMatchEdgeTraverser} stores
  * the sentinel when no match is found, so that the row can be distinguished from a

@@ -57,30 +57,30 @@ import javax.annotation.Nullable;
 /**
  * Converts a parsed `MATCH` statement into a physical execution plan.
  *
- * ## Overview
+ * <p>## Overview
  *
- * The `MATCH` statement is YouTrackDB's graph pattern-matching query language construct,
+ * <p>The `MATCH` statement is YouTrackDB's graph pattern-matching query language construct,
  * inspired by the pattern-matching semantics of graph query languages such as Cypher.
  * A typical `MATCH` query defines one or more **patterns** — chains of nodes connected by
  * directed or bidirectional edges — along with optional `WHERE` filters, `WHILE` recursive
  * traversal conditions, and a `RETURN` projection.
  *
- * ### Example
+ * <p>### Example
  *
- * ```sql
+ * <p>```sql
  * MATCH {class: Person, as: p, where: (name = 'Alice')}
  *         .out('Knows') {as: friend}
  *         .out('Lives') {as: city, where: (name = 'Berlin')}
  * RETURN p.name, friend.name, city.name
  * ```
  *
- * This planner takes the AST produced by the SQL parser ({@link SQLMatchStatement}) and
+ * <p>This planner takes the AST produced by the SQL parser ({@link SQLMatchStatement}) and
  * produces a {@link SelectExecutionPlan} composed of execution steps that evaluate the
  * pattern at runtime.
  *
- * ## End-to-end flow
+ * <p>## End-to-end flow
  *
- * <pre>
+ * <p><pre>
  *   SQL text ──→ Parser ──→ SQLMatchStatement (AST)
  *                                   │
  *                          MatchExecutionPlanner
@@ -104,22 +104,22 @@ import javax.annotation.Nullable;
  *                        SelectExecutionPlan (ready to execute)
  * </pre>
  *
- * ## Planning phases
+ * <p>## Planning phases
  *
- * The phases below correspond to the inline comments in
+ * <p>The phases below correspond to the inline comments in
  * {@link #createExecutionPlan(CommandContext, boolean)}:
  *
- * 1. **Build the pattern graph** — converts the list of {@link SQLMatchExpression}s into a
+ * <p>1. **Build the pattern graph** — converts the list of {@link SQLMatchExpression}s into a
  *    {@link Pattern} (an adjacency structure of {@link PatternNode}s and
  *    {@link PatternEdge}s), and extracts per-alias metadata such as class constraints,
  *    RID constraints, and `WHERE` filters.
  *
- * 2. **Split disjoint sub-patterns** — if the `MATCH` contains multiple disconnected
+ * <p>2. **Split disjoint sub-patterns** — if the `MATCH` contains multiple disconnected
  *    sub-graphs (e.g. `MATCH {as: a}.out(){as: b}, {as: x}.out(){as: y}`), each connected
  *    component is planned independently and later joined via a
  *    {@link CartesianProductStep}.
  *
- * 3. **Estimate root cardinalities** — for every aliased node that has a class or RID
+ * <p>3. **Estimate root cardinalities** — for every aliased node that has a class or RID
  *    constraint, estimate the number of root records using schema statistics. Aliases
  *    whose estimated cardinality falls below {@link #THRESHOLD} are **prefetched** and
  *    cached in the execution context so that the traversal can start from the smallest
@@ -127,11 +127,11 @@ import javax.annotation.Nullable;
  *    filter depends on values produced during traversal (see
  *    {@link #dependsOnExecutionContext}).
  *
- * 4. **Prefetch small alias sets** — for each alias below the threshold, a
+ * <p>4. **Prefetch small alias sets** — for each alias below the threshold, a
  *    {@link MatchPrefetchStep} eagerly loads all matching records into the execution
  *    context under a well-known key.
  *
- * 5. **Topological scheduling and step generation** — edges in the pattern graph are
+ * <p>5. **Topological scheduling and step generation** — edges in the pattern graph are
  *    ordered via a cost-driven depth-first traversal
  *    ({@link #getTopologicalSortedSchedule}). The algorithm picks the cheapest root node
  *    first, then greedily expands outward, respecting dependency constraints introduced
@@ -141,30 +141,30 @@ import javax.annotation.Nullable;
  *    - Each subsequent edge becomes either a {@link MatchStep} or an
  *      {@link OptionalMatchStep}.
  *
- * 6. **NOT patterns** — any `NOT { … }` sub-patterns are appended as
+ * <p>6. **NOT patterns** — any `NOT { … }` sub-patterns are appended as
  *    {@link FilterNotMatchPatternStep}s that discard rows matching the negative pattern.
  *
- * 7. **Optional cleanup** — if the query contains optional nodes, a
+ * <p>7. **Optional cleanup** — if the query contains optional nodes, a
  *    {@link RemoveEmptyOptionalsStep} replaces sentinel
  *    {@link OptionalMatchEdgeTraverser#EMPTY_OPTIONAL} markers with `null`.
  *
- * 8. **Return projection** — depending on the `RETURN` clause, one of several
+ * <p>8. **Return projection** — depending on the `RETURN` clause, one of several
  *    projection steps is appended (`$elements`, `$paths`, `$patterns`,
  *    `$pathElements`, or a custom expression list).
  *
- * ## Result row evolution
+ * <p>## Result row evolution
  *
- * As each step in the pipeline processes a row, the row's property map grows.
+ * <p>As each step in the pipeline processes a row, the row's property map grows.
  * The diagram below shows a concrete example for the query:
  *
- * ```sql
+ * <p>```sql
  * MATCH {class: Person, as: p, where: (name = 'Alice')}
  *         .out('Knows') {as: friend, optional: true}
  *         .out('Lives') {as: city}
  * RETURN p.name, friend.name, city.name
  * ```
  *
- * <pre>
+ * <p><pre>
  *   Step                        Row contents
  *   ─────────────────────────   ──────────────────────────────────────────────
  *   MatchFirstStep (p)          {p: Person#1}
@@ -176,13 +176,13 @@ import javax.annotation.Nullable;
  *   ReturnMatch*Step / project  {p.name: "Alice", friend.name: null, city.name: "Berlin"}
  * </pre>
  *
- * When a `depthAlias` or `pathAlias` is declared on a WHILE edge, the
+ * <p>When a `depthAlias` or `pathAlias` is declared on a WHILE edge, the
  * corresponding metadata is also stored as a top-level property:
  * `{p: Person#1, friend: Person#2, depth: 2, path: [Person#1, ...]}`.
  *
- * ## Cartesian product for disjoint sub-patterns
+ * <p>## Cartesian product for disjoint sub-patterns
  *
- * When the MATCH query contains multiple disconnected sub-graphs (e.g.
+ * <p>When the MATCH query contains multiple disconnected sub-graphs (e.g.
  * `MATCH {as: a}.out(){as: b}, {as: x}.out(){as: y}`), each connected
  * component is planned independently via {@link #createPlanForPattern} and
  * produces its own stream of partial rows. A {@link CartesianProductStep}
@@ -190,7 +190,7 @@ import javax.annotation.Nullable;
  * every row from sub-pattern 1 is combined with every row from sub-pattern 2,
  * yielding a merged row that contains all aliases from both sub-patterns.
  *
- * <pre>
+ * <p><pre>
  *   Sub-pattern 1: {a: A#1, b: B#2}   Sub-pattern 2: {x: X#5, y: Y#6}
  *                  {a: A#3, b: B#4}                   {x: X#7, y: Y#8}
  *
@@ -235,19 +235,19 @@ public class MatchExecutionPlanner {
   protected List<SQLNestedProjection> returnNestedProjections;
 
   /** `true` when the user wrote `RETURN $elements` — unrolls matched nodes. */
-  private boolean returnElements = false;
+  private boolean returnElements;
 
   /** `true` when the user wrote `RETURN $paths` — returns full matched paths. */
-  private boolean returnPaths = false;
+  private boolean returnPaths;
 
   /** `true` when the user wrote `RETURN $patterns` — returns matched patterns. */
-  private boolean returnPatterns = false;
+  private boolean returnPatterns;
 
   /** `true` when the user wrote `RETURN $pathElements` — unrolls *all* path nodes. */
-  private boolean returnPathElements = false;
+  private boolean returnPathElements;
 
   /** `true` when the `RETURN` clause contains the `DISTINCT` keyword. */
-  private boolean returnDistinct = false;
+  private boolean returnDistinct;
 
   protected SQLSkip skip;
   private final SQLGroupBy groupBy;
@@ -302,12 +302,10 @@ public class MatchExecutionPlanner {
             .collect(Collectors.toList());
     this.returnItems =
         stm.getReturnItems().stream().map(SQLExpression::copy).collect(Collectors.toList());
-    //noinspection ReturnOfNull
     this.returnAliases =
         stm.getReturnAliases().stream()
             .map(x -> x == null ? null : x.copy())
             .collect(Collectors.toList());
-    //noinspection ReturnOfNull
     this.returnNestedProjections =
         stm.getReturnNestedProjections().stream()
             .map(x -> x == null ? null : x.copy())
@@ -328,7 +326,7 @@ public class MatchExecutionPlanner {
   /**
    * Builds the complete physical execution plan for this `MATCH` query.
    *
-   * The plan is assembled as a pipeline of {@link ExecutionStepInternal} instances chained
+   * <p>The plan is assembled as a pipeline of {@link ExecutionStepInternal} instances chained
    * inside a {@link SelectExecutionPlan}. See the class-level Javadoc for the full list
    * of planning phases (1–8). The inline comments in this method reference those same
    * phase numbers.
@@ -345,7 +343,7 @@ public class MatchExecutionPlanner {
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
     // Phase 2: Identify disconnected sub-graphs that must be joined via Cartesian product
-    splitDisjointPatterns(context);
+    splitDisjointPatterns();
 
     var result = new SelectExecutionPlan(context);
 
@@ -488,9 +486,9 @@ public class MatchExecutionPlanner {
    * positive patterns, but wraps them in a filter that **discards** rows for which the
    * pattern matches.
    *
-   * ### Constraints (current implementation)
+   * <p>### Constraints (current implementation)
    *
-   * - The first alias in a NOT expression **must** already exist in the positive pattern.
+   * <p>- The first alias in a NOT expression **must** already exist in the positive pattern.
    * - `WHERE` conditions on the origin node of a NOT expression are not yet supported.
    * - Multi-path items ({@link SQLMultiMatchPathItem}) inside NOT are not yet supported.
    *
@@ -573,7 +571,7 @@ public class MatchExecutionPlanner {
   /**
    * Creates an execution plan for a single connected pattern (sub-graph).
    *
-   * The method first computes a topological traversal order via
+   * <p>The method first computes a topological traversal order via
    * {@link #getTopologicalSortedSchedule}, then emits one execution step per edge.
    * If the pattern has no edges (a single isolated node), a standalone
    * {@link MatchFirstStep} is emitted instead.
@@ -636,19 +634,19 @@ public class MatchExecutionPlanner {
    * Computes the **edge schedule** — the order in which pattern edges will be traversed
    * at runtime.
    *
-   * The algorithm is a cost-driven, dependency-aware, depth-first graph traversal:
+   * <p>The algorithm is a cost-driven, dependency-aware, depth-first graph traversal:
    *
-   * 1. Compute per-alias dependencies from `$matched` references in `WHERE` clauses.
+   * <p>1. Compute per-alias dependencies from `$matched` references in `WHERE` clauses.
    * 2. Sort candidate root nodes by their estimated cardinality (ascending) so that the
    *    traversal starts from the smallest set.
    * 3. Repeatedly pick the cheapest unvisited, dependency-free root node and perform a
    *    depth-first expansion, appending each discovered edge to the schedule.
    * 4. Continue until all edges have been scheduled.
    *
-   * If the algorithm stalls before scheduling all edges (e.g. due to circular
+   * <p>If the algorithm stalls before scheduling all edges (e.g. due to circular
    * `$matched` dependencies), a {@link CommandExecutionException} is thrown.
    *
-   * <pre>
+   * <p><pre>
    * ┌────────────────────────────────────────────────────────────────┐
    * │ getTopologicalSortedSchedule()                                │
    * │                                                               │
@@ -723,7 +721,7 @@ public class MatchExecutionPlanner {
       // Start a new depth-first pass, adding all nodes with satisfied dependencies.
       // 1. Find a starting vertex for the depth-first pass.
       PatternNode startingNode = null;
-      List<String> startsToRemove = new ArrayList<String>();
+      List<String> startsToRemove = new ArrayList<>();
       for (var currentAlias : remainingStarts) {
         var currentNode = pattern.aliasToNode.get(currentAlias);
 
@@ -815,7 +813,7 @@ public class MatchExecutionPlanner {
       dependencies.remove(startNode.alias);
     }
 
-    Map<PatternEdge, Boolean> edges = new LinkedHashMap<PatternEdge, Boolean>();
+    Map<PatternEdge, Boolean> edges = new LinkedHashMap<>();
     for (var outEdge : startNode.out) {
       edges.put(outEdge, true);
     }
@@ -953,10 +951,10 @@ public class MatchExecutionPlanner {
    * @return a map from alias name to the set of alias names it depends on
    */
   private Map<String, Set<String>> getDependencies(Pattern pattern) {
-    Map<String, Set<String>> result = new HashMap<String, Set<String>>();
+    Map<String, Set<String>> result = new HashMap<>();
 
     for (var node : pattern.aliasToNode.values()) {
-      Set<String> currentDependencies = new HashSet<String>();
+      Set<String> currentDependencies = new HashSet<>();
 
       var filter = aliasFilters.get(node.alias);
       if (filter != null && filter.getBaseExpression() != null) {
@@ -977,7 +975,7 @@ public class MatchExecutionPlanner {
    * Each connected component will be planned independently; the results are later joined
    * via a {@link CartesianProductStep}. This method is idempotent.
    */
-  private void splitDisjointPatterns(CommandContext context) {
+  private void splitDisjointPatterns() {
     if (this.subPatterns != null) {
       return;
     }
@@ -988,7 +986,7 @@ public class MatchExecutionPlanner {
   /**
    * Emits execution steps for a single edge traversal.
    *
-   * When {@code first} is {@code true}, two steps are chained: a {@link MatchFirstStep}
+   * <p>When {@code first} is {@code true}, two steps are chained: a {@link MatchFirstStep}
    * (initial record scan for the source node) followed by a {@link MatchStep} or
    * {@link OptionalMatchStep}. When {@code first} is {@code false}, only the traversal
    * step is appended — the source node was already produced by a preceding step.
@@ -1093,7 +1091,7 @@ public class MatchExecutionPlanner {
   /**
    * Lazily builds the internal pattern graph and extracts per-alias metadata.
    *
-   * Steps performed:
+   * <p>Steps performed:
    * 1. Assign auto-generated aliases to any unnamed pattern nodes.
    * 2. Convert each {@link SQLMatchExpression} into {@link PatternNode}/{@link PatternEdge}
    *    pairs inside the {@link Pattern} graph.
@@ -1102,7 +1100,7 @@ public class MatchExecutionPlanner {
    * 4. Rebind the merged filters back onto the original expressions so that subsequent
    *    traversal steps see the consolidated predicates.
    *
-   * This method is idempotent — it returns immediately if already called.
+   * <p>This method is idempotent — it returns immediately if already called.
    */
   private void buildPatterns(CommandContext ctx) {
     if (this.pattern != null) {
@@ -1173,7 +1171,7 @@ public class MatchExecutionPlanner {
   /**
    * Merges a single {@link SQLMatchFilter}'s metadata into the accumulation maps.
    *
-   * - **Filters**: all `WHERE` predicates for the same alias are AND-ed together into a
+   * <p>- **Filters**: all `WHERE` predicates for the same alias are AND-ed together into a
    *   single {@link SQLAndBlock}.
    * - **Classes**: if two expressions constrain the same alias to different classes, the
    *   method keeps the more specific sub-class, or throws if the classes are unrelated.
@@ -1307,10 +1305,10 @@ public class MatchExecutionPlanner {
    * Estimates the number of records each aliased root node will produce. These estimates
    * drive two optimizations:
    *
-   * - **Prefetching**: aliases below {@link #THRESHOLD} records are loaded eagerly.
+   * <p>- **Prefetching**: aliases below {@link #THRESHOLD} records are loaded eagerly.
    * - **Root selection**: the topological scheduler starts from the cheapest root.
    *
-   * Estimation strategy per alias:
+   * <p>Estimation strategy per alias:
    * - RID constraint → exactly 1 record.
    * - Class constraint with `WHERE` → uses the filter's own
    *   {@link SQLWhereClause#estimate} method (which may use index statistics).
@@ -1325,7 +1323,7 @@ public class MatchExecutionPlanner {
       Map<String, SQLRid> aliasRids,
       Map<String, SQLWhereClause> aliasFilters,
       CommandContext ctx) {
-    Set<String> allAliases = new LinkedHashSet<String>();
+    Set<String> allAliases = new LinkedHashSet<>();
     allAliases.addAll(aliasClasses.keySet());
     allAliases.addAll(aliasFilters.keySet());
     allAliases.addAll(aliasRids.keySet());
@@ -1333,7 +1331,7 @@ public class MatchExecutionPlanner {
     var db = ctx.getDatabaseSession();
     var schema = db.getMetadata().getImmutableSchemaSnapshot();
 
-    Map<String, Long> result = new LinkedHashMap<String, Long>();
+    Map<String, Long> result = new LinkedHashMap<>();
     for (var alias : allAliases) {
       var rid = aliasRids.get(alias);
       if (rid != null) {

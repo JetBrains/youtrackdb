@@ -14,19 +14,19 @@ import java.util.List;
 /**
  * The **entry point** step for a MATCH pattern traversal — produces the initial set of
  * records for the first node in the scheduled edge order.
- *
+ * <p>
  * ### Data source selection
- *
+ * <p>
  * The step obtains its records from one of two sources, checked in order:
- *
+ * <p>
  * 1. **Prefetched cache** — if the alias was eagerly loaded by a preceding
  *    {@link MatchPrefetchStep}, the cached results are read from the context variable
  *    `$$YouTrackDB_Prefetched_Alias_Prefix__<alias>`.
  * 2. **Sub-execution plan** — otherwise, a synthetic `SELECT` plan is executed to scan
  *    the alias's class or RID.
- *
+ * <p>
  * ### Output format
- *
+ * <p>
  * Each input record is wrapped in a new {@link ResultInternal} that stores the record
  * under the node's alias. This "row" accumulates additional alias → record mappings
  * as subsequent {@link MatchStep}s are executed. The context variable `$matched` is

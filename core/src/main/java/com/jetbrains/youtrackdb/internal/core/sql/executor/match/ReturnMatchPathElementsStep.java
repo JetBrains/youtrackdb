@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * Unrolls a MATCH result row into **all** path elements for `RETURN $pathElements`.
- *
+ * <p>
  * Unlike {@link ReturnMatchElementsStep}, which skips auto-generated aliases, this step
  * extracts **every** alias (including those with the
  * {@link MatchExecutionPlanner#DEFAULT_ALIAS_PREFIX}) and emits each as a separate
@@ -38,9 +38,8 @@ public class ReturnMatchPathElementsStep extends AbstractUnrollStep {
     for (var s : res.getPropertyNames()) {
       var elem = res.getProperty(s);
       if (elem instanceof Identifiable) {
-        var newelem = new ResultInternal(iContext.getDatabaseSession(),
+        elem = new ResultInternal(iContext.getDatabaseSession(),
             (Identifiable) elem);
-        elem = newelem;
       }
       if (elem instanceof Result) {
         result.add((Result) elem);

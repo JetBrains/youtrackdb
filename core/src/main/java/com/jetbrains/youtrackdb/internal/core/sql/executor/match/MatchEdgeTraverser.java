@@ -30,16 +30,16 @@ import javax.annotation.Nullable;
  *
  * A `MatchEdgeTraverser` is instantiated for each upstream result row by
  * {@link MatchStep#createTraverser}. It:
- *
+ * <p>
  * 1. Extracts the starting record from the upstream row using the source alias.
  * 2. Executes the traversal method (e.g. `out()`, `in()`, `both()`) to find neighbor
  *    records.
  * 3. Applies the target node's filter, class constraint, and RID constraint.
  * 4. For each matching neighbor, builds a new result row that copies all previously
  *    matched aliases and adds the new alias → record mapping.
- *
+ * <p>
  * ### WHILE / recursive traversals
- *
+ * <p>
  * When the edge's filter includes a `WHILE` condition or a `maxDepth`, the traverser
  * performs **recursive** expansion (see {@link #executeTraversal}): it evaluates the
  * starting point at depth 0, then traverses one level deeper on each iteration,
@@ -56,16 +56,16 @@ import javax.annotation.Nullable;
  * </pre>
  *
  * ### Consistency check
- *
+ * <p>
  * If the target alias was already bound in a previous traversal (i.e., the same alias
  * appears in two different edges), the traverser performs an **equality check**: it
  * returns `null` (which is filtered out) if the newly traversed record differs from
  * the previously bound value, effectively enforcing a join condition.
- *
+ * <p>
  * ### Context variables
- *
+ * <p>
  * The traversal uses three context variables with distinct roles:
- *
+ * <p>
  * | Variable         | Set by                          | Purpose                                         |
  * |------------------|---------------------------------|-------------------------------------------------|
  * | `$matched`       | {@link com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultSetEdgeTraverser ResultSetEdgeTraverser} | Current result row; used by downstream WHERE     |
@@ -129,7 +129,7 @@ public class MatchEdgeTraverser {
   /**
    * Returns the next result row, or `null` if the traversed record conflicts with a
    * previously bound value for the same alias (consistency check).
-   *
+   * <p>
    * Each returned row is a copy of the upstream row augmented with the new alias
    * mapping. If the edge's filter defines a `depthAlias` or `pathAlias`, the
    * corresponding metadata (`$depth`, `$matchPath`) is also stored as a property.
@@ -225,16 +225,16 @@ public class MatchEdgeTraverser {
 
   /**
    * Core traversal logic shared by all edge traverser subclasses.
-   *
+   * <p>
    * There are two modes of operation depending on whether the edge defines a
    * `WHILE` condition and/or a `maxDepth`:
-   *
+   * <p>
    * ### Simple (non-recursive) mode
    * When neither `WHILE` nor `maxDepth` is specified, the method performs a **single-hop**
    * traversal: it calls {@link #traversePatternEdge} to get immediate neighbors, then
    * filters them by class, RID, and WHERE clause. The starting point itself is **not**
    * included in the results.
-   *
+   * <p>
    * ### Recursive (WHILE / maxDepth) mode
    * When `WHILE` or `maxDepth` is present, the method performs a **recursive DFS**:
    * - **Depth 0**: the starting point is evaluated and, if it passes the filters, is
@@ -475,10 +475,10 @@ public class MatchEdgeTraverser {
   /**
    * Executes the edge's method (e.g. `out()`, `in()`, `both()`) on the given starting
    * record and converts the raw result into an {@link ExecutionStream}.
-   *
+   * <p>
    * The method temporarily sets the `$current` context variable to the starting point
    * so that the method implementation can reference it.
-   *
+   * <p>
    * The raw return value may be a single {@link Identifiable}, a {@link Relation},
    * an {@link Iterable}, or `null` — each case is normalized into a uniform stream.
    * Any other return type is **silently treated as empty** (the {@code default} branch

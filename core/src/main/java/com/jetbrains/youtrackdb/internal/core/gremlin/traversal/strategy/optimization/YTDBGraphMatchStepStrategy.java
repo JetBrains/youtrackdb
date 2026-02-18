@@ -15,27 +15,27 @@ import org.apache.tinkerpop.gremlin.structure.T;
 /**
  * Gremlin traversal optimization strategy that folds label-filtering steps from a
  * TinkerPop {@link MatchStep} into the preceding {@link YTDBGraphStep}.
- *
+ * <p>
  * ## Motivation
- *
+ * <p>
  * In Gremlin, a `match()` step can contain `has()` or `hasLabel()` predicates that
  * filter vertices by their label (schema class). Without this optimization, the
  * graph step would load **all** vertices and the match step would filter them in
  * memory. By moving (folding) these label predicates into the graph step, the storage
  * engine can use index lookups or class-based scans to retrieve only the relevant
  * vertices, drastically reducing I/O.
- *
+ * <p>
  * ## Preconditions
- *
+ * <p>
  * The optimization applies only when **all** of the following hold:
  *
  * 1. The traversal starts with a {@link YTDBGraphStep} followed by a
  *    {@link MatchStep}.
  * 2. The graph step's existing `HasContainer`s (if any) filter **only** on labels
  *    (`T.label`). This ensures we don't interfere with property-based predicates.
- *
+ * <p>
  * ## Transformation
- *
+ * <p>
  * <pre>
  * Before:
  *   YTDBGraphStep(hasContainers=[])  →  MatchStep(has(T.label,"Person"), ...)
@@ -47,9 +47,9 @@ import org.apache.tinkerpop.gremlin.structure.T;
  * The strategy walks the first global child of the match step and, for each leading
  * `HasStep` or `YTDBHasLabelStep`, moves its predicates into the graph step's
  * `HasContainer` list. It stops at the first step that is not a has-label step.
- *
+ * <p>
  * ## Ordering
- *
+ * <p>
  * This strategy must run **after** {@link YTDBGraphStepStrategy} (specified via
  * {@link #applyPrior()}) so that the graph step is already in its optimized form.
  *

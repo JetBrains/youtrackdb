@@ -11,18 +11,18 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 
 /**
  * Edge traverser for **field access** path items in a MATCH pattern.
- *
+ * <p>
  * This traverser handles the `{...}.fieldName{...}` syntax, where instead of calling
  * a graph traversal method (`out()`, `in()`, etc.), the pattern accesses a named
  * property or expression on the current record. The AST representation is
  * {@link SQLFieldMatchPathItem}.
- *
+ * <p>
  * ### Example
- *
+ * <p>
  * ```sql
  * MATCH {class: Person, as: p}.address{as: addr}
  * ```
- *
+ * <p>
  * Here, `.address` is a field access — the traverser evaluates the expression `address`
  * on the current record and treats the result as the next matched node.
  *

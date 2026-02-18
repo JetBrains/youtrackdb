@@ -18,37 +18,37 @@ import java.util.List;
 
 /**
  * Edge traverser for **multi-step** (compound) path items in a MATCH pattern.
- *
+ * <p>
  * This traverser handles the `.(sub1)(sub2)…` syntax represented by
  * {@link SQLMultiMatchPathItem}, where a single pattern edge is actually a **pipeline**
  * of multiple sub-traversals that are executed sequentially.
- *
+ * <p>
  * ### Example
- *
+ * <p>
  * ```sql
  * MATCH {class: Person, as: p}.(out('Knows'){where: (age > 25)}.out('Lives')){as: city}
  * ```
- *
+ * <p>
  * Here, `(out('Knows'){...}.out('Lives'))` is a multi-path item with two sub-items.
  * The traverser first expands `out('Knows')` with the filter, then feeds the results
  * into `out('Lives')`.
- *
+ * <p>
  * ### Execution model
- *
+ * <p>
  * The traversal works like a multi-stage pipeline:
  *
  * <pre>
  *   [startingPoint] ──sub1──→ [results1] ──sub2──→ [results2] ──…──→ [final results]
  *     (left side)               (right → left)       (right → left)    (returned)
  * </pre>
- *
+ * <p>
  * 1. Start with the input record as the initial "left side".
  * 2. For each sub-item in the multi-path:
  *    a. Execute the sub-item's method on every record in the current left side.
  *    b. Collect all results that pass the sub-item's `WHERE` filter into the "right side".
  *    c. The right side becomes the new left side for the next sub-item.
  * 3. The final right side is the traversal result.
- *
+ * <p>
  * If any sub-item has a `WHILE` condition, a recursive {@link MatchEdgeTraverser} is
  * used for that sub-item.
  *
