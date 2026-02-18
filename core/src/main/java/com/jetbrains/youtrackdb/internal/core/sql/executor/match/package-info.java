@@ -112,7 +112,7 @@
  *           b3. Neighbor unvisited, dependencies met      -&gt; add edge, recurse
  *   4. Circular dependencies cause CommandExecutionException
  *
- *   Direction-flipping rules (when can the scheduler reverse an edge?):
+ *   Direction-flipping rules (when must / may / must not the scheduler reverse an edge?):
  *     - Target node is optional  : flip so it is reached FROM the visited side
  *     - Edge is bidirectional    : direction is arbitrary, flip freely
  *     - Edge has a WHILE clause  : NEVER flip (recursive semantics depend on direction)
