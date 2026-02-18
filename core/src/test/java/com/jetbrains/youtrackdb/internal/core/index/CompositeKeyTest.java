@@ -50,12 +50,12 @@ public class CompositeKeyTest extends DbTestBase {
     assertNotEquals(null, compositeKey);
   }
 
-  @SuppressWarnings({"SelfEquals", "EqualsWithItself", "SelfAssertion"})
   @Test
-  public void testEqualSame() {
-    final var compositeKey = new CompositeKey();
-    var result = compositeKey.equals(compositeKey);
-    assertTrue(result);
+  public void testEqualEquivalent() {
+    final var compositeKey1 = new CompositeKey();
+    final var compositeKey2 = new CompositeKey();
+    assertEquals(compositeKey1, compositeKey2);
+    assertEquals(compositeKey1.hashCode(), compositeKey2.hashCode());
   }
 
   @Test
