@@ -251,9 +251,7 @@
             </goals>
             <configuration>
               <sources>
-                <source>${generated.sources.dir}</source>
                 <source>${generated.antlr.dir}</source>
-                <!-- Gremlin dir is added by maven-compiler-plugin via generatedSourcesDirectory -->
               </sources>
             </configuration>
           </execution>
@@ -265,7 +263,6 @@
             </goals>
             <configuration>
               <sources>
-                <source>${generated.sources.dir}</source>
                 <source>${generated.antlr.dir}</source>
               </sources>
             </configuration>
