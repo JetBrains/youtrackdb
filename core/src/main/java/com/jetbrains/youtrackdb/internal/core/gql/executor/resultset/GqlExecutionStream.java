@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.jspecify.annotations.Nullable;
 
 /// Stream of GQL execution results.
 ///
@@ -22,15 +24,17 @@ public interface GqlExecutionStream extends CloseableIterator<Object> {
 
   /// Create a stream from an iterator (no mapping).
   static GqlExecutionStream fromIterator(Iterator<?> iterator) {
-    return new IteratorGqlExecutionStream<>(iterator);
+    return new IteratorGqlExecutionStream<>(Objects.requireNonNull(iterator));
   }
 
   /// Create a stream from an iterator with mapping function.
-  static <T> GqlExecutionStream fromIterator(Iterator<T> iterator, Function<T, ?> mapper) {
-    return new IteratorGqlExecutionStream<>(iterator, mapper);
+  static <T> GqlExecutionStream fromIterator(@Nullable Iterator<T> iterator,
+      Function<T, ?> mapper) {
+    return new IteratorGqlExecutionStream<>(Objects.requireNonNull(iterator),
+        Objects.requireNonNull(mapper));
   }
 
   default GqlExecutionStream flatMap(Function<Object, GqlExecutionStream> mapper) {
-    return new FlatMapGqlExecutionStream(this, mapper);
+    return new FlatMapGqlExecutionStream(this, Objects.requireNonNull(mapper));
   }
 }

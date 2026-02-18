@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlCrossJoinClassStep
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlFetchFromClassStep;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlMatchStatement;
+import java.util.Objects;
 
 /// Planner for GQL MATCH statements.
 ///
@@ -29,16 +30,16 @@ public class GqlMatchPlanner {
   /// Create an execution plan for the MATCH statement.
   public GqlExecutionPlan createExecutionPlan() {
     var plan = new GqlExecutionPlan();
-    var patterns = statement.getPatterns();
+    var patterns = Objects.requireNonNull(statement).getPatterns();
 
-    if (patterns.isEmpty()) {
+    if (Objects.requireNonNull(patterns).isEmpty()) {
       throw new IllegalArgumentException("MATCH query requires at least one node pattern");
     }
 
     for (var i = 0; i < patterns.size(); i++) {
       var pattern = patterns.get(i);
-      var alias = effectiveAlias(pattern.alias());
-      var type = effectiveType(pattern.label());
+      var alias = effectiveAlias(Objects.requireNonNull(Objects.requireNonNull(pattern).alias()));
+      var type = effectiveType(Objects.requireNonNull(pattern.label()));
 
       if (i == 0) {
         plan.chain(new GqlFetchFromClassStep(alias, type, true));
