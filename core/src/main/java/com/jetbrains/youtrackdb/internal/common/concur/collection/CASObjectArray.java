@@ -9,6 +9,15 @@ public final class CASObjectArray<T> {
   private final AtomicInteger size = new AtomicInteger();
   private final AtomicReferenceArray<AtomicReferenceArray<T>> containers =
       new AtomicReferenceArray<>(32);
+  private final T defaultPlaceholder;
+
+  public CASObjectArray() {
+    this(null);
+  }
+
+  public CASObjectArray(T defaultPlaceholder) {
+    this.defaultPlaceholder = defaultPlaceholder;
+  }
 
   public int add(T value) {
     Objects.requireNonNull(value);
@@ -32,6 +41,10 @@ public final class CASObjectArray<T> {
         return newIndex;
       }
     }
+  }
+
+  public void set(int index, T value) {
+    set(index, value, defaultPlaceholder);
   }
 
   public void set(int index, T value, T placeholder) {
@@ -91,7 +104,7 @@ public final class CASObjectArray<T> {
     return container.compareAndSet(indexInsideContainer, oldValue, value);
   }
 
-  public T getOrNull(int index) {
+  public T getOrEmpty(int index) {
     return get(index, false);
   }
 
@@ -106,7 +119,7 @@ public final class CASObjectArray<T> {
       if (throwOnOutOfBounds) {
         throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
       }
-      return null;
+      return defaultPlaceholder;
     }
 
     final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
