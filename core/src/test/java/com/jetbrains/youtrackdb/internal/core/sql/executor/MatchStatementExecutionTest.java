@@ -1743,9 +1743,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     var result =
         session.query(
             """
-                MATCH\s
-                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},\s
-                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},\s
+                MATCH
+                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},
+                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},
                 {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where:\
                  ($matched.baz IS null),as: far}
                 RETURN $matches""");
@@ -1754,9 +1754,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     result =
         session.query(
             """
-                MATCH\s
-                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},\s
-                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},\s
+                MATCH
+                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},
+                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},
                 {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where:\
                  ($matched.baz IS not null),as: far}
                 RETURN $matches""");

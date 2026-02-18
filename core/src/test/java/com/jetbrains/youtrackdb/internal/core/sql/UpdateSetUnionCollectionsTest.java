@@ -46,7 +46,7 @@ public class UpdateSetUnionCollectionsTest {
                     let $example = create vertex example;
                     let $a = {"key1":"value1"};
                     let $b = {"key2":"value2", "key3":"value3"};
-                    let $u = unionAll($a, $b);\s
+                    let $u = unionAll($a, $b);
                   
                     /* both of the following throw the exception and require to restart the\
                    server*/
@@ -107,7 +107,7 @@ public class UpdateSetUnionCollectionsTest {
                     let $example = create vertex""" + " " + clazz + ";" + """
                       let $a = {"key1":"value1"};
                       let $b = {"key2":"value2", "key3":"value3"};
-                      let $u = unionAll($a, $b);\s
+                      let $u = unionAll($a, $b);
                     
                       /* both of the following throw the exception and require to restart the\
                      server*/
@@ -161,7 +161,7 @@ public class UpdateSetUnionCollectionsTest {
                     let $example = create vertex example;
                     let $a = ["value1", "value2"];
                     let $b = ["value3"];
-                    let $u = unionAll($a, $b);\s
+                    let $u = unionAll($a, $b);
                   
                     /* both of the following throw the exception and require to restart the\
                    server*/
@@ -217,7 +217,7 @@ public class UpdateSetUnionCollectionsTest {
                     let $example = create vertex""" + " " + clazz + ";" + """
                       let $a = ["value1", "value2"];
                       let $b = ["value3"];
-                      let $u = unionAll($a, $b);\s
+                      let $u = unionAll($a, $b);
                     
                       /* both of the following throw the exception and require to restart the\
                      server*/

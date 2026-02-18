@@ -403,7 +403,7 @@ public class SelectStatementTest extends DbTestBase {
     // issue #4245
     checkRightSyntax(
         """
-            select in.name from ( \s
+            select in.name from (
             select expand(outE()) from V
             )
             group by in.name""");

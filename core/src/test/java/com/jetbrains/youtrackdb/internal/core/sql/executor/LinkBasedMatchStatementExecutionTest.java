@@ -1318,10 +1318,10 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     var result =
         session.query(
             """
-                MATCH\s
-                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},\s
-                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},\s
-                {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where: ($matched.baz IS null),as: far}\s
+                MATCH
+                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},
+                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},
+                {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where: ($matched.baz IS null),as: far}
                 RETURN $matches""");
     assertFalse(result.hasNext());
     result.close();
@@ -1329,10 +1329,10 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     result =
         session.query(
             """
-                MATCH\s
-                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},\s
-                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},\s
-                {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where: ($matched.baz IS not null),as: far}\s
+                MATCH
+                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},
+                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},
+                {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where: ($matched.baz IS not null),as: far}
                 RETURN $matches""");
     assertEquals(1, result.stream().count());
     session.commit();
