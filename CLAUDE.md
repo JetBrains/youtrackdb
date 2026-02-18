@@ -122,6 +122,12 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 
 ## Testing
 
+### Test Requirements
+- **All code changes must have associated tests** that cover the new or modified behavior.
+- **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
+- Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
+- **Coverage target**: 85% line and branch coverage for new/changed code (enforced by CI coverage gate).
+
 ### Unit Tests
 - **Core and server**: JUnit 4 with `surefire-junit47` runner
 - **Tests module**: TestNG with XML suite files (e.g., `embedded-test-db-from-scratch.xml`)
@@ -145,9 +151,6 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - `-Dyoutrackdb.security.createDefaultUsers=false`
 - `-Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow`
 - `-Dyoutrackdb.memory.directMemory.trackMode=true`
-
-### Test Coverage Requirements
-Each change and bug fix should be covered by tests. Prefer to change test classes that already exist, and only if they are absent create new ones in the related module. Preferable code coverage for both line and branch is 85%.
 
 ## Git Conventions
 
@@ -174,24 +177,40 @@ Each change and bug fix should be covered by tests. Prefer to change test classe
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
 - Target branch: `develop`
-- **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation and Changes sections as described in the template.
+- **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
 
 ## CI/CD
 
-- **maven-pipeline.yml**: Primary CI on `develop` — runs on self-hosted Hetzner runners (Linux x86 + ARM) and GitHub-hosted Windows runners. Tests across JDK 21+25, 2 distributions (temurin, oracle). Includes:
-  - `detect-changes` job that skips CI for non-build-relevant changes (e.g., markdown-only)
-  - Unit tests + integration tests on Linux, unit tests on Windows
-  - Ekstazi regression test selection (caches `.ekstazi` data between runs)
-  - JaCoCo coverage reporting on PRs
-  - Qodana static analysis (integrated as a pipeline job, not a standalone workflow)
-  - Deploy to Maven Central with `-dev-SNAPSHOT` suffix on push to develop
-  - Zulip notifications for build failures/fixes
-- **maven-integration-tests-pipeline.yml**: Nightly integration tests, auto-merges `develop` to `main` on success (fast-forward only)
-- **maven-main-deploy-pipeline.yml**: Deploys stable snapshots to Maven Central from `main`, builds/pushes Docker images to Docker Hub
+### Primary Pipeline (`maven-pipeline.yml`)
+Runs on `develop` pushes and PRs:
+- **Change detection**: Skips CI for non-build-relevant changes (markdown, docs, etc.)
+- **Concurrency**: Cancels in-progress builds when new commits arrive on the same PR/branch
+- **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
+- **Integration tests**: Run on Linux with Ekstazi test selection caching
+- **Coverage**: JaCoCo coverage report posted as PR comment (collected on Linux x86, JDK 21, temurin)
+- **Coverage gate**: Enforces 85% line and branch coverage on new/changed code for Claude co-authored PRs, 70% otherwise
+- **Mutation testing**: PIT mutation testing on changed classes with Ekstazi-selected tests, fails below 85% mutation score
+- **Qodana**: Static analysis integrated as a pipeline job (zero tolerance for critical/high/moderate issues; excludes generated SQL parser code)
+- **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
+- **CI Status gate**: Consolidates all checks into a single required status for branch protection
+- **Notifications**: Sends Zulip messages on build failure/recovery
+
+### Nightly Integration Tests (`maven-integration-tests-pipeline.yml`)
+- Runs at 2 AM UTC, skips if current SHA was already tested successfully
+- Tests on Linux (x86+arm) and Windows with JDK 21+25, 2 distributions (temurin, oracle)
+- Auto-merges `develop` to `main` (fast-forward only) on success
+- Sends Zulip notifications on failure/recovery
+
+### Main Deploy (`maven-main-deploy-pipeline.yml`)
+- Triggered on `main` pushes
+- Deploys snapshot and timestamped artifacts to Maven Central
+- Builds and pushes multi-arch (x64+arm64) Docker images to Docker Hub
+- Sends Zulip notifications on failure/recovery
+
+### Guard Workflows
+- **check-commit-prefix.yml**: Enforces `YTDB-NNN:` prefix on commit messages
+- **block-merge-commits.yml**: Prevents merge commits in PRs
 - **pr-title-prefix.yml**: Auto-prefixes PR titles with YTDB issue number from branch name
-- **block-merge-commits.yml**: Rejects PRs containing merge commits
-- **check-commit-prefix.yml**: Enforces YTDB issue prefix in commit messages
-- Qodana excludes generated SQL parser code from analysis
 
 ## Key Entry Points
 
@@ -210,10 +229,10 @@ Each change and bug fix should be covered by tests. Prefer to change test classe
 
 ## Key Dependencies
 
-- Apache TinkerPop Gremlin (custom fork: `io.youtrackdb:gremlin-*`, version tracks upstream 3.8.x — the SNAPSHOT suffix contains the SHA of the latest ported upstream commit)
+- Apache TinkerPop Gremlin (custom fork: `io.youtrackdb:gremlin-*` v3.8.1). Version is published as a `-<commitSHA>-SNAPSHOT` (e.g. `3.8.1-fccfc5a-SNAPSHOT`); the commit SHA suffix changes with each fork update - check the `gremlin.version` property in the root `pom.xml` for the current value.
 - GraalVM (JavaScript scripting via Gremlin)
-- Jackson 2.x (JSON serialization)
-- SLF4J + Log4j 2 (logging)
+- Jackson 2.20.x (JSON serialization)
+- SLF4J 2.x + Log4j 2.25.x (logging)
 - Guava, fastutil (collections)
 - LZ4 (compression)
 - BouncyCastle (TLS in server)
@@ -258,6 +277,8 @@ Each change and bug fix should be covered by tests. Prefer to change test classe
 - **Always use the `Edit` and `Write` tools** to create or modify files. Do not use shell commands (`cat`, `echo`, `sed`, `awk`, `tee`, or redirection operators `>`, `>>`) to write or modify files.
 - **Use the `Read` tool** to read file contents instead of `cat`, `head`, or `tail`.
 - **Use `Glob` and `Grep` tools** for file search instead of `find`, `grep`, or `rg` shell commands.
+- **Shell utilities in pipelines**: Commands like `grep`, `cat`, `head`, `find`, `sed`, `awk` are permitted when used in shell pipelines (e.g., `git log | grep ...`, `find ... | xargs ...`) where dedicated tools cannot substitute. Prefer dedicated tools for standalone file reads and searches.
+- **Temporary files**: Use `/tmp/claude-code-*` for scratch files, intermediate build artifacts, or staging data. This is the only `/tmp` path with read/write/edit permissions.
 - Reserve `Bash` exclusively for build commands (`./mvnw`), git operations, `gh` CLI, `docker`, and other tools that genuinely require shell execution.
 
 ## Tips for Working with This Codebase
