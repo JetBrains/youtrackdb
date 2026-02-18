@@ -31,6 +31,7 @@ import javax.annotation.Nullable;
 
 /// Keeps all configuration settings. At startup assigns the configuration values by reading system
 /// properties.
+@SuppressWarnings("ImmutableEnumChecker")
 public enum GlobalConfiguration {
   ENVIRONMENT_DUMP_CFG_AT_STARTUP(
       "youtrackdb.environment.dumpCfgAtStartup",
@@ -1208,6 +1209,7 @@ public enum GlobalConfiguration {
     return "YOUTRACKDB_" + config.name();
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <T> T getValue() {
     //noinspection unchecked
     return (T) (value != null && value != nullValue ? value : defValue);

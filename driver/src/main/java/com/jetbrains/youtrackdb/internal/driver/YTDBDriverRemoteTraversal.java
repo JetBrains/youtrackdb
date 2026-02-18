@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.remote.RemoteProtocolConstants;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -34,7 +33,7 @@ import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedElement;
 
 public class YTDBDriverRemoteTraversal<S, E> extends AbstractRemoteTraversal<S, E> {
 
-  private final HashMap<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDs;
+  private final Map<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDs;
   private final boolean isSessionLess;
   private final Iterator<Traverser.Admin<E>> traversers;
   private Traverser.Admin<E> lastTraverser = EmptyTraverser.instance();
@@ -42,7 +41,7 @@ public class YTDBDriverRemoteTraversal<S, E> extends AbstractRemoteTraversal<S, 
   private final ResultSet resultSet;
 
   public YTDBDriverRemoteTraversal(final ResultSet rs, final Client client, final boolean attach,
-      final HashMap<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDs,
+      final Map<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDs,
       @SuppressWarnings("OptionalUsedAsFieldOrParameterType") final Optional<Configuration> conf) {
     // attaching is really just for testing purposes. it doesn't make sense in any real-world scenario as it would
     // require that the client have access to the Graph instance that produced the result. tests need that

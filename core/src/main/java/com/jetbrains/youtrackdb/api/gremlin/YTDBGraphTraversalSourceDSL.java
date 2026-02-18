@@ -147,7 +147,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     );
   }
 
-  private static HashMap<Object, Object> processKeyValueArguments(@Nonnull Object[] keyValues) {
+  private static Map<Object, Object> processKeyValueArguments(@Nonnull Object[] keyValues) {
     if (keyValues.length % 2 != 0) {
       throw new IllegalArgumentException("keyValues must be an even number of arguments "
           + "(key/value pairs)");

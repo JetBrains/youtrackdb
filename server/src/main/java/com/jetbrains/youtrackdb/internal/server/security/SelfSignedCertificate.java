@@ -172,8 +172,9 @@ public class SelfSignedCertificate {
     }
   }
 
+  @SuppressWarnings("JavaUtilDate")
   public static X509Certificate generateSelfSignedCertificate(
-      KeyPair keypair, int validity, String ownerFDN, BigInteger certSN)
+      KeyPair keyPair, int validity, String ownerFDN, BigInteger certSN)
       throws CertificateException, IOException, NoSuchAlgorithmException {
 
     X500Name owner;
@@ -193,12 +194,12 @@ public class SelfSignedCertificate {
             from,
             to,
             owner,
-            SubjectPublicKeyInfo.getInstance(keypair.getPublic().getEncoded()));
+            SubjectPublicKeyInfo.getInstance(keyPair.getPublic().getEncoded()));
 
     try {
       var certHolder =
           certBuilder.build(
-              new JcaContentSignerBuilder("SHA256WithRSA").build(keypair.getPrivate()));
+              new JcaContentSignerBuilder("SHA256WithRSA").build(keyPair.getPrivate()));
       return new JcaX509CertificateConverter().getCertificate(certHolder);
     } catch (OperatorCreationException e) {
       throw new RuntimeException(e);
@@ -225,6 +226,7 @@ public class SelfSignedCertificate {
     cert.verify(publicKey);
   }
 
+  @SuppressWarnings("JavaUtilDate")
   public void checkThisCertificate()
       throws NoSuchAlgorithmException,
       CertificateException,
