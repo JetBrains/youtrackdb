@@ -87,6 +87,7 @@ public class SpeedTestData {
     try {
       Thread.sleep(TIME_WAIT);
     } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
 
     final var memoryMXBean = ManagementFactory.getMemoryMXBean();

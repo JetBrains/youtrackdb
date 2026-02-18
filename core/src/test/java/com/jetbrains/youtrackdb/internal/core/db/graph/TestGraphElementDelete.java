@@ -109,6 +109,7 @@ public class TestGraphElementDelete {
       tx.commit();
       Assert.fail();
     } catch (ConcurrentModificationException e) {
+      // Expected: concurrent modification should be detected
     }
 
     tx = session.begin();

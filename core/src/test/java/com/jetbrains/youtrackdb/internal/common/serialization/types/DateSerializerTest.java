@@ -30,6 +30,7 @@ import org.junit.Test;
 /**
  * @since 20.01.12
  */
+@SuppressWarnings("UndefinedEquals") // All comparisons are java.util.Date vs java.util.Date
 public class DateSerializerTest {
 
   private static final int FIELD_SIZE = 8;

@@ -24,6 +24,7 @@ public abstract class SpeedTestGroup {
       try {
         Thread.sleep(3000);
       } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
       }
     }
   }

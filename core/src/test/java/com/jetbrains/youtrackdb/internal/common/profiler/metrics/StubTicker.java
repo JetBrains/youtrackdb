@@ -3,14 +3,15 @@ package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class StubTicker implements Ticker {
 
   private final long granularity;
-  private volatile long time;
+  private final AtomicLong time;
 
   public StubTicker(long initialNanoTime, long granularity) {
-    this.time = initialNanoTime;
+    this.time = new AtomicLong(initialNanoTime);
     this.granularity = granularity;
   }
 
@@ -24,11 +25,11 @@ public class StubTicker implements Ticker {
   }
 
   public void setTime(long time) {
-    this.time = time;
+    this.time.set(time);
   }
 
   public void advanceTime(long time) {
-    this.time += time;
+    this.time.addAndGet(time);
   }
 
   public void advanceTime(long time, TimeUnit unit) {
@@ -37,17 +38,17 @@ public class StubTicker implements Ticker {
 
   @Override
   public long lastNanoTime() {
-    return time;
+    return time.get();
   }
 
   @Override
   public long currentNanoTime() {
-    return time;
+    return time.get();
   }
 
   @Override
   public long getTick() {
-    return time / granularity;
+    return time.get() / granularity;
   }
 
   @Override

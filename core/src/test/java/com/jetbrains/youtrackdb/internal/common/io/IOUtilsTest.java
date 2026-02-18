@@ -32,7 +32,7 @@ public class IOUtilsTest {
     calendar.set(Calendar.SECOND, 0);
     calendar.set(Calendar.MILLISECOND, 0);
     var d = IOUtils.getTodayWithTime("05:10:00");
-    assertEquals(calendar.getTime(), d);
+    assertEquals(calendar.getTime().getTime(), d.getTime());
   }
 
   @Test

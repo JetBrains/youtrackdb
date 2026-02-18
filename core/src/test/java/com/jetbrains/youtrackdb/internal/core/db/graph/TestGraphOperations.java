@@ -44,7 +44,7 @@ public class TestGraphOperations extends DbTestBase {
       session.commit();
       Assert.fail("It should not be inserted  a duplicated edge");
     } catch (RecordDuplicatedException e) {
-
+      // Expected: duplicate edge should be rejected
     }
 
     session.begin();

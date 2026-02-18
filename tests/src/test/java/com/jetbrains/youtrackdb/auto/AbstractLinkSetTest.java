@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import org.testng.Assert;
@@ -1199,7 +1200,7 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
     }
 
     assertIsEmbedded(linkSet);
-    for (var identifiable : linkSet) {
+    for (var identifiable : List.copyOf(linkSet)) {
       assertTrue(entities.remove(activeTx.loadEntity(identifiable)));
       linkSet.remove(identifiable.getIdentity());
       assertEquals(linkSet.size(), entities.size());
@@ -1500,7 +1501,7 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
 
     var rnd = new Random();
 
-    for (var newEntity : newEntities) {
+    for (var newEntity : List.copyOf(newEntities)) {
       if (rnd.nextBoolean()) {
         rids.remove(newEntity);
         linkSet.remove(newEntity.getIdentity());
@@ -1509,7 +1510,7 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
       }
     }
 
-    for (var identifiable : linkSet) {
+    for (var identifiable : List.copyOf(linkSet)) {
       if (newEntities.contains(identifiable.getIdentity()) && rnd.nextBoolean()) {
         linkSet.remove(identifiable.getIdentity());
         if (rids.remove(identifiable.getIdentity())) {

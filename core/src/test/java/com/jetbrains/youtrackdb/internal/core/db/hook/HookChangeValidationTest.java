@@ -39,6 +39,7 @@ public class HookChangeValidationTest extends DbTestBase {
       session.commit();
       Assert.fail("The document save should fail with illegal state exception");
     } catch (IllegalStateException ex) {
+      // Expected: hook-modified document should fail validation
     }
   }
 
@@ -68,6 +69,7 @@ public class HookChangeValidationTest extends DbTestBase {
       session.commit();
       Assert.fail("The document save should fail for validation exception");
     } catch (ValidationException ex) {
+      // Expected: hook-modified document should fail validation
     }
   }
 
@@ -110,6 +112,7 @@ public class HookChangeValidationTest extends DbTestBase {
       session.commit();
       Assert.fail("The document save should fail with illegal exception");
     } catch (IllegalStateException ex) {
+      // Expected: hook-modified document should fail validation
     }
   }
 
@@ -152,6 +155,7 @@ public class HookChangeValidationTest extends DbTestBase {
       session.commit();
       Assert.fail("The document save should fail for validation exception");
     } catch (ValidationException ex) {
+      // Expected: hook-modified document should fail validation
     }
   }
 }
