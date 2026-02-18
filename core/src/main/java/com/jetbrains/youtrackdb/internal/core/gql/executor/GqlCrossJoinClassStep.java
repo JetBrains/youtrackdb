@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Execution step that performs a Cartesian product (Cross Join) between
 /// the current results and all vertices of a specified class.

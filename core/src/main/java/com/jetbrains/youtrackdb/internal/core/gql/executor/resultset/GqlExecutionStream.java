@@ -4,7 +4,7 @@ import java.util.Iterator;
 import java.util.Objects;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Stream of GQL execution results.
 ///

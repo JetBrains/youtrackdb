@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutio
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.HashMap;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Execution step that fetches all vertices of a class.
 ///

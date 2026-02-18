@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nonnull;
-import org.jspecify.annotations.Nullable;
+import javax.annotation.Nullable;
 
 /// Immutable context for GQL query execution.
 ///
