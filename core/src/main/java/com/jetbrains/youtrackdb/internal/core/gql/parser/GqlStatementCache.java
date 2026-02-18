@@ -55,7 +55,7 @@ public class GqlStatementCache {
     }
 
     GqlStatement result;
-    synchronized (map) {
+    synchronized (Objects.requireNonNull(map)) {
       result = map.remove(statement);
       if (result != null) {
         map.put(statement, result);
