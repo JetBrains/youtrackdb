@@ -146,6 +146,9 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - `-Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow`
 - `-Dyoutrackdb.memory.directMemory.trackMode=true`
 
+### Test Coverage Requirements
+Each change and bug fix should be covered by tests. Prefer to change test classes that already exist, and only if they are absent create new ones in the related module. Preferable code coverage for both line and branch is 85%.
+
 ## Git Conventions
 
 ### Branches

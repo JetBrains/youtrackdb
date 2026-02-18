@@ -19,13 +19,17 @@ flowchart TB
 
     subgraph maven_pipeline["maven-pipeline.yml<br/>(develop branch)"]
         direction TB
-        mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, corretto, oracle, zulu, microsoft<br/>ubuntu-latest, ubuntu-24.04-arm, windows-latest"]
+        mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>Self-hosted Linux x86/arm + Windows"]
         mp_coverage["Coverage Report<br/>JaCoCo PR comment"]
-        mp_qodana["Qodana Scan<br/>JetBrains static analysis"]
+        mp_coverage_gate["Coverage Gate<br/>diff-cover (line) + branch check<br/>85% Claude / 70% default"]
+        mp_mutation["Mutation Testing<br/>PIT + Ekstazi<br/>85% kill rate"]
+        mp_qodana["Qodana Scan<br/>Static analysis only"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
         mp_test --> mp_coverage
+        mp_test --> mp_coverage_gate
+        mp_test --> mp_mutation
         mp_test --> mp_qodana
         mp_test --> mp_deploy
         mp_deploy --> mp_annotate
@@ -35,7 +39,7 @@ flowchart TB
     subgraph integration_pipeline["maven-integration-tests-pipeline.yml"]
         direction TB
         it_check["Check for Changes<br/>(Skip if already tested)"]
-        it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>TestFlows On-Demand Runners</i>"]
+        it_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>Self-hosted Hetzner Runners</i>"]
         it_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         it_merge["Merge develop → main<br/>(fast-forward only)<br/><i>skipped on manual dispatch</i>"]
         it_notify["Zulip Notifications<br/><i>skipped on manual dispatch</i>"]
@@ -140,18 +144,61 @@ This is the primary CI pipeline triggered on every push or pull request to the `
 uses a concurrency group (`cancel-in-progress: true`) to cancel redundant in-progress builds when
 new commits arrive on the same PR or branch.
 
-It runs the full test matrix across multiple JDK versions (21, 25), distributions (temurin, oracle),
-and platforms (self-hosted Linux x86/arm, GitHub-hosted Windows). After tests complete, two
-downstream jobs run in parallel:
+#### JOB 1-2: Test Matrix
 
-- **Coverage Report** (PRs only) — Posts a detailed JaCoCo coverage summary as a PR comment using
-  [Madrapps/jacoco-report](https://github.com/Madrapps/jacoco-report), updating the same comment on
-  each push.
-- **Qodana Scan** — Runs JetBrains Qodana static code analysis in PR mode, using a baseline file to
-  track known issues. Uploads the SARIF report as an artifact.
+Runs the full test matrix across multiple JDK versions (21, 25), distributions (temurin, oracle),
+and platforms (self-hosted Linux x86/arm on Hetzner, GitHub-hosted Windows):
 
-On successful push (not PRs), it deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
+- **Linux (self-hosted)**: Unit tests (`package`) followed by integration tests (`verify` with
+  Ekstazi for incremental test selection). Coverage data collected via JaCoCo on x86/JDK 21/temurin
+  only.
+- **Windows (GitHub-hosted)**: Unit tests only (`package`).
+
+#### JOB 3: Coverage Report (PRs only)
+
+Posts a detailed JaCoCo coverage summary as a PR comment using
+[Madrapps/jacoco-report](https://github.com/Madrapps/jacoco-report), updating the same comment on
+each push. This is an informational report with no enforcement threshold.
+
+#### JOB 4: Coverage Gate (PRs only)
+
+Enforces line and branch coverage thresholds on new/changed code:
+
+- **Line coverage**: Checked via [diff-cover](https://github.com/Bachmann1234/diff_cover) against
+  all JaCoCo XML reports (unit + integration tests).
+- **Branch coverage**: Checked via a custom script (`.github/scripts/check-branch-coverage.py`) that
+  parses JaCoCo XML line-level branch data (`mb`/`cb` attributes) for changed lines.
+- **Threshold**: 85% if any commit is co-authored with Claude Code, 70% otherwise. Detected by
+  scanning commit messages for `Co-Authored-By:.*Claude`.
+
+See [Test Quality Requirements](test-quality-requirements.md) for details.
+
+#### JOB 5: Mutation Testing (PRs only)
+
+Runs PIT mutation testing on new/changed production classes only:
+
+- Detects changed modules and classes via `git diff` against the base branch.
+- Restores the Ekstazi cache from the base branch to select relevant integration tests.
+- Runs PIT's `mutationCoverage` goal with an 85% mutation kill rate threshold.
+- Uses both unit tests and Ekstazi-selected integration tests to kill mutations.
+
+See [Test Quality Requirements](test-quality-requirements.md) for details.
+
+#### JOB 6: Qodana Scan
+
+Runs JetBrains Qodana static code analysis in PR mode, using a baseline file to track known issues.
+Zero tolerance for new critical, high, or moderate issues. Uploads the SARIF report as an artifact.
+Qodana runs as a pure static analysis tool (no coverage tracking).
+
+#### JOB 7: Deploy (push only)
+
+On successful push (not PRs), deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
 Central. Each deployment is annotated with the exact version for traceability.
+
+#### Notifications
+
+Zulip notifications are sent on build failure and when a previously failing build is fixed (push to
+main branches only).
 
 ### maven-integration-tests-pipeline.yml (Nightly / Manual)
 
@@ -162,21 +209,21 @@ first checks if there are new changes since the last successful run to avoid red
 
 | Platform | Runners | JDK Distributions | Maven Goal | Tests |
 |----------|---------|-------------------|------------|-------|
-| Linux (Hetzner) | TestFlows on-demand | temurin, oracle | `verify` | Unit + Integration |
+| Linux (Hetzner) | Self-hosted on-demand | temurin, oracle | `verify` | Unit + Integration |
 | Windows (GitHub) | GitHub-hosted | temurin, oracle | `package` | Unit only (disk limits) |
 
-**TestFlows Runners**:
+**Self-hosted Runners**:
 - Managed by external [TestFlows GitHub Hetzner Runners](https://github.com/testflows/testflows-github-hetzner-runners) service
 - Runners created on-demand when jobs queue (~1-2 min startup)
 - Zero cost when no jobs running (no idle servers)
 - Uses base Ubuntu images with setup scripts (Docker, Git, Node.js, firewall, Maven cache)
 - APT, Maven, and npm caches persisted via Hetzner volume mounts (`volume-cache` label)
-- See [testflows-runner-setup.md](testflows-runner-setup.md) for deployment details
+- See [TestFlows Runner Setup](testflows-runner-setup.md) for deployment details
 
 **Job Flow**:
 1. `check-changes` - Skip if current commit was already tested successfully
-2. `test-linux` - Run full integration tests on TestFlows runners (8 jobs) with volume-mounted Maven
-   cache
+2. `test-linux` - Run full integration tests on self-hosted runners (8 jobs) with volume-mounted
+   Maven cache
 3. `test-windows` - Run unit tests only on GitHub-hosted runners (4 jobs)
 4. `merge-to-main` - Fast-forward merge develop into main (schedule only, requires both Linux and
    Windows tests to pass)
@@ -207,26 +254,39 @@ limiting from Maven Central during parallel CI builds and improves dependency re
 - Runs on a Hetzner `cax11` ARM64 instance with a floating IP for stable DNS
 - Caddy provides automatic TLS via Let's Encrypt
 - Access requires authentication (`MAVEN_MIRROR_USERNAME` / `MAVEN_MIRROR_PASSWORD` GitHub secrets)
-- Built from a Packer snapshot; see [maven-mirror/maven-mirror-setup.md](maven-mirror/maven-mirror-setup.md) for setup details
+- Built from a Packer snapshot; see [maven-mirror setup](../.github/workflows/maven-mirror/maven-mirror-setup.md) for setup details
 
 ## TestFlows Runner Setup
 
 Self-hosted runners for integration tests are managed by TestFlows GitHub Hetzner Runners, an
 external orchestrator running on a dedicated small Hetzner server.
 
-For complete setup and configuration instructions, see [testflows-runner-setup.md](testflows-runner-setup.md).
+For complete setup and configuration instructions, see [TestFlows Runner Setup](testflows-runner-setup.md).
 
 ## Workflow Summary
 
-| Workflow                                 | Trigger                      | Purpose                                      | Infrastructure                                      | Artifacts                                                       |
-|------------------------------------------|------------------------------|----------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------|
-| **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                  | GitHub-hosted runners                               | N/A                                                             |
-| **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix             | GitHub-hosted runners                               | N/A                                                             |
-| **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title            | GitHub-hosted runners                               | N/A                                                             |
-| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Run tests, coverage report, Qodana scan, deploy dev artifacts | Self-hosted (Linux) + GitHub-hosted (Windows) | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT` |
-| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main         | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
-| **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify) | TestFlows (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
-| **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker            | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+| Workflow                                 | Trigger                      | Purpose                                                          | Infrastructure                                      | Artifacts                                                       |
+|------------------------------------------|------------------------------|------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------|
+| **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                                      | GitHub-hosted runners                               | N/A                                                             |
+| **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix                                 | GitHub-hosted runners                               | N/A                                                             |
+| **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title                                | GitHub-hosted runners                               | N/A                                                             |
+| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Tests, coverage gate, mutation testing, Qodana, deploy           | Self-hosted (Linux) + GitHub-hosted (Windows)       | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`       |
+| **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main                             | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
+| **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify)                     | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
+| **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker                                | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+
+## PR Quality Gates
+
+Every pull request must pass all of the following before merging:
+
+| Gate | Tool | Threshold | Scope |
+|---|---|---|---|
+| Line coverage | diff-cover | 70% or 85% | New/changed lines |
+| Branch coverage | check-branch-coverage.py | 70% or 85% | New/changed lines |
+| Mutation score | PIT | 85% | New/changed production classes |
+| Static analysis | Qodana | 0 new issues | Full codebase (baseline) |
+| Commit format | check-commit-prefix.yml | YTDB-* prefix | All commits |
+| History | block-merge-commits.yml | No merge commits | All commits |
 
 ## Version Format
 
