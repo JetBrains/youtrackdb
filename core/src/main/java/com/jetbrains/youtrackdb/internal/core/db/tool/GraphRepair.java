@@ -317,9 +317,9 @@ public class GraphRepair {
 
     final var vertexClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
     if (vertexClass != null) {
-      final var countVertices = session.countClass(vertexClass.getName());
       session.executeInTx(
           transaction -> {
+            final var countVertices = session.countClass(vertexClass.getName());
             var skipVertices = 0L;
             if (options != null && options.get("-skipVertices") != null) {
               skipVertices = Long.parseLong(options.get("-skipVertices").getFirst());

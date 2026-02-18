@@ -30,13 +30,13 @@ import java.io.ObjectOutput;
 public class PhysicalPosition implements SerializableStream, Externalizable {
 
   private static final int binarySize =
-      BinaryProtocol.SIZE_LONG
-          + BinaryProtocol.SIZE_BYTE
-          + BinaryProtocol.SIZE_INT
-          + BinaryProtocol.SIZE_INT;
+      BinaryProtocol.SIZE_LONG // collectionPosition
+          + BinaryProtocol.SIZE_BYTE // recordType
+          + BinaryProtocol.SIZE_LONG // recordVersion
+          + BinaryProtocol.SIZE_INT; // recordSize
   public long collectionPosition;
   public byte recordType;
-  public int recordVersion = 0;
+  public long recordVersion = 0;
   public int recordSize;
 
   public PhysicalPosition() {
@@ -50,7 +50,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
     recordType = iRecordType;
   }
 
-  public PhysicalPosition(final long iCollectionPosition, final int iVersion) {
+  public PhysicalPosition(final long iCollectionPosition, final long iVersion) {
     collectionPosition = iCollectionPosition;
     recordVersion = iVersion;
   }
@@ -92,7 +92,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
     recordSize = BinaryProtocol.bytes2int(iStream, pos);
     pos += BinaryProtocol.SIZE_INT;
 
-    recordVersion = BinaryProtocol.bytes2int(iStream, pos);
+    recordVersion = BinaryProtocol.bytes2long(iStream, pos);
 
     return this;
   }
@@ -111,7 +111,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
     BinaryProtocol.int2bytes(recordSize, buffer, pos);
     pos += BinaryProtocol.SIZE_INT;
 
-    BinaryProtocol.int2bytes(recordVersion, buffer, pos);
+    BinaryProtocol.long2bytes(recordVersion, buffer, pos);
     return buffer;
   }
 
@@ -131,7 +131,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
   public int hashCode() {
     var result = (int) (31 * collectionPosition);
     result = 31 * result + (int) recordType;
-    result = 31 * result + recordVersion;
+    result = 31 * result + (int) recordVersion;
     result = 31 * result + recordSize;
     return result;
   }
@@ -141,7 +141,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
     out.writeLong(collectionPosition);
     out.writeByte(recordType);
     out.writeInt(recordSize);
-    out.writeInt(recordVersion);
+    out.writeLong(recordVersion);
   }
 
   @Override
@@ -149,6 +149,6 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
     collectionPosition = in.readLong();
     recordType = in.readByte();
     recordSize = in.readInt();
-    recordVersion = in.readInt();
+    recordVersion = in.readLong();
   }
 }

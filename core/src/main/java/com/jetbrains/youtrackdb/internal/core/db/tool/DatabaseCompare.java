@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -131,11 +130,18 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      compareCollections();
-      compareRecords(ridMapper);
+      sessionOne.begin();
+      sessionTwo.begin();
+      try {
+        compareCollections();
+        compareRecords(ridMapper);
 
-      compareSchema();
-      compareIndexes(ridMapper);
+        compareSchema();
+        compareIndexes(ridMapper);
+      } finally {
+        sessionOne.rollback();
+        sessionTwo.rollback();
+      }
 
       if (differences == 0) {
         listener.onMessage("\n\nDatabases match.");
@@ -344,6 +350,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
   @SuppressWarnings({"ObjectAllocationInLoop"})
   private void compareIndexes(EntityHelper.RIDMapper ridMapper) {
+    var txOne = sessionOne.getActiveTransaction();
+
     listener.onMessage("\nStarting index comparison:");
 
     var ok = true;
@@ -409,7 +417,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         // THIS IS NORMAL SINCE 3.0 DUE OF REMOVING OF INDEX WITHOUT THE DEFINITION,  THE IMPORTER
         // WILL CREATE THE DEFINITION
         listener.onMessage(
-            "\n- WARN: Index definition for index " + indexOne.getName() + " for DB2 is not null.");
+            "\n- WARN: Index definition for index " + indexOne.getName()
+                + " for DB2 is not null.");
         continue;
       } else {
         if (indexOne.getDefinition() != null && indexTwo.getDefinition() == null) {
@@ -487,8 +496,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
       if (((compareEntriesForAutomaticIndexes && !indexOne.getType().equals("DICTIONARY"))
           || !indexOne.isAutomatic())) {
-
-        try (final var keyStream = indexOne.keyStream()) {
+        try (final var keyStream = indexOne.keyStream(txOne.getAtomicOperation())) {
           final var indexKeyIteratorOne = keyStream.iterator();
           while (indexKeyIteratorOne.hasNext()) {
             final var indexKey = indexKeyIteratorOne.next();
@@ -658,6 +666,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     var collectionNames1 = sessionOne.getCollectionNames();
 
+    var txOne = sessionOne.getActiveTransaction();
+    var txTwo = sessionTwo.getActiveTransaction();
+
     for (final var collectionName : collectionNames1) {
       // CHECK IF THE COLLECTION IS INCLUDED
       final var collectionId1 = sessionOne.getCollectionIdByName(collectionName);
@@ -667,11 +678,14 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           .ceilingPhysicalPositions(sessionOne, collectionId1, new PhysicalPosition(0),
               Integer.MAX_VALUE);
 
-      var configuration1 = sessionOne.getStorageInfo().getConfiguration();
-      var configuration2 = sessionTwo.getStorageInfo().getConfiguration();
-
       var storageType1 = sessionOne.getStorage().getType();
       var storageType2 = sessionTwo.getStorage().getType();
+
+      var schemaRecordId1 = sessionOne.getStorage().getSchemaRecordId();
+      var schemaRecordId2 = sessionTwo.getStorage().getSchemaRecordId();
+
+      var indexManagerRecordId1 = sessionOne.getStorage().getIndexMgrRecordId();
+      var indexManagerRecordId2 = sessionTwo.getStorage().getIndexMgrRecordId();
 
       long recordsCounter = 0;
       while (physicalPositions.length > 0) {
@@ -694,20 +708,20 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
               final var newRid = ridMapper.map(rid1);
               if (newRid == null) {
                 rid2 = rid1;
-              } else
-              //noinspection ObjectAllocationInLoop
-              {
+              } else {
                 rid2 = new RecordId(newRid);
               }
             }
 
             if (skipRecord(
-                rid1, rid2, configuration1, configuration2, storageType1, storageType2)) {
+                rid1, rid2, schemaRecordId1, schemaRecordId2, indexManagerRecordId1,
+                indexManagerRecordId2, storageType1, storageType2)) {
               continue;
             }
-
-            final var buffer1 = sessionOne.getStorage().readRecord(rid1);
-            final var buffer2 = sessionTwo.getStorage().readRecord(rid2);
+            final var buffer1 = sessionOne.getStorage()
+                .readRecord(rid1, txOne.getAtomicOperation());
+            final var buffer2 = sessionTwo.getStorage()
+                .readRecord(rid2, txTwo.getAtomicOperation());
 
             if (buffer1.recordType() != buffer2.recordType()) {
               listener.onMessage(
@@ -762,8 +776,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                     final var rec2 = (RecordAbstract) entity2;
                     rec2.fromStream(buffer2.buffer());
 
-                    if (rid1.toString().equals(configuration1.getSchemaRecordId())
-                        && rid1.toString().equals(configuration2.getSchemaRecordId())) {
+                    if (rid1.toString().equals(schemaRecordId1)
+                        && rid1.toString().equals(schemaRecordId2)) {
                       convertSchemaDoc(entity1);
                       convertSchemaDoc(entity2);
                     }
@@ -867,19 +881,21 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   private static boolean skipRecord(
       RecordIdInternal rid1,
       RecordIdInternal rid2,
-      StorageConfiguration configuration1,
-      StorageConfiguration configuration2,
+      String indexManagerRecordId1,
+      String indexManagerRecordId2,
+      String schemaRecordId1,
+      String schemaRecordId2,
       String storageType1,
       String storageType2) {
     if (rid1.getCollectionId() == 0) {
       return true;
     }
-    if (rid1.equals(RecordIdInternal.fromString(configuration1.getIndexMgrRecordId(), false))
-        || rid2.equals(RecordIdInternal.fromString(configuration2.getIndexMgrRecordId(), false))) {
+    if (rid1.equals(RecordIdInternal.fromString(indexManagerRecordId1, false))
+        || rid2.equals(RecordIdInternal.fromString(indexManagerRecordId2, false))) {
       return true;
     }
-    if (rid1.equals(RecordIdInternal.fromString(configuration1.getSchemaRecordId(), false))
-        || rid2.equals(RecordIdInternal.fromString(configuration2.getSchemaRecordId(), false))) {
+    if (rid1.equals(RecordIdInternal.fromString(schemaRecordId1, false))
+        || rid2.equals(RecordIdInternal.fromString(schemaRecordId2, false))) {
       return true;
     }
     if ((rid1.getCollectionId() == 0 && rid1.getCollectionPosition() == 0)

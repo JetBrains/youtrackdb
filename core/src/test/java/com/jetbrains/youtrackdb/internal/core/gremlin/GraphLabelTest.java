@@ -14,7 +14,9 @@ public class GraphLabelTest extends GraphBaseTest {
     vertex.addEdge("Friend", vertex1, "from", new Date());
     graph.tx().commit();
 
+    session.begin();
     Assert.assertEquals(2, session.countClass("Person"));
     Assert.assertEquals(1, session.countClass("Friend"));
+    session.rollback();
   }
 }

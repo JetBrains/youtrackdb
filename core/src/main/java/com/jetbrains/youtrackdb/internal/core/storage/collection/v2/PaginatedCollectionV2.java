@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
@@ -38,25 +39,26 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * @since 10/7/13
- */
 public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   // max chunk size - next page pointer - first record flag
@@ -68,8 +70,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private static final int STATE_ENTRY_INDEX = 0;
   private static final int BINARY_VERSION = 3;
 
-  /// Size of the per-record metadata header that precedes the actual record content.
-  /// Layout: {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B]}.
+  /// Size of the per-record metadata header that precedes the actual record content. Layout:
+  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B]}.
   private static final int METADATA_SIZE =
       ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE;
 
@@ -86,6 +88,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private volatile int id;
   private long fileId;
   private RecordConflictStrategy recordConflictStrategy;
+  private final NavigableMap<CompositeKey, PositionEntry> snapshotIndex = new ConcurrentSkipListMap<>();
+  private final NavigableMap<CompositeKey, CompositeKey> visibleSnapshotIndex = new ConcurrentSkipListMap<>();
 
   public PaginatedCollectionV2(
       @Nonnull final String name, @Nonnull final AbstractStorage storage) {
@@ -124,12 +128,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public boolean exists() {
+  public boolean exists(AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         return isFileExists(atomicOperation, getFullName());
       } finally {
         releaseSharedLock();
@@ -137,11 +140,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     } finally {
       atomicOperationsManager.releaseReadLock(this);
     }
-  }
-
-  @Override
-  public int getBinaryVersion() {
-    return BINARY_VERSION;
   }
 
   @Override
@@ -190,7 +188,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           acquireExclusiveLock();
           try {
             fileId = addFile(atomicOperation, getFullName());
-            initCusterState(atomicOperation);
+            initCollectionState(atomicOperation);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
           } finally {
@@ -301,17 +299,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Nullable
   @Override
-  public String compression() {
-    acquireSharedLock();
-    try {
-      return null;
-    } finally {
-      releaseSharedLock();
-    }
-  }
-
-  @Nullable
-  @Override
   public String encryption() {
     acquireSharedLock();
     try {
@@ -337,85 +324,98 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
-  /// Creates a new record in the collection. The record is serialized into one or more page
-  /// chunks with the collection position embedded in the metadata header, then the position map
-  /// is updated to point to the entry-point chunk.
+  /// Creates a new record in the collection. The record is serialized into one or more page chunks
+  /// with the collection position embedded in the metadata header, then the position map is updated
+  /// to point to the entry-point chunk.
   ///
   /// The collection position is determined before serialization so it can be embedded in the
   /// record's metadata header. If {@code allocatedPosition} is provided (pre-allocated via
-  /// {@link #allocatePosition}), its position is reused; otherwise a new position is allocated
-  /// via {@link CollectionPositionMapV2#allocate}. In both cases, after serialization the
-  /// position map is updated with the final page location via
-  /// {@link CollectionPositionMapV2#update}.
+  /// {@link #allocatePosition}), its position is reused; otherwise a new position is allocated via
+  /// {@link CollectionPositionMapV2#allocate}. In both cases, after serialization the position map
+  /// is updated with the final page location via {@link CollectionPositionMapV2#update}.
   @Override
   public PhysicalPosition createRecord(
-      final byte[] content,
-      final int recordVersion,
+      @Nonnull final byte[] content,
       final byte recordType,
-      final PhysicalPosition allocatedPosition,
-      final AtomicOperation atomicOperation) {
+      @Nullable final PhysicalPosition allocatedPosition,
+      @Nonnull final AtomicOperation atomicOperation) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
           acquireExclusiveLock();
           try {
-            // Determine the collection position before serialization so it can be
-            // embedded in the record's metadata header.
-            final long collectionPosition;
-            if (allocatedPosition != null) {
-              collectionPosition = allocatedPosition.collectionPosition;
-            } else {
-              collectionPosition = collectionPositionMap.allocate(atomicOperation);
-            }
-            assert collectionPosition >= 0;
-
-            final var result =
-                serializeRecord(
-                    content,
-                    calculateCollectionEntrySize(content.length),
-                    recordType,
-                    recordVersion,
-                    collectionPosition,
-                    -1,
-                    atomicOperation,
-                    entrySize -> findNewPageToWrite(atomicOperation, entrySize),
-                    page -> {
-                      final var cacheEntry = page.getCacheEntry();
-                      try {
-                        cacheEntry.close();
-                      } catch (final IOException e) {
-                        throw BaseException.wrapException(
-                            new PaginatedCollectionException(storageName,
-                                "Can not store the record",
-                                this), e, storageName);
-                      }
-                    });
-
-            final var nextPageIndex = result[0];
-            final var nextPageOffset = result[1];
-            assert result[2] == 0;
-
-            updateCollectionState(1, content.length, atomicOperation);
-
-            // Both pre-allocated and freshly allocated positions use update() here:
-            // allocate() reserves a slot without page coordinates; update() fills them in.
-            collectionPositionMap.update(
-                collectionPosition,
-                new CollectionPositionMapBucket.PositionEntry(
-                    nextPageIndex, nextPageOffset, recordVersion),
+            return doCreateRecord(content, recordType, allocatedPosition,
                 atomicOperation);
-            return createPhysicalPosition(recordType, collectionPosition, recordVersion);
           } finally {
             releaseExclusiveLock();
           }
         });
   }
 
+  /// Creates a new record in the collection with the given content.
+  ///
+  /// This method handles the actual record creation logic, including serialization, page
+  /// allocation, and updating the collection position map.
+  ///
+  /// @param content           the binary content of the record
+  /// @param recordType        the type identifier for the record
+  /// @param allocatedPosition if not null, the pre-allocated position to use; otherwise a new
+  ///                          position will be allocated
+  /// @param atomicOperation   the atomic operation context
+  /// @return the physical position of the created record
+  /// @throws IOException if an I/O error occurs during record creation
+  private @Nonnull PhysicalPosition doCreateRecord(@Nonnull byte[] content,
+      byte recordType, @Nullable PhysicalPosition allocatedPosition,
+      @Nonnull AtomicOperation atomicOperation)
+      throws IOException {
+    var newRecordVersion = atomicOperation.getCommitTs();
+
+    final long collectionPosition;
+    if (allocatedPosition != null) {
+      collectionPosition = allocatedPosition.collectionPosition;
+    } else {
+      collectionPosition = collectionPositionMap.allocate(atomicOperation);
+    }
+
+    final var result =
+        serializeRecord(
+            content,
+            calculateCollectionEntrySize(content.length),
+            recordType,
+            newRecordVersion,
+            collectionPosition,
+            -1,
+            atomicOperation,
+            entrySize -> findNewPageToWrite(atomicOperation, entrySize),
+            page -> {
+              final var cacheEntry = page.getCacheEntry();
+              try {
+                cacheEntry.close();
+              } catch (final IOException e) {
+                throw BaseException.wrapException(
+                    new PaginatedCollectionException(storageName,
+                        "Can not store the record",
+                        this), e, storageName);
+              }
+            });
+
+    final var nextPageIndex = result[0];
+    final var nextPageOffset = result[1];
+    assert result[2] == 0;
+
+    collectionPositionMap.update(
+        collectionPosition,
+        new PositionEntry(nextPageIndex, nextPageOffset, newRecordVersion),
+        atomicOperation);
+
+    return createPhysicalPosition(recordType, collectionPosition, newRecordVersion);
+  }
+
   private CollectionPage findNewPageToWrite(
       final AtomicOperation atomicOperation, final int entrySize) {
     final CollectionPage page;
     try {
-      final var nextPageToWrite = findNextFreePageIndexToWrite(entrySize);
+      final var nextPageToWrite = findNextFreePageIndexToWrite(entrySize, atomicOperation);
 
       final CacheEntry cacheEntry;
       boolean isNew;
@@ -440,33 +440,32 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return page;
   }
 
-  /// Serializes a record entry into one or more page chunks, writing them backward from the
-  /// tail of the entry toward the head. Each chunk is stored on a page obtained from
-  /// {@code pageSupplier}. The chunks form a singly-linked list via next-page pointers: the
-  /// first chunk written (tail) has {@code nextPagePointer = -1}, and each subsequent chunk
-  /// points to the previously written one. The last chunk written becomes the entry point
-  /// (head of the chain, first to be read).
+  /// Serializes a record entry into one or more page chunks, writing them backward from the tail of
+  /// the entry toward the head. Each chunk is stored on a page obtained from {@code pageSupplier}.
+  /// The chunks form a singly-linked list via next-page pointers: the first chunk written (tail)
+  /// has {@code nextPagePointer = -1}, and each subsequent chunk points to the previously written
+  /// one. The last chunk written becomes the entry point (head of the chain, first to be read).
   ///
   /// <p>The entry layout is:
-  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B][actualContent: NB]}.
-  /// Each chunk additionally carries a first-record flag (1B) and a next-page pointer (8B).
+  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B][actualContent: NB]}. Each
+  /// chunk additionally carries a first-record flag (1B) and a next-page pointer (8B).
   ///
-  /// @param content        the raw record bytes
-  /// @param len            total entry size (metadata + content), or remaining bytes when
-  ///                       continuing a partially written entry
+  /// @param content            the raw record bytes
+  /// @param len                total entry size (metadata + content), or remaining bytes when
+  ///                           continuing a partially written entry
   /// @param collectionPosition logical position embedded in the metadata header
-  /// @param nextRecordPointer  initial next-page pointer ({@code -1} for a new entry, or a
-  ///                           page pointer when continuing from a previous serialization)
-  /// @param pageSupplier   provides a {@link CollectionPage} with at least the requested
-  ///                       free space; may return {@code null} if no page is available
-  /// @param pagePostProcessor called after each chunk is written (typically closes the page)
+  /// @param nextRecordPointer  initial next-page pointer ({@code -1} for a new entry, or a page
+  ///                           pointer when continuing from a previous serialization)
+  /// @param pageSupplier       provides a {@link CollectionPage} with at least the requested free
+  ///                           space; may return {@code null} if no page is available
+  /// @param pagePostProcessor  called after each chunk is written (typically closes the page)
   /// @return {@code int[3]}: {@code [pageIndex, pageOffset, remainingBytes]}. When
-  ///         {@code remainingBytes > 0}, the caller must continue serialization on new pages
+  /// {@code remainingBytes > 0}, the caller must continue serialization on new pages
   private int[] serializeRecord(
       final byte[] content,
       final int len,
       final byte recordType,
-      final int recordVersion,
+      final long recordVersion,
       final long collectionPosition,
       final long nextRecordPointer,
       final AtomicOperation atomicOperation,
@@ -534,28 +533,28 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   /// Builds a single chunk of a serialized record entry. The chunk layout is:
-  /// {@code [data] [firstRecordFlag: 1B] [nextPagePointer: 8B]}, where {@code data} contains
-  /// a portion of the entry bytes (content and/or metadata) written from the end backward.
+  /// {@code [data] [firstRecordFlag: 1B] [nextPagePointer: 8B]}, where {@code data} contains a
+  /// portion of the entry bytes (content and/or metadata) written from the end backward.
   ///
   /// <p>The entry data is written in reverse order across chunks: the last bytes of actual
-  /// content are written first (in the tail chunk), and the metadata header is written last
-  /// (in the entry-point chunk). This reverse order, combined with the forward read-order
-  /// concatenation of chunk data, reassembles the original entry layout:
+  /// content are written first (in the tail chunk), and the metadata header is written last (in the
+  /// entry-point chunk). This reverse order, combined with the forward read-order concatenation of
+  /// chunk data, reassembles the original entry layout:
   /// {@code [recordType][contentSize][collectionPosition][actualContent]}.
   ///
   /// <p><b>Metadata split prevention:</b> if the remaining metadata does not fully fit in the
-  /// available space after content, the chunk is shrunk to hold only the content portion.
-  /// This guarantees that metadata is never split across two chunks, which would corrupt the
-  /// reassembled byte order during reading (since chunks are written backward but read forward).
+  /// available space after content, the chunk is shrunk to hold only the content portion. This
+  /// guarantees that metadata is never split across two chunks, which would corrupt the reassembled
+  /// byte order during reading (since chunks are written backward but read forward).
   ///
   /// <p>The first-record flag is set to 1 only on the entry-point chunk (the chunk that
   /// completes the entire entry, i.e., {@code written == bytesToWrite}).
   ///
-  /// @param recordContent     the raw record bytes (actual content only, no metadata)
-  /// @param chunkSize         maximum size of the chunk byte array to produce
-  /// @param bytesToWrite      total remaining entry bytes (metadata + content) to be written
-  /// @param nextPagePointer   pointer to the next chunk in the chain ({@code -1} for the tail)
-  /// @param recordType        record type byte stored in the metadata header
+  /// @param recordContent      the raw record bytes (actual content only, no metadata)
+  /// @param chunkSize          maximum size of the chunk byte array to produce
+  /// @param bytesToWrite       total remaining entry bytes (metadata + content) to be written
+  /// @param nextPagePointer    pointer to the next chunk in the chain ({@code -1} for the tail)
+  /// @param recordType         record type byte stored in the metadata header
   /// @param collectionPosition logical position stored in the metadata header
   /// @return a pair of (chunk byte array, number of entry bytes written in this chunk)
   private static RawPairObjectInteger<byte[]> serializeEntryChunk(
@@ -568,8 +567,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var chunk = new byte[chunkSize];
     var offset = chunkSize - LongSerializer.LONG_SIZE;
 
-    // Write next-page pointer at the end of the chunk.
-    LongSerializer.INSTANCE.serializeNative(nextPagePointer, chunk, offset);
+    LongSerializer.serializeNative(nextPagePointer, chunk, offset);
 
     var written = 0;
     // Compute how many actual content bytes remain (total entry bytes minus metadata header).
@@ -606,7 +604,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         metadata[0] = recordType;
         IntegerSerializer.serializeNative(
             recordContent.length, metadata, ByteSerializer.BYTE_SIZE);
-        LongSerializer.INSTANCE.serializeNative(
+        LongSerializer.serializeNative(
             collectionPosition, metadata,
             ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
 
@@ -622,7 +620,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         final var shrunkSize = written + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
         final var shrunkChunk = new byte[shrunkSize];
         System.arraycopy(chunk, offset - written, shrunkChunk, 0, written);
-        LongSerializer.INSTANCE.serializeNative(
+        LongSerializer.serializeNative(
             nextPagePointer, shrunkChunk, shrunkSize - LongSerializer.LONG_SIZE);
         chunk = shrunkChunk;
         firstRecordOffset = written;
@@ -640,7 +638,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return new RawPairObjectInteger<>(chunk, written);
   }
 
-  private int findNextFreePageIndexToWrite(int bytesToWrite) throws IOException {
+  private int findNextFreePageIndexToWrite(int bytesToWrite, AtomicOperation atomicOperation)
+      throws IOException {
     if (bytesToWrite > MAX_ENTRY_SIZE) {
       bytesToWrite = MAX_ENTRY_SIZE;
     }
@@ -653,18 +652,18 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // we will split record by two anyway.
     if (bytesToWrite >= DurablePage.MAX_PAGE_SIZE_BYTES - FreeSpaceMap.NORMALIZATION_INTERVAL) {
       final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
-      pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2);
+      pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation);
 
       return pageIndex;
     }
 
     var chunkSize = calculateChunkSize(bytesToWrite);
-    pageIndex = freeSpaceMap.findFreePage(chunkSize);
+    pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation);
 
     if (pageIndex < 0 && bytesToWrite > MAX_ENTRY_SIZE / 2) {
       final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
       if (halfChunkSize > 0) {
-        pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2);
+        pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation);
       }
     }
 
@@ -677,12 +676,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return contentSize + METADATA_SIZE;
   }
 
-  /// Inverse of {@link #calculateCollectionEntrySize}: strips the metadata header to recover
-  /// the raw content size.
-  private static int calculateContentSizeFromCollectionEntrySize(final int contentSize) {
-    return contentSize - METADATA_SIZE;
-  }
-
   private static int calculateChunkSize(final int entrySize) {
     // entry content + first entry flag + next entry pointer
     return entrySize + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
@@ -690,25 +683,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   @Nonnull
-  public RawBuffer readRecord(final long collectionPosition) throws IOException {
+  public RawBuffer readRecord(final long collectionPosition, AtomicOperation atomicOperation)
+      throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-
-        final var positionEntry =
-            collectionPositionMap.get(collectionPosition, atomicOperation);
-        if (positionEntry == null) {
-          throw new RecordNotFoundException(storageName,
-              new RecordId(id, collectionPosition));
-        }
-        return internalReadRecord(
-            collectionPosition,
-            positionEntry.getPageIndex(),
-            positionEntry.getRecordPosition(),
-            versionToInt(positionEntry.getRecordVersion()),
-            atomicOperation);
+        return doReadRecord(collectionPosition, atomicOperation);
       } finally {
         releaseSharedLock();
       }
@@ -717,21 +698,69 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
   }
 
-  /// Reads and reassembles a record from its chunk chain. Starting from the entry-point chunk
-  /// (identified by {@code pageIndex} / {@code recordPosition}), follows next-page pointers
-  /// until the tail chunk ({@code nextPagePointer == -1}). Each chunk's data portion
-  /// (everything except the first-record flag and next-page pointer) is collected, then
-  /// concatenated in read order to reconstruct the original entry:
-  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B][actualContent: NB]}.
+  /// Reads a record from the collection at the specified position, with tombstone awareness
+  /// for snapshot isolation.
   ///
-  /// <p>After reassembly, the metadata header is parsed and the embedded
-  /// {@code collectionPosition} is verified against the expected value (via assertion).
+  /// The method distinguishes three cases based on the position map entry status:
+  /// 1. NOT_EXISTENT/ALLOCATED: the entry was never written -> RecordNotFoundException
+  /// 2. REMOVED (tombstone): check if the deletion is visible to the current transaction.
+  ///    If visible, the record is deleted -> RecordNotFoundException.
+  ///    If not visible, read the old version from the history snapshot index.
+  /// 3. FILLED: proceed with normal read (existing behavior with version visibility checks).
+  ///
+  /// @param collectionPosition the logical position of the record in the collection
+  /// @param atomicOperation    the atomic operation context
+  /// @return the raw buffer containing the record data, version, and type
+  /// @throws IOException             if an I/O error occurs during record reading
+  /// @throws RecordNotFoundException if the record does not exist at the specified position
+  private @Nonnull RawBuffer doReadRecord(long collectionPosition,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    var entryWithStatus =
+        collectionPositionMap.getWithStatus(collectionPosition, atomicOperation);
+    var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+    var commitTs = atomicOperation.getCommitTsUnsafe();
+    var status = entryWithStatus.status();
+
+    // 1. Entry does not exist at all
+    if (status == CollectionPositionMapBucket.NOT_EXISTENT
+        || status == CollectionPositionMapBucket.ALLOCATED) {
+      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+    }
+
+    // 2. Entry is a tombstone - check deletion visibility
+    if (status == CollectionPositionMapBucket.REMOVED) {
+      var deletionVersion = entryWithStatus.entry().getRecordVersion();
+      if (isRecordVersionVisible(deletionVersion, commitTs, snapshot)) {
+        // Deletion visible -> record is deleted from our perspective
+        throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+      }
+      // Deletion not visible -> read old version from history
+      var historicalEntry = findHistoricalPositionEntry(
+          collectionPosition, commitTs, snapshot);
+      if (historicalEntry == null) {
+        throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+      }
+      return readRecordFromHistoricalEntry(collectionPosition, historicalEntry.getPageIndex(),
+          historicalEntry.getRecordPosition(), historicalEntry.getRecordVersion(),
+          atomicOperation);
+    }
+
+    // 3. FILLED - use current entry (existing behavior with version visibility checks)
+    var positionEntry = entryWithStatus.entry();
+    return internalReadRecord(
+        collectionPosition,
+        positionEntry.getPageIndex(),
+        positionEntry.getRecordPosition(),
+        positionEntry.getRecordVersion(),
+        atomicOperation);
+  }
+
   @Nonnull
   private RawBuffer internalReadRecord(
       final long collectionPosition,
       long pageIndex,
       int recordPosition,
-      final int recordVersion,
+      long recordVersion,
       final AtomicOperation atomicOperation)
       throws IOException {
 
@@ -740,11 +769,21 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
     long nextPagePointer;
     var firstEntry = true;
+    var isRecordVisible = false;
+    var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+    var operationTs = atomicOperation.getCommitTsUnsafe();
+
     do {
       try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
         final var localPage = new CollectionPage(cacheEntry);
-        assert !firstEntry || assertVersionConsistency(
-            recordVersion, localPage.getRecordVersion(recordPosition));
+        if (firstEntry) {
+          recordVersion = localPage.getRecordVersion(recordPosition);
+          isRecordVisible = isRecordVersionVisible(recordVersion, operationTs, snapshot);
+
+          if (!isRecordVisible) {
+            break;
+          }
+        }
 
         if (localPage.isDeleted(recordPosition)) {
           if (recordChunks.isEmpty()) {
@@ -771,7 +810,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
         recordChunks.add(content);
         nextPagePointer =
-            LongSerializer.INSTANCE.deserializeNative(
+            LongSerializer.deserializeNative(
                 content, content.length - LongSerializer.LONG_SIZE);
         contentSize += content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
 
@@ -781,6 +820,95 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       pageIndex = getPageIndex(nextPagePointer);
       recordPosition = getRecordPosition(nextPagePointer);
     } while (nextPagePointer >= 0);
+
+    if (!isRecordVisible) {
+      var historicalPositionEntry = findHistoricalPositionEntry(collectionPosition, operationTs,
+          snapshot);
+
+      if (historicalPositionEntry != null) {
+        return readRecordFromHistoricalEntry(
+            collectionPosition,
+            historicalPositionEntry.getPageIndex(),
+            historicalPositionEntry.getRecordPosition(),
+            historicalPositionEntry.getRecordVersion(),
+            atomicOperation);
+      }
+
+      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+    }
+
+    return parseRecordContent(collectionPosition, recordVersion, recordChunks, contentSize);
+  }
+
+  /// Reads record data from a known-valid historical position without re-checking version
+  /// visibility. Used when the caller has already determined which historical version is
+  /// appropriate (e.g., via {@link #findHistoricalPositionEntry} or from a REMOVED tombstone).
+  /// The page-level version may have been updated in-place by {@link #updateRecordVersion},
+  /// so the version from the historical position entry is used directly.
+  @Nonnull
+  private RawBuffer readRecordFromHistoricalEntry(
+      final long collectionPosition,
+      long pageIndex,
+      int recordPosition,
+      final long recordVersion,
+      final AtomicOperation atomicOperation)
+      throws IOException {
+
+    final List<byte[]> recordChunks = new ArrayList<>(2);
+    var contentSize = 0;
+    long nextPagePointer;
+    var firstEntry = true;
+
+    do {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var localPage = new CollectionPage(cacheEntry);
+
+        if (localPage.isDeleted(recordPosition)) {
+          if (recordChunks.isEmpty()) {
+            throw new RecordNotFoundException(storageName,
+                new RecordId(id, collectionPosition));
+          } else {
+            throw new PaginatedCollectionException(storageName,
+                "Content of record " + new RecordId(id, collectionPosition)
+                    + " was broken", this);
+          }
+        }
+
+        final var content =
+            localPage.getRecordBinaryValue(
+                recordPosition, 0, localPage.getRecordSize(recordPosition));
+        assert content != null;
+
+        if (firstEntry
+            && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
+            == 0) {
+          throw new RecordNotFoundException(storageName,
+              new RecordId(id, collectionPosition));
+        }
+
+        recordChunks.add(content);
+        nextPagePointer =
+            LongSerializer.deserializeNative(
+                content, content.length - LongSerializer.LONG_SIZE);
+        contentSize += content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
+
+        firstEntry = false;
+      }
+
+      pageIndex = getPageIndex(nextPagePointer);
+      recordPosition = getRecordPosition(nextPagePointer);
+    } while (nextPagePointer >= 0);
+
+    return parseRecordContent(collectionPosition, recordVersion, recordChunks, contentSize);
+  }
+
+  /// Parses the metadata header and extracts the record content from assembled chunks.
+  @Nonnull
+  private RawBuffer parseRecordContent(
+      long collectionPosition,
+      long recordVersion,
+      List<byte[]> recordChunks,
+      int contentSize) {
 
     var fullContent = convertRecordChunksToSingleChunk(recordChunks, contentSize);
 
@@ -802,7 +930,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         : "Negative content size in record #" + id + ":" + collectionPosition;
     // Verify that the collection position embedded in the record matches the expected one.
     assert assertPositionConsistency(collectionPosition,
-        LongSerializer.INSTANCE.deserializeNative(fullContent, fullContentPosition));
+        LongSerializer.deserializeNative(fullContent, fullContentPosition));
     fullContentPosition += LongSerializer.LONG_SIZE;
 
     // Extract the actual record content that follows the metadata header.
@@ -813,6 +941,49 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         Arrays.copyOfRange(fullContent, fullContentPosition, fullContentPosition + readContentSize);
 
     return new RawBuffer(recordContent, recordVersion, recordType);
+  }
+
+  private static boolean isRecordVersionVisible(long recordVersion, long currentOperationTs,
+      @Nonnull AtomicOperationsSnapshot snapshot) {
+    //we always read what we wrote
+    if (recordVersion == currentOperationTs) {
+      return true;
+    }
+
+    return snapshot.isEntryVisible(recordVersion);
+  }
+
+  @Nullable
+  private PositionEntry findHistoricalPositionEntry(long collectionPosition,
+      long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot) {
+
+    // Search historical entries for this collection position in reverse version order.
+    // Upper bound: max(currentOperationTs, maxActiveOperationTs). Since the assertion
+    // guarantees currentOperationTs >= maxActiveOperationTs when >= 0, this simplifies to
+    // currentOperationTs when assigned, maxActiveOperationTs otherwise. Versions at or
+    // above this bound are never visible per snapshot isolation rules.
+    // Lower bound: Long.MIN_VALUE to cover all possible historical versions.
+    // The subMap is scoped to the exact collection position to avoid spilling into
+    // adjacent positions.
+    var maxActiveOperationTs = snapshot.maxActiveOperationTs();
+
+    assert currentOperationTs == -1 || currentOperationTs >= maxActiveOperationTs;
+
+    var searchBound = currentOperationTs >= 0
+        ? currentOperationTs : maxActiveOperationTs;
+    var lowerKey = new CompositeKey(collectionPosition, Long.MIN_VALUE);
+    var upperKey = new CompositeKey(collectionPosition, searchBound);
+    var versionedChain =
+        snapshotIndex.subMap(lowerKey, true, upperKey, true)
+            .reversed().entrySet();
+    for (var versionedEntry : versionedChain) {
+      var version = (Long) versionedEntry.getKey().getKeys().get(1);
+      if (version == currentOperationTs || snapshot.isEntryVisible(version)) {
+        return versionedEntry.getValue();
+      }
+    }
+
+    return null;
   }
 
   @Override
@@ -828,71 +999,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               return false;
             }
 
-            var pageIndex = positionEntry.getPageIndex();
-            var recordPosition = positionEntry.getRecordPosition();
+            deleteRecordWithPreservingPreviousVersion(atomicOperation, collectionPosition,
+                positionEntry);
 
-            long nextPagePointer;
-            var removedContentSize = 0;
-            int removeRecordSize;
-
-            do {
-              var cacheEntryReleased = false;
-              final int maxRecordSize;
-              var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-              try {
-                var localPage = new CollectionPage(cacheEntry);
-
-                if (localPage.isDeleted(recordPosition)) {
-                  if (removedContentSize == 0) {
-                    cacheEntryReleased = true;
-                    cacheEntry.close();
-                    return false;
-                  } else {
-                    throw new PaginatedCollectionException(storageName,
-                        "Content of record " + new RecordId(id, collectionPosition)
-                            + " was broken",
-                        this);
-                  }
-                } else if (removedContentSize == 0) {
-                  cacheEntry.close();
-
-                  cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-
-                  localPage = new CollectionPage(cacheEntry);
-                }
-
-                final var initialFreeSpace = localPage.getFreeSpace();
-                final var content = localPage.deleteRecord(recordPosition, true);
-                atomicOperation.addDeletedRecordPosition(
-                    id, cacheEntry.getPageIndex(), recordPosition);
-                assert content != null;
-
-                // On the first chunk (entry point), verify the embedded collection position.
-                assert removedContentSize != 0
-                    || assertFirstChunkPositionConsistency(content, collectionPosition);
-
-                removeRecordSize = calculateContentSizeFromCollectionEntrySize(content.length);
-
-                maxRecordSize = localPage.getMaxRecordSize();
-                removedContentSize += localPage.getFreeSpace() - initialFreeSpace;
-                nextPagePointer =
-                    LongSerializer.INSTANCE.deserializeNative(
-                        content, content.length - LongSerializer.LONG_SIZE);
-              } finally {
-                if (!cacheEntryReleased) {
-                  cacheEntry.close();
-                }
-              }
-
-              freeSpaceMap.updatePageFreeSpace(atomicOperation, (int) pageIndex, maxRecordSize);
-
-              pageIndex = getPageIndex(nextPagePointer);
-              recordPosition = getRecordPosition(nextPagePointer);
-            } while (nextPagePointer >= 0);
-
-            updateCollectionState(-1, -removeRecordSize, atomicOperation);
-
-            collectionPositionMap.remove(collectionPosition, atomicOperation);
             return true;
           } finally {
             releaseExclusiveLock();
@@ -900,15 +1009,81 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
-  /// Updates an existing record in-place. The old record's chunk chain is deleted and its
-  /// pages are reused for the new content where possible. If the old pages do not provide
-  /// enough space, additional pages are allocated. The same {@code collectionPosition} is
-  /// embedded in the new record's metadata header.
+  private boolean deleteRecord(AtomicOperation atomicOperation, long collectionPosition,
+      PositionEntry positionEntry) throws IOException {
+    var pageIndex = positionEntry.getPageIndex();
+    var recordPosition = positionEntry.getRecordPosition();
+
+    long nextPagePointer;
+    var removedContentSize = 0;
+    do {
+      var cacheEntryReleased = false;
+      final int maxRecordSize;
+      var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+      try {
+        var localPage = new CollectionPage(cacheEntry);
+
+        if (localPage.isDeleted(recordPosition)) {
+          if (removedContentSize == 0) {
+            cacheEntryReleased = true;
+            cacheEntry.close();
+            return false;
+          } else {
+            throw new PaginatedCollectionException(storageName,
+                "Content of record " + new RecordId(id, collectionPosition)
+                    + " was broken",
+                this);
+          }
+        } else if (removedContentSize == 0) {
+          cacheEntry.close();
+
+          cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+
+          localPage = new CollectionPage(cacheEntry);
+        }
+
+        final var initialFreeSpace = localPage.getFreeSpace();
+        final var content = localPage.deleteRecord(recordPosition, true);
+        atomicOperation.addDeletedRecordPosition(
+            id, cacheEntry.getPageIndex(), recordPosition);
+        assert content != null;
+
+        maxRecordSize = localPage.getMaxRecordSize();
+        removedContentSize += localPage.getFreeSpace() - initialFreeSpace;
+        nextPagePointer =
+            LongSerializer.deserializeNative(
+                content, content.length - LongSerializer.LONG_SIZE);
+      } finally {
+        if (!cacheEntryReleased) {
+          cacheEntry.close();
+        }
+      }
+
+      freeSpaceMap.updatePageFreeSpace(atomicOperation, (int) pageIndex, maxRecordSize);
+
+      pageIndex = getPageIndex(nextPagePointer);
+      recordPosition = getRecordPosition(nextPagePointer);
+    } while (nextPagePointer >= 0);
+
+    collectionPositionMap.remove(collectionPosition, atomicOperation.getCommitTs(),
+        atomicOperation);
+    return true;
+  }
+
+  private void deleteRecordWithPreservingPreviousVersion(AtomicOperation atomicOperation,
+      long collectionPosition,
+      PositionEntry positionEntry) throws IOException {
+
+    var recordVersion = atomicOperation.getCommitTs();
+    keepPreviousRecordVersion(collectionPosition, recordVersion, atomicOperation, positionEntry);
+
+    collectionPositionMap.remove(collectionPosition, recordVersion, atomicOperation);
+  }
+
   @Override
   public void updateRecord(
       final long collectionPosition,
       final byte[] content,
-      final int recordVersion,
       final byte recordType,
       final AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
@@ -916,137 +1091,202 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            final var positionEntry =
-                collectionPositionMap.get(collectionPosition, atomicOperation);
-            if (positionEntry == null) {
-              throw new RecordNotFoundException(storageName,
-                  new RecordId(id, collectionPosition));
-            }
-
-            // Walk the old record's chunk chain, deleting each chunk and collecting
-            // the pages for reuse during serialization of the new content.
-            var oldContentSize = 0;
-            var nextPageIndex = (int) positionEntry.getPageIndex();
-            var nextRecordPosition = positionEntry.getRecordPosition();
-
-            var nextPagePointer = createPagePointer(nextPageIndex, nextRecordPosition);
-
-            var storedPages = new ArrayList<CollectionPage>();
-
-            while (nextPagePointer >= 0) {
-              final var cacheEntry =
-                  loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
-              final var page = new CollectionPage(cacheEntry);
-              final var deletedRecord = page.deleteRecord(nextRecordPosition, true);
-              assert deletedRecord != null;
-              oldContentSize = calculateContentSizeFromCollectionEntrySize(deletedRecord.length);
-              nextPagePointer =
-                  LongSerializer.INSTANCE.deserializeNative(
-                      deletedRecord, deletedRecord.length - LongSerializer.LONG_SIZE);
-
-              nextPageIndex = (int) getPageIndex(nextPagePointer);
-              nextRecordPosition = getRecordPosition(nextPagePointer);
-
-              storedPages.add(page);
-            }
-
-            // Serialize the new content, first trying to reuse the old record's pages
-            // (iterated in reverse to match the backward serialization order).
-            final var reverseIterator =
-                storedPages.listIterator(storedPages.size());
-            var result =
-                serializeRecord(
-                    content,
-                    calculateCollectionEntrySize(content.length),
-                    recordType,
-                    recordVersion,
-                    collectionPosition,
-                    -1,
-                    atomicOperation,
-                    entrySize -> {
-                      if (reverseIterator.hasPrevious()) {
-                        return reverseIterator.previous();
-                      }
-                      //noinspection ReturnOfNull
-                      return null;
-                    },
-                    page -> {
-                      final var cacheEntry = page.getCacheEntry();
-                      try {
-                        cacheEntry.close();
-                      } catch (final IOException e) {
-                        throw BaseException.wrapException(
-                            new PaginatedCollectionException(storageName,
-                                "Can not update record with rid "
-                                    + new RecordId(id, collectionPosition), this),
-                            e, storageName);
-                      }
-                    });
-
-            nextPageIndex = result[0];
-            nextRecordPosition = result[1];
-
-            while (reverseIterator.hasPrevious()) {
-              final var page = reverseIterator.previous();
-              page.getCacheEntry().close();
-            }
-
-            // If the reused pages did not have enough space for the entire new record,
-            // continue serialization on freshly allocated pages, chaining from the
-            // previously written chunks.
-            if (result[2] != 0) {
-              result =
-                  serializeRecord(
-                      content,
-                      result[2],
-                      recordType,
-                      recordVersion,
-                      collectionPosition,
-                      createPagePointer(nextPageIndex, nextRecordPosition),
-                      atomicOperation,
-                      entrySize -> findNewPageToWrite(atomicOperation, entrySize),
-                      page -> {
-                        final var cacheEntry = page.getCacheEntry();
-                        try {
-                          cacheEntry.close();
-                        } catch (final IOException e) {
-                          throw BaseException.wrapException(
-                              new PaginatedCollectionException(storageName,
-                                  "Can not update record with rid "
-                                      + new RecordId(id, collectionPosition), this),
-                              e, storageName);
-                        }
-                      });
-
-              nextPageIndex = result[0];
-              nextRecordPosition = result[1];
-            }
-
-            assert result[2] == 0;
-            updateCollectionState(0, content.length - oldContentSize, atomicOperation);
-
-            // Update the position map only if the entry-point location or version changed.
-            // If the new record landed on the same page/offset, a version-only update
-            // avoids rewriting the full position entry.
-            if (nextPageIndex != positionEntry.getPageIndex()
-                || nextRecordPosition != positionEntry.getRecordPosition()) {
-              collectionPositionMap.update(
-                  collectionPosition,
-                  new CollectionPositionMapBucket.PositionEntry(
-                      nextPageIndex, nextRecordPosition, recordVersion),
-                  atomicOperation);
-            } else if (recordVersion != versionToInt(positionEntry.getRecordVersion())) {
-              collectionPositionMap.updateVersion(
-                  collectionPosition, recordVersion, atomicOperation);
-            }
+            doUpdateRecord(collectionPosition, content, recordType, atomicOperation);
           } finally {
             releaseExclusiveLock();
           }
         });
   }
 
+  private void doUpdateRecord(long collectionPosition, @Nonnull byte[] content,
+      byte recordType, @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var positionEntry = collectionPositionMap.get(collectionPosition, atomicOperation);
+    if (positionEntry == null) {
+      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+    }
+
+    updateRecordWithPreservingPreviousVersion(collectionPosition, content,
+        recordType, atomicOperation, positionEntry);
+  }
+
+  private void updateRecord(long collectionPosition, byte[] content,
+      byte recordType, AtomicOperation atomicOperation,
+      PositionEntry positionEntry) throws IOException {
+    var nextPageIndex = (int) positionEntry.getPageIndex();
+    var nextRecordPosition = positionEntry.getRecordPosition();
+
+    var nextPagePointer = createPagePointer(nextPageIndex, nextRecordPosition);
+
+    var storedPages = new ArrayList<CollectionPage>();
+    var recordVersion = atomicOperation.getCommitTs();
+
+    while (nextPagePointer >= 0) {
+      final var cacheEntry =
+          loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
+      final var page = new CollectionPage(cacheEntry);
+      final var deletedRecord = page.deleteRecord(nextRecordPosition, true);
+      assert deletedRecord != null;
+      nextPagePointer =
+          LongSerializer.deserializeNative(
+              deletedRecord, deletedRecord.length - LongSerializer.LONG_SIZE);
+
+      nextPageIndex = (int) getPageIndex(nextPagePointer);
+      nextRecordPosition = getRecordPosition(nextPagePointer);
+
+      storedPages.add(page);
+    }
+
+    final var reverseIterator =
+        storedPages.listIterator(storedPages.size());
+    var result =
+        serializeRecord(
+            content,
+            calculateCollectionEntrySize(content.length),
+            recordType,
+            recordVersion,
+            collectionPosition,
+            -1,
+            atomicOperation,
+            entrySize -> {
+              if (reverseIterator.hasPrevious()) {
+                return reverseIterator.previous();
+              }
+              //noinspection ReturnOfNull
+              return null;
+            },
+            page -> {
+              final var cacheEntry = page.getCacheEntry();
+              try {
+                cacheEntry.close();
+              } catch (final IOException e) {
+                throw BaseException.wrapException(
+                    new PaginatedCollectionException(storageName,
+                        "Can not update record with rid "
+                            + new RecordId(id, collectionPosition), this),
+                    e, storageName);
+              }
+            });
+
+    nextPageIndex = result[0];
+    nextRecordPosition = result[1];
+
+    while (reverseIterator.hasPrevious()) {
+      final var page = reverseIterator.previous();
+      page.getCacheEntry().close();
+    }
+
+    if (result[2] != 0) {
+      result =
+          serializeRecord(
+              content,
+              result[2],
+              recordType,
+              recordVersion,
+              collectionPosition,
+              createPagePointer(nextPageIndex, nextRecordPosition),
+              atomicOperation,
+              entrySize -> findNewPageToWrite(atomicOperation, entrySize),
+              page -> {
+                final var cacheEntry = page.getCacheEntry();
+                try {
+                  cacheEntry.close();
+                } catch (final IOException e) {
+                  throw BaseException.wrapException(
+                      new PaginatedCollectionException(storageName,
+                          "Can not update record with rid "
+                              + new RecordId(id, collectionPosition), this),
+                      e, storageName);
+                }
+              });
+
+      nextPageIndex = result[0];
+      nextRecordPosition = result[1];
+    }
+
+    assert result[2] == 0;
+
+    if (nextPageIndex != positionEntry.getPageIndex()
+        || nextRecordPosition != positionEntry.getRecordPosition()) {
+      collectionPositionMap.update(
+          collectionPosition,
+          new PositionEntry(nextPageIndex, nextRecordPosition, recordVersion),
+          atomicOperation);
+    } else if (recordVersion != positionEntry.getRecordVersion()) {
+      collectionPositionMap.updateVersion(
+          collectionPosition, recordVersion, atomicOperation);
+    }
+  }
+
+  private void updateRecordWithPreservingPreviousVersion(long collectionPosition, byte[] content,
+      byte recordType, AtomicOperation atomicOperation,
+      PositionEntry positionEntry) throws IOException {
+    var newRecordVersion = atomicOperation.getCommitTs();
+    keepPreviousRecordVersion(collectionPosition, newRecordVersion, atomicOperation, positionEntry);
+
+    final var result =
+        serializeRecord(
+            content,
+            calculateCollectionEntrySize(content.length),
+            recordType,
+            newRecordVersion,
+            collectionPosition,
+            -1,
+            atomicOperation,
+            entrySize -> findNewPageToWrite(atomicOperation, entrySize),
+            page -> {
+              final var cacheEntry = page.getCacheEntry();
+              try {
+                cacheEntry.close();
+              } catch (final IOException e) {
+                throw BaseException.wrapException(
+                    new PaginatedCollectionException(storageName,
+                        "Can not update record with rid "
+                            + new RecordId(id, collectionPosition), this),
+                    e, storageName);
+              }
+            });
+
+    final var nextPageIndex = result[0];
+    final var nextRecordPosition = result[1];
+
+    assert result[2] == 0;
+
+    if (nextPageIndex != positionEntry.getPageIndex()
+        || nextRecordPosition != positionEntry.getRecordPosition()) {
+      collectionPositionMap.update(
+          collectionPosition,
+          new PositionEntry(nextPageIndex, nextRecordPosition, newRecordVersion),
+          atomicOperation);
+    } else if (newRecordVersion != positionEntry.getRecordVersion()) {
+      collectionPositionMap.updateVersion(
+          collectionPosition, newRecordVersion, atomicOperation);
+    }
+  }
+
+  private void keepPreviousRecordVersion(long collectionPosition, long newRecordVersion,
+      AtomicOperation atomicOperation, PositionEntry positionEntry) throws IOException {
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId,
+        positionEntry.getPageIndex())) {
+      final var localPage = new CollectionPage(cacheEntry);
+      var oldRecordVersion = localPage.getRecordVersion(positionEntry.getRecordPosition());
+      if (oldRecordVersion == newRecordVersion) {
+        //we overwrite our own version, no need to preserve it
+        return;
+      }
+
+      var versionedRecord = new CompositeKey(collectionPosition, oldRecordVersion);
+      snapshotIndex.put(versionedRecord, positionEntry);
+
+      // The versionedRecord should be kept until the presence of active transactions
+      // started before the new record version is added - recordVersion
+      // Transaction keeps the state when it was started in atomicOperationTableState
+      var visibleRecordVersion = new CompositeKey(newRecordVersion, collectionPosition);
+      visibleSnapshotIndex.put(visibleRecordVersion, versionedRecord);
+    }
+  }
+
   @Override
-  public void updateRecordVersion(long collectionPosition, int recordVersion,
+  public void updateRecordVersion(long collectionPosition,
       AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
@@ -1062,6 +1302,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
             final var pageIndex = positionEntry.getPageIndex();
             final var recordPosition = positionEntry.getRecordPosition();
+            final var newRecordVersion = atomicOperation.getCommitTs();
+
+            keepPreviousRecordVersion(
+                collectionPosition, newRecordVersion, atomicOperation, positionEntry);
 
             try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex,
                 true)) {
@@ -1073,13 +1317,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                     new RecordId(id, collectionPosition));
               }
 
-              if (!localPage.setRecordVersion(recordPosition, recordVersion)) {
+              if (!localPage.setRecordVersion(recordPosition, versionToInt(newRecordVersion))) {
                 throw new RecordNotFoundException(storageName,
                     new RecordId(id, collectionPosition));
               }
 
               collectionPositionMap.updateVersion(
-                  collectionPosition, recordVersion, atomicOperation);
+                  collectionPosition, newRecordVersion, atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -1094,13 +1338,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Nullable
   @Override
-  public PhysicalPosition getPhysicalPosition(final PhysicalPosition position)
+  public PhysicalPosition getPhysicalPosition(final PhysicalPosition position,
+      AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPosition = position.collectionPosition;
         final var positionEntry =
             collectionPositionMap.get(collectionPosition, atomicOperation);
@@ -1128,7 +1372,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           physicalPosition.recordSize = -1;
 
           physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
-          physicalPosition.recordVersion = versionToInt(positionEntry.getRecordVersion());
+          physicalPosition.recordVersion = positionEntry.getRecordVersion();
           physicalPosition.collectionPosition = position.collectionPosition;
 
           assert assertVersionConsistency(
@@ -1146,12 +1390,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public boolean exists(long collectionPosition) throws IOException {
+  public boolean exists(long collectionPosition, AtomicOperation atomicOperation)
+      throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var positionEntry =
             collectionPositionMap.get(collectionPosition, atomicOperation);
 
@@ -1175,23 +1419,65 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public long getEntries() {
+  public long getEntries(AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-        try (final var pinnedStateEntry =
-            loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
-          return new PaginatedCollectionStateV2(pinnedStateEntry).getSize();
-        }
+        var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+        var commitTs = atomicOperation.getCommitTsUnsafe();
+
+        var count = new long[]{0};
+        // Single pass over all position map entries (FILLED and REMOVED).
+        // FILLED entries are counted when their version is visible.
+        // REMOVED entries (tombstones) are counted only when the deletion
+        // is NOT visible (i.e., the record was deleted after the reader's
+        // snapshot started) AND a visible historical version exists.
+        collectionPositionMap.forEachEntry(atomicOperation,
+            (position, status, recordVersion) -> {
+              if (status == CollectionPositionMapBucket.FILLED) {
+                if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
+                  count[0]++;
+                } else {
+                  var historical = findHistoricalPositionEntry(
+                      position, commitTs, snapshot);
+                  if (historical != null) {
+                    count[0]++;
+                  }
+                }
+              } else {
+                // REMOVED: skip positions deleted by the current transaction
+                if (commitTs >= 0
+                    && visibleSnapshotIndex.containsKey(
+                    new CompositeKey(commitTs, position))) {
+                  return;
+                }
+
+                // For REMOVED entries, recordVersion holds the deletion timestamp.
+                // If the deletion is visible to the reader, the record is gone.
+                if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
+                  return;
+                }
+
+                // The deletion is not yet visible - check if there's a historical
+                // version that the reader can see.
+                var historical = findHistoricalPositionEntry(
+                    position, commitTs, snapshot);
+                if (historical != null) {
+                  count[0]++;
+                }
+              }
+            });
+
+        return count[0];
       } finally {
         releaseSharedLock();
       }
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
           new PaginatedCollectionException(storageName,
-              "Error during retrieval of size of '" + getName() + "' collection", this),
+              "Error during retrieval of size of '"
+                  + getName() + "' collection", this),
           ioe, storageName);
     } finally {
       atomicOperationsManager.releaseReadLock(this);
@@ -1199,12 +1485,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public long getFirstPosition() throws IOException {
+  public long getFirstPosition(AtomicOperation atomicOperation) throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         return collectionPositionMap.getFirstPosition(atomicOperation);
       } finally {
         releaseSharedLock();
@@ -1215,29 +1500,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public long getLastPosition() throws IOException {
+  public long getLastPosition(AtomicOperation atomicOperation) throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         return collectionPositionMap.getLastPosition(atomicOperation);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
-  }
-
-  @Override
-  public long getNextFreePosition() throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-        return collectionPositionMap.getNextPosition(atomicOperation);
       } finally {
         releaseSharedLock();
       }
@@ -1291,36 +1559,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public long getRecordsSize() throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-
-        try (final var pinnedStateEntry =
-            loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
-          return new PaginatedCollectionStateV2(pinnedStateEntry).getRecordsSize();
-        }
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
-  }
-
-  @Override
-  public PhysicalPosition[] higherPositions(final PhysicalPosition position, int limit)
+  public PhysicalPosition[] higherPositions(final PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
-            collectionPositionMap.higherPositions(position.collectionPosition, atomicOperation,
-                limit);
+            collectionPositionMap.higherPositions(position.collectionPosition,
+                atomicOperation, limit);
         return convertToPhysicalPositions(collectionPositions);
       } finally {
         releaseSharedLock();
@@ -1331,13 +1579,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public PhysicalPosition[] ceilingPositions(final PhysicalPosition position, int limit)
+  public PhysicalPosition[] ceilingPositions(final PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
             collectionPositionMap.ceilingPositions(position.collectionPosition, atomicOperation,
                 limit);
@@ -1351,13 +1599,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public PhysicalPosition[] lowerPositions(final PhysicalPosition position, int limit)
+  public PhysicalPosition[] lowerPositions(final PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
             collectionPositionMap.lowerPositions(position.collectionPosition, atomicOperation,
                 limit);
@@ -1371,13 +1619,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public PhysicalPosition[] floorPositions(final PhysicalPosition position, int limit)
+  public PhysicalPosition[] floorPositions(final PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
             collectionPositionMap.floorPositions(position.collectionPosition, atomicOperation,
                 limit);
@@ -1403,23 +1651,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(stringValue);
     } finally {
       releaseExclusiveLock();
-    }
-  }
-
-  private void updateCollectionState(
-      final long sizeDiff, long recordSizeDiff, final AtomicOperation atomicOperation)
-      throws IOException {
-    try (final var pinnedStateEntry =
-        loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
-      final var paginatedCollectionState =
-          new PaginatedCollectionStateV2(pinnedStateEntry);
-      if (sizeDiff != 0) {
-        paginatedCollectionState.setSize((int) (paginatedCollectionState.getSize() + sizeDiff));
-      }
-      if (recordSizeDiff != 0) {
-        paginatedCollectionState.setRecordsSize(
-            (int) (paginatedCollectionState.getRecordsSize() + recordSizeDiff));
-      }
     }
   }
 
@@ -1464,7 +1695,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   private static PhysicalPosition createPhysicalPosition(
-      final byte recordType, final long collectionPosition, final int version) {
+      final byte recordType, final long collectionPosition, final long version) {
     final var physicalPosition = new PhysicalPosition();
     physicalPosition.recordType = recordType;
     physicalPosition.recordSize = -1;
@@ -1528,7 +1759,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return cacheEntry;
   }
 
-  private void initCusterState(final AtomicOperation atomicOperation) throws IOException {
+  private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
     if (getFilledUpTo(atomicOperation, fileId) == 0) {
       stateEntry = addPage(atomicOperation, fileId);
@@ -1540,8 +1771,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     try {
       final var paginatedCollectionState =
           new PaginatedCollectionStateV2(stateEntry);
-      paginatedCollectionState.setSize(0);
-      paginatedCollectionState.setRecordsSize(0);
       paginatedCollectionState.setFileSize(0);
     } finally {
       stateEntry.close();
@@ -1550,17 +1779,19 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   private static PhysicalPosition[] convertToPhysicalPositions(final long[] collectionPositions) {
     final var positions = new PhysicalPosition[collectionPositions.length];
-    for (var i = 0; i < positions.length; i++) {
+
+    for (var i = 0; i < collectionPositions.length; i++) {
       final var physicalPosition = new PhysicalPosition();
       physicalPosition.collectionPosition = collectionPositions[i];
       positions[i] = physicalPosition;
     }
+
     return positions;
   }
 
   @Override
-  public RECORD_STATUS getRecordStatus(final long collectionPosition) throws IOException {
-    final var atomicOperation = atomicOperationsManager.getCurrentOperation();
+  public RECORD_STATUS getRecordStatus(final long collectionPosition,
+      AtomicOperation atomicOperation) throws IOException {
     acquireSharedLock();
     try {
       final var status = collectionPositionMap.getStatus(collectionPosition, atomicOperation);
@@ -1583,7 +1814,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /// page. Must only be called within {@code assert} statements.
   @SuppressWarnings("SameReturnValue")
   private static boolean assertVersionConsistency(
-      int positionMapVersion, int pageVersion) {
+      long positionMapVersion, long pageVersion) {
     if (positionMapVersion != pageVersion) {
       throw new AssertionError(
           "Version mismatch: positionMap=" + positionMapVersion
@@ -1605,27 +1836,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return true;
   }
 
-  /// Validates the entry-point chunk of a record: verifies that the chunk is large enough to
-  /// contain the full metadata header and that the stored collection position matches.
-  /// Must only be called within {@code assert} statements.
-  @SuppressWarnings("SameReturnValue")
-  private static boolean assertFirstChunkPositionConsistency(
-      byte[] chunkContent, long expectedPosition) {
-    final var dataLen =
-        chunkContent.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
-    if (dataLen < METADATA_SIZE) {
-      throw new AssertionError(
-          "Entry-point chunk too small for metadata: dataLen=" + dataLen
-              + " required=" + METADATA_SIZE);
-    }
-    final var storedPosition = LongSerializer.INSTANCE.deserializeNative(
-        chunkContent, ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
-    return assertPositionConsistency(expectedPosition, storedPosition);
-  }
-
-  /// Safely narrows a {@code long} record version to {@code int}. Throws if the value does not
-  /// fit, preventing silent truncation during the transition period before the rest of the
-  /// codebase migrates from {@code int} to {@code long} versions.
+  /// Safely narrows a {@code long} record version to {@code int}. Throws if the value does not fit,
+  /// preventing silent truncation during the transition period before the rest of the codebase
+  /// migrates from {@code int} to {@code long} versions.
   private static int versionToInt(long version) {
     if ((int) version != version) {
       throw new IllegalStateException(
@@ -1635,8 +1848,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void acquireAtomicExclusiveLock() {
-    atomicOperationsManager.acquireExclusiveLockTillOperationComplete(this);
+  public void acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+    atomicOperationsManager.acquireExclusiveLockTillOperationComplete(atomicOperation, this);
   }
 
   @Override
@@ -1647,14 +1860,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Nullable
   @Override
   public CollectionBrowsePage nextPage(
-      final long prevPagePosition,
-      final boolean forwards
-  ) throws IOException {
+      long prevPagePosition,
+      final boolean forwards,
+      AtomicOperation atomicOperation) throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
+        if (prevPagePosition < 0) {
+          prevPagePosition = -1;
+        }
 
         final var nextPositions = forwards ?
             collectionPositionMap.higherPositionsEntries(prevPagePosition, atomicOperation) :
@@ -1666,9 +1881,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             final var buff =
                 internalReadRecord(
                     pos.getPosition(), pos.getPage(), pos.getOffset(),
-                    versionToInt(pos.getRecordVersion()), atomicOperation);
+                    pos.getRecordVersion(), atomicOperation);
             next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
           }
+
           return new CollectionBrowsePage(next);
         } else {
           return null;
@@ -1685,4 +1901,5 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public Meters meters() {
     return meters;
   }
+
 }

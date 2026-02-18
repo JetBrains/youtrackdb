@@ -175,15 +175,21 @@ public class TruncateClassTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     session.execute("truncate class TestTruncateVertexClassSubclassWithIndex").close();
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
+    session.rollback();
 
     session
         .execute("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic")
         .close();
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   private Index getOrCreateIndex(SchemaClass testClass) {

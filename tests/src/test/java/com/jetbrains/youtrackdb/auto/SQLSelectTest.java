@@ -104,9 +104,11 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void testQueryCount() {
     session.getMetadata().reload();
+    session.begin();
     final var vertexesCount = session.countClass("V");
     var result = executeQuery("select count(*) from V");
     Assert.assertEquals(result.getFirst().<Object>getProperty("count(*)"), vertexesCount);
+    session.rollback();
   }
 
   @Test

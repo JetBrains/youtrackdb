@@ -4,14 +4,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 
 public class PeriodicFuzzyCheckpoint implements Runnable {
 
-  /**
-   *
-   */
   private final DiskStorage storage;
 
-  /**
-   * @param storage
-   */
   public PeriodicFuzzyCheckpoint(DiskStorage storage) {
     this.storage = storage;
   }

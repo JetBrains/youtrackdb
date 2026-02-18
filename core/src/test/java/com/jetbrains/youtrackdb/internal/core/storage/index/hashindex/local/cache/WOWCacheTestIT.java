@@ -920,7 +920,7 @@ public class WOWCacheTestIT {
             content, DurablePage.NEXT_FREE_POSITION, 8 + DurablePage.NEXT_FREE_POSITION),
         value);
 
-    var magicNumber = LongSerializer.INSTANCE.deserializeNative(content, 0);
+    var magicNumber = LongSerializer.deserializeNative(content, 0);
     Assert.assertEquals(WOWCache.MAGIC_NUMBER_WITH_CHECKSUM, magicNumber);
 
     var readLsn =
@@ -955,7 +955,7 @@ public class WOWCacheTestIT {
 
     final SecretKey secretKey = new SecretKeySpec(aesKey, "AES");
 
-    final var magicNumber = LongSerializer.INSTANCE.deserializeNative(content, 0);
+    final var magicNumber = LongSerializer.deserializeNative(content, 0);
     final var updateCounter = magicNumber >>> 8;
 
     final var updatedIv = new byte[iv.length];

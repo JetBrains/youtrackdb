@@ -35,7 +35,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -47,7 +46,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.Deflater;
@@ -205,13 +203,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
           while (it.hasNext()) {
             rec = it.next();
-            if (rec instanceof EntityImpl entity) {
-              // CHECK IF THE CLASS OF THE DOCUMENT IS INCLUDED
-              final var className =
-                  entity.getSchemaClassName() != null
-                      ? entity.getSchemaClassName().toUpperCase(Locale.ENGLISH)
-                      : null;
-            }
 
             if (exportRecord(
                 collectionExportedRecordsTot, collectionExportedRecordsCurrent, rec, brokenRids)) {
@@ -388,9 +379,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         StorageConfiguration.CURRENT_VERSION);
     jsonGenerator.writeNumberField("schema-version", SchemaShared.CURRENT_VERSION_NUMBER);
     jsonGenerator.writeStringField("schemaRecordId",
-        session.getStorageInfo().getConfiguration().getSchemaRecordId());
+        session.getStorage().getSchemaRecordId());
     jsonGenerator.writeStringField("indexMgrRecordId",
-        session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
+        session.getStorage().getIndexMgrRecordId());
     jsonGenerator.writeEndObject();
 
     listener.onMessage("OK");
@@ -460,7 +451,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonGenerator.writeObjectFieldStart("schema");
     final Schema schema = (session.getMetadata()).getImmutableSchemaSnapshot();
-    //noinspection deprecation
     jsonGenerator.writeNumberField("version", schema.getVersion());
     jsonGenerator.writeArrayFieldStart("blob-collections");
     for (var collectionId : session.getBlobCollectionIds()) {

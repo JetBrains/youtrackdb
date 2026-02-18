@@ -125,11 +125,6 @@ public class IndexSearchDescriptor {
 
   public boolean fullySorted(List<String> orderItems) {
     var conditions = getSubBlocks();
-    var idx = index;
-
-    if (!idx.supportsOrderedIterations()) {
-      return false;
-    }
     List<String> conditionItems = new ArrayList<>();
 
     for (var i = 0; i < conditions.size(); i++) {
@@ -160,7 +155,7 @@ public class IndexSearchDescriptor {
     }
     orderedFields.addAll(orderItems);
 
-    final var definition = idx.getDefinition();
+    final var definition = index.getDefinition();
     final var fields = definition.getProperties();
     if (fields.size() < orderedFields.size()) {
       return false;
@@ -180,10 +175,6 @@ public class IndexSearchDescriptor {
   /**
    * returns true if the first argument is a prefix for the second argument, eg. if the first
    * argument is [a] and the second argument is [a, b]
-   *
-   * @param item
-   * @param desc
-   * @return
    */
   public boolean isPrefixOf(IndexSearchDescriptor other) {
     var left = getSubBlocks();

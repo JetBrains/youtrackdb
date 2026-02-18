@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponents
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
@@ -45,7 +46,7 @@ import javax.annotation.Nullable;
  *
  * @see DirectMemoryStorage
  */
-public interface Storage extends StorageInfo {
+public interface Storage {
 
   enum STATUS {
     CLOSED,
@@ -75,19 +76,22 @@ public interface Storage extends StorageInfo {
   boolean isClosed(DatabaseSessionEmbedded database);
 
   // CRUD OPERATIONS
+  @SuppressWarnings("unused")
   @Nonnull
-  RawBuffer readRecord(RecordIdInternal iRid);
+  RawBuffer readRecord(RecordIdInternal iRid, @Nonnull AtomicOperation atomicOperation);
 
-  boolean recordExists(DatabaseSessionEmbedded session, RID rid);
+  boolean recordExists(DatabaseSessionEmbedded session, RID rid, AtomicOperation atomicOperation);
 
+  @SuppressWarnings("unused")
   RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session, final RID rid);
 
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
 
-  @Override
+  @SuppressWarnings("unused")
   Set<String> getCollectionNames();
 
+  @SuppressWarnings("unused")
   Collection<? extends StorageCollection> getCollectionInstances();
 
   /**
@@ -112,6 +116,7 @@ public interface Storage extends StorageInfo {
 
   String getCollectionName(DatabaseSessionEmbedded database, final int collectionId);
 
+  @SuppressWarnings("unused")
   void setCollectionAttribute(final int id, ATTRIBUTES attribute,
       Object value);
 
@@ -125,10 +130,6 @@ public interface Storage extends StorageInfo {
 
   String getCollectionNameById(final int collectionId);
 
-  long getCollectionRecordsSizeById(final int collectionId);
-
-  long getCollectionRecordsSizeByName(final String collectionName);
-
   String getCollectionRecordConflictStrategy(final int collectionId);
 
   boolean isSystemCollection(final int collectionId);
@@ -141,43 +142,43 @@ public interface Storage extends StorageInfo {
 
   long count(DatabaseSessionEmbedded session, int[] iCollectionIds, boolean countTombstones);
 
-  /**
-   * Returns the size of the database.
-   */
-  long getSize(DatabaseSessionEmbedded session);
-
   AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session, RecordIdInternal identity,
       String fieldName, RID rid);
 
   /**
    * Returns the total number of records.
    */
+  @SuppressWarnings("unused")
   long countRecords(DatabaseSessionEmbedded session);
 
-  @Override
+  @SuppressWarnings("unused")
   int getCollectionIdByName(String iCollectionName);
 
-  @Override
+  @SuppressWarnings("unused")
   String getPhysicalCollectionNameById(int iCollectionId);
 
-  @Override
   String getName();
 
+  @SuppressWarnings("unused")
   long getVersion();
 
   /**
    * @return Version of product release under which storage was created.
    */
+  @SuppressWarnings("unused")
   String getCreatedAtVersion();
 
+  @SuppressWarnings("unused")
   void synch();
 
+  @SuppressWarnings("unused")
   PhysicalPosition[] higherPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
   PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
+  @SuppressWarnings("unused")
   PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionEmbedded session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
@@ -187,6 +188,7 @@ public interface Storage extends StorageInfo {
   /**
    * Returns the current storage's status
    */
+  @SuppressWarnings("unused")
   STATUS getStatus();
 
   /**
@@ -198,14 +200,15 @@ public interface Storage extends StorageInfo {
 
   boolean isRemote();
 
-  @Override
+  @SuppressWarnings("unused")
   boolean isAssigningCollectionIds();
 
+  @SuppressWarnings("unused")
   LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 
-  @Override
+  @SuppressWarnings("unused")
   RecordConflictStrategy getRecordConflictStrategy();
 
   void setConflictStrategy(RecordConflictStrategy iResolver);
@@ -217,6 +220,7 @@ public interface Storage extends StorageInfo {
    */
   void shutdown();
 
+  @SuppressWarnings("unused")
   void setSchemaRecordId(String schemaRecordId);
 
   void setDateFormat(String dateFormat);
@@ -227,15 +231,12 @@ public interface Storage extends StorageInfo {
 
   void setCharset(String charset);
 
+  @SuppressWarnings("unused")
   void setIndexMgrRecordId(String indexMgrRecordId);
 
   void setDateTimeFormat(String dateTimeFormat);
 
   void setLocaleCountry(String localeCountry);
-
-  void setCollectionSelection(String collectionSelection);
-
-  void setMinimumCollections(int minimumCollections);
 
   void setValidation(boolean validation);
 

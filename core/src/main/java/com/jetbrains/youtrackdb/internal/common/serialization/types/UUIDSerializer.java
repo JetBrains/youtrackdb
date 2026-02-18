@@ -95,9 +95,9 @@ public class UUIDSerializer implements BinarySerializer<UUID> {
   public void serializeNativeObject(
       final UUID object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
-    LongSerializer.INSTANCE.serializeNative(
+    LongSerializer.serializeNative(
         object.getMostSignificantBits(), stream, startPosition);
-    LongSerializer.INSTANCE.serializeNative(
+    LongSerializer.serializeNative(
         object.getLeastSignificantBits(), stream, startPosition + LongSerializer.LONG_SIZE);
   }
 
@@ -105,9 +105,9 @@ public class UUIDSerializer implements BinarySerializer<UUID> {
   public UUID deserializeNativeObject(BinarySerializerFactory serializerFactory,
       final byte[] stream, final int startPosition) {
     final var mostSignificantBits =
-        LongSerializer.INSTANCE.deserializeNative(stream, startPosition);
+        LongSerializer.deserializeNative(stream, startPosition);
     final var leastSignificantBits =
-        LongSerializer.INSTANCE.deserializeNative(
+        LongSerializer.deserializeNative(
             stream, startPosition + LongSerializer.LONG_SIZE);
     return new UUID(mostSignificantBits, leastSignificantBits);
   }

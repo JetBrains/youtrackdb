@@ -22,6 +22,7 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 
 public final class SharedLinkBagBTree extends DurableComponent {
+
   private static final int MAX_PATH_LENGTH =
       GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
 
@@ -65,11 +66,9 @@ public final class SharedLinkBagBTree extends DurableComponent {
         });
   }
 
-  public void load() {
+  public void load(AtomicOperation atomicOperation) {
     acquireExclusiveLock();
     try {
-      final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-
       fileId = openFile(atomicOperation, getFullName());
     } catch (final IOException e) {
       throw BaseException.wrapException(
@@ -93,12 +92,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
         });
   }
 
-  public int get(final EdgeKey key) {
+  public int get(final EdgeKey key, AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var bucketSearchResult = findBucket(key, atomicOperation);
         if (bucketSearchResult.getItemIndex() < 0) {
           return -1;
@@ -215,13 +213,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   @Nullable
-  public EdgeKey firstKey() {
+  public EdgeKey firstKey(AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-
         final var searchResult = firstItem(atomicOperation);
         if (searchResult.isEmpty()) {
           return null;
@@ -307,13 +303,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   @Nullable
-  public EdgeKey lastKey() {
+  public EdgeKey lastKey(AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-
         final var searchResult = lastItem(atomicOperation);
         if (searchResult.isEmpty()) {
           return null;
@@ -808,16 +802,18 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   public Stream<RawPairObjectInteger<EdgeKey>> iterateEntriesMinor(
-      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder) {
+      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
+      AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         if (!ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMinorDesc(key, inclusive), false);
+          return StreamSupport.stream(iterateEntriesMinorDesc(key, inclusive, atomicOperation),
+              false);
         }
 
-        return StreamSupport.stream(iterateEntriesMinorAsc(key, inclusive), false);
+        return StreamSupport.stream(iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
       } finally {
         releaseSharedLock();
       }
@@ -827,15 +823,18 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   public Stream<RawPairObjectInteger<EdgeKey>> iterateEntriesMajor(
-      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder) {
+      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
+      AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         if (ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMajorAsc(key, inclusive), false);
+          return StreamSupport.stream(iterateEntriesMajorAsc(key, inclusive, atomicOperation),
+              false);
         }
-        return StreamSupport.stream(iterateEntriesMajorDesc(key, inclusive), false);
+        return StreamSupport.stream(iterateEntriesMajorDesc(key, inclusive, atomicOperation),
+            false);
       } finally {
         releaseSharedLock();
       }
@@ -849,17 +848,19 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final boolean fromInclusive,
       final EdgeKey keyTo,
       final boolean toInclusive,
-      final boolean ascSortOrder) {
+      final boolean ascSortOrder, AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         if (ascSortOrder) {
           return StreamSupport.stream(
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive), false);
+              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation), false);
         } else {
           return StreamSupport.stream(
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive), false);
+              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation), false);
         }
       } finally {
         releaseSharedLock();
@@ -874,17 +875,19 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final boolean fromInclusive,
       final EdgeKey keyTo,
       final boolean toInclusive,
-      final boolean ascSortOrder) {
+      final boolean ascSortOrder, AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         if (ascSortOrder) {
           return
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive);
+              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation);
         } else {
           return
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive);
+              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation);
         }
       } finally {
         releaseSharedLock();
@@ -895,36 +898,44 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMinorDesc(
-      EdgeKey key, final boolean inclusive) {
-    return new SpliteratorBackward(this, null, key, false, inclusive);
+      EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
+    return new SpliteratorBackward(this, null, key, false, inclusive, atomicOperation);
   }
 
   private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMinorAsc(
-      EdgeKey key, final boolean inclusive) {
-    return new SpliteratorForward(this, null, key, false, inclusive);
+      EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
+    return new SpliteratorForward(this, null, key, false,
+        inclusive, atomicOperation);
   }
 
   private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMajorAsc(
-      EdgeKey key, final boolean inclusive) {
-    return new SpliteratorForward(this, key, null, inclusive, false);
+      EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
+    return new SpliteratorForward(this, key, null, inclusive, false,
+        atomicOperation);
   }
 
   private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesMajorDesc(
-      EdgeKey key, final boolean inclusive) {
-    return new SpliteratorBackward(this, key, null, inclusive, false);
+      EdgeKey key, final boolean inclusive, AtomicOperation atomicOperation) {
+    return new SpliteratorBackward(this, key, null, inclusive, false,
+        atomicOperation);
   }
 
   private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesBetweenAscOrder(
-      EdgeKey keyFrom, final boolean fromInclusive, EdgeKey keyTo, final boolean toInclusive) {
-    return new SpliteratorForward(this, keyFrom, keyTo, fromInclusive, toInclusive);
+      EdgeKey keyFrom, final boolean fromInclusive, EdgeKey keyTo, final boolean toInclusive,
+      AtomicOperation atomicOperation) {
+    return new SpliteratorForward(this, keyFrom, keyTo, fromInclusive, toInclusive,
+        atomicOperation);
   }
 
   private Spliterator<RawPairObjectInteger<EdgeKey>> iterateEntriesBetweenDescOrder(
-      EdgeKey keyFrom, final boolean fromInclusive, EdgeKey keyTo, final boolean toInclusive) {
-    return new SpliteratorBackward(this, keyFrom, keyTo, fromInclusive, toInclusive);
+      EdgeKey keyFrom, final boolean fromInclusive, EdgeKey keyTo, final boolean toInclusive,
+      AtomicOperation atomicOperation) {
+    return new SpliteratorBackward(this, keyFrom, keyTo, fromInclusive, toInclusive,
+        atomicOperation);
   }
 
-  public void fetchNextCachePortionForward(SpliteratorForward iter) {
+  public void fetchNextCachePortionForward(SpliteratorForward iter,
+      AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
     if (!iter.getDataCache().isEmpty()) {
       lastKey = iter.getDataCache().getLast().first;
@@ -938,7 +949,6 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         if (iter.getPageIndex() > -1) {
           if (readKeysFromBucketsForward(iter, atomicOperation)) {
             return;
@@ -1060,7 +1070,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     return false;
   }
 
-  public void fetchNextCachePortionBackward(SpliteratorBackward iter) {
+  public void fetchNextCachePortionBackward(SpliteratorBackward iter,
+      AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
     if (iter.getDataCache().isEmpty()) {
       lastKey = null;
@@ -1074,7 +1085,6 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       acquireSharedLock();
       try {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         if (iter.getPageIndex() > -1) {
           if (readKeysFromBucketsBackward(iter, atomicOperation)) {
             return;

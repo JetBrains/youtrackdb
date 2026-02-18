@@ -18,6 +18,7 @@ import org.testng.annotations.Test;
  */
 @Test
 public class LinkListIndexTest extends BaseDBTest {
+
   @BeforeClass
   public void setupSchema() {
     final var linkListIndexTestClass =
@@ -42,6 +43,7 @@ public class LinkListIndexTest extends BaseDBTest {
     session.execute("DELETE FROM LinkListIndexTestClass").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from LinkListIndexTestClass");
     Assert.assertEquals(result.stream().count(), 0);
 
@@ -49,6 +51,7 @@ public class LinkListIndexTest extends BaseDBTest {
       final var index = getIndex("linkCollectionIndex");
       Assert.assertEquals(index.size(session), 0);
     }
+    session.rollback();
 
     super.afterMethod();
   }
@@ -66,11 +69,14 @@ public class LinkListIndexTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -82,6 +88,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionInTx() {
@@ -105,11 +112,13 @@ public class LinkListIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -120,6 +129,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdate() {
@@ -141,11 +151,13 @@ public class LinkListIndexTest extends BaseDBTest {
 
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -156,6 +168,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateInTx() {
@@ -186,11 +199,13 @@ public class LinkListIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -202,6 +217,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateInTxRollback() {
@@ -227,11 +243,13 @@ public class LinkListIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -242,6 +260,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateAddItem() {
@@ -269,11 +288,13 @@ public class LinkListIndexTest extends BaseDBTest {
         .close();
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -285,6 +306,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateAddItemInTx() {
@@ -313,11 +335,14 @@ public class LinkListIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -329,6 +354,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateAddItemInTxRollback() {
@@ -352,11 +378,14 @@ public class LinkListIndexTest extends BaseDBTest {
 
     session.rollback();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -367,6 +396,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateRemoveItemInTx() {
@@ -385,7 +415,7 @@ public class LinkListIndexTest extends BaseDBTest {
     try {
       session.begin();
       EntityImpl loadedDocument = session.load(document.getIdentity());
-      loadedDocument.<List>getProperty("linkCollection").remove(docTwo.getIdentity());
+      loadedDocument.<List<?>>getProperty("linkCollection").remove(docTwo.getIdentity());
 
       session.commit();
     } catch (Exception e) {
@@ -393,11 +423,14 @@ public class LinkListIndexTest extends BaseDBTest {
       throw e;
     }
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -407,6 +440,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateRemoveItemInTxRollback() {
@@ -424,15 +458,18 @@ public class LinkListIndexTest extends BaseDBTest {
 
     session.begin();
     EntityImpl loadedDocument = session.load(document.getIdentity());
-    loadedDocument.<List>getProperty("linkCollection").remove(docTwo.getIdentity());
+    loadedDocument.<List<?>>getProperty("linkCollection").remove(docTwo.getIdentity());
 
     session.rollback();
+
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
 
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -443,6 +480,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionUpdateRemoveItem() {
@@ -463,11 +501,14 @@ public class LinkListIndexTest extends BaseDBTest {
         "UPDATE " + document.getIdentity() + " remove linkCollection = " + docTwo.getIdentity());
     session.commit();
 
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -478,6 +519,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionRemove() {
@@ -501,7 +543,9 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var index = getIndex("linkCollectionIndex");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexCollectionRemoveInTx() {
@@ -529,7 +573,9 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testIndexCollectionRemoveInTxRollback() {
@@ -550,12 +596,14 @@ public class LinkListIndexTest extends BaseDBTest {
     activeTx.<EntityImpl>load(document).delete();
     session.rollback();
 
+    activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     var index = getIndex("linkCollectionIndex");
 
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keyStream(ato)) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -566,6 +614,7 @@ public class LinkListIndexTest extends BaseDBTest {
         }
       }
     }
+    session.rollback();
   }
 
   public void testIndexCollectionSQL() {
@@ -587,7 +636,7 @@ public class LinkListIndexTest extends BaseDBTest {
             docOne.getIdentity());
     Assert.assertEquals(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()),
-        result.next().<List>getProperty("linkCollection"));
+        result.next().<List<?>>getProperty("linkCollection"));
     session.commit();
   }
 }

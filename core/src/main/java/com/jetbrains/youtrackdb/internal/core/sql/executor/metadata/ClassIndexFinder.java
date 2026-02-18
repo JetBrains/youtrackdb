@@ -161,8 +161,7 @@ public class ClassIndexFinder implements IndexFinder {
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
-        if (index.canBeUsedInEqualityOperators()
-            && index.supportsOrderedIterations()) {
+        if (index.canBeUsedInEqualityOperators()) {
           if (cand != null) {
             ((IndexCandidateChain) cand).add(index.getName());
             ((IndexCandidateChain) cand).setOperation(op);

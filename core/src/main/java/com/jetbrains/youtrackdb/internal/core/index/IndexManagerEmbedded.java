@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -57,7 +58,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
   private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
-  public IndexManagerEmbedded(Storage storage) {
+  public IndexManagerEmbedded(AbstractStorage storage) {
     super(storage);
   }
 
@@ -69,7 +70,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         try {
           indexManagerIdentity =
               RecordIdInternal.fromString(
-                  session.getStorageInfo().getConfiguration().getIndexMgrRecordId(),
+                  session.getStorage().getIndexMgrRecordId(),
                   false);
           var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
           load(transaction, entity);
@@ -190,7 +191,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   @Override
-  protected Index createIndexInstance(FrontendTransaction transaction,
+  protected Index createIndexInstance(FrontendTransactionImpl transaction,
       Identifiable indexIdentifiable,
       IndexMetadata newIndexMetadata) {
     return Indexes.createIndexInstance(newIndexMetadata.getType(), newIndexMetadata.getAlgorithm(),
@@ -346,7 +347,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         } else {
           indexDefinition.setNullValuesIgnored(
               storage
-                  .getConfiguration()
                   .getContextConfiguration()
                   .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
         }

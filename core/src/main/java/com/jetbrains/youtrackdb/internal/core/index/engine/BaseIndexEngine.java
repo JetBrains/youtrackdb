@@ -20,7 +20,7 @@ public interface BaseIndexEngine {
 
   void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException;
 
-  void load(IndexEngineData data);
+  void load(IndexEngineData data, AtomicOperation atomicOperation);
 
   void delete(AtomicOperation atomicOperation) throws IOException;
 
@@ -29,34 +29,35 @@ public interface BaseIndexEngine {
   void close();
 
   Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionEmbedded db, Object rangeFrom,
+      Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer);
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation);
 
   Stream<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer);
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation);
 
   Stream<RawPair<Object, RID>> iterateEntriesMinor(
       final Object toKey,
       final boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer);
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation);
 
-  Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer);
+  Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation);
 
-  Stream<RawPair<Object, RID>> descStream(IndexEngineValuesTransformer valuesTransformer);
+  Stream<RawPair<Object, RID>> descStream(IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation);
 
-  Stream<Object> keyStream();
+  Stream<Object> keyStream(AtomicOperation atomicOperation);
 
-  long size(Storage storage, IndexEngineValuesTransformer transformer);
-
-  boolean hasRangeQuerySupport();
+  long size(Storage storage, IndexEngineValuesTransformer transformer,
+      AtomicOperation atomicOperation);
 
   int getEngineAPIVersion();
 
@@ -66,7 +67,5 @@ public interface BaseIndexEngine {
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * index engine.
    */
-  boolean acquireAtomicExclusiveLock();
-
-  String getIndexNameByKey(Object key);
+  boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
 }

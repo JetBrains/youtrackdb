@@ -19,11 +19,13 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -35,23 +37,22 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdExce
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.index.iterator.IndexCursorStream;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -70,7 +71,6 @@ public abstract class IndexAbstract implements Index {
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
-  protected static final String CONFIG_MAP_RID = "mapRid";
   private static final String CONFIG_COLLECTIONS = "collections";
 
   @Nonnull
@@ -89,7 +89,7 @@ public abstract class IndexAbstract implements Index {
   protected RID identity;
 
   public IndexAbstract(@Nullable RID identity,
-      @Nonnull FrontendTransaction transaction, @Nonnull final Storage storage) {
+      @Nonnull FrontendTransactionImpl transaction, @Nonnull final Storage storage) {
     acquireExclusiveLock();
     try {
       if (!identity.isPersistent()) {
@@ -169,22 +169,6 @@ public abstract class IndexAbstract implements Index {
         indexVersion, metadataEntity);
   }
 
-  @Override
-  public boolean hasRangeQuerySupport() {
-    acquireSharedLock();
-    try {
-      while (true) {
-        try {
-          return storage.hasIndexRangeQuerySupport(indexId);
-        } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
-        }
-      }
-    } finally {
-      releaseSharedLock();
-    }
-  }
-
 
   /**
    * Creates the index.
@@ -237,7 +221,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  private void load(FrontendTransaction transaction) {
+  private void load(FrontendTransactionImpl transaction) {
     var entity = transaction.loadEntity(identity);
     final var indexMetadata = loadMetadata(transaction, entity.toMap(false));
 
@@ -249,7 +233,8 @@ public abstract class IndexAbstract implements Index {
 
     if (indexId == -1) {
       Map<String, String> engineProperties = new HashMap<>();
-      indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties);
+      indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties,
+          transaction.getAtomicOperation());
     }
 
     if (indexId == -1) {
@@ -278,47 +263,6 @@ public abstract class IndexAbstract implements Index {
   public void close() {
   }
 
-  /**
-   * @return number of entries in the index.
-   */
-  @Override
-  @Deprecated
-  public long getSize(DatabaseSessionEmbedded session) {
-    return size(session);
-  }
-
-  /**
-   * Counts the entries for the key.
-   */
-  @Override
-  @Deprecated
-  public long count(DatabaseSessionEmbedded session, Object iKey) {
-    try (var stream =
-        streamEntriesBetween(session, iKey, true, iKey, true, true)) {
-      return stream.count();
-    }
-  }
-
-  /**
-   * @return Number of keys in index
-   */
-  @Override
-  @Deprecated
-  public long getKeySize() {
-    try (var stream = keyStream()) {
-      return stream.distinct().count();
-    }
-  }
-
-  /**
-   * Flushes in-memory changes to disk.
-   */
-  @Override
-  @Deprecated
-  public void flush() {
-    // do nothing
-  }
-
   @Override
   @Deprecated
   public long getRebuildVersion() {
@@ -333,94 +277,6 @@ public abstract class IndexAbstract implements Index {
   @Deprecated
   public boolean isRebuilding() {
     return false;
-  }
-
-  @Override
-  @Deprecated
-  @Nullable
-  public Object getFirstKey() {
-    try (final var stream = keyStream()) {
-      final var iterator = stream.iterator();
-      if (iterator.hasNext()) {
-        return iterator.next();
-      }
-
-      return null;
-    }
-  }
-
-  @Override
-  @Deprecated
-  @Nullable
-  public Object getLastKey(DatabaseSessionEmbedded session) {
-    try (final var stream = descStream(session)) {
-      final var iterator = stream.iterator();
-      if (iterator.hasNext()) {
-        return iterator.next().first();
-      }
-
-      return null;
-    }
-  }
-
-  @Override
-  @Deprecated
-  public IndexCursor cursor(DatabaseSessionEmbedded session) {
-    return new IndexCursorStream(stream(session));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor descCursor(DatabaseSessionEmbedded session) {
-    return new IndexCursorStream(descStream(session));
-  }
-
-  @Deprecated
-  @Override
-  public IndexKeyCursor keyCursor() {
-    return new IndexKeyCursor() {
-      private final Iterator<Object> keyIterator = keyStream().iterator();
-
-      @Override
-      @Nullable
-      public Object next(int prefetchSize) {
-        if (keyIterator.hasNext()) {
-          return keyIterator.next();
-        }
-
-        return null;
-      }
-    };
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
-      boolean ascSortOrder) {
-    return new IndexCursorStream(streamEntries(session, keys, ascSortOrder));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntriesBetween(
-      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
-      boolean toInclusive, boolean ascOrder) {
-    return new IndexCursorStream(
-        streamEntriesBetween(session, fromKey, fromInclusive, toKey, toInclusive, ascOrder));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
-      boolean fromInclusive, boolean ascOrder) {
-    return new IndexCursorStream(streamEntriesMajor(session, fromKey, fromInclusive, ascOrder));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
-      boolean toInclusive, boolean ascOrder) {
-    return new IndexCursorStream(streamEntriesMajor(session, toKey, toInclusive, ascOrder));
   }
 
   /**
@@ -504,8 +360,13 @@ public abstract class IndexAbstract implements Index {
       long entityNum = 0;
       long entitiesTotal = 0;
 
-      for (final var collection : collectionsToIndex) {
-        entitiesTotal += storage.count(session, storage.getCollectionIdByName(collection));
+      session.begin();
+      try {
+        for (final var collection : collectionsToIndex) {
+          entitiesTotal += storage.count(session, storage.getCollectionIdByName(collection));
+        }
+      } finally {
+        session.rollback();
       }
 
       if (iProgressListener != null) {
@@ -561,7 +422,8 @@ public abstract class IndexAbstract implements Index {
   public boolean doRemove(AbstractStorage storage, Object key,
       DatabaseSessionEmbedded session)
       throws InvalidIndexEngineIdException {
-    return storage.removeKeyFromIndex(indexId, key);
+    var tx = session.getActiveTransaction();
+    return storage.removeKeyFromIndex(indexId, key, tx.getAtomicOperation());
   }
 
   @Override
@@ -617,16 +479,51 @@ public abstract class IndexAbstract implements Index {
     }
 
     try (var deletionSession = session.copy()) {
-      try (final var stream = stream(deletionSession)) {
-        deletionSession.executeInTxBatchesInternal(stream,
-            (deletionTransaction, entry) ->
-                remove(deletionTransaction, entry.first(),
-                    entry.second()));
-      } catch (Exception e) {
-        if (transaction != null) {
-          transaction.rollback();
-          throw e;
+      var batchSize =
+          deletionSession.getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE);
+
+      var lastIndexEntry = deletionSession.computeInTxInternal(deletionTx -> {
+        RawPair<Object, RID> indexEntry = null;
+        try (var indexStream = stream(deletionSession)) {
+          var indexIterator = indexStream.iterator();
+
+          for (var i = 0; i < batchSize && indexIterator.hasNext(); i++) {
+            indexEntry = indexIterator.next();
+            remove(deletionTx, indexEntry.first(), indexEntry.second());
+          }
+
+          if (indexIterator.hasNext()) {
+            return indexEntry;
+          } else {
+            return null;
+          }
         }
+      });
+
+      while (lastIndexEntry != null) {
+        var lEntry = lastIndexEntry;
+        lastIndexEntry = deletionSession.computeInTxInternal(deletionTx -> {
+          try (var indexStream = streamEntriesMajor(deletionSession, lEntry.first(), true, true)) {
+            var indexIterator = indexStream.iterator();
+
+            RawPair<Object, RID> indexEntry = null;
+            for (var i = 0; i < batchSize && indexIterator.hasNext(); i++) {
+              indexEntry = indexIterator.next();
+              remove(deletionTx, indexEntry.first(), indexEntry.second());
+            }
+
+            if (indexIterator.hasNext()) {
+              return indexEntry;
+            } else {
+              return null;
+            }
+          }
+        });
+      }
+    } catch (Exception e) {
+      if (transaction != null) {
+        transaction.rollback();
+        throw e;
       }
     }
   }
@@ -830,12 +727,12 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public Stream<Object> keyStream() {
+  public Stream<Object> keyStream(@Nonnull AtomicOperation operation) {
     acquireSharedLock();
     try {
       while (true) {
         try {
-          return storage.getIndexKeyStream(indexId);
+          return storage.getIndexKeyStream(indexId, operation);
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
         }
@@ -909,7 +806,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock() {
+  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
     BaseIndexEngine engine;
 
     while (true) {
@@ -921,7 +818,7 @@ public abstract class IndexAbstract implements Index {
       }
     }
 
-    return engine.acquireAtomicExclusiveLock();
+    return engine.acquireAtomicExclusiveLock(atomicOperation);
   }
 
   private long[] indexCollection(
@@ -947,7 +844,9 @@ public abstract class IndexAbstract implements Index {
     }
 
     var collectionId = session.getCollectionIdByName(collectionName);
+    session.begin();
     var collectionCount = session.countCollectionElements(collectionId);
+    session.rollback();
 
     if (collectionCount > 0) {
       try (var fillSession = session.copy()) {

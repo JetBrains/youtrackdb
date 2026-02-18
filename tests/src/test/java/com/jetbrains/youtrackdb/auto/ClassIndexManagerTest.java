@@ -181,6 +181,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     if (!session.getStorage().isRemote()) {
+      session.begin();
       Assert.assertEquals(
           session
               .getSharedContext()
@@ -195,6 +196,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
               .getIndex("classIndexManagerTestClass.prop2")
               .size(session),
           0);
+      session.rollback();
     }
 
     super.afterMethod();
@@ -360,9 +362,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
         session.getSharedContext().getIndexManager().getIndexes();
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
+    session.begin();
     for (final var index : beforeIndexes) {
       indexSizeMap.put(index.getName(), index.size(session));
     }
+    session.rollback();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -375,10 +379,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var afterIndexes =
         session.getSharedContext().getIndexManager().getIndexes();
+    session.begin();
     for (final var index : afterIndexes) {
       Assert.assertEquals(
           index.size(session), indexSizeMap.get(index.getName()).longValue());
     }
+    session.rollback();
   }
 
   public void testUpdateDocumentWithoutClass() {
@@ -387,9 +393,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
         session.getSharedContext().getIndexManager().getIndexes();
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
+    session.begin();
     for (final var index : beforeIndexes) {
       indexSizeMap.put(index.getName(), index.size(session));
     }
+    session.rollback();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -404,10 +412,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var afterIndexes =
         session.getSharedContext().getIndexManager().getIndexes();
+    session.begin();
     for (final var index : afterIndexes) {
       Assert.assertEquals(
           index.size(session), indexSizeMap.get(index.getName()).longValue());
     }
+    session.rollback();
   }
 
   public void testDeleteDocumentWithoutClass() {
@@ -514,9 +524,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
         "classIndexManagerTestSuperClass.prop0");
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
     Assert.assertEquals(propZeroIndex.size(session), 1);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -526,9 +538,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 0);
     Assert.assertEquals(propZeroIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testUpdateDocumentNullKeyIndexRecordRemoved() {
@@ -553,9 +567,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
         "classIndexManagerTestSuperClass.prop0");
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
     Assert.assertEquals(propZeroIndex.size(session), 1);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -565,9 +581,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 0);
     Assert.assertEquals(propZeroIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testUpdateDocumentIndexRecordUpdated() {
@@ -588,9 +606,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex("classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
     Assert.assertEquals(propZeroIndex.size(session), 1);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -636,8 +656,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex("classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -670,7 +692,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propFourIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop4");
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -678,6 +702,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 2);
     try (var stream = propFourIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findFirst().isPresent());
@@ -685,6 +710,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFourIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -701,6 +727,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 3);
     try (var stream = propFourIndex.getRids(session, "value3")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -712,6 +739,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFourIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void testMapUpdate() {
@@ -723,7 +751,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex(
             "classIndexManagerTestIndexByValue");
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 0);
+    session.rollback();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -731,6 +761,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 2);
     try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -738,6 +769,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFiveIndexKey.getRids(session, "key2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -757,6 +789,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 5);
     try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -787,6 +820,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFiveIndexValue.getRids(session, "value6")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void testSetUpdate() {
@@ -794,7 +828,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propSixIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop6");
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -803,6 +839,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 2);
     try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -810,6 +847,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propSixIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -828,6 +866,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 2);
     try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -835,6 +874,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propSixIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void testListDelete() {
@@ -842,7 +882,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propFourIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop4");
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -851,6 +893,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 2);
     try (var stream = propFourIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -858,6 +901,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFourIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -874,6 +918,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 3);
     try (var stream = propFourIndex.getRids(session, "value3")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -884,6 +929,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFourIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -896,7 +942,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFourIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testMapDelete() {
@@ -908,7 +956,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex(
             "classIndexManagerTestIndexByValue");
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 0);
+    session.rollback();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -917,6 +967,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 2);
     try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -924,6 +975,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFiveIndexKey.getRids(session, "key2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -943,6 +995,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 5);
     try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -973,6 +1026,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propFiveIndexValue.getRids(session, "value6")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -988,15 +1042,19 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propFiveIndexKey.size(session), 0);
     Assert.assertEquals(propFiveIndexValue.size(session), 0);
+    session.rollback();
   }
 
   public void testSetDelete() {
     final var propSixIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop6");
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -1004,6 +1062,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 2);
     try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -1011,6 +1070,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propSixIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -1029,6 +1089,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 2);
     try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
@@ -1036,6 +1097,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream = propSixIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1047,7 +1109,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propSixIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testDeleteDocumentIndexRecordDeleted() {
@@ -1067,18 +1131,22 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerComposite");
 
+    session.begin();
     Assert.assertEquals(propZeroIndex.size(session), 1);
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propZeroIndex.size(session), 0);
     Assert.assertEquals(propOneIndex.size(session), 0);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testDeleteUpdatedDocumentIndexRecordDeleted() {
@@ -1098,9 +1166,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
         "classIndexManagerTestSuperClass.prop0");
+    session.begin();
     Assert.assertEquals(propZeroIndex.size(session), 1);
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1111,9 +1181,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propZeroIndex.size(session), 0);
     Assert.assertEquals(propOneIndex.size(session), 0);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testDeleteUpdatedDocumentNullFieldIndexRecordDeleted() {
@@ -1130,16 +1202,20 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerComposite");
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 0);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testDeleteUpdatedDocumentOrigNullFieldIndexRecordDeleted() {
@@ -1156,8 +1232,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerComposite");
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1167,8 +1245,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 0);
     Assert.assertEquals(compositeIndex.size(session), 0);
+    session.rollback();
   }
 
   public void testNoClassIndexesUpdate() {
@@ -1190,9 +1270,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
         "classIndexManagerTestClass");
 
     final Collection<Index> indexes = oClass.getIndexesInternal();
+    session.begin();
     for (final var index : indexes) {
       Assert.assertEquals(index.size(session), 0);
     }
+    session.rollback();
   }
 
   public void testNoClassIndexesDelete() {
@@ -1224,6 +1306,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
 
     try (var stream = index
@@ -1234,13 +1317,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getRids(session, new CompositeKey("test1", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeNullSimpleFieldCreation() {
@@ -1259,7 +1345,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1283,7 +1371,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1315,6 +1405,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index
         .getRids(session, new CompositeKey("test2", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
@@ -1325,13 +1416,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateCollectionWasAssigned() {
@@ -1358,6 +1452,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index
         .getRids(session, new CompositeKey("test1", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
@@ -1368,13 +1463,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateCollectionWasChanged() {
@@ -1406,6 +1504,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index
         .getRids(session, new CompositeKey("test1", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
@@ -1424,13 +1523,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     Assert.assertEquals(index.size(session), 4);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssigned() {
@@ -1464,6 +1566,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 4);
 
     try (var stream = index
@@ -1482,13 +1585,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getRids(session, new CompositeKey("test2", 5))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateSimpleFieldNull() {
@@ -1515,14 +1621,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateCollectionWasAssignedNull() {
@@ -1549,14 +1659,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateBothAssignedNull() {
@@ -1584,14 +1698,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssignedNull() {
@@ -1625,14 +1743,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteSimpleFieldAssigend() {
@@ -1660,7 +1782,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteCollectionFieldAssigend() {
@@ -1688,7 +1812,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteCollectionFieldChanged() {
@@ -1720,7 +1846,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteBothCollectionSimpleFieldChanged() {
@@ -1754,7 +1882,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteBothCollectionSimpleFieldAssigend() {
@@ -1783,7 +1913,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteSimpleFieldNull() {
@@ -1811,7 +1943,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteCollectionFieldNull() {
@@ -1839,7 +1973,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteBothSimpleCollectionFieldNull() {
@@ -1868,7 +2004,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeDeleteCollectionFieldChangedSimpleFieldNull() {
@@ -1902,7 +2040,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeCreation() {
@@ -1921,6 +2061,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    session.begin();
     Assert.assertEquals(index.size(session), 4);
 
     try (var stream = index
@@ -1939,13 +2080,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getRids(session, new CompositeKey("val2", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
 
@@ -1973,6 +2117,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index
         .getRids(session, new CompositeKey("val1", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
@@ -2000,13 +2145,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     Assert.assertEquals(index.size(session), 6);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateTwoCollectionsSecondWasAssigned() {
@@ -2033,6 +2181,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index
         .getRids(session, new CompositeKey("val1", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
@@ -2052,13 +2201,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     Assert.assertEquals(index.size(session), 4);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionCompositeUpdateCollectionWasChanged() {
@@ -2090,6 +2242,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = index
         .getRids(session, new CompositeKey("val1", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
@@ -2125,13 +2278,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     Assert.assertEquals(index.size(session), 8);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateCollectionWasChangedFirstPropertyWasAssigned() {
@@ -2165,6 +2321,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 8);
 
     try (var stream = index
@@ -2200,13 +2357,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getRids(session, new CompositeKey("val4", 5))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeUpdateFirstPropertyNull() {
@@ -2232,14 +2392,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testCollectionCompositeUpdateTwoCollectionWasAssignedNull() {
@@ -2265,14 +2429,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeUpdateBothAssignedNull() {
@@ -2299,14 +2467,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionCompositeUpdateCollectionWasChangedFirstPropertyWasAssignedNull() {
@@ -2339,14 +2511,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(entity).delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionCompositeDeleteFirstPropertyAssigned() {
@@ -2372,7 +2548,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     entity.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionCompositeDeleteSecondPropertyAssigned() {
@@ -2399,7 +2577,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeDeleteSecondPropertyChanged() {
@@ -2430,7 +2610,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeDeleteBothCollectionFieldChanged() {
@@ -2463,7 +2645,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionCompositeDeleteBothCollectionFirstFieldAssigend() {
@@ -2491,7 +2675,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     entity.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeDeleteFirstFieldNull() {
@@ -2518,7 +2704,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     entity.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeDeleteSecondFieldNull() {
@@ -2545,7 +2733,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeDeleteBothSimpleCollectionFieldNull() {
@@ -2573,7 +2763,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testTwoCollectionsCompositeDeleteSecondCollectionFieldChangedFirstFieldNull() {
@@ -2606,7 +2798,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     entity.delete();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testThreePropertiesTwoCollectionRandomUpdate() {
@@ -2669,13 +2863,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
   }
 
   private void validateCompositeIndex(RID rid) {
-    session.executeInTx(transaction -> {
+    session.executeInTxInternal(transaction -> {
       var index = session.getSharedContext().getIndexManager().getIndex(
           COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX);
 
+      var atomicOperation = transaction.getAtomicOperation();
       var entity = session.loadEntity(rid);
       var expectedKeys = createCompositeKeysFromEntity(entity);
-      var actualKeys = index.keyStream();
+      var actualKeys = index.keyStream(atomicOperation);
 
       actualKeys.forEach(key -> Assert.assertTrue(expectedKeys.remove((CompositeKey) key)));
       Assert.assertTrue(expectedKeys.isEmpty());
@@ -2725,7 +2920,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var index =
         session.getSharedContext().getIndexManager()
             .getIndex("classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
   }
 
   private static List<CompositeKey> createCompositeKeysFromEntity(Entity entity) {

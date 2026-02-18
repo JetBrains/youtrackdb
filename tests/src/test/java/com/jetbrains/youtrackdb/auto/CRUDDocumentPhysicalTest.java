@@ -72,7 +72,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "create")
   public void testCreate() {
+    session.begin();
     Assert.assertEquals(session.countClass("Account", false), TOT_RECORDS_ACCOUNT);
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testCreate")
@@ -187,6 +189,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     Assert.assertEquals(indexes.size(), 1);
 
     var indexDefinition = indexes.iterator().next();
+    session.begin();
     try (final var stream = indexDefinition.getRids(session, "JayM1")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -198,6 +201,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     try (var stream = indexDefinition.getRids(session, "JayM3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testDoubleChanges")
@@ -222,9 +226,11 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     var indexName = indexes.iterator().next();
     // We must get 2 records for "nameA".
+    session.begin();
     try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 2);
     }
+    session.rollback();
 
     session.begin();
     // Remove this last record.
@@ -233,9 +239,11 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     // We must get 1 record for "nameA".
+    session.begin();
     try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 1);
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testMultiValues")

@@ -32,12 +32,10 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,7 +43,6 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-@SuppressWarnings({"deprecation"})
 @Test
 public class IndexTest extends BaseDBTest {
 
@@ -128,12 +125,14 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testIndexEntries() {
 
+    session.begin();
     var resultSet = executeQuery("select * from Profile where nick is not null");
 
     var idx =
         session.getSharedContext().getIndexManager().getIndex("Profile.nick");
 
     Assert.assertEquals(idx.size(session), resultSet.size());
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
@@ -144,6 +143,7 @@ public class IndexTest extends BaseDBTest {
     var profileSize = resultSet.size();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(
         session
             .getSharedContext()
@@ -152,6 +152,7 @@ public class IndexTest extends BaseDBTest {
 
             .size(session),
         profileSize);
+    session.rollback();
     for (var i = 0; i < 10; i++) {
       session.begin();
       var profile = session.newEntity("Profile");
@@ -161,6 +162,7 @@ public class IndexTest extends BaseDBTest {
       session.commit();
 
       profileSize++;
+      session.begin();
       try (var stream =
           session
               .getSharedContext()
@@ -170,6 +172,7 @@ public class IndexTest extends BaseDBTest {
               .getRids(session, "Yay-" + i)) {
         Assert.assertTrue(stream.findAny().isPresent());
       }
+      session.rollback();
     }
   }
 
@@ -477,7 +480,9 @@ public class IndexTest extends BaseDBTest {
     }
     session.commit();
 
+    session.begin();
     Assert.assertEquals(idx.size(session), 5);
+    session.rollback();
 
     session.begin();
     var indexedResult =
@@ -618,6 +623,7 @@ public class IndexTest extends BaseDBTest {
         db.commit();
 
         expectedIndexSize += chunkSize;
+        db.begin();
         Assert.assertEquals(
             db.getSharedContext()
                 .getIndexManager()
@@ -626,6 +632,7 @@ public class IndexTest extends BaseDBTest {
                 .size(db),
             expectedIndexSize,
             "After add");
+        db.rollback();
 
         // do delete
         db.begin();
@@ -636,6 +643,7 @@ public class IndexTest extends BaseDBTest {
         db.commit();
 
         expectedIndexSize -= recordsToDelete.size();
+        db.begin();
         Assert.assertEquals(
             db.getSharedContext()
                 .getIndexManager()
@@ -644,6 +652,7 @@ public class IndexTest extends BaseDBTest {
                 .size(db),
             expectedIndexSize,
             "After delete");
+        db.rollback();
       }
     }
   }
@@ -670,6 +679,7 @@ public class IndexTest extends BaseDBTest {
 
       db.commit();
 
+      db.begin();
       try (var stream =
           db.getSharedContext()
               .getIndexManager()
@@ -678,6 +688,7 @@ public class IndexTest extends BaseDBTest {
               .getRids(db, "42")) {
         result = (RecordIdInternal) stream.findAny().orElse(null);
       }
+      db.rollback();
     }
     Assert.assertNotNull(result);
     Assert.assertEquals(result.getIdentity(), doc.getIdentity());
@@ -707,7 +718,9 @@ public class IndexTest extends BaseDBTest {
 
     final var index =
         db.getSharedContext().getIndexManager().getIndex("idxTransactionUniqueIndexTest");
-    Assert.assertEquals(index.size(this.session), 1);
+    db.begin();
+    Assert.assertEquals(index.size(db), 1);
+    db.rollback();
 
     db.begin();
     try {
@@ -719,7 +732,9 @@ public class IndexTest extends BaseDBTest {
     } catch (RecordDuplicatedException ignored) {
     }
 
-    Assert.assertEquals(index.size(this.session), 1);
+    db.begin();
+    Assert.assertEquals(index.size(db), 1);
+    db.rollback();
   }
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestOne")
@@ -742,7 +757,9 @@ public class IndexTest extends BaseDBTest {
     final var index =
         session.getSharedContext().getIndexManager()
             .getIndex("idxTransactionUniqueIndexTest");
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
 
     session.begin();
     try {
@@ -758,7 +775,9 @@ public class IndexTest extends BaseDBTest {
       session.rollback();
     }
 
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
   }
 
   public void testTransactionUniqueIndexTestWithDotNameOne() {
@@ -782,9 +801,11 @@ public class IndexTest extends BaseDBTest {
         db.getSharedContext()
             .getIndexManager()
             .getIndex("TransactionUniqueIndexWithDotTest.label");
-    Assert.assertEquals(index.size(this.session), 1);
-
+    db.begin();
+    Assert.assertEquals(index.size(db), 1);
     var countClassBefore = db.countClass("TransactionUniqueIndexWithDotTest");
+    db.rollback();
+
     db.begin();
     try {
       var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
@@ -795,12 +816,14 @@ public class IndexTest extends BaseDBTest {
     } catch (RecordDuplicatedException ignored) {
     }
 
+    db.begin();
     Assert.assertEquals(
         db.query("select from TransactionUniqueIndexWithDotTest").toList()
             .size(),
         countClassBefore);
 
     Assert.assertEquals(index.size(db), 1);
+    db.rollback();
   }
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestWithDotNameOne")
@@ -820,7 +843,9 @@ public class IndexTest extends BaseDBTest {
         db.getSharedContext()
             .getIndexManager()
             .getIndex("TransactionUniqueIndexWithDotTest.label");
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
 
     db.begin();
     try {
@@ -836,7 +861,9 @@ public class IndexTest extends BaseDBTest {
       db.rollback();
     }
 
+    this.session.begin();
     Assert.assertEquals(index.size(this.session), 1);
+    this.session.rollback();
   }
 
   @Test(dependsOnMethods = "linkedIndexedProperty")
@@ -844,24 +871,29 @@ public class IndexTest extends BaseDBTest {
 
     final var index = getIndex("Profile.nick");
 
-    Iterator<RawPair<Object, RID>> streamIterator;
     Object key;
+    RID ridToDelete;
+    session.begin();
     try (var stream = index.stream(session)) {
-      streamIterator = stream.iterator();
+      var streamIterator = stream.iterator();
       Assert.assertTrue(streamIterator.hasNext());
 
       var pair = streamIterator.next();
       key = pair.first();
-
-      session.begin();
-      var transaction = session.getActiveTransaction();
-      transaction.load(pair.second()).delete();
-      session.commit();
+      ridToDelete = pair.second();
     }
+    session.rollback();
 
+    session.begin();
+    var transaction = session.getActiveTransaction();
+    transaction.load(ridToDelete).delete();
+    session.commit();
+
+    session.begin();
     try (var stream = index.getRids(session, key)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void createInheritanceIndex() {
@@ -945,9 +977,11 @@ public class IndexTest extends BaseDBTest {
       keys.add(key);
     }
 
+    session.begin();
     try (var stream = idx.stream(session)) {
       Assert.assertEquals(stream.map(RawPair::first).distinct().count(), keys.size());
     }
+    session.rollback();
   }
 
   public void testNotUniqueIndexSize() {
@@ -970,7 +1004,9 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
+    session.begin();
     Assert.assertEquals(idx.size(session), 99);
+    session.rollback();
   }
 
   @Test
@@ -981,26 +1017,29 @@ public class IndexTest extends BaseDBTest {
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = profile;
     session.commit();
 
     var idxManager = session.getSharedContext().getIndexManager();
     var nickIndex = idxManager.getIndex("Profile.nick");
 
+    session.begin();
     try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
 
     session.begin();
     final Entity loadedProfile = session.load(profile.getIdentity());
     session.delete(loadedProfile);
     session.commit();
 
+    session.begin();
     try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testIndexRebuildDuringNonProxiedObjectDelete")
@@ -1011,7 +1050,6 @@ public class IndexTest extends BaseDBTest {
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = profile;
     session.commit();
 
     session.begin();
@@ -1030,10 +1068,12 @@ public class IndexTest extends BaseDBTest {
     session.delete(activeTx.<Entity>load(loadedProfile));
     session.commit();
 
+    session.begin();
     try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   @Test(dependsOnMethods = "testIndexRebuildDuringDetachAllNonProxiedObjectDelete")
@@ -1143,7 +1183,6 @@ public class IndexTest extends BaseDBTest {
 
     Assert.assertEquals(resultSet.getFirst().getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupport where nullField is null";
     resultSet = executeQuery("select from NullIndexKeysSupport where nullField is null");
 
     Assert.assertEquals(resultSet.size(), 4);
@@ -1188,7 +1227,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullHashIndexKeysSupport where nullField is null";
     result =
         session.query("select from NullHashIndexKeysSupport where nullField is null").toList();
 
@@ -1237,7 +1275,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupportInTx where nullField is null";
     result =
         session.query(
             "select from NullIndexKeysSupportInTx where nullField is null").toList();
@@ -1285,7 +1322,6 @@ public class IndexTest extends BaseDBTest {
     var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
     result =
         session.query(
             "select from NullIndexKeysSupportInMiddleTx where nullField is null").toList();
@@ -1319,7 +1355,7 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
-    var tx = session.begin();
+    session.begin();
     final var queryOne = "select from TestCreateIndexAbstractClass where value = 'val1'";
 
     var resultOne = executeQuery(queryOne);
@@ -1366,7 +1402,7 @@ public class IndexTest extends BaseDBTest {
       }
     }
 
-    final var storageLocalAbstract = (AbstractStorage) session.getStorage();
+    final var storageLocalAbstract = session.getStorage();
 
     final var writeCache = storageLocalAbstract.getWriteCache();
     Assert.assertTrue(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
@@ -1402,6 +1438,7 @@ public class IndexTest extends BaseDBTest {
     child2.setProperty("name", "pokus2");
     session.commit();
 
+    session.begin();
     {
       fieldClass = session.getClassInternal("PreservingIdentityInIndexTxChild");
       var index = fieldClass.getClassIndex(session, "nameParentIndex");
@@ -1429,6 +1466,7 @@ public class IndexTest extends BaseDBTest {
         Assert.assertNotNull(session.load(o));
       }
     }
+    session.rollback();
 
     session.begin();
     var activeTx3 = session.getActiveTransaction();
@@ -1465,6 +1503,7 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     try (var stream = notUniqueIndex.getRids(session, "RandomKeyOne")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -1478,6 +1517,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = notUniqueIndex.getRids(session, "keyTwo")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void testNullIteration() {
@@ -1569,11 +1609,14 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keyStream()) {
+    var txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1591,6 +1634,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     final RID rid = document.getIdentity();
 
@@ -1610,11 +1654,15 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    session.rollback();
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1636,11 +1684,15 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStreamAsc = index.keyStream()) {
+    session.rollback();
+    txRead = session.begin();
+    try (var keyStreamAsc = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1658,11 +1710,15 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
 
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    session.rollback();
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1680,9 +1736,12 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1700,6 +1759,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1716,12 +1776,16 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
+    session.rollback();
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
+    session.rollback();
   }
 
   public void testMultikeyWithoutFieldAndNoNullSupport() {
@@ -1779,10 +1843,13 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keyStream()) {
+    var txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1800,6 +1867,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     final RID rid = document.getIdentity();
 
@@ -1818,11 +1886,15 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    session.rollback();
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1841,7 +1913,9 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1858,12 +1932,16 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
+    session.begin();
     Assert.assertEquals(index.size(session), 1);
+    session.rollback();
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1882,9 +1960,12 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
 
-    try (var keyStream = index.keyStream()) {
+    txRead = session.begin();
+    try (var keyStream = index.keyStream(txRead.getAtomicOperation())) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1893,6 +1974,8 @@ public class IndexTest extends BaseDBTest {
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
     }
+    session.rollback();
+    session.begin();
     try (var descStream = index.descStream(session)) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
@@ -1902,6 +1985,7 @@ public class IndexTest extends BaseDBTest {
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
+    session.rollback();
 
     session.close();
     session = acquireSession();
@@ -1918,7 +2002,9 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.rollback();
   }
 
   public void testNullValuesCountSBTreeUnique() {
@@ -1942,6 +2028,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountSBTreeUniqueIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
@@ -1949,6 +2036,7 @@ public class IndexTest extends BaseDBTest {
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
+    session.rollback();
   }
 
   public void testNullValuesCountSBTreeNotUniqueOne() {
@@ -1973,6 +2061,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountSBTreeNotUniqueOneIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
@@ -1980,6 +2069,7 @@ public class IndexTest extends BaseDBTest {
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
+    session.rollback();
   }
 
   public void testNullValuesCountSBTreeNotUniqueTwo() {
@@ -2004,6 +2094,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountSBTreeNotUniqueTwoIndex");
+    session.begin();
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
@@ -2013,6 +2104,7 @@ public class IndexTest extends BaseDBTest {
       }
     }
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
   }
 
   public void testNullValuesCountHashUnique() {
@@ -2035,6 +2127,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountHashUniqueIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
@@ -2042,6 +2135,7 @@ public class IndexTest extends BaseDBTest {
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
+    session.rollback();
   }
 
   public void testNullValuesCountHashNotUniqueOne() {
@@ -2066,6 +2160,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountHashNotUniqueOneIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
@@ -2073,6 +2168,7 @@ public class IndexTest extends BaseDBTest {
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
+    session.rollback();
   }
 
   public void testNullValuesCountHashNotUniqueTwo() {
@@ -2097,6 +2193,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountHashNotUniqueTwoIndex");
+    session.begin();
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
@@ -2106,6 +2203,7 @@ public class IndexTest extends BaseDBTest {
       }
     }
     Assert.assertEquals(index.size(session), 2);
+    session.rollback();
   }
 
   @Test

@@ -10,7 +10,7 @@ public interface V1IndexEngine extends BaseIndexEngine {
 
   void put(AtomicOperation atomicOperation, Object key, RID value);
 
-  Stream<RID> get(Object key);
+  Stream<RID> get(Object key, AtomicOperation atomicOperation);
 
   @Override
   default int getEngineAPIVersion() {

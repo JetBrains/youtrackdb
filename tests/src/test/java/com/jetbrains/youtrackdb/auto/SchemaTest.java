@@ -118,7 +118,9 @@ public class SchemaTest extends BaseDBTest {
   @Test
   public void checkTotalRecords() {
 
+    session.begin();
     Assert.assertTrue(session.getStorage().countRecords(session) > 0);
+    session.rollback();
   }
 
   @Test(expectedExceptions = ValidationException.class)

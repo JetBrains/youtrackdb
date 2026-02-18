@@ -56,6 +56,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,15 +66,13 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
-
-  private static final AtomicLong txSerial = new AtomicLong();
 
   @Nonnull
   protected DatabaseSessionEmbedded session;
@@ -109,6 +108,7 @@ public class FrontendTransactionImpl implements
   private final boolean readOnly;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
+  private AtomicOperation atomicOperation;
 
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
     this(iDatabase, false);
@@ -116,7 +116,7 @@ public class FrontendTransactionImpl implements
 
   public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, boolean readOnly) {
     this.session = session;
-    this.id = txSerial.incrementAndGet();
+    this.id = ThreadLocalRandom.current().nextLong(Long.MAX_VALUE);
     this.readOnly = readOnly;
   }
 
@@ -126,7 +126,6 @@ public class FrontendTransactionImpl implements
     this.id = txId;
     this.readOnly = readOnly;
   }
-
 
   protected FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long id) {
     this.session = session;
@@ -153,6 +152,10 @@ public class FrontendTransactionImpl implements
       var localCache = session.getLocalCache();
       localCache.unloadNotModifiedRecords();
       localCache.clear();
+
+      var storage = session.getStorage();
+      atomicOperation = storage.startStorageTx();
+      storage.registryFrontendTransaction(this);
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
         throw new RollbackException(
@@ -618,7 +621,6 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  @Nullable
   public void preProcessRecordsAndExecuteCallCallbacks() {
     if (beforeCallBacksInProgress) {
       throw new IllegalStateException(
@@ -818,6 +820,12 @@ public class FrontendTransactionImpl implements
   @Override
   public void close() {
     clear();
+
+    session.getStorage().unregisterFrontendTransaction(id);
+
+    if (atomicOperation != null) {
+      atomicOperation.deactivate();
+    }
 
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
@@ -1144,15 +1152,14 @@ public class FrontendTransactionImpl implements
     return txEntry != null && txEntry.type == RecordOperation.DELETED;
   }
 
+  public AtomicOperation getAtomicOperation() {
+    return atomicOperation;
+  }
+
   private enum Dependency {
     Unknown,
     Yes,
     No
-  }
-
-  private record KeyChangesUpdateRecord(FrontendTransactionIndexChangesPerKey keyChanges,
-                                        FrontendTransactionIndexChanges indexChanges) {
-
   }
 
   protected void checkTransactionValid() {
@@ -1725,7 +1732,7 @@ public class FrontendTransactionImpl implements
   }
 
   public static long generateTxId() {
-    return txSerial.incrementAndGet();
+    return ThreadLocalRandom.current().nextLong(Long.MAX_VALUE);
   }
 
 }

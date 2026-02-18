@@ -146,7 +146,7 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNullity() {
-    final var rid = session.computeInTx(tx -> {
+    final var record = session.computeInTx(tx -> {
       final var entity = session.newEntity();
       entity.updateFromJSON(
           "{\"gender\":{\"name\":\"Male\"},\"firstName\":\"Jack\",\"lastName\":\"Williams\"," +
@@ -157,10 +157,10 @@ public class JSONTest extends BaseDBTest {
               +
               " 03:17:04\"}"
       );
-      return entity.getIdentity();
+      return entity;
     });
 
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
     final var expectedMap = Map.of(
         "gender", Map.of(
             "name", "Male"
@@ -177,11 +177,11 @@ public class JSONTest extends BaseDBTest {
           put("code", "22942");
         }},
         "dob", "2011-11-17 03:17:04",
-        "@rid", rid,
+        "@rid", record.getIdentity(),
         "@class", "O",
-        "@version", 1
+        "@version", record.getVersion()
     );
-    checkJsonSerialization(rid, expectedMap);
+    checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
   @Test
@@ -370,13 +370,10 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testSpecialChar() {
-    final var rid = session.computeInTx(tx -> {
-      final var entity = session.createOrLoadEntityFromJson(
-          "{\"name\":{\"%Field\":[\"value1\",\"value2\"],\"%Field2\":{},\"%Field3\":\"value3\"}}");
-      return entity.getIdentity();
-    });
+    final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
+        "{\"name\":{\"%Field\":[\"value1\",\"value2\"],\"%Field2\":{},\"%Field3\":\"value3\"}}"));
 
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
 
     final var expectedMap = Map.of(
         "name", Map.of(
@@ -384,29 +381,26 @@ public class JSONTest extends BaseDBTest {
             "%Field2", Map.of(),
             "%Field3", "value3"
         ),
-        "@rid", rid,
+        "@rid", record.getIdentity(),
         "@class", "O",
-        "@version", 1
+        "@version", record.getVersion()
     );
-    checkJsonSerialization(rid, expectedMap);
+    checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
   @Test
   public void testArrayOfArray() {
-    final var rid = session.computeInTx(tx -> {
-      final var entity = session.createOrLoadEntityFromJson(
-          """
-              {
-                "@type": "d",
-                "@class": "Track",
-                "type": "LineString",
-                "coordinates": [ [ 100, 0 ],  [ 101, 1 ] ]
-              }"""
-      );
-      return entity.getIdentity();
-    });
+    final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
+        """
+            {
+              "@type": "d",
+              "@class": "Track",
+              "type": "LineString",
+              "coordinates": [ [ 100, 0 ],  [ 101, 1 ] ]
+            }"""
+    ));
 
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
     final var expectedMap = Map.of(
         "@class", "Track",
         "type", "LineString",
@@ -414,52 +408,45 @@ public class JSONTest extends BaseDBTest {
             List.of(100, 0),
             List.of(101, 1)
         ),
-        "@rid", rid,
-        "@version", 1
+        "@rid", record.getIdentity(),
+        "@version", record.getVersion()
     );
-    checkJsonSerialization(rid, expectedMap);
+    checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
   @Test
   public void testLongTypes() {
-    final var rid = session.computeInTx(tx -> {
-      final var entity = session.createOrLoadEntityFromJson(
-          """
-              {
-                "@type": "d",
-                "@class": "Track",
-                "type": "LineString",
-                "coordinates": [ [32874387347347, 0],  [-23736753287327, 1] ]
-              }"""
-      );
-      return entity.getIdentity();
-    });
+    final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
+        """
+            {
+              "@type": "d",
+              "@class": "Track",
+              "type": "LineString",
+              "coordinates": [ [32874387347347, 0],  [-23736753287327, 1] ]
+            }"""
+    ));
 
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
     final var expectedMap = Map.of(
         "@class", "Track",
-        "@version", 1,
+        "@version", record.getVersion(),
         "type", "LineString",
         "coordinates", List.of(
             List.of(32874387347347L, 0),
             List.of(-23736753287327L, 1)
         ),
-        "@rid", rid
+        "@rid", record.getIdentity()
     );
-    checkJsonSerialization(rid, expectedMap);
+
+    checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
   @Test
   public void testSpecialChars() {
-    final var rid = session.computeInTx(tx -> {
-      final var entity =
-          session.createOrLoadEntityFromJson(
-              "{\"Field\":{\"Key1\":[\"Value1\",\"Value2\"],\"Key2\":{\"%%dummy%%\":null},\"Key3\":\"Value3\"}}");
-      return entity.getIdentity();
+    final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
+        "{\"Field\":{\"Key1\":[\"Value1\",\"Value2\"],\"Key2\":{\"%%dummy%%\":null},\"Key3\":\"Value3\"}}"));
 
-    });
-
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
 
     final var expectedMap = Map.of(
         "Field", Map.of(
@@ -469,12 +456,12 @@ public class JSONTest extends BaseDBTest {
             }},
             "Key3", "Value3"
         ),
-        "@rid", rid,
+        "@rid", record.getIdentity(),
         "@class", "O",
-        "@version", 1
+        "@version", record.getVersion()
     );
 
-    checkJsonSerialization(rid, expectedMap);
+    checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
 
@@ -578,13 +565,11 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedJsonCollection() {
-    session.executeInTx(tx -> {
-      session
-          .command(
-              "insert into device (resource_id, domainset) VALUES (0, [ { 'domain' : 'abc' }, {"
-                  + " 'domain' : 'pqr' } ])"
-          );
-    });
+    session.executeInTx(tx -> session
+        .command(
+            "insert into device (resource_id, domainset) VALUES (0, [ { 'domain' : 'abc' }, {"
+                + " 'domain' : 'pqr' } ])"
+        ));
 
     session.executeInTx(tx -> {
       var result = session.query("select from device where domainset.domain contains 'abc'");
@@ -600,10 +585,8 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedEmbeddedJson() {
-    session.executeInTx(tx -> {
-      session.command(
-          "insert into device (resource_id, domainset) VALUES (1, { 'domain' : 'eee' })");
-    });
+    session.executeInTx(tx -> session.command(
+        "insert into device (resource_id, domainset) VALUES (1, { 'domain' : 'eee' })"));
 
     session.executeInTx(tx -> {
       final var result = session.query("select from device where domainset.domain = 'eee'");
@@ -613,13 +596,11 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedMultiLevelEmbeddedJson() {
-    session.executeInTx(tx -> {
-      session
-          .command(
-              "insert into device (domainset) values ({'domain' : { 'lvlone' : { 'value' : 'five' } }"
-                  + " } )"
-          );
-    });
+    session.executeInTx(tx -> session
+        .command(
+            "insert into device (domainset) values ({'domain' : { 'lvlone' : { 'value' : 'five' } }"
+                + " } )"
+        ));
 
     session.executeInTx(tx -> {
       final var result =
@@ -732,7 +713,7 @@ public class JSONTest extends BaseDBTest {
               "foo"
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
-      final var map = c.iterator().next();
+      final var map = c.getFirst();
       Assert.assertEquals((map.get("datavalue")).get("value"), "\"");
     });
   }
@@ -761,7 +742,7 @@ public class JSONTest extends BaseDBTest {
               "foo"
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
-      final var map = c.iterator().next();
+      final var map = c.getFirst();
       Assert.assertEquals((map.get("datavalue")).get("value"), "\"");
     });
   }
@@ -786,7 +767,7 @@ public class JSONTest extends BaseDBTest {
       final var entity = session.createOrLoadEntityFromJson(
           "{\"datavalue\":{\"value\":\"Sub\\\\urban\"}}");
       Assert.assertEquals(
-          entity.<Map<String, Map<String, String>>>getProperty("datavalue").get("value"),
+          entity.<Map<String, String>>getProperty("datavalue").get("value"),
           "Sub\\urban"
       );
     });
@@ -841,7 +822,7 @@ public class JSONTest extends BaseDBTest {
       final var entity = session.newEntity();
       entity.updateFromJSON("{\"datavalue\":{\"value\":\"Suburban\\\\\"}}");
       Assert.assertEquals(
-          entity.<Map<String, Map<String, String>>>getProperty("datavalue").get("value"),
+          entity.<Map<String, String>>getProperty("datavalue").get("value"),
           "Suburban\\"
       );
     });
@@ -867,40 +848,30 @@ public class JSONTest extends BaseDBTest {
   @Test
   public void testInvalidJson() {
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{\"foo\":{}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{\"foo\":{}"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{{}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{{}"));
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{}}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{}}"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("}"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
@@ -977,76 +948,79 @@ public class JSONTest extends BaseDBTest {
       return jaimeEntity.getIdentity();
     });
 
-    final var cerseiRid = session.computeInTx(tx -> {
+    final var cerseiRecord = session.computeInTx(tx -> {
       final var jaimeEntity = session.loadEntity(jaimeRid);
       final var cerseiEntity = session.newEntity("NestedLinkCreation");
 
       cerseiEntity.updateFromJSON(
           "{\"name\":\"cersei\",\"valonqar\":" + jaimeEntity.toJSON() + "}"
       );
-      return cerseiEntity.getIdentity();
+      return cerseiEntity;
     });
 
     checkJsonSerialization(jaimeRid);
-    checkJsonSerialization(cerseiRid);
+    checkJsonSerialization(cerseiRecord.getIdentity());
 
     final var jaimeMap = Map.of(
         "name", "jaime",
         "@rid", jaimeRid,
         "@class", "NestedLinkCreation",
-        "@version", 2
+        //both entities were update because a new link was added.
+        "@version", cerseiRecord.getVersion()
     );
     checkJsonSerialization(jaimeRid, jaimeMap);
 
     final var cerseiMap = Map.of(
         "name", "cersei",
         "valonqar", jaimeRid,
-        "@rid", cerseiRid,
+        "@rid", cerseiRecord.getIdentity(),
         "@class", "NestedLinkCreation",
-        "@version", 1
+        "@version", cerseiRecord.getVersion()
     );
-    checkJsonSerialization(cerseiRid, cerseiMap);
+    checkJsonSerialization(cerseiRecord.getIdentity(), cerseiMap);
   }
 
   @Test
   public void testNestedLinkCreationFieldTypes() {
-    final var jaimeRid = session.computeInTx(tx -> {
+    final var jaimeRecord = session.computeInTx(tx -> {
       final var jaimeDoc = session.newEntity("NestedLinkCreationFieldTypes");
       jaimeDoc.setProperty("name", "jaime");
-      return jaimeDoc.getIdentity();
+      return jaimeDoc;
     });
 
-    final var cerseiRid = session.computeInTx(tx -> {
+    final var cerseiRecord = session.computeInTx(tx -> {
       // The link between jaime and cersei is saved properly - the #2263 test case
       final var cerseiDoc = session.newEntity("NestedLinkCreationFieldTypes");
       cerseiDoc.updateFromJSON(
           "{\"@type\":\"d\"," +
               "\"@fieldTypes\":{\"valonqar\" : \"x\"},\"name\":\"cersei\",\"valonqar\":\""
-              + jaimeRid
+              + jaimeRecord.getIdentity()
               + "\"}"
       );
-      return cerseiDoc.getIdentity();
+      return cerseiDoc;
     });
 
-    checkJsonSerialization(jaimeRid);
-    checkJsonSerialization(cerseiRid);
+    checkJsonSerialization(jaimeRecord.getIdentity());
+    checkJsonSerialization(cerseiRecord.getIdentity());
 
     final var jaimeMap = Map.of(
         "name", "jaime",
-        "@rid", jaimeRid,
+        "@rid", jaimeRecord.getIdentity(),
         "@class", "NestedLinkCreationFieldTypes",
-        "@version", 2
+        //both entities were update because a new link was added.
+        "@version", cerseiRecord.getVersion()
     );
-    checkJsonSerialization(jaimeRid, jaimeMap);
+    checkJsonSerialization(jaimeRecord.getIdentity(), jaimeMap);
 
     final var cerseiMap = Map.of(
         "name", "cersei",
-        "valonqar", jaimeRid,
-        "@rid", cerseiRid,
+        "valonqar", jaimeRecord.getIdentity(),
+        "@rid", cerseiRecord.getIdentity(),
         "@class", "NestedLinkCreationFieldTypes",
-        "@version", 1
+        //both entities were update because a new link was added.
+        "@version", cerseiRecord.getVersion()
     );
-    checkJsonSerialization(cerseiRid, cerseiMap);
+    checkJsonSerialization(cerseiRecord.getIdentity(), cerseiMap);
   }
 
   @Test
@@ -1078,41 +1052,43 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testInnerDocCreation() {
-    final var adamRid = session.computeInTx(tx -> {
+    final var adamRecord = session.computeInTx(tx -> {
       final var adamDoc = session.newEntity("InnerDocCreation");
       adamDoc.updateFromJSON("{\"name\":\"adam\"}");
 
-      return adamDoc.getIdentity();
+      return adamDoc;
     });
 
-    final var eveRid = session.computeInTx(tx -> {
-      final var adamDoc = session.loadEntity(adamRid);
+    final var eveRecord = session.computeInTx(tx -> {
+      final var adamDoc = session.loadEntity(adamRecord.getIdentity());
       final var eveDoc = session.newEntity("InnerDocCreation");
       eveDoc.updateFromJSON(
           "{\"@type\":\"d\",\"name\":\"eve\",\"friends\":[" + adamDoc.toJSON() + "]}"
       );
-      return eveDoc.getIdentity();
+      return eveDoc;
     });
 
-    checkJsonSerialization(adamRid);
-    checkJsonSerialization(eveRid);
+    checkJsonSerialization(adamRecord.getIdentity());
+    checkJsonSerialization(eveRecord.getIdentity());
 
     final var adamMap = Map.of(
         "name", "adam",
-        "@rid", adamRid,
+        "@rid", adamRecord.getIdentity(),
         "@class", "InnerDocCreation",
-        "@version", 2
+        //we use eve record here as a double-sided link was updated in transaction increment updating
+        //versions of both records
+        "@version", eveRecord.getVersion()
     );
-    checkJsonSerialization(adamRid, adamMap);
+    checkJsonSerialization(adamRecord.getIdentity(), adamMap);
 
     final var eveMap = Map.of(
         "name", "eve",
-        "friends", List.of(adamRid),
-        "@rid", eveRid,
+        "friends", List.of(adamRecord.getIdentity()),
+        "@rid", eveRecord.getIdentity(),
         "@class", "InnerDocCreation",
-        "@version", 1
+        "@version", eveRecord.getVersion()
     );
-    checkJsonSerialization(eveRid, eveMap);
+    checkJsonSerialization(eveRecord.getIdentity(), eveMap);
   }
 
   public void testInnerDocCreationFieldTypes() {
@@ -1127,30 +1103,30 @@ public class JSONTest extends BaseDBTest {
               + "\"]}")
       );
 
-      return new Pair<>(adamDoc.getIdentity(), eveDoc.getIdentity());
+      return new Pair<>(adamDoc, eveDoc);
     });
-    final var adamRid = p.getFirst();
-    final var eveRid = p.getSecond();
+    final var adamEntity = p.getFirst();
+    final var eveEntity = p.getSecond();
 
-    checkJsonSerialization(adamRid);
-    checkJsonSerialization(eveRid);
+    checkJsonSerialization(adamEntity.getIdentity());
+    checkJsonSerialization(eveEntity.getIdentity());
 
     final var expectedAdamMap = Map.of(
         "name", "adam",
-        "@version", 1,
-        "@rid", adamRid,
+        "@version", adamEntity.getVersion(),
+        "@rid", adamEntity.getIdentity(),
         "@class", "InnerDocCreationFieldTypes"
     );
-    checkJsonSerialization(adamRid, expectedAdamMap);
+    checkJsonSerialization(adamEntity.getIdentity(), expectedAdamMap);
 
     final var expectedEveMap = Map.of(
         "name", "eve",
-        "friends", List.of(adamRid),
-        "@version", 1,
-        "@rid", eveRid,
+        "friends", List.of(adamEntity.getIdentity()),
+        "@version", eveEntity.getVersion(),
+        "@rid", eveEntity.getIdentity(),
         "@class", "InnerDocCreationFieldTypes"
     );
-    checkJsonSerialization(eveRid, expectedEveMap);
+    checkJsonSerialization(eveEntity.getIdentity(), expectedEveMap);
   }
 
 
@@ -1170,7 +1146,7 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testOtherJson() {
-    final var rid = session.computeInTx(tx -> {
+    final var record = session.computeInTx(tx -> {
       final var entity = session.newEntity();
       entity.updateFromJSON(
           ("{\"Salary\":1500.0,\"Type\":\"Person\",\"Address\":[{\"Zip\":\"JX2"
@@ -1180,9 +1156,9 @@ public class JSONTest extends BaseDBTest {
               + " Drive\",\"Country\":\"USA\",\"Id\":\"Address-11595040\",\"City\":\"Los"
               + " Angeles\",\"From\":\"2009-09-01\"}],\"Id\":\"Person-7464251\",\"Name\":\"Stan\"}")
       );
-      return entity.getIdentity();
+      return entity;
     });
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
     final var map = Map.of(
         "Salary", 1500.0,
         "Type", "Person",
@@ -1209,30 +1185,30 @@ public class JSONTest extends BaseDBTest {
         ),
         "Id", "Person-7464251",
         "Name", "Stan",
-        "@rid", rid,
+        "@rid", record.getIdentity(),
         "@class", "O",
-        "@version", 1
+        "@version", record.getVersion()
     );
-    checkJsonSerialization(rid, map);
+    checkJsonSerialization(record.getIdentity(), map);
   }
 
   @Test
   public void testScientificNotation() {
-    final var rid = session.computeInTx(tx -> {
+    final var record = session.computeInTx(tx -> {
       final var doc = session.newEntity();
       doc.updateFromJSON("{\"number1\": -9.2741500e-31, \"number2\": 741800E+290}");
-      return doc.getIdentity();
+      return doc;
     });
 
-    checkJsonSerialization(rid);
+    checkJsonSerialization(record.getIdentity());
     final var expectedMap = Map.of(
         "number1", -9.27415E-31,
         "number2", 741800E+290,
-        "@rid", rid,
+        "@rid", record.getIdentity(),
         "@class", "O",
-        "@version", 1
+        "@version", record.getVersion()
     );
-    checkJsonSerialization(rid, expectedMap);
+    checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
 

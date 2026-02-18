@@ -51,9 +51,12 @@ public class BrowseCollectionTest {
     }
     var collection = db.getSchema().getClass("One").getCollectionIds()[0];
 
+    db.begin();
+    var activeTx = db.getActiveTransaction();
+    var atomicOperation = activeTx.getAtomicOperation();
     var forwardBrowser =
-        ((AbstractStorage) db.getStorage())
-            .browseCollection(collection, true);
+        db.getStorage()
+            .browseCollection(collection, true, atomicOperation);
 
     final var forwardPositions = new ArrayList<Long>();
     while (forwardBrowser.hasNext()) {
@@ -67,8 +70,8 @@ public class BrowseCollectionTest {
     assertTrue(ArrayUtils.isSorted(forwardPositions.stream().mapToLong(Long::longValue).toArray()));
 
     var backwardBrowser =
-        ((AbstractStorage) db.getStorage())
-            .browseCollection(collection, false);
+        db.getStorage()
+            .browseCollection(collection, false, atomicOperation);
     final var backwardPositions = new ArrayList<Long>();
     while (backwardBrowser.hasNext()) {
       var page = backwardBrowser.next();
@@ -82,6 +85,7 @@ public class BrowseCollectionTest {
         forwardPositions.reversed(),
         backwardPositions
     );
+    activeTx.rollback();
   }
 
   @After

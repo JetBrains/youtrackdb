@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -103,6 +104,28 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return readEntry(position);
   }
 
+  public record EntryWithStatus(byte status, @Nullable PositionEntry entry) {
+
+  }
+
+  @Nonnull
+  public EntryWithStatus getEntryWithStatus(int index) {
+    var size = getIntValue(SIZE_OFFSET);
+
+    if (index >= size) {
+      return new EntryWithStatus(NOT_EXISTENT, null);
+    }
+
+    var position = entryPosition(index);
+    var status = getByteValue(position);
+
+    if (status == FILLED || status == REMOVED) {
+      return new EntryWithStatus(status, readEntry(position));
+    }
+
+    return new EntryWithStatus(status, null);
+  }
+
   public void set(final int index, final PositionEntry entry) {
     final var size = getIntValue(SIZE_OFFSET);
 
@@ -147,7 +170,7 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return getIntValue(SIZE_OFFSET);
   }
 
-  public void remove(int index) {
+  public void remove(int index, long deletionVersion) {
     var size = getIntValue(SIZE_OFFSET);
 
     if (index >= size) {
@@ -161,6 +184,7 @@ public final class CollectionPositionMapBucket extends DurablePage {
     }
 
     updateStatus(index, REMOVED);
+    updateVersion(index, deletionVersion);
   }
 
   public void updateStatus(int index, byte status) {
@@ -196,6 +220,13 @@ public final class CollectionPositionMapBucket extends DurablePage {
 
     final var position = entryPosition(index);
     return getByteValue(position);
+  }
+
+  public long getRecordVersionAt(int index) {
+    var position = entryPosition(index);
+    return getLongValue(
+        position + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE
+            + IntegerSerializer.INT_SIZE);
   }
 
   public void updateVersion(int index, long recordVersion) {

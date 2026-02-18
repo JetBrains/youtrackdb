@@ -69,7 +69,6 @@ public interface StorageCollection {
    * Creates a new record in the collection.
    *
    * @param content           the content of the record.
-   * @param recordVersion     the current version
    * @param recordType        the type of the record
    * @param allocatedPosition the eventual allocated position or null if there is no allocated
    *                          position.
@@ -77,7 +76,6 @@ public interface StorageCollection {
    */
   PhysicalPosition createRecord(
       byte[] content,
-      int recordVersion,
       byte recordType,
       PhysicalPosition allocatedPosition,
       AtomicOperation atomicOperation);
@@ -87,39 +85,35 @@ public interface StorageCollection {
   void updateRecord(
       long collectionPosition,
       byte[] content,
-      int recordVersion,
       byte recordType,
       AtomicOperation atomicOperation);
 
-  void updateRecordVersion(long collectionPosition,
-      int recordVersion,
-      AtomicOperation atomicOperation);
+  void updateRecordVersion(long collectionPosition, AtomicOperation atomicOperation);
 
   @Nonnull
-  RawBuffer readRecord(long collectionPosition) throws IOException;
+  RawBuffer readRecord(long collectionPosition, AtomicOperation atomicOperation) throws IOException;
 
-  boolean exists();
+  boolean exists(AtomicOperation atomicOperation);
 
   /**
    * Fills and return the PhysicalPosition object received as parameter with the physical position
    * of logical record iPosition
    */
-  PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition) throws IOException;
+  PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition, AtomicOperation atomicOperation)
+      throws IOException;
 
   /**
    * Check if a rid is existent and deleted or not existent
    *
    * @return true if the record is deleted or not existent
    */
-  boolean exists(long collectionPosition) throws IOException;
+  boolean exists(long collectionPosition, AtomicOperation atomicOperation) throws IOException;
 
-  long getEntries();
+  long getEntries(AtomicOperation atomicOperation);
 
-  long getFirstPosition() throws IOException;
+  long getFirstPosition(AtomicOperation atomicOperation) throws IOException;
 
-  long getLastPosition() throws IOException;
-
-  long getNextFreePosition() throws IOException;
+  long getLastPosition(AtomicOperation atomicOperation) throws IOException;
 
   String getFileName();
 
@@ -129,22 +123,19 @@ public interface StorageCollection {
 
   String getName();
 
-  /**
-   * Returns the size of the records contained in the collection in bytes.
-   */
-  long getRecordsSize() throws IOException;
-
-  String compression();
-
   boolean isSystemCollection();
 
-  PhysicalPosition[] higherPositions(PhysicalPosition position, int limit) throws IOException;
+  PhysicalPosition[] higherPositions(PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation) throws IOException;
 
-  PhysicalPosition[] ceilingPositions(PhysicalPosition position, int limit) throws IOException;
+  PhysicalPosition[] ceilingPositions(PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation) throws IOException;
 
-  PhysicalPosition[] lowerPositions(PhysicalPosition position, int limit) throws IOException;
+  PhysicalPosition[] lowerPositions(PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation) throws IOException;
 
-  PhysicalPosition[] floorPositions(PhysicalPosition position, int limit) throws IOException;
+  PhysicalPosition[] floorPositions(PhysicalPosition position, int limit,
+      AtomicOperation atomicOperation) throws IOException;
 
   RecordConflictStrategy getRecordConflictStrategy();
 
@@ -152,11 +143,10 @@ public interface StorageCollection {
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * collection.
    */
-  void acquireAtomicExclusiveLock();
+  void acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
 
-  CollectionBrowsePage nextPage(long lastPosition, boolean forward) throws IOException;
-
-  int getBinaryVersion();
+  CollectionBrowsePage nextPage(long lastPosition, boolean forward, AtomicOperation atomicOperation)
+      throws IOException;
 
   default Meters meters() {
     return Meters.NOOP;

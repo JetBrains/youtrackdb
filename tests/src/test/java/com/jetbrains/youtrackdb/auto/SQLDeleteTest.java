@@ -26,7 +26,9 @@ public class SQLDeleteTest extends BaseDBTest {
     session.execute("insert into Profile (sex, salary) values ('female', 2100)").close();
     session.commit();
 
+    session.begin();
     final var total = session.countClass("Profile");
+    session.rollback();
 
     session.begin();
     var resultset =
@@ -43,14 +45,18 @@ public class SQLDeleteTest extends BaseDBTest {
 
     Assert.assertEquals(count, queryCount);
 
+    session.begin();
     Assert.assertEquals(session.countClass("Profile"), total - count);
+    session.rollback();
   }
 
   @Test
   public void deleteInPool() {
     var db = acquireSession();
 
+    db.begin();
     final var total = db.countClass("Profile");
+    db.rollback();
 
     db.begin();
     var resultset =
@@ -68,7 +74,9 @@ public class SQLDeleteTest extends BaseDBTest {
     db.commit();
     Assert.assertEquals(count, queryCount);
 
+    db.begin();
     Assert.assertEquals(db.countClass("Profile"), total - count);
+    db.rollback();
 
     db.close();
   }

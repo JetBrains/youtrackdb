@@ -65,8 +65,8 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
-    BinarySerializer keySerializer = storage.resolveObjectSerializer(data.getKeySerializedId());
-    var serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
+    @SuppressWarnings("unchecked") var keySerializer =
+        (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     try {
       sbTree.create(
           atomicOperation, keySerializer, data.getKeyTypes(), data.getKeySize());
@@ -90,7 +90,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   private void doClearTree(AtomicOperation atomicOperation) throws IOException {
-    try (var stream = sbTree.keyStream()) {
+    try (var stream = sbTree.keyStream(atomicOperation)) {
       stream.forEach(
           (key) -> {
             try {
@@ -106,12 +106,13 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void load(IndexEngineData data) {
+  public void load(IndexEngineData data, AtomicOperation atomicOperation) {
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
-    BinarySerializer keySerializer = storage.resolveObjectSerializer(data.getKeySerializedId());
-    var serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
-    sbTree.load(name, keySize, keyTypes, keySerializer);
+    @SuppressWarnings("unchecked")
+    var keySerializer = (BinarySerializer<Object>)
+        storage.resolveObjectSerializer(data.getKeySerializedId());
+    sbTree.load(name, keySize, keyTypes, keySerializer, atomicOperation);
   }
 
   @Override
@@ -143,8 +144,8 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RID> get(Object key) {
-    final var rid = sbTree.get(key);
+  public Stream<RID> get(Object key, AtomicOperation atomicOperation) {
+    final var rid = sbTree.get(key, atomicOperation);
     if (rid == null) {
       return Stream.empty();
     }
@@ -152,27 +153,28 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer) {
-    final var firstKey = sbTree.firstKey();
+  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
+      AtomicOperation atomicOperation) {
+    final var firstKey = sbTree.firstKey(atomicOperation);
     if (firstKey == null) {
       return Stream.empty();
     }
-    return sbTree.iterateEntriesMajor(firstKey, true, true);
+    return sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation);
   }
 
   @Override
   public Stream<RawPair<Object, RID>> descStream(
-      IndexEngineValuesTransformer valuesTransformer) {
-    final var lastKey = sbTree.lastKey();
+      IndexEngineValuesTransformer valuesTransformer, AtomicOperation atomicOperation) {
+    final var lastKey = sbTree.lastKey(atomicOperation);
     if (lastKey == null) {
       return Stream.empty();
     }
-    return sbTree.iterateEntriesMinor(lastKey, true, false);
+    return sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation);
   }
 
   @Override
-  public Stream<Object> keyStream() {
-    return sbTree.keyStream();
+  public Stream<Object> keyStream(AtomicOperation atomicOperation) {
+    return sbTree.keyStream(atomicOperation);
   }
 
   @Override
@@ -205,14 +207,14 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionEmbedded db, Object rangeFrom,
+      Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
     return sbTree.iterateEntriesBetween(
-        rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder);
+        rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, atomicOperation);
   }
 
   @Override
@@ -220,8 +222,8 @@ public final class BTreeSingleValueIndexEngine
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
-    return sbTree.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder);
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+    return sbTree.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, atomicOperation);
   }
 
   @Override
@@ -229,28 +231,20 @@ public final class BTreeSingleValueIndexEngine
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
-    return sbTree.iterateEntriesMinor(toKey, isInclusive, ascSortOrder);
+      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+    return sbTree.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, atomicOperation);
   }
 
   @Override
-  public long size(Storage storage, final IndexEngineValuesTransformer transformer) {
-    return sbTree.size();
+  public long size(Storage storage, final IndexEngineValuesTransformer transformer,
+      AtomicOperation atomicOperation) {
+    return sbTree.size(atomicOperation);
   }
 
   @Override
-  public boolean hasRangeQuerySupport() {
+  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+    sbTree.acquireAtomicExclusiveLock(atomicOperation);
     return true;
   }
 
-  @Override
-  public boolean acquireAtomicExclusiveLock() {
-    sbTree.acquireAtomicExclusiveLock();
-    return true;
-  }
-
-  @Override
-  public String getIndexNameByKey(Object key) {
-    return name;
-  }
 }

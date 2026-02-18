@@ -54,7 +54,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     this.storage = storage;
   }
 
-  public void load() {
+  public void load(AtomicOperation atomicOperation) {
     final var writeCache = storage.getWriteCache();
 
     for (final var entry : writeCache.files().entrySet()) {
@@ -65,9 +65,9 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
                 storage,
                 fileName.substring(0, fileName.length() - FILE_EXTENSION.length()),
                 FILE_EXTENSION);
-        bTree.load();
+        bTree.load(atomicOperation);
         fileIdBTreeMap.put(AbstractWriteCache.extractFileId(entry.getValue()), bTree);
-        final var edgeKey = bTree.firstKey();
+        final var edgeKey = bTree.firstKey(atomicOperation);
 
         if (edgeKey != null && edgeKey.ridBagId < 0 && ridBagIdCounter.get() < -edgeKey.ridBagId) {
           ridBagIdCounter.set(-edgeKey.ridBagId);
@@ -76,13 +76,15 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     }
   }
 
-  public static boolean isComponentPresent(final AtomicOperation operation, final int collectionId) {
+  public static boolean isComponentPresent(final AtomicOperation operation,
+      final int collectionId) {
     return operation.fileIdByName(generateLockName(collectionId)) >= 0;
   }
 
   public void createComponent(final AtomicOperation operation, final int collectionId) {
     // lock is already acquired on storage level, during storage open
-    final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
+    final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId,
+        FILE_EXTENSION);
     bTree.create(operation);
 
     final var intFileId = WOWCache.extractFileId(bTree.getFileId());
@@ -101,13 +103,15 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     }
   }
 
-  private IsolatedLinkBagBTreeImpl doCreateRidBag(AtomicOperation atomicOperation, int collectionId) {
+  private IsolatedLinkBagBTreeImpl doCreateRidBag(AtomicOperation atomicOperation,
+      int collectionId) {
     var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
 
     // lock is already acquired on storage level, during start fo the transaction so we
     // are thread safe here.
     if (fileId < 0) {
-      final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
+      final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId,
+          FILE_EXTENSION);
       bTree.create(atomicOperation);
 
       fileId = bTree.getFileId();
@@ -167,7 +171,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
             true,
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
-            true)) {
+            true, atomicOperation)) {
       stream.forEach(pair -> bTree.remove(atomicOperation, pair.first));
     }
 

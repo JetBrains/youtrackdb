@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.SimpleMultiValueTracker;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -38,6 +39,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   @Nonnull
   protected final DatabaseSessionEmbedded session;
+  @Nonnull
+  protected final AtomicOperation atomicOperation;
 
   @Nonnull
   protected BagChangesContainer localChanges;
@@ -59,6 +62,9 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   public AbstractLinkBag(@Nonnull DatabaseSessionEmbedded session, int size, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
+    var transaction = session.getActiveTransaction();
+
+    this.atomicOperation = transaction.getAtomicOperation();
     this.localChanges = createChangesContainer();
     this.size = size;
 
@@ -68,6 +74,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   public AbstractLinkBag(@Nonnull DatabaseSessionEmbedded session, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
+    var transaction = session.getActiveTransaction();
+    this.atomicOperation = transaction.getAtomicOperation();
     this.counterMaxValue = counterMaxValue;
     this.localChanges = createChangesContainer();
   }
@@ -463,7 +471,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   @Nullable
-  protected abstract Spliterator<ObjectIntPair<RID>> btreeSpliterator();
+  protected abstract Spliterator<ObjectIntPair<RID>> btreeSpliterator(
+      AtomicOperation atomicOperation);
 
   @Override
   public Spliterator<RID> spliterator() {
@@ -471,6 +480,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   private final class MergingSpliterator implements Spliterator<RID> {
+
     @Nullable
     private Spliterator<Map.Entry<RID, int[]>> newEntriesSpliterator;
     @Nullable
@@ -585,7 +595,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
 
     private void initBTreeRecordsSpliterator() {
-      btreeRecordsSpliterator = btreeSpliterator();
+      btreeRecordsSpliterator = btreeSpliterator(atomicOperation);
     }
 
     public void removed(RID rid) {
