@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -122,17 +121,8 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     Thread.sleep(1500);
 
-    var baseStorage = (DiskStorage) baseDocumentTx.getStorage();
-    var wal = baseStorage.getWALInstance();
-    wal.flush();
-
-    var walBegin = wal.begin();
-    wal.addCutTillLimit(walBegin);
-    try {
-      copyDataFromTestWithoutClose();
-    } finally {
-      wal.removeCutTillLimit(walBegin);
-    }
+    WalTestUtils.withWalProtection(
+        baseDocumentTx, this::copyDataFromTestWithoutClose);
 
     var storage = baseDocumentTx.getStorage();
     baseDocumentTx.close();

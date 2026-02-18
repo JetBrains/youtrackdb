@@ -121,18 +121,10 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     }
 
     Thread.sleep(1500);
+    WalTestUtils.withWalProtection(
+        baseDocumentTx, this::copyDataFromTestWithoutClose);
+
     var baseStorage = (DiskStorage) baseDocumentTx.getStorage();
-    var wal = baseStorage.getWALInstance();
-    wal.flush();
-
-    var walBegin = wal.begin();
-    wal.addCutTillLimit(walBegin);
-    try {
-      copyDataFromTestWithoutClose();
-    } finally {
-      wal.removeCutTillLimit(walBegin);
-    }
-
     baseDocumentTx.close();
     baseStorage.close(baseDocumentTx);
 
