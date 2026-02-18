@@ -125,7 +125,13 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     var wal = baseStorage.getWALInstance();
     wal.flush();
 
-    copyDataFromTestWithoutClose();
+    var walBegin = wal.begin();
+    wal.addCutTillLimit(walBegin);
+    try {
+      copyDataFromTestWithoutClose();
+    } finally {
+      wal.removeCutTillLimit(walBegin);
+    }
 
     baseDocumentTx.close();
     baseStorage.close(baseDocumentTx);

@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -114,7 +115,18 @@ public class LocalPaginatedStorageRestoreTx {
     }
 
     Thread.sleep(1500);
-    copyDataFromTestWithoutClose();
+
+    var baseStorage = (DiskStorage) baseDocumentTx.getStorage();
+    var wal = baseStorage.getWALInstance();
+    wal.flush();
+
+    var walBegin = wal.begin();
+    wal.addCutTillLimit(walBegin);
+    try {
+      copyDataFromTestWithoutClose();
+    } finally {
+      wal.removeCutTillLimit(walBegin);
+    }
 
     testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromTx", "admin", "admin");
