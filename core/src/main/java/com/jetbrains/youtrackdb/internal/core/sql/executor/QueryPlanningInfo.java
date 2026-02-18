@@ -19,13 +19,13 @@ import java.util.List;
 public class QueryPlanningInfo {
 
   protected SQLTimeout timeout;
-  protected boolean distinct = false;
+  public boolean distinct = false;
   protected boolean expand = false;
   protected String expandAlias = null;
 
   protected SQLProjection preAggregateProjection;
   protected SQLProjection aggregateProjection;
-  protected SQLProjection projection = null;
+  public SQLProjection projection = null;
   protected SQLProjection projectionAfterOrderBy = null;
 
   protected SQLLetClause globalLetClause = null;
@@ -36,11 +36,11 @@ public class QueryPlanningInfo {
   protected SQLFromClause target;
   protected SQLWhereClause whereClause;
   protected List<SQLAndBlock> flattenedWhereClause;
-  protected SQLGroupBy groupBy;
-  protected SQLOrderBy orderBy;
-  protected SQLUnwind unwind;
-  protected SQLSkip skip;
-  protected SQLLimit limit;
+  public SQLGroupBy groupBy;
+  public SQLOrderBy orderBy;
+  public SQLUnwind unwind;
+  public SQLSkip skip;
+  public SQLLimit limit;
 
   protected boolean orderApplied = false;
   protected boolean projectionsCalculated = false;

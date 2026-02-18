@@ -11,12 +11,12 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractExecutionStep implements ExecutionStepInternal {
 
-  final CommandContext ctx;
+  public final CommandContext ctx;
   @Nullable
-  protected ExecutionStepInternal prev = null;
+  public ExecutionStepInternal prev = null;
   @Nullable
   ExecutionStepInternal next = null;
-  protected boolean profilingEnabled;
+  public boolean profilingEnabled;
 
   public AbstractExecutionStep(CommandContext ctx, boolean profilingEnabled) {
     this.ctx = ctx;
