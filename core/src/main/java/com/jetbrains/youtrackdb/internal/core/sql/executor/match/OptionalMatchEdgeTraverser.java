@@ -9,16 +9,16 @@ import javax.annotation.Nullable;
 
 /**
  * Edge traverser that implements **optional** (LEFT JOIN) semantics for MATCH patterns.
- *
+ * <p>
  * When a target node is declared with `optional: true`, the traversal must not discard
  * the upstream row even if no matching neighbor is found. This traverser achieves that by
  * substituting the special sentinel {@link #EMPTY_OPTIONAL} when the base traversal
  * produces no results. Downstream steps can detect the sentinel via
  * {@link #isEmptyOptional(Object)}, and the final
  * {@link RemoveEmptyOptionalsStep} replaces it with `null`.
- *
+ * <p>
  * ### Sentinel lifecycle
- *
+ * <p>
  * <pre>
  *   OptionalMatchEdgeTraverser             RemoveEmptyOptionalsStep
  *   ┌──────────────────────────────┐       ┌──────────────────────────────┐
@@ -29,9 +29,9 @@ import javax.annotation.Nullable;
  *   │                              │       │     NO  → keep as-is        │
  *   └──────────────────────────────┘       └──────────────────────────────┘
  * </pre>
- *
+ * <p>
  * ### Result merging rules
- *
+ * <p>
  * | Previous value for alias | Traversal result     | Output                                   |
  * |--------------------------|----------------------|------------------------------------------|
  * | `null`                   | record `R`           | alias → `R`                              |
@@ -59,6 +59,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
    * Initializes the downstream stream and, if the base traversal yields no results,
    * replaces it with a singleton stream containing the {@link #EMPTY_OPTIONAL} sentinel.
    */
+  @Override
   protected void init(CommandContext ctx) {
     if (downstream == null) {
       super.init(ctx);
@@ -74,6 +75,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
    * for this alias is the empty-optional sentinel, the upstream row is returned as-is.
    * If no traversal result was found, the alias is set to `null` in the output row.
    */
+  @Override
   @Nullable
   public Result next(CommandContext ctx) {
     init(ctx);

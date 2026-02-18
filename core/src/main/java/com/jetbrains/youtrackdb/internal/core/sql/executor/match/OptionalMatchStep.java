@@ -7,13 +7,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal
 /**
  * A variant of {@link MatchStep} for edges whose **target node** is marked
  * `optional: true`.
- *
+ * <p>
  * Unlike the standard `MatchStep`, which silently drops upstream rows that produce no
  * downstream matches, this step **preserves** every upstream row by using
  * {@link OptionalMatchEdgeTraverser}. When no traversal results are found, the
  * traverser emits a sentinel {@link OptionalMatchEdgeTraverser#EMPTY_OPTIONAL} value.
  * The sentinel is later replaced with `null` by {@link RemoveEmptyOptionalsStep}.
- *
+ * <p>
  * This behaviour is analogous to a SQL `LEFT JOIN` — the left (previously matched)
  * side is always preserved.
  *
@@ -45,9 +45,9 @@ public class OptionalMatchStep extends MatchStep {
     }
     result.append(spaces);
     result.append("  ");
-    result.append("{" + edge.edge.out.alias + "}");
+    result.append("{").append(edge.edge.out.alias).append("}");
     result.append(edge.edge.item.getMethod());
-    result.append("{" + edge.edge.in.alias + "}");
+    result.append("{").append(edge.edge.in.alias).append("}");
     return result.toString();
   }
 }

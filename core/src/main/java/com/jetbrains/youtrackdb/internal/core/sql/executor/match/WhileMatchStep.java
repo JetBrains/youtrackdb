@@ -27,12 +27,12 @@ import java.util.List;
  * collection of results. Those results replace the single upstream record in the
  * output stream (one-to-many mapping). This is how a single starting point can
  * fan out into multiple records at various depths.
- *
+ * <p>
  * Inside {@link #unroll}, the body plan is reset and executed. The actual WHILE-loop
  * depth control and condition checking happens inside
  * {@link MatchEdgeTraverser#executeTraversal} — this step serves as a higher-level
  * wrapper that integrates the iterative traversal into the execution plan pipeline.
- *
+ * <p>
  * The `body` plan is constructed by the planner (typically a sub-plan containing
  * {@link MatchFirstStep} and one or more {@link MatchStep}s that implement the
  * recursive edge traversal). The `condition` is the parsed `WHILE` clause; it is
@@ -101,21 +101,18 @@ public class WhileMatchStep extends AbstractUnrollStep {
     var indentStep = ExecutionStepInternal.getIndent(1, indent);
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
 
-    var result =
-        spaces
-            + "+ WHILE\n"
-            + spaces
-            + indentStep
-            + condition.toString()
-            + "\n"
-            + spaces
-            + "  DO\n"
-            + body.prettyPrint(depth + 1, indent)
-            + "\n"
-            + spaces
-            + "  END\n";
-
-    return result;
+    return spaces
+        + "+ WHILE\n"
+        + spaces
+        + indentStep
+        + condition.toString()
+        + "\n"
+        + spaces
+        + "  DO\n"
+        + body.prettyPrint(depth + 1, indent)
+        + "\n"
+        + spaces
+        + "  END\n";
   }
 
   @Override

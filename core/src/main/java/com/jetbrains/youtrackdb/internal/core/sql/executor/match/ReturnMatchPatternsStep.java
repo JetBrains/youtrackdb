@@ -12,14 +12,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 /**
  * Projection step for `RETURN $patterns` — strips auto-generated (default) aliases from
  * MATCH result rows, leaving only the user-defined aliases.
- *
+ * <p>
  * During pattern construction, the planner assigns auto-generated aliases (prefixed with
  * {@link MatchExecutionPlanner#DEFAULT_ALIAS_PREFIX}) to pattern nodes the user did not
  * name. These internal aliases are needed for the traversal machinery but should not
  * appear in the final query output. This step removes them.
- *
+ * <p>
  * ### Difference from `$paths`
- *
+ * <p>
  * - `$paths` ({@link ReturnMatchPathsStep}): returns **all** aliases, including
  *   auto-generated ones.
  * - `$patterns` (this step): returns only **user-defined** aliases.

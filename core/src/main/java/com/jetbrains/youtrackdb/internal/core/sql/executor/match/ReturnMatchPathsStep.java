@@ -9,14 +9,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 
 /**
  * Pass-through step for `RETURN $paths` — returns the full MATCH result rows as-is.
- *
+ * <p>
  * When the user writes `RETURN $paths`, each result row already contains all the
  * matched aliases (both user-defined and auto-generated) as properties, which together
  * describe the full matched path. No transformation is needed, so this step simply
  * forwards the upstream stream unchanged.
- *
+ * <p>
  * ### Output format
- *
+ * <p>
  * Each output row is a map-like structure containing every alias in the pattern:
  * <pre>
  *   { p: Person#12:0, $YOUTRACKDB_DEFAULT_ALIAS_0: Knows#15:3, f: Person#13:1, city: City#20:0 }
@@ -30,7 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
  * after each edge traversal. Compare with {@link ReturnMatchPatternsStep} which strips
  * auto-generated aliases, and {@link ReturnMatchElementsStep} which unrolls each
  * user-defined alias into a separate row.
- *
+ * <p>
  * The step exists as a distinct type so that the planner's return-mode branching logic
  * ({@code MatchExecutionPlanner#addReturnStep()}) has a concrete step to chain.
  */

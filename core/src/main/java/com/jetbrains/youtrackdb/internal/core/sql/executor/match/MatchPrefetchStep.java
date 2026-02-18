@@ -14,17 +14,17 @@ import java.util.List;
 /**
  * Eagerly loads all records for a small alias into memory and stores them in the
  * execution context for later reuse.
- *
+ * <p>
  * When the {@link MatchExecutionPlanner} estimates that an alias has fewer than
  * {@code MatchExecutionPlanner.THRESHOLD} records, it inserts a `MatchPrefetchStep`
  * at the beginning of the plan. The step executes a `SELECT` sub-plan, collects all
  * results into a list, and stores them under the context variable
  * `$$YouTrackDB_Prefetched_Alias_Prefix__<alias>`.
- *
+ * <p>
  * Downstream {@link MatchFirstStep}s check for this variable before running their own
  * sub-plan, avoiding redundant scans of the same small set during the nested-loop
  * pattern matching.
- *
+ * <p>
  * <pre>
  * Prefetch → consume handoff:
  *
