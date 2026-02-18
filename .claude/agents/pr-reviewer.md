@@ -39,7 +39,7 @@ Before reviewing code, gather essential context using the GitHub CLI:
 ### Step 2: Filter Out Non-Reviewable Files
 
 Skip these files entirely:
-- Files under `core/.../internal/core/sql/parser/` (generated from `YouTrackDBSql.jjt`)
+- Files under `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/` (generated from `YouTrackDBSql.jjt`)
 - Generated Gremlin DSL classes (output of annotation processor)
 - `pom.xml` changes that only bump versions (mention but don't deep-review)
 

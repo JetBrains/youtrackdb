@@ -277,6 +277,7 @@ Runs on `develop` pushes and PRs:
 - **Always use the `Edit` and `Write` tools** to create or modify files. Do not use shell commands (`cat`, `echo`, `sed`, `awk`, `tee`, or redirection operators `>`, `>>`) to write or modify files.
 - **Use the `Read` tool** to read file contents instead of `cat`, `head`, or `tail`.
 - **Use `Glob` and `Grep` tools** for file search instead of `find`, `grep`, or `rg` shell commands.
+- **Shell utilities in pipelines**: Commands like `grep`, `cat`, `head`, `find`, `sed`, `awk` are permitted when used in shell pipelines (e.g., `git log | grep ...`, `find ... | xargs ...`) where dedicated tools cannot substitute. Prefer dedicated tools for standalone file reads and searches.
 - Reserve `Bash` exclusively for build commands (`./mvnw`), git operations, `gh` CLI, `docker`, and other tools that genuinely require shell execution.
 
 ## Tips for Working with This Codebase
