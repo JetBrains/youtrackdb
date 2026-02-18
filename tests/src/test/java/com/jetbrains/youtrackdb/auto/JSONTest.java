@@ -34,6 +34,14 @@ import org.testng.annotations.Test;
 @Test
 public class JSONTest extends BaseDBTest {
 
+  private static Map<String, Object> nullableMap(Object... keyValues) {
+    var map = new HashMap<String, Object>();
+    for (int i = 0; i < keyValues.length; i += 2) {
+      map.put((String) keyValues[i], keyValues[i + 1]);
+    }
+    return map;
+  }
+
   public static final String FORMAT_WITHOUT_RID =
       "version,class,type,keepTypes";
 
@@ -169,13 +177,12 @@ public class JSONTest extends BaseDBTest {
         "lastName", "Williams",
         "phone", "561-401-3348",
         "email", "0586548571@example.com",
-        "address", new HashMap<>() {{
-          put("street1", "Smith Ave");
-          put("street2", null);
-          put("city", "GORDONSVILLE");
-          put("state", "VA");
-          put("code", "22942");
-        }},
+        "address", nullableMap(
+            "street1", "Smith Ave",
+            "street2", null,
+            "city", "GORDONSVILLE",
+            "state", "VA",
+            "code", "22942"),
         "dob", "2011-11-17 03:17:04",
         "@rid", rid,
         "@class", "O",
@@ -464,9 +471,7 @@ public class JSONTest extends BaseDBTest {
     final var expectedMap = Map.of(
         "Field", Map.of(
             "Key1", List.of("Value1", "Value2"),
-            "Key2", new HashMap<>() {{
-              put("%%dummy%%", null);
-            }},
+            "Key2", nullableMap("%%dummy%%", null),
             "Key3", "Value3"
         ),
         "@rid", rid,

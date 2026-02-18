@@ -26,15 +26,15 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
   public static final YTDBGraphSONV3 INSTANCE = new YTDBGraphSONV3();
 
   @SuppressWarnings("rawtypes")
-  protected static final Map<Class, String> TYPES =
-      Collections.unmodifiableMap(
-          new LinkedHashMap<>() {
-            {
-              put(RecordId.class, "RecordId");
-              put(ChangeableRecordId.class, "NRecordId");
-              put(YTDBVertexPropertyId.class, "VertexPropertyId");
-            }
-          });
+  protected static final Map<Class, String> TYPES;
+
+  static {
+    var map = new LinkedHashMap<Class, String>();
+    map.put(RecordId.class, "RecordId");
+    map.put(ChangeableRecordId.class, "NRecordId");
+    map.put(YTDBVertexPropertyId.class, "VertexPropertyId");
+    TYPES = Collections.unmodifiableMap(map);
+  }
 
   public YTDBGraphSONV3() {
     super("ytdb-graphson-v3");

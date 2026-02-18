@@ -32,7 +32,8 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
+    @SuppressWarnings("ReturnValueIgnored")
+    var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
   @Test(expected = IllegalStateException.class)
@@ -43,7 +44,8 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
+    @SuppressWarnings("ReturnValueIgnored")
+    var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
   @Test

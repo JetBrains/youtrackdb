@@ -72,13 +72,7 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
   @Override
   public boolean equals(Object obj) {
-    if (obj == null || obj.getClass() != this.getClass()) {
-      return false;
-    }
-
-    final var that = (CaseInsensitiveCollate) obj;
-
-    return NAME.equals(NAME);
+    return obj instanceof CaseInsensitiveCollate;
   }
 
   @Override

@@ -76,4 +76,9 @@ public final class YTDBEmptyProperty<V> implements YTDBProperty<V> {
     return object instanceof YTDBEmptyProperty;
   }
 
+  @Override
+  public int hashCode() {
+    return 0;
+  }
+
 }

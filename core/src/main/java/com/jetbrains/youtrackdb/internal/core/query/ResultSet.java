@@ -55,7 +55,7 @@ public interface ResultSet extends BasicResultSet<Result> {
 
         return null;
       } else {
-        throw null;
+        throw new NoSuchElementException();
       }
     } finally {
       close();
@@ -99,7 +99,7 @@ public interface ResultSet extends BasicResultSet<Result> {
 
         return null;
       } else {
-        throw null;
+        throw new NoSuchElementException();
       }
     } finally {
       close();
@@ -157,7 +157,7 @@ public interface ResultSet extends BasicResultSet<Result> {
 
         return null;
       } else {
-        throw null;
+        throw new NoSuchElementException();
       }
     } finally {
       close();
@@ -188,7 +188,7 @@ public interface ResultSet extends BasicResultSet<Result> {
 
         return null;
       } else {
-        throw null;
+        throw new NoSuchElementException();
       }
     } finally {
       close();

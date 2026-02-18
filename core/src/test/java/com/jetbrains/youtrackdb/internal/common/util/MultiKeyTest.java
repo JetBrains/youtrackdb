@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,10 +30,12 @@ public class MultiKeyTest {
     assertNotEquals(multiKey, anotherMultiKey);
   }
 
+  @SuppressWarnings({"SelfEquals", "SelfAssertion"})
   @Test
   public void testEqualsTheSame() {
     final var multiKey = new MultiKey(Collections.singletonList("a"));
-    assertEquals(multiKey, multiKey);
+    var result = multiKey.equals(multiKey);
+    assertTrue(result);
   }
 
   @Test

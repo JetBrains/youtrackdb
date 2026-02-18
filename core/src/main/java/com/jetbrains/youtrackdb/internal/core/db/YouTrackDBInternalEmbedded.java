@@ -740,7 +740,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       String name,
       String path,
       YouTrackDBConfig config) {
-    restore(name, path, config);
+    restore(name, path, null, config);
   }
 
   @Override

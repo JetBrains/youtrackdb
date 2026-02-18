@@ -8,7 +8,6 @@ import io.netty.util.AttributeMap;
 import io.netty.util.ReferenceCountUtil;
 import java.net.InetSocketAddress;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
 import javax.security.auth.Subject;
@@ -39,10 +38,8 @@ public final class YTDBGremlinSaslAuthenticationHandler extends
   private static final AttributeKey<SaslClient> saslClientKey = AttributeKey.valueOf("saslclient");
   public static final AttributeKey<String> SASL_AUTH_ID = AttributeKey.valueOf("saslAuthId");
 
-  private static final Map<String, String> SASL_PROPERTIES = new HashMap<>() {{
-    put(
-        Sasl.SERVER_AUTH, "true");
-  }};
+  private static final Map<String, String> SASL_PROPERTIES = Map.of(
+      Sasl.SERVER_AUTH, "true");
   private static final byte[] NULL_CHALLENGE = new byte[0];
 
   private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder();

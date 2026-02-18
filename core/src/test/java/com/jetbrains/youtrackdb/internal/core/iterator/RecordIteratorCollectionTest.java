@@ -50,11 +50,11 @@ public class RecordIteratorCollectionTest extends DbTestBase {
         final var backwardResults = IteratorUtils.toList(backwardIt)
             .stream().map(RecordAbstract::getIdentity).toList();
 
+        var expectedForward = new ArrayList<RID>();
+        expectedForward.addAll(createdBefore);
+        expectedForward.addAll(existing);
         assertEquals(
-            new ArrayList<RID>() {{
-              addAll(createdBefore);
-              addAll(existing);
-            }},
+            expectedForward,
             forwardResults
         );
 

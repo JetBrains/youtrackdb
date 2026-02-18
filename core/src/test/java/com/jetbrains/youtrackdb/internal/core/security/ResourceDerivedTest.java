@@ -173,6 +173,7 @@ public class ResourceDerivedTest {
     }
   }
 
+  @SuppressWarnings("JUnit4TestNotRun")
   public void shouldTestAccess2() {
 
     var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
@@ -187,6 +188,7 @@ public class ResourceDerivedTest {
     }
   }
 
+  @SuppressWarnings("JUnit4TestNotRun")
   public void shouldTestCustomer() {
     var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant2", "password");
     var tx = db.begin();

@@ -24,6 +24,7 @@ package com.jetbrains.youtrackdb.internal.core.index.comparator;
  *
  * @since 20.03.12
  */
+@SuppressWarnings("ComparableType")
 public final class AlwaysGreaterKey implements Comparable<Comparable<?>> {
 
   @Override

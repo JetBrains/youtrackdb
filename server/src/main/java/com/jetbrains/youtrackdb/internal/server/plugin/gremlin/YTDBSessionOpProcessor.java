@@ -5,6 +5,7 @@ import static io.dropwizard.metrics5.MetricRegistry.name;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
@@ -57,12 +58,11 @@ public final class YTDBSessionOpProcessor extends YTDBAbstractOpProcessor {
 
   static {
     DEFAULT_SETTINGS.className = YTDBSessionOpProcessor.class.getCanonicalName();
-    DEFAULT_SETTINGS.config = new HashMap<>() {{
-      put(CONFIG_SESSION_TIMEOUT, DEFAULT_SESSION_TIMEOUT);
-      put(CONFIG_PER_GRAPH_CLOSE_TIMEOUT, DEFAULT_PER_GRAPH_CLOSE_TIMEOUT);
-      put(CONFIG_MAX_PARAMETERS, DEFAULT_MAX_PARAMETERS);
-      put(CONFIG_GLOBAL_FUNCTION_CACHE_ENABLED, true);
-    }};
+    DEFAULT_SETTINGS.config = new HashMap<>(Map.of(
+        CONFIG_SESSION_TIMEOUT, DEFAULT_SESSION_TIMEOUT,
+        CONFIG_PER_GRAPH_CLOSE_TIMEOUT, DEFAULT_PER_GRAPH_CLOSE_TIMEOUT,
+        CONFIG_MAX_PARAMETERS, DEFAULT_MAX_PARAMETERS,
+        CONFIG_GLOBAL_FUNCTION_CACHE_ENABLED, true));
   }
 
   public YTDBSessionOpProcessor() {

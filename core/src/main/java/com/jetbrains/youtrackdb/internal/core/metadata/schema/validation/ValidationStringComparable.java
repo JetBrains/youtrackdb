@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.validation;
 
+@SuppressWarnings("ComparableType")
 public class ValidationStringComparable implements Comparable<Object> {
 
   private final int size;

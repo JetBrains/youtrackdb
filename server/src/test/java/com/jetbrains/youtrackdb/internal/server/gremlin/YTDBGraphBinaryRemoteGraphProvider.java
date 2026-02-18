@@ -81,9 +81,8 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
     AutoCloseable {
 
   @SuppressWarnings("rawtypes")
-  private static final Set<Class> IMPLEMENTATION = new HashSet<>() {{
-    add(RemoteGraph.class);
-  }};
+  private static final Set<Class> IMPLEMENTATION = new HashSet<>(Set.of(
+      RemoteGraph.class));
 
   public static final String ADMIN_USER_NAME = "adminuser";
   public static final String ADMIN_USER_PASSWORD = "adminpwd";
@@ -208,15 +207,14 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
       final LoadGraphWith.GraphData loadGraphWith) {
     final var serverGraphName = getServerGraphName(loadGraphWith);
 
-    return new HashMap<>() {{
-      put(Graph.GRAPH, RemoteGraph.class.getName());
-      put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS,
-          YTDBDriverRemoteConnection.class.getName());
-      put(DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME,
-          serverGraphName);
-      put("clusterConfiguration.port", ytdbServer.getGremlinServer().getPort());
-      put("clusterConfiguration.hosts", "localhost");
-    }};
+    return new HashMap<>(Map.of(
+        Graph.GRAPH, RemoteGraph.class.getName(),
+        RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS,
+        YTDBDriverRemoteConnection.class.getName(),
+        DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME,
+        serverGraphName,
+        "clusterConfiguration.port", ytdbServer.getGremlinServer().getPort(),
+        "clusterConfiguration.hosts", "localhost"));
   }
 
   @Override

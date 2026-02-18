@@ -99,6 +99,9 @@
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
     <guice.version>7.0.0</guice.version>
     <antlr.version>4.13.2</antlr.version>
+    <errorprone.version>2.47.0</errorprone.version>
+    <nullaway.version>0.13.1</nullaway.version>
+    <jspecify.version>1.0.0</jspecify.version>
   </properties>
 
 
@@ -294,6 +297,11 @@
         <artifactId>gremlin-language</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>${jspecify.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -396,6 +404,24 @@
             <target>${maven.compiler.target}</target>
             <showDeprecation>false</showDeprecation>
             <showWarnings>true</showWarnings>
+            <compilerArgs>
+              <arg>-XDcompilePolicy=simple</arg>
+              <arg>--should-stop=ifError=FLOW</arg>
+              <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+              <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR</arg>
+            </compilerArgs>
+            <annotationProcessorPaths>
+              <path>
+                <groupId>com.google.errorprone</groupId>
+                <artifactId>error_prone_core</artifactId>
+                <version>${errorprone.version}</version>
+              </path>
+              <path>
+                <groupId>com.uber.nullaway</groupId>
+                <artifactId>nullaway</artifactId>
+                <version>${nullaway.version}</version>
+              </path>
+            </annotationProcessorPaths>
           </configuration>
         </plugin>
 

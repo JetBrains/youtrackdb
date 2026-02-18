@@ -71,6 +71,7 @@ public class IdentifiableMultiValueTest {
     Assert.assertEquals(collection.size(), 2);
   }
 
+  @SuppressWarnings("JUnit4TestNotRun")
   public void testToString() {
     List<String> collection = new ArrayList<String>();
     MultiValue.add(collection, 1);

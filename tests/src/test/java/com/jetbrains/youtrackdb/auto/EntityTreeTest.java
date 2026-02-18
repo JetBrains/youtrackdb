@@ -417,7 +417,6 @@ public class EntityTreeTest extends BaseDBTest {
     person.setProperty("name", "Guy");
     person.setProperty("surname", "Ritchie");
 
-    person = person;
     session.commit();
 
     session.begin();
@@ -443,9 +442,7 @@ public class EntityTreeTest extends BaseDBTest {
   public void testSave() {
     session.begin();
     var parent1 = session.newEntity("RefParent");
-    parent1 = parent1;
     var parent2 = session.newEntity("RefParent");
-    parent2 = parent2;
 
     var child1 = session.newEntity("RefChild");
     parent1.setProperty("children", session.newLinkSet(Set.of(child1)));

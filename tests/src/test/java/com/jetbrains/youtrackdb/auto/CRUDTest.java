@@ -415,7 +415,6 @@ public class CRUDTest extends BaseDBTest {
       a.setProperty("children", session.newLinkMap(Map.of("" + i, child3)));
     }
 
-    a = a;
     session.commit();
 
     var rid = a.getIdentity();
@@ -469,7 +468,6 @@ public class CRUDTest extends BaseDBTest {
 
     checkCollectionImplementations(testLoadedEntity);
 
-    testLoadedEntity = testLoadedEntity;
     session.commit();
 
     session.freeze(false);
@@ -495,7 +493,6 @@ public class CRUDTest extends BaseDBTest {
       a.setProperty("set", session.newLinkSet(Set.of(child2)));
       a.setProperty("children", session.newLinkMap(Map.of("" + i, child3)));
     }
-    a = a;
     session.commit();
 
     var rid = a.getIdentity();
@@ -507,7 +504,6 @@ public class CRUDTest extends BaseDBTest {
     var testLoadedEntity = agendas.getFirst().asEntity();
     checkCollectionImplementations(testLoadedEntity);
 
-    testLoadedEntity = testLoadedEntity;
     session.commit();
 
     session.freeze(false);
@@ -709,17 +705,14 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     var hanSolo = session.newInstance("PersonTest");
     hanSolo.setProperty("firstName", "Han");
-    hanSolo = hanSolo;
     session.commit();
 
     session.begin();
     var obiWan = session.newInstance("PersonTest");
     obiWan.setProperty("firstName", "Obi-Wan");
-    obiWan = obiWan;
 
     var luke = session.newInstance("PersonTest");
     luke.setProperty("firstName", "Luke");
-    luke = luke;
     session.commit();
 
     // ============================== step 1
@@ -777,7 +770,6 @@ public class CRUDTest extends BaseDBTest {
       // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
     }
 
-    agenda = agenda;
     session.commit();
 
     session.freeze(false);
@@ -2068,7 +2060,6 @@ public class CRUDTest extends BaseDBTest {
           entry.getValue(), p.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
     }
 
-    p = p;
     session.commit();
 
     rid = p.getIdentity();
@@ -2273,7 +2264,6 @@ public class CRUDTest extends BaseDBTest {
 
     p.setProperty("byteArray", oRecordBytes);
 
-    p = p;
     session.commit();
 
     session.begin();
@@ -2336,7 +2326,6 @@ public class CRUDTest extends BaseDBTest {
     oRecordBytes = session.newBlob(thumbnailImageBytes);
     p.setProperty("byteArray", oRecordBytes);
 
-    p = p;
     session.commit();
 
     session.begin();
@@ -2730,8 +2719,6 @@ public class CRUDTest extends BaseDBTest {
 
     parent.setProperty("embeddedChild", embedded);
 
-    parent = parent;
-
     var presult = executeQuery("select from Parent");
     var cresult = executeQuery("select from EmbeddedChild");
     Assert.assertEquals(presult.size(), 1);
@@ -2741,7 +2728,6 @@ public class CRUDTest extends BaseDBTest {
     child.setProperty("name", "Little Child");
     parent.setProperty("child", child);
 
-    parent = parent;
     session.commit();
 
     session.begin();
@@ -2771,7 +2757,6 @@ public class CRUDTest extends BaseDBTest {
     a.setProperty("id", 0);
     a.setProperty("thumbnail", new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
 
-    a = a;
     session.commit();
 
     session.close();

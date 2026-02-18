@@ -14,7 +14,7 @@ public class MatcherStepTest extends GraphBaseTest {
   public void setup() {
   }
 
-  //  @Test
+  @SuppressWarnings("JUnit4TestNotRun")
   public void searchMatching() {
     var marko = graph.addVertex("name", "marko", "age", 29);
     var vadas = graph.addVertex("name", "vadas", "age", 27);

@@ -123,16 +123,11 @@ public class SecurityShared implements SecurityInternal {
   public static final String ONCREATE_IDENTITY_TYPE = "onCreate.identityType";
   public static final String ONCREATE_FIELD = "onCreate.fields";
 
-  public static final Set<String> ALLOW_FIELDS =
-      Collections.unmodifiableSet(
-          new HashSet<>() {
-            {
-              add(RestrictedOperation.ALLOW_ALL.getFieldName());
-              add(RestrictedOperation.ALLOW_READ.getFieldName());
-              add(RestrictedOperation.ALLOW_UPDATE.getFieldName());
-              add(RestrictedOperation.ALLOW_DELETE.getFieldName());
-            }
-          });
+  public static final Set<String> ALLOW_FIELDS = Set.of(
+      RestrictedOperation.ALLOW_ALL.getFieldName(),
+      RestrictedOperation.ALLOW_READ.getFieldName(),
+      RestrictedOperation.ALLOW_UPDATE.getFieldName(),
+      RestrictedOperation.ALLOW_DELETE.getFieldName());
 
   public SecurityShared(SecuritySystem security) {
     this.security = security;
