@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 
@@ -31,7 +32,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   }
 
   public static long getLastInvalidation(DatabaseSessionEmbedded db) {
-    return instance(db).lastInvalidation.get();
+    return Objects.requireNonNull(
+        Objects.requireNonNull(instance(Objects.requireNonNull(db))).lastInvalidation).get();
   }
 
   /**
@@ -43,7 +45,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     if (capacity == 0) {
       return false;
     }
-    return cache.asMap().containsKey(statement);
+    return Objects.requireNonNull(cache).asMap().containsKey(statement);
   }
 
   /**
@@ -64,8 +66,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
       return null;
     }
 
-    var resource = db.getSharedContext().getGqlExecutionPlanCache();
-    return resource.getInternal(statement, ctx);
+    var resource = Objects.requireNonNull(db.getSharedContext()).getGqlExecutionPlanCache();
+    return Objects.requireNonNull(resource).getInternal(statement, Objects.requireNonNull(ctx));
   }
 
   /**
@@ -83,8 +85,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
       return;
     }
 
-    var resource = db.getSharedContext().getGqlExecutionPlanCache();
-    resource.putInternal(statement, plan);
+    var resource = Objects.requireNonNull(db.getSharedContext()).getGqlExecutionPlanCache();
+    Objects.requireNonNull(resource).putInternal(statement, Objects.requireNonNull(plan));
   }
 
   /**
@@ -94,7 +96,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     if (statement == null || capacity == 0) {
       return;
     }
-    cache.put(statement, plan.copy());
+    Objects.requireNonNull(cache).put(statement, Objects.requireNonNull(
+        Objects.requireNonNull(plan).copy()));
   }
 
   /**
@@ -108,7 +111,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     if (statement == null || capacity == 0) {
       return null;
     }
-    var cached = cache.getIfPresent(statement);
+    var cached = Objects.requireNonNull(cache).getIfPresent(statement);
     return cached != null ? cached.copy() : null;
   }
 
@@ -146,11 +149,12 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     invalidate();
   }
 
-  public static GqlExecutionPlanCache instance(DatabaseSessionEmbedded db) {
+  public static @Nullable GqlExecutionPlanCache instance(
+      DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
 
-    return db.getSharedContext().getGqlExecutionPlanCache();
+    return Objects.requireNonNull(db.getSharedContext()).getGqlExecutionPlanCache();
   }
 }

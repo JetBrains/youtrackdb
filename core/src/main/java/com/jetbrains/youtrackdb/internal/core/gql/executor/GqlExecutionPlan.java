@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 
@@ -14,13 +15,13 @@ public class GqlExecutionPlan {
   /// Add a step to the execution plan chain.
   public void chain(GqlExecutionStep step) {
     if (lastStep != null) {
-      step.setPrevious(lastStep);
+      Objects.requireNonNull(step).setPrevious(lastStep);
     }
     lastStep = step;
   }
 
   /// Start execution and return a stream of results.
-  public GqlExecutionStream start(GqlExecutionContext ctx) {
+  public @Nullable GqlExecutionStream start(GqlExecutionContext ctx) {
     if (lastStep == null) {
       return GqlExecutionStream.empty();
     }

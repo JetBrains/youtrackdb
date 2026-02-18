@@ -12,7 +12,7 @@ import javax.annotation.Nullable;
 public interface GqlExecutionStep {
 
   /// Start execution and return a stream of results.
-  GqlExecutionStream start(GqlExecutionContext ctx);
+  GqlExecutionStream start(@org.jspecify.annotations.Nullable GqlExecutionContext ctx);
 
   /// Set the previous step in the chain.
   void setPrevious(@Nullable GqlExecutionStep step);

@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /**
  * LRU cache for already parsed GQL statements.
@@ -24,16 +26,16 @@ public class GqlStatementCache {
     };
   }
 
-  public static GqlStatement get(String statement, DatabaseSessionEmbedded session) {
+  public static @Nullable GqlStatement get(String statement, DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(statement);
     }
 
-    var resource = session.getSharedContext().getGqlStatementCache();
-    return resource.getCached(statement);
+    var resource = Objects.requireNonNull(session.getSharedContext()).getGqlStatementCache();
+    return Objects.requireNonNull(resource).getCached(statement);
   }
 
-  protected static GqlStatement parse(String statement) {
+  protected static GqlStatement parse(@Nullable String statement) {
     return GqlPlanner.parse(statement);
   }
 
@@ -42,12 +44,12 @@ public class GqlStatementCache {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return false;
     }
-    synchronized (map) {
+    synchronized (Objects.requireNonNull(map)) {
       return map.containsKey(statement);
     }
   }
 
-  public GqlStatement getCached(String statement) {
+  public GqlStatement getCached(@Nullable String statement) {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
       return parse(statement);
     }
@@ -70,7 +72,7 @@ public class GqlStatementCache {
   }
 
   public void clear() {
-    synchronized (map) {
+    synchronized (Objects.requireNonNull(map)) {
       map.clear();
     }
   }

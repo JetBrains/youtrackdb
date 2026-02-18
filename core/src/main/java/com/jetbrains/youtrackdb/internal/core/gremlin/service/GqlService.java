@@ -6,12 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutio
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.jspecify.annotations.Nullable;
 
 /// TinkerPop service for executing GQL (Graph Query Language) queries.
 ///
@@ -83,7 +85,7 @@ public class GqlService implements Service<Object, Object> {
   }
 
   @Override
-  public Type getType() {
+  public @Nullable Type getType() {
     return type;
   }
 
@@ -93,8 +95,9 @@ public class GqlService implements Service<Object, Object> {
   }
 
   @Override
-  public CloseableIterator<Object> execute(ServiceCallContext ctx, Map params) {
-    if (query.isEmpty()) {
+  public @Nullable CloseableIterator<Object> execute(@Nullable ServiceCallContext ctx,
+      @Nullable Map params) {
+    if (Objects.requireNonNull(query).isEmpty()) {
       return CloseableIterator.empty();
     }
 
@@ -103,10 +106,11 @@ public class GqlService implements Service<Object, Object> {
 
     try {
       // 1. Get graph and session from traversal context
-      var traversal = (Traversal.Admin<?, ?>) ctx.getTraversal();
-      var graph = (YTDBGraphInternal) traversal.getGraph().orElseThrow();
+      var traversal = (Traversal.Admin<?, ?>) Objects.requireNonNull(ctx).getTraversal();
+      var graph = (YTDBGraphInternal) Objects.requireNonNull(
+          Objects.requireNonNull(traversal).getGraph()).orElseThrow();
       var graphTx = graph.tx();
-      graphTx.readWrite();
+      Objects.requireNonNull(graphTx).readWrite();
       var session = graphTx.getDatabaseSession();
 
       // 2. Get the query statement (from cache if available)
@@ -116,10 +120,10 @@ public class GqlService implements Service<Object, Object> {
       var executionCtx = new GqlExecutionContext(graph, session);
 
       // 4. Create execution plan from statement
-      executionPlan = statement.createExecutionPlan(executionCtx);
+      executionPlan = Objects.requireNonNull(statement).createExecutionPlan(executionCtx);
 
       // 5. Execute and return streaming result
-      stream = executionPlan.start(executionCtx);
+      stream = Objects.requireNonNull(executionPlan).start(executionCtx);
       return new GqlResultIterator(stream, executionPlan);
     } catch (Exception e) {
       if (stream != null) {
@@ -134,13 +138,14 @@ public class GqlService implements Service<Object, Object> {
 
   /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption. Handles any
   /// query type, not just MATCH.
-  private record GqlResultIterator(GqlExecutionStream stream, GqlExecutionPlan plan) implements
+  private record GqlResultIterator(@Nullable GqlExecutionStream stream,
+                                   GqlExecutionPlan plan) implements
       CloseableIterator<Object> {
 
     @Override
     public boolean hasNext() {
       try {
-        final var hasNext = stream.hasNext();
+        final var hasNext = Objects.requireNonNull(stream).hasNext();
         if (!hasNext) {
           close();
         }
@@ -152,9 +157,9 @@ public class GqlService implements Service<Object, Object> {
     }
 
     @Override
-    public Object next() {
+    public @Nullable Object next() {
       try {
-        return stream.next();
+        return Objects.requireNonNull(stream).next();
       } catch (Exception e) {
         close();
         throw e;
@@ -163,13 +168,13 @@ public class GqlService implements Service<Object, Object> {
 
     @Override
     public void close() {
-      stream.close();
-      plan.close();
+      Objects.requireNonNull(stream).close();
+      Objects.requireNonNull(plan).close();
     }
   }
 
   @Override
-  public CloseableIterator<Object> execute(
+  public @Nullable CloseableIterator<Object> execute(
       ServiceCallContext ctx,
       Traverser.Admin<Object> in,
       Map params) {

@@ -4,6 +4,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.HashMap;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /// Execution step that fetches all vertices of a class.
 ///
@@ -26,7 +28,7 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
   /// @param alias       The variable name to bind vertices to (e.g., "a")
   /// @param className   The class/label to fetch from (e.g., "Person")
   /// @param polymorphic Whether to include subclasses
-  public GqlFetchFromClassStep(String alias, String className, boolean polymorphic) {
+  public GqlFetchFromClassStep(@Nullable String alias, @Nullable String className, boolean polymorphic) {
     this.alias = alias;
     this.className = className;
     this.polymorphic = polymorphic;
@@ -37,24 +39,27 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
 
     com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal graph;
     com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass entityIterator = null;
-    var session = ctx.session();
+    var session = Objects.requireNonNull(ctx).session();
     graph = ctx.graph();
     if (prev != null) {
-      throw new CommandExecutionException(session.getDatabaseName(),
+      throw new CommandExecutionException(
+          Objects.requireNonNull(Objects.requireNonNull(session).getDatabaseName()),
           "Match can be only start for now");
     }
 
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = Objects.requireNonNull(Objects.requireNonNull(session).getMetadata())
+        .getImmutableSchemaSnapshot();
     assert schema != null;
-    if (schema.getClass(className) == null) {
-      throw new CommandExecutionException(session.getDatabaseName(),
+    if (Objects.requireNonNull(schema).getClass(Objects.requireNonNull(className)) == null) {
+      throw new CommandExecutionException(Objects.requireNonNull(session.getDatabaseName()),
           "Class '" + className + "' not found");
     }
 
     try {
-      entityIterator = session.browseClass(className, polymorphic);
+      entityIterator = session.browseClass(Objects.requireNonNull(className), polymorphic);
       return GqlExecutionStream.fromIterator(entityIterator, entity -> {
-        var vertex = new YTDBVertexImpl(graph, entity.asVertex());
+        var vertex = new YTDBVertexImpl(Objects.requireNonNull(graph), Objects.requireNonNull(
+            entity).asVertex());
         var row = new HashMap<String, Object>();
         row.put(alias, vertex);
         return row;
@@ -67,11 +72,11 @@ public class GqlFetchFromClassStep extends GqlAbstractExecutionStep {
     }
   }
 
-  public String getAlias() {
+  public @Nullable String getAlias() {
     return alias;
   }
 
-  public String getClassName() {
+  public @Nullable String getClassName() {
     return className;
   }
 

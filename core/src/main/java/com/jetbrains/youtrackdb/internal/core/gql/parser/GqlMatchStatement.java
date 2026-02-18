@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlMatchPlanner;
 import java.util.List;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /// Represents a GQL MATCH statement.
 ///
@@ -23,21 +25,21 @@ public class GqlMatchStatement implements GqlStatement {
   }
 
   public void setOriginalStatement(String originalStatement) {
-    this.originalStatement = originalStatement;
+    this.originalStatement = Objects.requireNonNull(originalStatement);
   }
 
   @SuppressWarnings("unused")
-  public String getOriginalStatement() {
+  public @Nullable String getOriginalStatement() {
     return originalStatement;
   }
 
-  public List<GqlMatchVisitor.NodePattern> getPatterns() {
+  public @Nullable List<GqlMatchVisitor.NodePattern> getPatterns() {
     return patterns;
   }
 
   @Override
-  public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx) {
-    return createExecutionPlan(ctx, true);
+  public @Nullable GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx) {
+    return createExecutionPlan(Objects.requireNonNull(ctx), true);
   }
 
   /// Create an execution plan, optionally using cache.
@@ -45,12 +47,13 @@ public class GqlMatchStatement implements GqlStatement {
   /// @param ctx      execution context
   /// @param useCache whether to use execution plan cache
   /// @return the execution plan
-  public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
-    var session = ctx.session();
+  public @Nullable GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
+    var session = Objects.requireNonNull(ctx).session();
 
     // Try to get from cache if enabled
     if (useCache && originalStatement != null) {
-      var cachedPlan = GqlExecutionPlanCache.get(originalStatement, ctx, session);
+      var cachedPlan = GqlExecutionPlanCache.get(originalStatement, ctx,
+          Objects.requireNonNull(session));
       if (cachedPlan != null) {
         return cachedPlan;
       }
@@ -65,8 +68,10 @@ public class GqlMatchStatement implements GqlStatement {
     if (useCache
         && originalStatement != null
         && GqlExecutionPlan.canBeCached()
-        && GqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      GqlExecutionPlanCache.put(originalStatement, plan, session);
+        && GqlExecutionPlanCache.getLastInvalidation(Objects.requireNonNull(session))
+        < planningStart) {
+      GqlExecutionPlanCache.put(Objects.requireNonNull(originalStatement),
+          Objects.requireNonNull(plan), session);
     }
 
     return plan;
