@@ -215,6 +215,14 @@ public class CASObjectArrayTest {
   public void shouldReturnNullIfElementDoesNotExistsLikeAMap() {
     final var array = new CASObjectArray<Integer>();
 
-    Assert.assertNull(array.getOrNull(0));
+    Assert.assertNull(array.getOrEmpty(0));
+  }
+
+  @Test
+  public void shouldReturnDefaultPlaceholderIfElementDoesNotExists() {
+    Integer defaultPlaceholder = (int) (Math.random() * Integer.MAX_VALUE);
+    final var array = new CASObjectArray<>(defaultPlaceholder);
+
+    Assert.assertSame(defaultPlaceholder, array.getOrEmpty(0));
   }
 }
