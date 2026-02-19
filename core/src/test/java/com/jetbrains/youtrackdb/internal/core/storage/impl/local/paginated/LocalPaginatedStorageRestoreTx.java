@@ -114,7 +114,8 @@ public class LocalPaginatedStorageRestoreTx {
     }
 
     Thread.sleep(1500);
-    copyDataFromTestWithoutClose();
+    WalTestUtils.withWalProtection(
+        baseDocumentTx, this::copyDataFromTestWithoutClose);
 
     testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromTx", "admin", "admin");

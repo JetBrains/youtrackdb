@@ -120,7 +120,10 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     futures.clear();
 
     Thread.sleep(1500);
-    copyDataFromTestWithoutClose();
+
+    WalTestUtils.withWalProtection(
+        baseDocumentTx, this::copyDataFromTestWithoutClose);
+
     var storage = baseDocumentTx.getStorage();
     baseDocumentTx.close();
     storage.close(baseDocumentTx);
