@@ -251,3 +251,4 @@ local.properties
 .qodana/
 .coverage/
 **/.ekstazi/
+/htmlReport/

@@ -313,3 +313,74 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should be empty
+
+  Scenario: g_gql_MATCH_in_streaming_mode_after_V
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "StreamingAlice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.V().gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                       |
+      | m[{"a":"v[StreamingAlice]"}] |
+
+  Scenario: g_gql_MATCH_second_pattern_non_existent_class_throws_exception
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:NonExistentClass2)")
+      """
+    When iterated to list
+    Then the traversal will raise an error with message containing text of "NonExistentClass2"
+
+  Scenario: g_gql_MATCH_partial_consumption_with_limit
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "A").addV("GqlPerson").property("name", "B")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlPerson)").limit(2)
+      """
+    When iterated to list
+    Then the result should have a count of 2
+
+  Scenario: g_gql_MATCH_multiple_patterns_returns_empty_when_no_data
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlWork)")
+      """
+    When iterated to list
+    Then the result should be empty
+
+  Scenario: g_gql_MATCH_polymorphic_subclass
+    And the traversal of
+      """
+      g.sqlCommand("CREATE CLASS GqlEmployee IF NOT EXISTS EXTENDS GqlPerson")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.addV("GqlEmployee").property("name", "Bob")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result            |
+      | m[{"a":"v[Bob]"}] |
