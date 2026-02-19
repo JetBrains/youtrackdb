@@ -75,6 +75,18 @@ public class GremlinDslDigestHelperTest {
     assertThat(GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(generated)).isNull();
   }
 
+  /**
+   * When file exists but no line contains the digest prefix, the loop completes and we return null
+   * (line 52). Multiple lines ensure the loop runs and fall-through is covered.
+   */
+  @Test
+  public void getStoredDigestFromGeneratedFile_returnsNullWhenNoLineContainsPrefix() throws Exception {
+    var generated = temp.newFile("__.java").toPath();
+    Files.writeString(generated,
+        "package p;\n\nimport java.util.List;\n\nclass __ {\n  void foo() {}\n}");
+    assertThat(GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(generated)).isNull();
+  }
+
   @Test
   public void getStoredDigestFromGeneratedFile_returnsNullForNonExistentPath() {
     var missing = temp.getRoot().toPath().resolve("__.java");
