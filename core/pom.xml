@@ -320,6 +320,19 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.pastalab.fray.maven</groupId>
+        <artifactId>fray-plugins-maven</artifactId>
+        <version>0.7.1</version>
+        <executions>
+          <execution>
+            <id>prepare-fray</id>
+            <goals>
+              <goal>prepare-fray</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 
@@ -471,6 +484,18 @@
     <dependency>
       <groupId>com.google.inject</groupId>
       <artifactId>guice</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.pastalab.fray</groupId>
+      <artifactId>fray-runtime</artifactId>
+      <version>0.7.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.pastalab.fray</groupId>
+      <artifactId>fray-junit</artifactId>
+      <version>0.7.1</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
