@@ -974,6 +974,13 @@
                   <formats>
                     <format>XML</format>
                   </formats>
+                  <excludes>
+                    <!-- Gremlin DSL generated code: regenerated only when DSL changes; exclude from coverage gate -->
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/__.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSource.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversal.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/DefaultYTDBGraphTraversal.class</exclude>
+                  </excludes>
                 </configuration>
               </execution>
               <execution>
@@ -989,6 +996,12 @@
                   <formats>
                     <format>XML</format>
                   </formats>
+                  <excludes>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/__.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSource.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversal.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/DefaultYTDBGraphTraversal.class</exclude>
+                  </excludes>
                 </configuration>
               </execution>
             </executions>
