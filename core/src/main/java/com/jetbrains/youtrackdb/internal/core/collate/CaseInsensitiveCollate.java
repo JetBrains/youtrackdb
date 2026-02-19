@@ -23,9 +23,7 @@ import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -47,17 +45,17 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
       return ((String) obj).toLowerCase(Locale.ENGLISH);
     }
 
-    if (obj instanceof Set) {
-      Set result = new HashSet();
-      for (var o : (Set) obj) {
+    if (obj instanceof Set<?> set) {
+      Set<Object> result = new HashSet<>();
+      for (var o : set) {
         result.add(transform(o));
       }
       return result;
     }
 
-    if (obj instanceof List) {
-      List result = new ArrayList();
-      for (var o : (List) obj) {
+    if (obj instanceof List<?> list) {
+      List<Object> result = new ArrayList<>();
+      for (var o : list) {
         result.add(transform(o));
       }
       return result;

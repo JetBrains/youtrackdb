@@ -38,12 +38,13 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var unused1 = session
+    // Execute queries to trigger hooks - the count itself is not needed
+    session
         .query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_STATUS + " = '" + STATUS + "'")
         .stream()
         .count();
     hook.readCount = 0;
-    var unused2 = session
+    session
         .query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_ID + " = '" + id + "'").stream()
         .count();
     session.commit();

@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.collection;
 
 import java.util.ArrayList;
-import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -12,7 +11,7 @@ public class IdentifiableMultiValueTest {
 
   @Test
   public void testListSize() {
-    List<String> collection = new ArrayList<String>();
+    var collection = new ArrayList<String>();
     MultiValue.add(collection, "foo");
     MultiValue.add(collection, "bar");
     MultiValue.add(collection, "baz");
@@ -28,7 +27,7 @@ public class IdentifiableMultiValueTest {
 
   @Test
   public void testListFirstLast() {
-    List<String> collection = new ArrayList<String>();
+    var collection = new ArrayList<String>();
     MultiValue.add(collection, "foo");
     MultiValue.add(collection, "bar");
     MultiValue.add(collection, "baz");
@@ -47,7 +46,7 @@ public class IdentifiableMultiValueTest {
   @Test
   public void testListValue() {
     Assert.assertNull(MultiValue.getValue(null, 0));
-    List<String> collection = new ArrayList<String>();
+    var collection = new ArrayList<String>();
     MultiValue.add(collection, "foo");
     MultiValue.add(collection, "bar");
     MultiValue.add(collection, "baz");
@@ -62,7 +61,7 @@ public class IdentifiableMultiValueTest {
   @Test
   public void testListRemove() {
     Assert.assertNull(MultiValue.getValue(null, 0));
-    List<String> collection = new ArrayList<String>();
+    var collection = new ArrayList<String>();
     MultiValue.add(collection, "foo");
     MultiValue.add(collection, "bar");
     MultiValue.add(collection, "baz");
@@ -73,7 +72,7 @@ public class IdentifiableMultiValueTest {
 
   @SuppressWarnings("JUnit4TestNotRun")
   public void testToString() {
-    List<String> collection = new ArrayList<String>();
+    var collection = new ArrayList<String>();
     MultiValue.add(collection, 1);
     MultiValue.add(collection, 2);
     MultiValue.add(collection, 3);

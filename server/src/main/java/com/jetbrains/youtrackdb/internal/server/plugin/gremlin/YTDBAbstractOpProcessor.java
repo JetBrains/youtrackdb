@@ -657,7 +657,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     try {
       final var evalFuture = gremlinExecutor.eval(script, language, bindings, lifeCycle);
 
-      var unused = evalFuture.handle((v, t) -> {
+      evalFuture.handle((v, t) -> {
         timerContext.stop();
 
         if (t != null) {
