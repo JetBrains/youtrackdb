@@ -23,21 +23,18 @@ flowchart TB
         mp_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
         mp_mutation["Mutation Testing<br/>PIT (unit tests only)<br/>85% kill rate<br/>PR comment"]
-        mp_qodana["Qodana Scan<br/>Static analysis only"]
         mp_ci_status["CI Status Gate<br/>Single required check<br/>for branch protection"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
         mp_test_linux --> mp_coverage_gate
         mp_test_linux --> mp_mutation
-        mp_test_linux --> mp_qodana
         mp_test_linux --> mp_deploy
         mp_test_windows --> mp_deploy
         mp_test_linux --> mp_ci_status
         mp_test_windows --> mp_ci_status
         mp_coverage_gate --> mp_ci_status
         mp_mutation --> mp_ci_status
-        mp_qodana --> mp_ci_status
         mp_deploy --> mp_annotate
         mp_deploy --> mp_notify
     end
@@ -190,13 +187,7 @@ Runs PIT mutation testing on new/changed production classes only:
 
 See [Test Quality Requirements](test-quality-requirements.md) for details.
 
-#### JOB 5: Qodana Scan
-
-Runs JetBrains Qodana static code analysis in PR mode, using a baseline file to track known issues.
-Zero tolerance for new critical, high, or moderate issues. Uploads the SARIF report as an artifact.
-Qodana runs as a pure static analysis tool (no coverage tracking).
-
-#### JOB 6: Deploy (push only)
+#### JOB 5: Deploy (push only)
 
 On successful push (not PRs), deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
 Central. Each deployment is annotated with the exact version for traceability.
@@ -288,7 +279,7 @@ For complete setup and configuration instructions, see [TestFlows Runner Setup](
 | **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                                      | GitHub-hosted runners                               | N/A                                                             |
 | **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix                                 | GitHub-hosted runners                               | N/A                                                             |
 | **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title                                | GitHub-hosted runners                               | N/A                                                             |
-| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Tests, coverage gate, mutation testing, Qodana, deploy           | Self-hosted (Linux) + GitHub-hosted (Windows)       | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`       |
+| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Tests, coverage gate, mutation testing, deploy                   | Self-hosted (Linux) + GitHub-hosted (Windows)       | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`       |
 | **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main                             | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
 | **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify)                     | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
 | **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker                                | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
@@ -302,7 +293,6 @@ Every pull request must pass all of the following before merging:
 | Line coverage | coverage-gate.py | 70% or 85% | New/changed lines |
 | Branch coverage | coverage-gate.py | 70% or 85% | New/changed lines |
 | Mutation score | PIT | 85% | New/changed production classes |
-| Static analysis | Qodana | 0 new issues | Full codebase (baseline) |
 | Commit format | check-commit-prefix.yml | YTDB-* prefix | All commits |
 | History | block-merge-commits.yml | No merge commits | All commits |
 
