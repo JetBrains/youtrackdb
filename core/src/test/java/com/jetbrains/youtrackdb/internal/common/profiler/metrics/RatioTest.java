@@ -142,7 +142,8 @@ public class RatioTest extends MetricsBaseTest {
     // 10 threads producing 1 event every 500ns = 20_000 events per millisecond
     for (int i = 0; i < writerThreadCount; i++) {
       final var it = new ModifiableLong(0);
-      closeable(Executors.newSingleThreadScheduledExecutor())
+      @SuppressWarnings("unused")
+      var unused = closeable(Executors.newSingleThreadScheduledExecutor())
           .scheduleAtFixedRate(
               () -> {
                 meter.record(it.getValue() % successEveryNthIt == 0);

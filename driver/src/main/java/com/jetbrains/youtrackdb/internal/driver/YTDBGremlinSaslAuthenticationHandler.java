@@ -93,7 +93,8 @@ public final class YTDBGremlinSaslAuthenticationHandler extends
         messageBuilder.addArg(Tokens.ARGS_SASL, BASE64_ENCODER.encodeToString(
             evaluateChallenge(subject, saslClient, BASE64_DECODER.decode(base64sasl))));
       }
-      channelHandlerContext.writeAndFlush(messageBuilder.create());
+      @SuppressWarnings("unused")
+      var unused = channelHandlerContext.writeAndFlush(messageBuilder.create());
     } else {
       // SimpleChannelInboundHandler will release the frame if we don't retain it explicitly.
       ReferenceCountUtil.retain(response);

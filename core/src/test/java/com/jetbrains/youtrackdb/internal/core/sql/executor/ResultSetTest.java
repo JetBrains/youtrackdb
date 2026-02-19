@@ -33,7 +33,7 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    @SuppressWarnings({"ReturnValueIgnored", "unused"})
+    @SuppressWarnings("unused")
     var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
@@ -45,7 +45,7 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    @SuppressWarnings({"ReturnValueIgnored", "unused"})
+    @SuppressWarnings("unused")
     var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
