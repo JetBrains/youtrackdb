@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gql.planner;
 
-import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatement;
 import org.junit.Assert;
 import org.junit.Test;
 
