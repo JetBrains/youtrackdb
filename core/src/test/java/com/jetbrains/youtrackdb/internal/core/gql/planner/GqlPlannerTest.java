@@ -50,7 +50,7 @@ public class GqlPlannerTest {
 
   @Test
   public void getStatement_withNullSession_callsParse() {
-    GqlStatement statement = GqlPlanner.getStatement("MATCH (n:V)", null);
+    var statement = GqlPlanner.getStatement("MATCH (n:V)", null);
     Assert.assertNotNull(statement);
   }
 }

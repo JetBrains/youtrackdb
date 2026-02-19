@@ -12,6 +12,7 @@ import java.util.NoSuchElementException;
  * Tests for GQL execution stream implementations: EmptyGqlExecutionStream,
  * IteratorGqlExecutionStream, FlatMapGqlExecutionStream, and GqlExecutionStream static API.
  */
+@SuppressWarnings("resource")
 public class GqlExecutionStreamTest {
 
   @Test
