@@ -20,14 +20,12 @@ flowchart TB
     subgraph maven_pipeline["maven-pipeline.yml<br/>(develop branch)"]
         direction TB
         mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>Self-hosted Linux x86/arm + Windows"]
-        mp_coverage["Coverage Report<br/>JaCoCo PR comment"]
-        mp_coverage_gate["Coverage Gate<br/>diff-cover (line) + branch check<br/>85% Claude / 70% default"]
-        mp_mutation["Mutation Testing<br/>PIT + Ekstazi<br/>85% kill rate"]
+        mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
+        mp_mutation["Mutation Testing<br/>PIT (unit tests only)<br/>85% kill rate<br/>PR comment"]
         mp_qodana["Qodana Scan<br/>Static analysis only"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
-        mp_test --> mp_coverage
         mp_test --> mp_coverage_gate
         mp_test --> mp_mutation
         mp_test --> mp_qodana
@@ -154,43 +152,42 @@ and platforms (self-hosted Linux x86/arm on Hetzner, GitHub-hosted Windows):
   only.
 - **Windows (GitHub-hosted)**: Unit tests only (`package`).
 
-#### JOB 3: Coverage Report (PRs only)
+#### JOB 3: Coverage Gate (PRs only)
 
-Posts a detailed JaCoCo coverage summary as a PR comment using
-[Madrapps/jacoco-report](https://github.com/Madrapps/jacoco-report), updating the same comment on
-each push. This is an informational report with no enforcement threshold.
+Enforces line and branch coverage thresholds on new/changed code using a unified script
+(`.github/scripts/coverage-gate.py`) that:
 
-#### JOB 4: Coverage Gate (PRs only)
-
-Enforces line and branch coverage thresholds on new/changed code:
-
-- **Line coverage**: Checked via [diff-cover](https://github.com/Bachmann1234/diff_cover) against
-  all JaCoCo XML reports (unit + integration tests).
-- **Branch coverage**: Checked via a custom script (`.github/scripts/check-branch-coverage.py`) that
-  parses JaCoCo XML line-level branch data (`mb`/`cb` attributes) for changed lines.
+- Parses `git diff` to identify changed lines in Java files.
+- Reads JaCoCo XML reports (unit + integration tests) for line-level coverage data (`mi`/`ci` for
+  instructions, `mb`/`cb` for branches).
+- Merges coverage from multiple reports (takes max of covered values per line).
+- Enforces both line and branch coverage against the threshold.
+- Posts a PR comment with per-file tables of uncovered lines and uncovered branch lines, updating
+  the same comment on each push.
 - **Threshold**: 85% if any commit is co-authored with Claude Code, 70% otherwise. Detected by
   scanning commit messages for `Co-Authored-By:.*Claude`.
 
 See [Test Quality Requirements](test-quality-requirements.md) for details.
 
-#### JOB 5: Mutation Testing (PRs only)
+#### JOB 4: Mutation Testing (PRs only)
 
 Runs PIT mutation testing on new/changed production classes only:
 
 - Detects changed modules and classes via `git diff` against the base branch.
-- Restores the Ekstazi cache from the base branch to select relevant integration tests.
+- Compiles test classes for affected modules.
 - Runs PIT's `mutationCoverage` goal with an 85% mutation kill rate threshold.
-- Uses both unit tests and Ekstazi-selected integration tests to kill mutations.
+- Uses unit tests only; integration tests (`*IT`, `*IntegrationTest`) are excluded via the `mutation-testing` Maven profile.
+- Posts a PR comment with per-class mutation kill rates, survived mutation lines, and detailed mutation descriptions (same pattern as the coverage gate comment).
 
 See [Test Quality Requirements](test-quality-requirements.md) for details.
 
-#### JOB 6: Qodana Scan
+#### JOB 5: Qodana Scan
 
 Runs JetBrains Qodana static code analysis in PR mode, using a baseline file to track known issues.
 Zero tolerance for new critical, high, or moderate issues. Uploads the SARIF report as an artifact.
 Qodana runs as a pure static analysis tool (no coverage tracking).
 
-#### JOB 7: Deploy (push only)
+#### JOB 6: Deploy (push only)
 
 On successful push (not PRs), deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
 Central. Each deployment is annotated with the exact version for traceability.
@@ -281,8 +278,8 @@ Every pull request must pass all of the following before merging:
 
 | Gate | Tool | Threshold | Scope |
 |---|---|---|---|
-| Line coverage | diff-cover | 70% or 85% | New/changed lines |
-| Branch coverage | check-branch-coverage.py | 70% or 85% | New/changed lines |
+| Line coverage | coverage-gate.py | 70% or 85% | New/changed lines |
+| Branch coverage | coverage-gate.py | 70% or 85% | New/changed lines |
 | Mutation score | PIT | 85% | New/changed production classes |
 | Static analysis | Qodana | 0 new issues | Full codebase (baseline) |
 | Commit format | check-commit-prefix.yml | YTDB-* prefix | All commits |

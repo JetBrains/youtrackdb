@@ -259,36 +259,7 @@ jobs:
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
   # ------------------------------------------------------------------
-  # JOB 3: COVERAGE REPORT
-  # Posts JaCoCo coverage summary as a PR comment
-  # ------------------------------------------------------------------
-  coverage-report:
-    name: Coverage Report
-    needs: [ detect-changes, test-linux ]
-    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      actions: read
-    steps:
-      - name: Download Coverage Data
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-data
-          path: .coverage/reports
-
-      - name: JaCoCo Coverage Report
-        uses: Madrapps/jacoco-report@v1.7.2
-        with:
-          paths: .coverage/reports/**/jacoco.xml
-          token: ${{ secrets.GITHUB_TOKEN }}
-          title: "# Coverage Report"
-          update-comment: true
-          min-coverage-overall: 0
-          min-coverage-changed-files: 0
-
-  # ------------------------------------------------------------------
-  # JOB 4: COVERAGE GATE
+  # JOB 3: COVERAGE GATE
   # Enforces line & branch coverage thresholds on new/changed code
   # Threshold: 85% if any commit is co-authored with Claude Code, 70% otherwise
   # ------------------------------------------------------------------
@@ -300,6 +271,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: write
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -317,9 +289,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install diff-cover
-        run: pip install diff-cover
-
       - name: Determine Coverage Threshold
         id: threshold
         run: |
@@ -331,18 +300,54 @@ jobs:
             echo "Coverage threshold: 70% (no Claude Code co-authored commits)"
           fi
 
-      - name: Line Coverage Gate (diff-cover)
+      - name: Run Coverage Gate
+        id: gate
+        continue-on-error: true
         run: |
-          diff-cover $(find .coverage/reports -name 'jacoco.xml') \
-            --compare-branch="origin/${{ github.event.pull_request.base.ref }}" \
-            --fail-under=${{ steps.threshold.outputs.value }}
-
-      - name: Branch Coverage Gate
-        run: |
-          python3 .github/scripts/check-branch-coverage.py \
+          python3 .github/scripts/coverage-gate.py \
             --threshold ${{ steps.threshold.outputs.value }} \
             --compare-branch "origin/${{ github.event.pull_request.base.ref }}" \
-            --coverage-dir .coverage/reports
+            --coverage-dir .coverage/reports \
+            --output-md /tmp/coverage-gate.md
+
+      - name: Post Coverage Gate Comment
+        if: always() && steps.gate.outcome != 'cancelled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f /tmp/coverage-gate.md ]; then
+            echo "No markdown report generated. Skipping comment."
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+          MARKER="<!-- coverage-gate-comment -->"
+
+          # Find existing comment with our marker
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1)
+
+          BODY=$(jq -Rs '.' < /tmp/coverage-gate.md)
+
+          if [ -n "$COMMENT_ID" ]; then
+            echo "Updating existing comment ${COMMENT_ID}"
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" \
+              -X PATCH \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          else
+            echo "Creating new comment"
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -X POST \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          fi
+
+      - name: Enforce Coverage Gate
+        if: always() && steps.gate.outcome == 'failure'
+        run: |
+          echo "Coverage gate failed. See the PR comment for details."
+          exit 1
 
   # ------------------------------------------------------------------
   # JOB 5: MUTATION TESTING
@@ -358,6 +363,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: write
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -372,13 +378,10 @@ jobs:
           cache: 'maven'
           overwrite-settings: false
 
-      - name: Restore Ekstazi Cache from Base Branch
-        uses: actions/cache/restore@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: '**/.ekstazi'
-          key: ekstazi-linux-x86-jdk21-temurin-refs/heads/${{ github.event.pull_request.base.ref }}-${{ github.sha }}-never-match
-          restore-keys: |
-            ekstazi-linux-x86-jdk21-temurin-refs/heads/${{ github.event.pull_request.base.ref }}-
+          python-version: '3.12'
 
       - name: Determine Changed Modules and Classes
         id: changes
@@ -424,68 +427,70 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
-      - name: Run Ekstazi Selection for Integration Tests
-        if: steps.changes.outputs.skip != 'true'
-        id: ekstazi
-        run: |
-          # Run Ekstazi select on already-compiled classes to generate exclude files.
-          # The Ekstazi profile skips compilation (classes already exist from previous step).
-          # The restored cache is from the base branch (develop), so Ekstazi sees the
-          # PR's changes as "new" and selects only the affected integration tests.
-          if ! ./mvnw -s .github/workflows/settings.xml \
-            -pl ${{ steps.changes.outputs.modules }} \
-            process-test-classes -P ekstazi -B; then
-            echo "::warning::Ekstazi selection failed (missing cache, stale data, or build issue). Falling back to running PIT against all integration tests — no exclusions will be applied."
-          fi
-
-          # Collect IT test classes excluded by Ekstazi (not affected by changes)
-          EXCLUDED_IT=""
-          for module in $(echo "${{ steps.changes.outputs.modules }}" | tr ',' ' '); do
-            artifact=$(basename "$module")
-            excludes_file="${TMPDIR:-/tmp}/ekstazi-${artifact}.excludes"
-            if [ -f "$excludes_file" ]; then
-              # Only pick up integration test exclusions (IT/IntegrationTest classes)
-              IT_EXCLUDES=$(grep -E '(IT$|IntegrationTest$)' "$excludes_file" || true)
-              if [ -n "$IT_EXCLUDES" ]; then
-                EXCLUDED_IT="${EXCLUDED_IT}${EXCLUDED_IT:+,}$(echo "$IT_EXCLUDES" | paste -sd ',')"
-              fi
-              echo "Ekstazi excludes for ${artifact}: $(wc -l < "$excludes_file") test(s)"
-            else
-              echo "No Ekstazi exclude file for ${artifact} (all IT tests selected)"
-            fi
-          done
-
-          if [ -n "$EXCLUDED_IT" ]; then
-            echo "excluded_tests=$EXCLUDED_IT" >> "$GITHUB_OUTPUT"
-            echo "Excluded IT tests: $EXCLUDED_IT"
-          else
-            echo "excluded_tests=" >> "$GITHUB_OUTPUT"
-            echo "No IT tests excluded by Ekstazi (all selected)"
-          fi
-        env:
-          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
-          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
-
       - name: Run PIT Mutation Testing
+        id: pit
         if: steps.changes.outputs.skip != 'true'
+        continue-on-error: true
         run: |
-          PIT_ARGS="-pl ${{ steps.changes.outputs.modules }}"
-          PIT_ARGS="$PIT_ARGS org.pitest:pitest-maven:mutationCoverage"
-          PIT_ARGS="$PIT_ARGS -P mutation-testing"
-          PIT_ARGS="$PIT_ARGS -DtargetClasses=${{ steps.changes.outputs.classes }}"
-
-          # Exclude IT tests that Ekstazi deems irrelevant
-          EXCLUDED="${{ steps.ekstazi.outputs.excluded_tests }}"
-          if [ -n "$EXCLUDED" ]; then
-            PIT_ARGS="$PIT_ARGS -DexcludedTestClasses=$EXCLUDED"
-            echo "Excluding Ekstazi-filtered IT tests: $EXCLUDED"
-          fi
-
-          # Classes already compiled; run PIT goal directly
-          ./mvnw -s .github/workflows/settings.xml $PIT_ARGS -B
+          # Integration tests (*IT, *IntegrationTest) are excluded via the
+          # mutation-testing Maven profile so PIT runs only with unit tests.
+          ./mvnw -s .github/workflows/settings.xml \
+            -pl ${{ steps.changes.outputs.modules }} \
+            org.pitest:pitest-maven:mutationCoverage \
+            -P mutation-testing \
+            -DtargetClasses=${{ steps.changes.outputs.classes }} -B
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Run Mutation Gate
+        id: gate
+        if: steps.changes.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          python3 .github/scripts/mutation-gate.py \
+            --threshold 85 \
+            --modules "${{ steps.changes.outputs.modules }}" \
+            --output-md /tmp/mutation-gate.md
+
+      - name: Post Mutation Gate Comment
+        if: always() && steps.changes.outputs.skip != 'true' && steps.gate.outcome != 'cancelled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f /tmp/mutation-gate.md ]; then
+            echo "No markdown report generated. Skipping comment."
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+          MARKER="<!-- mutation-gate-comment -->"
+
+          # Find existing comment with our marker
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1)
+
+          BODY=$(jq -Rs '.' < /tmp/mutation-gate.md)
+
+          if [ -n "$COMMENT_ID" ]; then
+            echo "Updating existing comment ${COMMENT_ID}"
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" \
+              -X PATCH \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          else
+            echo "Creating new comment"
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -X POST \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          fi
+
+      - name: Enforce Mutation Gate
+        if: always() && steps.changes.outputs.skip != 'true' && (steps.pit.outcome == 'failure' || steps.gate.outcome == 'failure')
+        run: |
+          echo "Mutation testing gate failed. See the PR comment for details."
+          exit 1
 
   # ------------------------------------------------------------------
   # JOB 6: QODANA
