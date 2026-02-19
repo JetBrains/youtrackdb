@@ -155,7 +155,7 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.WeakHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -277,8 +277,16 @@ public abstract class AbstractStorage
   private final Stopwatch synchDuration;
   private final Stopwatch shutdownDuration;
 
-  // Tracking active transactions, should be used for unreachable record versions cleanup
-  protected final Map<Long, FrontendTransaction> transactionsTracker = new ConcurrentHashMap<>();
+  // Per-thread holder for the minimum active operation timestamp (tsMin).
+  // Used by the low-water-mark GC to determine which snapshot index entries are safe to evict.
+  protected final ThreadLocal<TsMinHolder> tsMinThreadLocal =
+      ThreadLocal.withInitial(TsMinHolder::new);
+
+  // Set of all TsMinHolders across threads. Backed by a WeakHashMap so that entries are
+  // automatically removed when the owning thread's TsMinHolder becomes unreachable (after
+  // thread death releases the ThreadLocal's strong reference).
+  protected final Set<TsMinHolder> tsMins =
+      Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
   public AbstractStorage(
       final String name, final String filePath, final int id,
@@ -5319,15 +5327,28 @@ public abstract class AbstractStorage
     return this.context;
   }
 
-  public void registryFrontendTransaction(FrontendTransaction transaction) {
-    transactionsTracker.put(transaction.getId(), transaction);
+  public long computeGlobalLowWaterMark() {
+    return computeGlobalLowWaterMark(tsMins);
   }
 
-  public void unregisterFrontendTransaction(long transactionId) {
-    transactionsTracker.remove(transactionId);
-  }
-
-  public int getActiveTransactionsCount() {
-    return transactionsTracker.size();
+  /**
+   * Computes the global low-water-mark by iterating all registered {@link TsMinHolder}s and
+   * returning the minimum {@code tsMin} value. Entries with {@code Long.MAX_VALUE} represent
+   * idle threads (no active transaction) and are effectively ignored since any real timestamp
+   * will be smaller.
+   *
+   * <p>If no holders are registered (or all are idle), returns {@code Long.MAX_VALUE}.
+   */
+  static long computeGlobalLowWaterMark(Set<TsMinHolder> tsMins) {
+    long min = Long.MAX_VALUE;
+    synchronized (tsMins) {
+      for (TsMinHolder holder : tsMins) {
+        long ts = holder.tsMin;
+        if (ts < min) {
+          min = ts;
+        }
+      }
+    }
+    return min;
   }
 }
