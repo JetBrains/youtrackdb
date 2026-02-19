@@ -259,36 +259,7 @@ jobs:
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
   # ------------------------------------------------------------------
-  # JOB 3: COVERAGE REPORT
-  # Posts JaCoCo coverage summary as a PR comment
-  # ------------------------------------------------------------------
-  coverage-report:
-    name: Coverage Report
-    needs: [ detect-changes, test-linux ]
-    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      actions: read
-    steps:
-      - name: Download Coverage Data
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-data
-          path: .coverage/reports
-
-      - name: JaCoCo Coverage Report
-        uses: Madrapps/jacoco-report@v1.7.2
-        with:
-          paths: .coverage/reports/**/jacoco.xml
-          token: ${{ secrets.GITHUB_TOKEN }}
-          title: "# Coverage Report"
-          update-comment: true
-          min-coverage-overall: 0
-          min-coverage-changed-files: 0
-
-  # ------------------------------------------------------------------
-  # JOB 4: COVERAGE GATE
+  # JOB 3: COVERAGE GATE
   # Enforces line & branch coverage thresholds on new/changed code
   # Threshold: 85% if any commit is co-authored with Claude Code, 70% otherwise
   # ------------------------------------------------------------------
@@ -300,6 +271,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: write
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -317,9 +289,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install diff-cover
-        run: pip install diff-cover
-
       - name: Determine Coverage Threshold
         id: threshold
         run: |
@@ -331,18 +300,54 @@ jobs:
             echo "Coverage threshold: 70% (no Claude Code co-authored commits)"
           fi
 
-      - name: Line Coverage Gate (diff-cover)
+      - name: Run Coverage Gate
+        id: gate
+        continue-on-error: true
         run: |
-          diff-cover $(find .coverage/reports -name 'jacoco.xml') \
-            --compare-branch="origin/${{ github.event.pull_request.base.ref }}" \
-            --fail-under=${{ steps.threshold.outputs.value }}
-
-      - name: Branch Coverage Gate
-        run: |
-          python3 .github/scripts/check-branch-coverage.py \
+          python3 .github/scripts/coverage-gate.py \
             --threshold ${{ steps.threshold.outputs.value }} \
             --compare-branch "origin/${{ github.event.pull_request.base.ref }}" \
-            --coverage-dir .coverage/reports
+            --coverage-dir .coverage/reports \
+            --output-md /tmp/coverage-gate.md
+
+      - name: Post Coverage Gate Comment
+        if: always() && steps.gate.outcome != 'cancelled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f /tmp/coverage-gate.md ]; then
+            echo "No markdown report generated. Skipping comment."
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+          MARKER="<!-- coverage-gate-comment -->"
+
+          # Find existing comment with our marker
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1)
+
+          BODY=$(jq -Rs '.' < /tmp/coverage-gate.md)
+
+          if [ -n "$COMMENT_ID" ]; then
+            echo "Updating existing comment ${COMMENT_ID}"
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" \
+              -X PATCH \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          else
+            echo "Creating new comment"
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -X POST \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          fi
+
+      - name: Enforce Coverage Gate
+        if: always() && steps.gate.outcome == 'failure'
+        run: |
+          echo "Coverage gate failed. See the PR comment for details."
+          exit 1
 
   # ------------------------------------------------------------------
   # JOB 5: MUTATION TESTING

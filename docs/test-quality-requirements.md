@@ -18,8 +18,7 @@ Co-authorship is detected by scanning commit messages for `Co-Authored-By:.*Clau
 ### How It Works
 
 1. **JaCoCo** collects coverage data during unit tests (surefire) and integration tests (failsafe) via the `coverage` Maven profile.
-2. **diff-cover** computes line coverage of new/changed lines by comparing the PR branch against the base branch (`develop`).
-3. A custom script (`check-branch-coverage.py`) computes branch coverage of new/changed lines by parsing JaCoCo XML line-level branch data (`mb`/`cb` attributes).
+2. A unified script (`.github/scripts/coverage-gate.py`) parses `git diff` to identify changed lines, reads JaCoCo XML reports for line-level coverage data (`mi`/`ci` for instructions, `mb`/`cb` for branches), and enforces both line and branch coverage thresholds. When multiple reports cover the same file, coverage is merged by taking the max of covered values per line.
 
 Coverage reports are stored as XML in `.coverage/reports/` per module:
 - `<module>/jacoco.xml` — unit test coverage
@@ -123,8 +122,8 @@ On every pull request, the CI pipeline enforces:
 
 | Gate | Tool | Threshold | Scope |
 |---|---|---|---|
-| Line coverage | diff-cover | 70% or 85% | New/changed lines only |
-| Branch coverage | check-branch-coverage.py | 70% or 85% | New/changed lines only |
+| Line coverage | coverage-gate.py | 70% or 85% | New/changed lines only |
+| Branch coverage | coverage-gate.py | 70% or 85% | New/changed lines only |
 | Mutation score | PIT | 85% | New/changed production classes only |
 | Static analysis | Qodana | 0 new issues | Full codebase (baseline) |
 

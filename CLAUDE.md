@@ -187,8 +187,7 @@ Runs on `develop` pushes and PRs:
 - **Concurrency**: Cancels in-progress builds when new commits arrive on the same PR/branch
 - **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
-- **Coverage**: JaCoCo coverage report posted as PR comment (collected on Linux x86, JDK 21, temurin)
-- **Coverage gate**: Enforces 85% line and branch coverage on new/changed code for Claude co-authored PRs, 70% otherwise
+- **Coverage gate**: Enforces 85% line and branch coverage on new/changed code for Claude co-authored PRs, 70% otherwise. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
 - **Mutation testing**: PIT mutation testing on changed classes with Ekstazi-selected tests, fails below 85% mutation score
 - **Qodana**: Static analysis integrated as a pipeline job (zero tolerance for critical/high/moderate issues; excludes generated SQL parser code)
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
