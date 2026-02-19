@@ -164,18 +164,7 @@
        <plugin>
         <artifactId>maven-clean-plugin</artifactId>
         <version>${maven.clean.plugin.version}</version>
-        <configuration>
-          <filesets>
-            <fileset>
-              <directory>${generated.antlr.dir}</directory>
-              <includes>
-                <include>**/*.java</include>
-                <include>**/*.tokens</include>
-                <include>**/*.interp</include>
-              </includes>
-            </fileset>
-          </filesets>
-        </configuration>
+        <!-- No filesets: generated code (ANTLR + Gremlin DSL) is in git and not cleaned; regenerated only when grammar/DSL changes -->
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -252,11 +241,13 @@
             <configuration>
               <sources>
                 <source>${generated.antlr.dir}</source>
+                <!-- Gremlin generated dir: in git; compiler sees existing files when processor skips (content unchanged) -->
+                <source>${generated.gremlin.dir}</source>
               </sources>
             </configuration>
           </execution>
           <execution>
-            <id>add-generated-test-sources</id>
+            <id>add-antlr-test-sources</id>
             <phase>generate-test-sources</phase>
             <goals>
               <goal>add-test-source</goal>
@@ -283,6 +274,8 @@
           <generatedSourcesDirectory>${generated.gremlin.dir}</generatedSourcesDirectory>
           <compilerArgs>
             <arg>-parameters</arg>
+            <arg>-Agremlin.dsl.generatedDir=${project.basedir}/src/main/generated/java/gremlin</arg>
+            <arg>-Agremlin.dsl.sourceDir=${project.basedir}/src/main/java</arg>
             <arg>-XDcompilePolicy=simple</arg>
             <arg>--should-stop=ifError=FLOW</arg>
             <arg>-XDaddTypeAnnotationsToSymbol=true</arg>

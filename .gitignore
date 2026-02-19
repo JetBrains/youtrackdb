@@ -106,11 +106,8 @@ $RECYCLE.BIN/
 ### Maven template
 target/
 
-# Generated sources
-# ANTLR generated files (regenerated from grammar - exclude from version control)
-**/src/main/generated/java/antlr/
-# Gremlin DSL generated sources are committed to version control
-# (only regenerated when @GremlinDsl annotated interfaces change)
+# Generated sources: both ANTLR and Gremlin DSL are in version control,
+# not cleaned by mvn clean; regenerated only when grammar/DSL source changes.
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
