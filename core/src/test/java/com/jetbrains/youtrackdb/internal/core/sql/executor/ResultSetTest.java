@@ -2,11 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import java.util.NoSuchElementException;
 import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests for ResultSet behavior including stream access and empty result set handling.
  */
 public class ResultSetTest extends DbTestBase {
 
@@ -81,5 +82,43 @@ public class ResultSetTest extends DbTestBase {
 
     rs2.toList();
 
+  }
+
+  /** Verify findFirstEntityOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstEntityOrNullThrowsOnEmpty() {
+    session.command("CREATE CLASS EmptyResultSetTest;");
+    try (var rs = session.query("SELECT FROM EmptyResultSetTest")) {
+      rs.findFirstEntityOrNull(e -> e.getProperty("x"));
+    }
+  }
+
+  /** Verify findFirstVertexOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstVertexOrNullThrowsOnEmpty() {
+    session.createVertexClass("EmptyVertexTest");
+    try (var rs = session.query("SELECT FROM EmptyVertexTest")) {
+      rs.findFirstVertexOrNull(v -> v.getProperty("x"));
+    }
+  }
+
+  /** Verify findFirstEdgeOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstEdgeOrNullThrowsOnEmpty() {
+    session.createVertexClass("EmptyEdgeTestV");
+    session.createEdgeClass("EmptyEdgeTestE");
+    try (var rs = session.query("SELECT FROM EmptyEdgeTestE")) {
+      rs.findFirstEdgeOrNull(e -> e.getProperty("x"));
+    }
+  }
+
+  /** Verify findFirstSateFullEdgeOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstStateFullEdgeOrNullThrowsOnEmpty() {
+    session.createVertexClass("EmptySFEdgeTestV");
+    session.createEdgeClass("EmptySFEdgeTestE");
+    try (var rs = session.query("SELECT FROM EmptySFEdgeTestE")) {
+      rs.findFirstSateFullEdgeOrNull(e -> e.getProperty("x"));
+    }
   }
 }
