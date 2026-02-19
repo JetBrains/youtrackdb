@@ -56,12 +56,32 @@ public class GremlinDslProcessorTest {
   }
 
   @Test
-  public void shouldCompileToDefaultPackage() {
+  public void shouldCompileToDefaultPackage() throws IOException {
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
         .compile(
             JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
     assertCompilationSuccess(compilation);
+
+    var anonymousSrc = readGeneratedSource(compilation,
+        "__.java");
+    Assert.assertTrue("__.java should contain person() from @AnonymousMethod",
+        anonymousSrc.contains("person("));
+    Assert.assertTrue("__.java should contain knowsOverride() from @AnonymousMethod",
+        anonymousSrc.contains("knowsOverride("));
+    Assert.assertTrue("__.java should contain meanAgeOfFriendsOverride() from @AnonymousMethod",
+        anonymousSrc.contains("meanAgeOfFriendsOverride("));
+    Assert.assertFalse("__.java should NOT contain from() marked @SkipAsAnonymousMethod",
+        anonymousSrc.contains("from(Object"));
+    Assert.assertTrue("__.java should contain start() method",
+        anonymousSrc.contains("start()"));
+
+    var traversalSourceSrc = readGeneratedSource(compilation,
+        "SocialTraversalSource.java");
+    Assert.assertTrue("TraversalSource should contain addV (default methods enabled)",
+        traversalSourceSrc.contains("addV"));
+    Assert.assertTrue("TraversalSource should contain addE (default methods enabled)",
+        traversalSourceSrc.contains("addE"));
   }
 
   @Test
@@ -77,22 +97,50 @@ public class GremlinDslProcessorTest {
             "SocialMoveTraversal.java");
   }
 
+  /**
+   * SocialPackageTraversalDsl specifies a custom traversalSource - verify generation of all 4
+   * artifacts (Traversal interface, DefaultTraversal, TraversalSource, __) and that the Traversal
+   * interface contains DSL methods.
+   */
   @Test
-  public void shouldCompileTraversalAndTraversalSourceToDefaultPackage() {
+  public void shouldCompileTraversalAndTraversalSourceToDefaultPackage() throws IOException {
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
         .compile(JavaFileObjects.forResource(
             GremlinDsl.class.getResource("SocialPackageTraversalDsl.java")));
     assertCompilationSuccess(compilation);
+
+    var traversalSrc = readGeneratedSource(compilation,
+        "SocialPackageTraversal.java");
+    Assert.assertTrue("Traversal interface should contain knows() override",
+        traversalSrc.contains("knows("));
+    Assert.assertTrue("Traversal interface should contain meanAgeOfFriends() override",
+        traversalSrc.contains("meanAgeOfFriends("));
+
+    assertThat(compilation).generatedFile(StandardLocation.SOURCE_OUTPUT,
+        "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
+        "SocialPackageTraversalSource.java");
   }
 
+  /**
+   * generateDefaultMethods=false disables addV/addE/V/E generation in TraversalSource.
+   */
   @Test
-  public void shouldCompileWithNoDefaultMethods() {
+  public void shouldCompileWithNoDefaultMethods() throws IOException {
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
         .compile(JavaFileObjects.forResource(
             GremlinDsl.class.getResource("SocialNoDefaultMethodsTraversalDsl.java")));
     assertCompilationSuccess(compilation);
+
+    var traversalSourceSrc = readGeneratedSource(compilation,
+        "SocialNoDefaultMethodsTraversalSource.java");
+    Assert.assertFalse(
+        "TraversalSource with generateDefaultMethods=false should NOT contain addV",
+        traversalSourceSrc.contains("addV"));
+    Assert.assertFalse(
+        "TraversalSource with generateDefaultMethods=false should NOT contain addE",
+        traversalSourceSrc.contains("addE"));
   }
 
   @Test
@@ -141,6 +189,9 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
+    var generatedSourceFiles = compilation.generatedSourceFiles();
+    Assert.assertTrue("No source files should be generated when digest matches (skip)",
+        generatedSourceFiles.isEmpty());
   }
 
   /**
@@ -217,6 +268,27 @@ public class GremlinDslProcessorTest {
         .withOptions(
             "-Agremlin.dsl.generatedDir=",
             "-Agremlin.dsl.sourceDir=" + sourceDir.toAbsolutePath())
+        .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+
+    assertThat(compilation).succeeded();
+    assertThat(compilation)
+        .generatedFile(StandardLocation.SOURCE_OUTPUT,
+            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
+            "SocialTraversal.java");
+  }
+
+  /**
+   * sourceDir empty but generatedDir set
+   */
+  @Test
+  public void withOptions_emptySourceDir_generatesBecauseGetDslSourcePathReturnsNull() throws IOException {
+    var generatedDir = temp.newFolder("gen").toPath();
+
+    var compilation = javac()
+        .withProcessors(new GremlinDslProcessor())
+        .withOptions(
+            "-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath(),
+            "-Agremlin.dsl.sourceDir=")
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
@@ -304,6 +376,16 @@ public class GremlinDslProcessorTest {
 
   private static void assertCompilationSuccess(final Compilation compilation) {
     assertThat(compilation).succeeded();
+  }
+
+  private static String readGeneratedSource(Compilation compilation, String fileName)
+      throws IOException {
+    var fileObject = compilation.generatedFile(StandardLocation.SOURCE_OUTPUT,
+        "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl", fileName);
+    Assert.assertTrue("Expected generated file " + "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl"
+            + "." + fileName + " not found",
+        fileObject.isPresent());
+    return fileObject.get().getCharContent(true).toString();
   }
 
 
