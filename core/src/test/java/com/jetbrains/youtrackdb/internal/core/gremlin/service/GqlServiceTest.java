@@ -65,7 +65,6 @@ public class GqlServiceTest extends GraphBaseTest {
   public void execute_withEmptyQuery_returnsEmptyIterator() {
     var g = graph.traversal();
     var list = g.call(GqlService.NAME, Map.of(GqlService.QUERY, "")).toList();
-    Assert.assertNotNull(list);
     Assert.assertTrue(list.isEmpty());
   }
 }
