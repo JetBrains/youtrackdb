@@ -7,6 +7,7 @@ import com.google.testing.compile.Compilation;
 import com.google.testing.compile.JavaFileObjects;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -14,9 +15,17 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.tools.JavaFileObject;
 import javax.tools.StandardLocation;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class GremlinDslProcessorTest {
+
+  private static final String DSL_PACKAGE_PATH =
+      "com/jetbrains/youtrackdb/internal/annotations/gremlin/dsl";
+
+  @Rule
+  public final TemporaryFolder temp = new TemporaryFolder();
 
   @Test
   public void shouldCompileToDefaultPackage() {
@@ -74,6 +83,92 @@ public class GremlinDslProcessorTest {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  /**
+   * With -A options and a pre-existing __.java whose digest matches the DSL source, the processor
+   * skips generation (canSkipByDigest returns true). Covers getDslSourcePath non-null and
+   * digest-equals branches.
+   */
+  @Test
+  public void withOptions_skipsGenerationWhenDigestMatches() throws IOException {
+    var sourceDir = temp.newFolder("src").toPath();
+    var generatedDir = temp.newFolder("gen").toPath();
+    var dslSource = sourceDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversalDsl.java");
+    Files.createDirectories(dslSource.getParent());
+    try (var in = GremlinDsl.class.getResourceAsStream("SocialTraversalDsl.java")) {
+      Files.write(dslSource, in.readAllBytes());
+    }
+    var digest = GremlinDslDigestHelper.computeSourceDigest(dslSource);
+    var sentinel = generatedDir.resolve(DSL_PACKAGE_PATH).resolve("__.java");
+    Files.createDirectories(sentinel.getParent());
+    Files.writeString(sentinel,
+        "// " + GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + digest + "\npackage p;\nclass __ {}");
+
+    var compilation = javac()
+        .withProcessors(new GremlinDslProcessor())
+        .withOptions(
+            "-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath(),
+            "-Agremlin.dsl.sourceDir=" + sourceDir.toAbsolutePath())
+        .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+
+    assertThat(compilation).succeeded();
+  }
+
+  /**
+   * With -A options but no sentinel __.java, canSkipByDigest returns false (storedDigest null).
+   * Processor runs full generation. Covers dslPath non-null, currentDigest non-empty, storedDigest null.
+   */
+  @Test
+  public void withOptions_generatesWhenNoSentinelFile() throws IOException {
+    var sourceDir = temp.newFolder("src").toPath();
+    var generatedDir = temp.newFolder("gen").toPath();
+    var dslSource = sourceDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversalDsl.java");
+    Files.createDirectories(dslSource.getParent());
+    try (var in = GremlinDsl.class.getResourceAsStream("SocialTraversalDsl.java")) {
+      Files.write(dslSource, in.readAllBytes());
+    }
+
+    var compilation = javac()
+        .withProcessors(new GremlinDslProcessor())
+        .withOptions(
+            "-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath(),
+            "-Agremlin.dsl.sourceDir=" + sourceDir.toAbsolutePath())
+        .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+
+    assertThat(compilation).succeeded();
+    assertThat(compilation)
+        .generatedFile(StandardLocation.SOURCE_OUTPUT,
+            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
+            "SocialTraversal.java");
+  }
+
+  /**
+   * With -A options and __.java present but digest mismatch, canSkipByDigest returns false.
+   * Covers storedDigest non-null but !currentDigest.equals(storedDigest).
+   */
+  @Test
+  public void withOptions_generatesWhenDigestMismatch() throws IOException {
+    var sourceDir = temp.newFolder("src").toPath();
+    var generatedDir = temp.newFolder("gen").toPath();
+    var dslSource = sourceDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversalDsl.java");
+    Files.createDirectories(dslSource.getParent());
+    try (var in = GremlinDsl.class.getResourceAsStream("SocialTraversalDsl.java")) {
+      Files.write(dslSource, in.readAllBytes());
+    }
+    var sentinel = generatedDir.resolve(DSL_PACKAGE_PATH).resolve("__.java");
+    Files.createDirectories(sentinel.getParent());
+    Files.writeString(sentinel,
+        "// " + GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + "wrongDigest\npackage p;\nclass __ {}");
+
+    var compilation = javac()
+        .withProcessors(new GremlinDslProcessor())
+        .withOptions(
+            "-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath(),
+            "-Agremlin.dsl.sourceDir=" + sourceDir.toAbsolutePath())
+        .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+
+    assertThat(compilation).succeeded();
   }
 
   private static void assertCompilationSuccess(final Compilation compilation) {
