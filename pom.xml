@@ -30,10 +30,10 @@
 
   <modules>
     <module>test-commons</module>
-    <module>gremlin-annotations</module>
     <module>core</module>
     <module>server</module>
     <module>tests</module>
+    <module>gremlin-annotations</module>
     <module>driver</module>
     <module>examples</module>
     <module>console</module>
@@ -969,6 +969,14 @@
                   <formats>
                     <format>XML</format>
                   </formats>
+                  <excludes>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/sql/parser/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/gql/parser/gen/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/__.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSource.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversal.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/DefaultYTDBGraphTraversal.class</exclude>
+                  </excludes>
                 </configuration>
               </execution>
               <execution>
@@ -984,6 +992,14 @@
                   <formats>
                     <format>XML</format>
                   </formats>
+                  <excludes>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/sql/parser/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/gql/parser/gen/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/__.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSource.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversal.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/DefaultYTDBGraphTraversal.class</exclude>
+                  </excludes>
                 </configuration>
               </execution>
             </executions>
