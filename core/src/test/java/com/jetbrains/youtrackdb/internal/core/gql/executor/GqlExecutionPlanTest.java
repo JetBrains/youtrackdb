@@ -28,6 +28,16 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   }
 
   @Test
+  public void emptyPlan_close_reset_copy_doNotThrow() {
+    var plan = new GqlExecutionPlan();
+    plan.close();
+    plan.reset();
+    var copy = plan.copy();
+    Assert.assertNotNull(copy);
+    Assert.assertNotSame(plan, copy);
+  }
+
+  @Test
   public void planWithOneStep_start_returnsStepStream() {
     var plan = new GqlExecutionPlan();
     var step = new FakeStep(GqlExecutionStream.fromIterator(List.of(1, 2, 3).iterator()));
