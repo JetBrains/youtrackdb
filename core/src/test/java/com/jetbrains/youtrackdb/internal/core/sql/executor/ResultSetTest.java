@@ -108,7 +108,7 @@ public class ResultSetTest extends DbTestBase {
     session.createVertexClass("EmptyEdgeTestV");
     session.createEdgeClass("EmptyEdgeTestE");
     try (var rs = session.query("SELECT FROM EmptyEdgeTestE")) {
-      rs.findFirstEdgeOrNull(e -> e.getProperty("x"));
+      rs.findFirstEdgeOrNull(e -> e.getIdentity());
     }
   }
 
@@ -118,7 +118,7 @@ public class ResultSetTest extends DbTestBase {
     session.createVertexClass("EmptySFEdgeTestV");
     session.createEdgeClass("EmptySFEdgeTestE");
     try (var rs = session.query("SELECT FROM EmptySFEdgeTestE")) {
-      rs.findFirstSateFullEdgeOrNull(e -> e.getProperty("x"));
+      rs.findFirstSateFullEdgeOrNull(e -> e.getIdentity());
     }
   }
 }
