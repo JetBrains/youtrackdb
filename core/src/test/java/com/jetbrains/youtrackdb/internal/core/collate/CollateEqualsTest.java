@@ -2,7 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.collate;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -44,6 +48,25 @@ public class CollateEqualsTest {
     assertNotEquals(ciCollate, null);
     // Intentionally test equals() against an unrelated type to verify the contract
     assertNotEquals(ciCollate, "not a collate");
+  }
+
+  /** Verify transform() lowercases strings within a Set. */
+  @Test
+  public void testCaseInsensitiveTransformSet() {
+    var collate = new CaseInsensitiveCollate();
+    var input = new HashSet<>(Set.of("Hello", "WORLD"));
+    var result = (Set<?>) collate.transform(input);
+    assertTrue(result.contains("hello"));
+    assertTrue(result.contains("world"));
+    assertEquals(2, result.size());
+  }
+
+  /** Verify transform() lowercases strings within a List. */
+  @Test
+  public void testCaseInsensitiveTransformList() {
+    var collate = new CaseInsensitiveCollate();
+    var result = (List<?>) collate.transform(List.of("Hello", "WORLD"));
+    assertEquals(List.of("hello", "world"), result);
   }
 
   @Test
