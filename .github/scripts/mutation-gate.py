@@ -163,7 +163,7 @@ def format_line_ranges(line_numbers):
     return ", ".join(ranges)
 
 
-def generate_markdown(results, threshold):
+def generate_markdown(results, threshold, sampled=False, total_changed=0):
     """Generate markdown report with per-file mutation tables.
 
     Returns:
@@ -177,6 +177,12 @@ def generate_markdown(results, threshold):
     lines.append("# Mutation Testing Gate Results")
     lines.append(f"**Threshold**: {threshold:.0f}%")
     lines.append("")
+    if sampled:
+        lines.append(
+            f"> **Note**: Mutation testing ran on a random sample of 20 "
+            f"out of {total_changed} changed classes."
+        )
+        lines.append("")
 
     # Overall result
     icon = ":white_check_mark:" if passed else ":x:"
@@ -284,6 +290,18 @@ def main():
         default=None,
         help="Path to write markdown report (optional)",
     )
+    parser.add_argument(
+        "--sampled",
+        action="store_true",
+        default=False,
+        help="Indicates that class sampling was used",
+    )
+    parser.add_argument(
+        "--total-changed",
+        type=int,
+        default=0,
+        help="Total number of changed classes before sampling",
+    )
     args = parser.parse_args()
 
     modules = [m.strip() for m in args.modules.split(",") if m.strip()]
@@ -307,7 +325,10 @@ def main():
         return
 
     results = compute_results(mutations)
-    md, passed = generate_markdown(results, args.threshold)
+    md, passed = generate_markdown(
+        results, args.threshold,
+        sampled=args.sampled, total_changed=args.total_changed
+    )
 
     if args.output_md:
         os.makedirs(os.path.dirname(args.output_md) or ".", exist_ok=True)

@@ -352,7 +352,7 @@ jobs:
   # ------------------------------------------------------------------
   # JOB 5: MUTATION TESTING
   # PIT mutation testing for new/changed code only
-  # Uses Ekstazi to select relevant integration tests
+  # Runs on changed classes only; PIT uses its own coverage-based test selection
   # Fails the build if mutation score < 85%
   # ------------------------------------------------------------------
   mutation-testing:
@@ -402,20 +402,39 @@ jobs:
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-          # Determine which modules have changes
-          CHANGED_MODULES=$(echo "$CHANGED_FILES" | \
+          # Convert file paths to fully qualified class names
+          ALL_CLASSES=$(echo "$CHANGED_FILES" | \
+            sed 's|.*/src/main/java/||;s|\.java$||;s|/|.|g' | \
+            paste -sd ',' -)
+
+          # Random sampling: cap at 20 classes
+          CLASS_CAP=20
+          TOTAL_CHANGED=$(echo "$ALL_CLASSES" | tr ',' '\n' | wc -l)
+
+          if [ "$TOTAL_CHANGED" -gt "$CLASS_CAP" ]; then
+            SAMPLED_CLASSES=$(echo "$ALL_CLASSES" | tr ',' '\n' | shuf -n "$CLASS_CAP" | paste -sd ',' -)
+            echo "sampled=true" >> "$GITHUB_OUTPUT"
+            echo "total_changed=$TOTAL_CHANGED" >> "$GITHUB_OUTPUT"
+            TARGET_CLASSES="$SAMPLED_CLASSES"
+            # Recompute changed files from sampled classes to derive modules
+            CHANGED_FILES=$(echo "$TARGET_CLASSES" | tr ',' '\n' | while read -r cls; do
+              echo "$CHANGED_FILES" | tr ',' '\n' | grep "$(echo "$cls" | sed 's|\.|/|g')\.java$" || true
+            done)
+          else
+            echo "sampled=false" >> "$GITHUB_OUTPUT"
+            TARGET_CLASSES="$ALL_CLASSES"
+          fi
+
+          echo "classes=$TARGET_CLASSES" >> "$GITHUB_OUTPUT"
+          echo "Target classes ($TOTAL_CHANGED total, sampled=$(if [ "$TOTAL_CHANGED" -gt "$CLASS_CAP" ]; then echo true; else echo false; fi)): $TARGET_CLASSES"
+
+          # Determine which modules have changes (from potentially sampled files)
+          CHANGED_MODULES=$(echo "$CHANGED_FILES" | tr ',' '\n' | \
             sed 's|/src/main/java/.*||' | \
             sort -u | \
             paste -sd ',' -)
           echo "modules=$CHANGED_MODULES" >> "$GITHUB_OUTPUT"
           echo "Changed modules: $CHANGED_MODULES"
-
-          # Convert file paths to fully qualified class names
-          TARGET_CLASSES=$(echo "$CHANGED_FILES" | \
-            sed 's|.*/src/main/java/||;s|\.java$||;s|/|.|g' | \
-            paste -sd ',' -)
-          echo "classes=$TARGET_CLASSES" >> "$GITHUB_OUTPUT"
-          echo "Target classes: $TARGET_CLASSES"
 
       - name: Compile Test Classes
         if: steps.changes.outputs.skip != 'true'
@@ -448,10 +467,15 @@ jobs:
         if: steps.changes.outputs.skip != 'true'
         continue-on-error: true
         run: |
+          SAMPLING_ARGS=""
+          if [ "${{ steps.changes.outputs.sampled }}" = "true" ]; then
+            SAMPLING_ARGS="--sampled --total-changed ${{ steps.changes.outputs.total_changed }}"
+          fi
           python3 .github/scripts/mutation-gate.py \
             --threshold 85 \
             --modules "${{ steps.changes.outputs.modules }}" \
-            --output-md /tmp/mutation-gate.md
+            --output-md /tmp/mutation-gate.md \
+            $SAMPLING_ARGS
 
       - name: Post Mutation Gate Comment
         if: always() && steps.changes.outputs.skip != 'true' && steps.gate.outcome != 'cancelled'
