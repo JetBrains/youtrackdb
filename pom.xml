@@ -1086,6 +1086,8 @@
               <excludedTestClasses>
                 <param>*IT</param>
                 <param>*IntegrationTest</param>
+                <!-- GremlinProcessRunner-based tests fail under PIT's classloader -->
+                <param>com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.*$Traversals</param>
               </excludedTestClasses>
               <targetTests>
                 <param>com.jetbrains.youtrackdb.*</param>
