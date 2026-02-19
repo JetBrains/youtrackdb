@@ -23,7 +23,9 @@ import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
