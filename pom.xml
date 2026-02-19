@@ -1048,6 +1048,10 @@
                 <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
                 <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
               </excludedClasses>
+              <excludedTestClasses>
+                <param>*IT</param>
+                <param>*IntegrationTest</param>
+              </excludedTestClasses>
               <targetTests>
                 <param>com.jetbrains.youtrackdb.*</param>
               </targetTests>

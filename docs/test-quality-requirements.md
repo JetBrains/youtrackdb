@@ -54,13 +54,11 @@ A mutation score of 85% means that at least 85% of the mutations introduced into
 3. Runs relevant tests against each mutation.
 4. Reports how many mutations were killed (detected by tests) vs. survived (undetected).
 
-### Integration Test Selection with Ekstazi
+When the mutation score is below the threshold, a detailed PR comment is posted listing survived and no-coverage mutations by class, method, and line number so developers know exactly what to fix.
 
-PIT uses both unit tests and integration tests to kill mutations. To avoid running irrelevant integration tests, the CI restores the [Ekstazi](https://github.com/gliga/ekstazi) cache from the base branch and runs Ekstazi's selection algorithm. Only integration tests affected by the PR's changes are included in PIT's test pool.
+### Integration Test Exclusion
 
-- **Unit tests**: all unit tests matching `com.jetbrains.youtrackdb.*` are available to PIT.
-- **Integration tests**: only Ekstazi-selected `*IT` and `*IntegrationTest` classes participate.
-- On a fresh run (no Ekstazi cache), all integration tests are included (safe default).
+PIT runs only with unit tests. All integration tests (`*IT` and `*IntegrationTest` classes) are excluded from mutation analysis via the `mutation-testing` Maven profile. Integration tests are too slow for the mutation testing feedback loop and are already validated separately by the CI integration test pipeline.
 
 ### Configuration
 

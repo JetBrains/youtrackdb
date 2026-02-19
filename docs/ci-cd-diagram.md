@@ -21,7 +21,7 @@ flowchart TB
         direction TB
         mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>Self-hosted Linux x86/arm + Windows"]
         mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
-        mp_mutation["Mutation Testing<br/>PIT + Ekstazi<br/>85% kill rate"]
+        mp_mutation["Mutation Testing<br/>PIT (unit tests only)<br/>85% kill rate<br/>PR comment"]
         mp_qodana["Qodana Scan<br/>Static analysis only"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
@@ -174,9 +174,10 @@ See [Test Quality Requirements](test-quality-requirements.md) for details.
 Runs PIT mutation testing on new/changed production classes only:
 
 - Detects changed modules and classes via `git diff` against the base branch.
-- Restores the Ekstazi cache from the base branch to select relevant integration tests.
+- Compiles test classes for affected modules.
 - Runs PIT's `mutationCoverage` goal with an 85% mutation kill rate threshold.
-- Uses both unit tests and Ekstazi-selected integration tests to kill mutations.
+- Uses unit tests only; integration tests (`*IT`, `*IntegrationTest`) are excluded via the `mutation-testing` Maven profile.
+- Posts a PR comment with per-class mutation kill rates, survived mutation lines, and detailed mutation descriptions (same pattern as the coverage gate comment).
 
 See [Test Quality Requirements](test-quality-requirements.md) for details.
 
