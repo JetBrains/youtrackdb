@@ -352,7 +352,7 @@ jobs:
   # ------------------------------------------------------------------
   # JOB 5: MUTATION TESTING
   # PIT mutation testing for new/changed code only
-  # Uses Ekstazi to select relevant integration tests
+  # Runs on changed classes only; PIT uses its own coverage-based test selection
   # Fails the build if mutation score < 85%
   # ------------------------------------------------------------------
   mutation-testing:
