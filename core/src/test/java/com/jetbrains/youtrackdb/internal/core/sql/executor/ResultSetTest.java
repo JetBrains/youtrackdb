@@ -33,8 +33,8 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    // Trigger vertex stream which should throw - result is intentionally discarded
-    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
+    @SuppressWarnings({"ReturnValueIgnored", "unused"})
+    var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
   @Test(expected = IllegalStateException.class)
@@ -45,8 +45,8 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    // Trigger vertex stream which should throw - result is intentionally discarded
-    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
+    @SuppressWarnings({"ReturnValueIgnored", "unused"})
+    var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
   @Test
