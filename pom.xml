@@ -1084,6 +1084,10 @@
               <excludedClasses>
                 <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
                 <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
+                <param>com.jetbrains.youtrackdb.api.gremlin.__</param>
+                <param>com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource</param>
+                <param>com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal</param>
+                <param>com.jetbrains.youtrackdb.api.gremlin.DefaultYTDBGraphTraversal</param>
               </excludedClasses>
               <excludedTestClasses>
                 <param>*IT</param>
