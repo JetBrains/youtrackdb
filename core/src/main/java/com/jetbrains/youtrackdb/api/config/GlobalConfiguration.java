@@ -266,6 +266,12 @@ public enum GlobalConfiguration {
       "Amount storage collections allocated for storing blobs", Integer.class,
       8),
 
+  STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD(
+      "youtrackdb.storage.snapshotIndex.cleanupThreshold",
+      "Number of entries in the shared snapshot index that triggers GC of stale entries",
+      Integer.class,
+      10_000),
+
   WAL_CACHE_SIZE(
       "youtrackdb.storage.wal.cacheSize",
       "Maximum size of WAL cache (in amount of WAL pages, each page is 4k) If set to 0, caching"
