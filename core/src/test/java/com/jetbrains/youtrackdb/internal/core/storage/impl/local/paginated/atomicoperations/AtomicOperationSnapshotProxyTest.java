@@ -17,8 +17,10 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
 import org.junit.Before;
 import org.junit.Test;
@@ -116,6 +118,10 @@ public class AtomicOperationSnapshotProxyTest {
 
   @Test
   public void testLocalVisibilityBufferShadowsSharedMap() {
+    // The containsVisibilityEntry API only returns boolean, so we can only verify
+    // that the key is found when present in both layers. Value-level shadowing
+    // (local wins over shared) is verified by testFlushOverwritesSharedEntryOnConflict
+    // which asserts the local value overwrites the shared one during flush.
     var key = new VisibilityKey(100L, 1, 50L);
     sharedVisibilityIndex.put(key, new SnapshotKey(1, 50L, 5L));
 
@@ -359,6 +365,28 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   @Test
+  public void testFlushOverwritesSharedEntryOnConflict() {
+    // When local and shared maps have the same key, flush (putAll) overwrites
+    // the shared entry with the local value.
+    var snapKey = new SnapshotKey(1, 50L, 10L);
+    var sharedSnapValue = new PositionEntry(1L, 0, 10L);
+    var localSnapValue = new PositionEntry(2L, 1, 10L);
+    sharedSnapshotIndex.put(snapKey, sharedSnapValue);
+    operation.putSnapshotEntry(snapKey, localSnapValue);
+
+    var visKey = new VisibilityKey(100L, 1, 50L);
+    var sharedVisValue = new SnapshotKey(1, 50L, 5L);
+    var localVisValue = new SnapshotKey(1, 50L, 10L);
+    sharedVisibilityIndex.put(visKey, sharedVisValue);
+    operation.putVisibilityEntry(visKey, localVisValue);
+
+    operation.flushSnapshotBuffers();
+
+    assertThat(sharedSnapshotIndex.get(snapKey)).isEqualTo(localSnapValue);
+    assertThat(sharedVisibilityIndex.get(visKey)).isEqualTo(localVisValue);
+  }
+
+  @Test
   public void testFlushDoesNotAffectPreviousSharedEntries() {
     // Pre-existing shared entries should be preserved
     sharedSnapshotIndex.put(
@@ -562,6 +590,153 @@ public class AtomicOperationSnapshotProxyTest {
     assertThat(result.get(2).getValue()).isEqualTo(new PositionEntry(1L, 0, 1L));
   }
 
+  @Test
+  public void testMergeIteratorExhaustedThrowsNoSuchElementException() {
+    // Iterate a single-element iterator to exhaustion, then call next() again.
+    var shared = List.of(
+        entry(new SnapshotKey(1, 50L, 5L), new PositionEntry(1L, 0, 5L)));
+    var iter = new MergingDescendingIterator(
+        shared.iterator(), Collections.emptyIterator());
+
+    assertThat(iter.hasNext()).isTrue();
+    iter.next();
+    assertThat(iter.hasNext()).isFalse();
+
+    assertThatThrownBy(iter::next).isInstanceOf(NoSuchElementException.class);
+  }
+
+  @Test
+  public void testMergeIteratorSharedLargerIsLastEntry() {
+    // Shared has a single entry with a larger key than local's single entry.
+    // After emitting the shared entry (cmp < 0 path), sharedIter is exhausted
+    // → exercises the branch where sharedIter has no more entries after yielding
+    // a shared entry whose key is larger than the current local entry.
+    var shared = List.of(
+        entry(new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L)));
+    var local = List.of(
+        entry(new SnapshotKey(1, 50L, 3L), new PositionEntry(2L, 1, 3L)));
+
+    var iter = new MergingDescendingIterator(shared.iterator(), local.iterator());
+    var result = collectIteratorKeys(iter);
+
+    assertThat(result).containsExactly(
+        new SnapshotKey(1, 50L, 10L),
+        new SnapshotKey(1, 50L, 3L));
+  }
+
+  // --- Additional proxy method tests ---
+
+  @Test
+  public void testSubMapDescendingLocalEntryOutsideQueryRange() {
+    // Local buffer is allocated (non-null) but its entries are outside the
+    // queried range → localDescending.isEmpty() returns true, fast path returns
+    // shared view directly.
+    operation.putSnapshotEntry(
+        new SnapshotKey(2, 100L, 50L), new PositionEntry(2L, 1, 50L));
+    sharedSnapshotIndex.put(
+        new SnapshotKey(1, 50L, 5L), new PositionEntry(1L, 0, 5L));
+
+    var from = new SnapshotKey(1, 50L, Long.MIN_VALUE);
+    var to = new SnapshotKey(1, 50L, Long.MAX_VALUE);
+    var result = collectKeys(operation.snapshotSubMapDescending(from, to));
+
+    assertThat(result).containsExactly(new SnapshotKey(1, 50L, 5L));
+  }
+
+  @Test
+  public void testMultiplePutsOverwriteInLocalSnapshotBuffer() {
+    // Two puts to the same key — second value should win.
+    var key = new SnapshotKey(1, 50L, 10L);
+    var first = new PositionEntry(1L, 0, 10L);
+    var second = new PositionEntry(2L, 1, 10L);
+
+    operation.putSnapshotEntry(key, first);
+    operation.putSnapshotEntry(key, second);
+
+    assertThat(operation.getSnapshotEntry(key)).isEqualTo(second);
+  }
+
+  @Test
+  public void testSubMapDescendingMultipleComponentsFiltering() {
+    // Entries for components 1 and 2 in both shared and local.
+    // Range scan for component 1 must not include component 2 entries.
+    sharedSnapshotIndex.put(
+        new SnapshotKey(1, 50L, 5L), new PositionEntry(1L, 0, 5L));
+    sharedSnapshotIndex.put(
+        new SnapshotKey(2, 50L, 5L), new PositionEntry(1L, 0, 5L));
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(2L, 1, 10L));
+    operation.putSnapshotEntry(
+        new SnapshotKey(2, 50L, 10L), new PositionEntry(2L, 1, 10L));
+
+    var from = new SnapshotKey(1, 50L, Long.MIN_VALUE);
+    var to = new SnapshotKey(1, 50L, Long.MAX_VALUE);
+    var result = collectKeys(operation.snapshotSubMapDescending(from, to));
+
+    assertThat(result).containsExactly(
+        new SnapshotKey(1, 50L, 10L),
+        new SnapshotKey(1, 50L, 5L));
+  }
+
+  @Test
+  public void testFreshOperationSubMapReturnsSharedEntries() {
+    // A fresh operation (no local writes) should return shared entries directly
+    // via the fast path (localSnapshotBuffer == null).
+    sharedSnapshotIndex.put(
+        new SnapshotKey(1, 50L, 3L), new PositionEntry(1L, 0, 3L));
+    sharedSnapshotIndex.put(
+        new SnapshotKey(1, 50L, 7L), new PositionEntry(1L, 0, 7L));
+
+    var from = new SnapshotKey(1, 50L, Long.MIN_VALUE);
+    var to = new SnapshotKey(1, 50L, Long.MAX_VALUE);
+    var result = collectKeys(operation.snapshotSubMapDescending(from, to));
+
+    assertThat(result).containsExactly(
+        new SnapshotKey(1, 50L, 7L),
+        new SnapshotKey(1, 50L, 3L));
+  }
+
+  @Test
+  public void testMultiplePutsToDistinctKeysAccumulate() {
+    // First put allocates the TreeMap, second reuses it — both keys are stored.
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L));
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 20L), new PositionEntry(2L, 0, 20L));
+
+    assertThat(operation.getSnapshotEntry(new SnapshotKey(1, 50L, 10L)))
+        .isEqualTo(new PositionEntry(1L, 0, 10L));
+    assertThat(operation.getSnapshotEntry(new SnapshotKey(1, 50L, 20L)))
+        .isEqualTo(new PositionEntry(2L, 0, 20L));
+  }
+
+  @Test
+  public void testMultipleOperationsIsolation() {
+    // Two AtomicOperations share the same shared maps. Local buffers are isolated;
+    // flushed entries from one become visible to the other via shared maps.
+    var op2 = createOperation();
+
+    // op1 puts locally
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L));
+    operation.putVisibilityEntry(
+        new VisibilityKey(100L, 1, 50L), new SnapshotKey(1, 50L, 10L));
+
+    // op2 should NOT see op1's local entries
+    assertThat(op2.getSnapshotEntry(new SnapshotKey(1, 50L, 10L))).isNull();
+    assertThat(op2.containsVisibilityEntry(new VisibilityKey(100L, 1, 50L)))
+        .isFalse();
+
+    // Flush op1's buffers to shared maps
+    operation.flushSnapshotBuffers();
+
+    // Now op2 sees them via shared map fallback
+    assertThat(op2.getSnapshotEntry(new SnapshotKey(1, 50L, 10L)))
+        .isEqualTo(new PositionEntry(1L, 0, 10L));
+    assertThat(op2.containsVisibilityEntry(new VisibilityKey(100L, 1, 50L)))
+        .isTrue();
+  }
+
   // --- Helper methods ---
 
   private static List<SnapshotKey> collectKeys(
@@ -574,7 +749,7 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   private static List<SnapshotKey> collectIteratorKeys(
-      java.util.Iterator<Map.Entry<SnapshotKey, PositionEntry>> iter) {
+      Iterator<Map.Entry<SnapshotKey, PositionEntry>> iter) {
     var keys = new ArrayList<SnapshotKey>();
     while (iter.hasNext()) {
       keys.add(iter.next().getKey());
