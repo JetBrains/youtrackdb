@@ -41,14 +41,18 @@ public class SharedSnapshotIndexFieldsTest {
 
   @Test
   public void testSharedSnapshotIndexInitialized() {
+    // After db init, the shared snapshot index is populated with entries from schema/metadata
+    // setup — entries are now flushed to the shared map via the AtomicOperation proxy.
     assertThat(storage.getSharedSnapshotIndex()).isNotNull();
-    assertThat(storage.getSharedSnapshotIndex()).isEmpty();
+    assertThat(storage.getSharedSnapshotIndex()).isNotEmpty();
   }
 
   @Test
   public void testVisibilityIndexInitialized() {
+    // After db init, the visibility index is populated with entries from schema/metadata
+    // setup — entries are now flushed to the shared map via the AtomicOperation proxy.
     assertThat(storage.getVisibilityIndex()).isNotNull();
-    assertThat(storage.getVisibilityIndex()).isEmpty();
+    assertThat(storage.getVisibilityIndex()).isNotEmpty();
   }
 
   @Test

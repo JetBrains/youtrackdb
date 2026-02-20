@@ -29,7 +29,6 @@ import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
@@ -41,6 +40,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
@@ -52,9 +53,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.NavigableMap;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -88,8 +88,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private volatile int id;
   private long fileId;
   private RecordConflictStrategy recordConflictStrategy;
-  private final NavigableMap<CompositeKey, PositionEntry> snapshotIndex = new ConcurrentSkipListMap<>();
-  private final NavigableMap<CompositeKey, CompositeKey> visibleSnapshotIndex = new ConcurrentSkipListMap<>();
 
   public PaginatedCollectionV2(
       @Nonnull final String name, @Nonnull final AbstractStorage storage) {
@@ -736,7 +734,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       }
       // Deletion not visible -> read old version from history
       var historicalEntry = findHistoricalPositionEntry(
-          collectionPosition, commitTs, snapshot);
+          collectionPosition, commitTs, snapshot, atomicOperation);
       if (historicalEntry == null) {
         throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
       }
@@ -823,7 +821,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
     if (!isRecordVisible) {
       var historicalPositionEntry = findHistoricalPositionEntry(collectionPosition, operationTs,
-          snapshot);
+          snapshot, atomicOperation);
 
       if (historicalPositionEntry != null) {
         return readRecordFromHistoricalEntry(
@@ -979,7 +977,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   ///    {@code commitTs >= maxActiveOperationTs}.
   @Nullable
   private PositionEntry findHistoricalPositionEntry(long collectionPosition,
-      long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot) {
+      long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation) {
 
     var maxActiveOperationTs = snapshot.maxActiveOperationTs();
 
@@ -988,13 +987,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var searchBound = currentOperationTs >= 0
         ? currentOperationTs : maxActiveOperationTs;
     // Scope to this exact collection position; cover all historical versions
-    var lowerKey = new CompositeKey(collectionPosition, Long.MIN_VALUE);
-    var upperKey = new CompositeKey(collectionPosition, searchBound);
+    var lowerKey = new SnapshotKey(id, collectionPosition, Long.MIN_VALUE);
+    var upperKey = new SnapshotKey(id, collectionPosition, searchBound);
     var versionedChain =
-        snapshotIndex.subMap(lowerKey, true, upperKey, true)
-            .reversed().entrySet();
-    for (var versionedEntry : versionedChain) {
-      var version = (Long) versionedEntry.getKey().getKeys().get(1);
+        atomicOperation.snapshotSubMapDescending(lowerKey, upperKey);
+    for (Map.Entry<SnapshotKey, PositionEntry> versionedEntry : versionedChain) {
+      var version = versionedEntry.getKey().recordVersion();
       if (version == currentOperationTs || snapshot.isEntryVisible(version)) {
         return versionedEntry.getValue();
       }
@@ -1291,14 +1289,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         return;
       }
 
-      var versionedRecord = new CompositeKey(collectionPosition, oldRecordVersion);
-      snapshotIndex.put(versionedRecord, positionEntry);
+      var snapshotKey = new SnapshotKey(id, collectionPosition, oldRecordVersion);
+      atomicOperation.putSnapshotEntry(snapshotKey, positionEntry);
 
-      // The versionedRecord should be kept until the presence of active transactions
+      // The snapshotKey should be kept until the presence of active transactions
       // started before the new record version is added - recordVersion
       // Transaction keeps the state when it was started in atomicOperationTableState
-      var visibleRecordVersion = new CompositeKey(newRecordVersion, collectionPosition);
-      visibleSnapshotIndex.put(visibleRecordVersion, versionedRecord);
+      var visibilityKey = new VisibilityKey(newRecordVersion, id, collectionPosition);
+      atomicOperation.putVisibilityEntry(visibilityKey, snapshotKey);
     }
   }
 
@@ -1457,7 +1455,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   count[0]++;
                 } else {
                   var historical = findHistoricalPositionEntry(
-                      position, commitTs, snapshot);
+                      position, commitTs, snapshot, atomicOperation);
                   if (historical != null) {
                     count[0]++;
                   }
@@ -1465,8 +1463,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               } else {
                 // REMOVED: skip positions deleted by the current transaction
                 if (commitTs >= 0
-                    && visibleSnapshotIndex.containsKey(
-                    new CompositeKey(commitTs, position))) {
+                    && atomicOperation.containsVisibilityEntry(
+                    new VisibilityKey(commitTs, id, position))) {
                   return;
                 }
 
@@ -1479,7 +1477,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 // The deletion is not yet visible - check if there's a historical
                 // version that the reader can see.
                 var historical = findHistoricalPositionEntry(
-                    position, commitTs, snapshot);
+                    position, commitTs, snapshot, atomicOperation);
                 if (historical != null) {
                   count[0]++;
                 }
