@@ -277,6 +277,11 @@ public abstract class AbstractStorage
 
   protected final ReentrantLock backupLock = new ReentrantLock();
 
+  // Non-blocking lock for snapshot index cleanup. Only one thread performs cleanup at a time;
+  // other committing threads skip cleanup if the lock is already held (tryLock pattern).
+  // Package-private for testability (SnapshotIndexCleanupTest).
+  final ReentrantLock snapshotCleanupLock = new ReentrantLock();
+
   private final Stopwatch dropDuration;
   private final Stopwatch synchDuration;
   private final Stopwatch shutdownDuration;
@@ -2018,6 +2023,7 @@ public abstract class AbstractStorage
               rollback(error, atomicOperation);
             } else {
               endTxCommit(atomicOperation);
+              cleanupSnapshotIndex();
             }
           }
         } finally {
@@ -5378,6 +5384,71 @@ public abstract class AbstractStorage
   @Override
   public YouTrackDBInternalEmbedded getContext() {
     return this.context;
+  }
+
+  /**
+   * Evicts stale snapshot index entries whose {@code recordTs} is below the global low-water-mark
+   * (the minimum {@code tsMin} across all active transactions). This prevents unbounded growth of
+   * the shared snapshot index under update-heavy workloads.
+   *
+   * <p>Uses {@code tryLock} so only one thread cleans at a time — other committing threads skip
+   * cleanup if the lock is already held (no point blocking; the cleaning thread will handle it).
+   * The threshold is re-checked under the lock (double-checked pattern) to avoid redundant work
+   * if another thread already cleaned enough entries.
+   *
+   * <p>Note: {@code ConcurrentSkipListMap.size()} is O(n) — it traverses the map to count
+   * entries. This is acceptable because (a) the check short-circuits most calls (map is below
+   * threshold), and (b) even at 10K entries the traversal is sub-millisecond.
+   */
+  private void cleanupSnapshotIndex() {
+    int threshold = configuration.getContextConfiguration()
+        .getValueAsInteger(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD);
+    if (sharedSnapshotIndex.size() <= threshold) {
+      return;
+    }
+    if (!snapshotCleanupLock.tryLock()) {
+      return;
+    }
+    try {
+      if (sharedSnapshotIndex.size() <= threshold) {
+        return;
+      }
+      evictStaleSnapshotEntries(
+          computeGlobalLowWaterMark(), sharedSnapshotIndex, visibilityIndex);
+    } finally {
+      snapshotCleanupLock.unlock();
+    }
+  }
+
+  /**
+   * Core eviction logic: removes all visibility/snapshot entries with {@code recordTs} strictly
+   * below the given low-water-mark. Extracted as a static method for direct unit testing (same
+   * pattern as {@link #computeGlobalLowWaterMark(Set)}).
+   *
+   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted.
+   *     {@code Long.MAX_VALUE} means "no active transactions" — nothing is evicted (safety net;
+   *     in practice lwm is never MAX_VALUE during cleanup because the committing thread's tsMin
+   *     is still set — {@code resetTsMin()} runs later in {@code FrontendTransactionImpl.close()}).
+   * @param snapshotIndex the shared snapshot index to remove stale entries from
+   * @param visibilityIdx the visibility index to scan and remove stale entries from
+   */
+  static void evictStaleSnapshotEntries(
+      long lwm,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
+      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx) {
+    if (lwm == Long.MAX_VALUE) {
+      return;
+    }
+    // Sentinel key: (lwm, MIN, MIN) is the smallest possible key with recordTs==lwm,
+    // so headMap(exclusive) captures everything with recordTs < lwm.
+    var staleEntries = visibilityIdx.headMap(
+        new VisibilityKey(lwm, Integer.MIN_VALUE, Long.MIN_VALUE), false);
+    var iterator = staleEntries.entrySet().iterator();
+    while (iterator.hasNext()) {
+      var entry = iterator.next();
+      snapshotIndex.remove(entry.getValue());
+      iterator.remove();
+    }
   }
 
   public long computeGlobalLowWaterMark() {
