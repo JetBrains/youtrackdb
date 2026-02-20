@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.ByteArrayInputStream;
@@ -240,9 +243,9 @@ public class MatchStatementTest {
     try {
       var stm1 = (SQLMatchStatement) osql1.parse();
       var stm2 = (SQLMatchStatement) osql2.parse();
-      assert !stm1.equals(stm2) : "different statements should not be equal";
-      assert stm1.equals(stm1) : "same statement should be equal to itself";
-      assert !stm1.equals(null) : "statement should not equal null";
+      assertFalse("different statements should not be equal", stm1.equals(stm2));
+      assertTrue("same statement should be equal to itself", stm1.equals(stm1));
+      assertFalse("statement should not equal null", stm1.equals(null));
     } catch (ParseException e) {
       fail("Parse should succeed: " + e.getMessage());
     }
@@ -255,9 +258,9 @@ public class MatchStatementTest {
     try {
       var stm1 = (SQLMatchStatement) getParserFor(query).parse();
       var stm2 = (SQLMatchStatement) getParserFor(query).parse();
-      assert stm1.equals(stm2) : "same query should produce equal statements";
-      assert stm1.hashCode() == stm2.hashCode()
-          : "equal statements should have same hashCode";
+      assertTrue("same query should produce equal statements", stm1.equals(stm2));
+      assertEquals("equal statements should have same hashCode",
+          stm1.hashCode(), stm2.hashCode());
     } catch (ParseException e) {
       fail("Parse should succeed: " + e.getMessage());
     }
@@ -272,7 +275,7 @@ public class MatchStatementTest {
       var builder = new StringBuilder();
       stm.toGenericStatement(builder);
       var generic = builder.toString();
-      assert !generic.isEmpty() : "generic statement should not be empty";
+      assertFalse("generic statement should not be empty", generic.isEmpty());
       // Verify the generic form can be re-parsed
       getParserFor(generic).parse();
     } catch (ParseException e) {
@@ -291,10 +294,10 @@ public class MatchStatementTest {
       var builder = new StringBuilder();
       stm.toGenericStatement(builder);
       var generic = builder.toString();
-      assert !generic.isEmpty() : "generic statement should not be empty";
+      assertFalse("generic statement should not be empty", generic.isEmpty());
       // toGenericStatement produces a normalized form; verify it contains key parts
-      assert generic.contains("MATCH") : "should contain MATCH keyword";
-      assert generic.contains("RETURN") : "should contain RETURN keyword";
+      assertTrue("should contain MATCH keyword", generic.contains("MATCH"));
+      assertTrue("should contain RETURN keyword", generic.contains("RETURN"));
     } catch (ParseException e) {
       fail("Parse should succeed: " + e.getMessage());
     }
