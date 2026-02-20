@@ -2,6 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -13,7 +16,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationBinaryTracking.MergingDescendingIterator;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -737,7 +744,182 @@ public class AtomicOperationSnapshotProxyTest {
         .isTrue();
   }
 
+  // --- Buffered flush via commitChanges() ---
+
+  @Test
+  public void testCommitChangesFlushesBuffersViaWal() throws IOException {
+    // Happy path: commitChanges() should flush local buffers to shared maps.
+    var snapKey = new SnapshotKey(1, 50L, 10L);
+    var snapValue = new PositionEntry(1L, 0, 10L);
+    var visKey = new VisibilityKey(100L, 1, 50L);
+    var visValue = new SnapshotKey(1, 50L, 10L);
+
+    operation.putSnapshotEntry(snapKey, snapValue);
+    operation.putVisibilityEntry(visKey, visValue);
+
+    // Shared maps are empty before commit
+    assertThat(sharedSnapshotIndex).isEmpty();
+    assertThat(sharedVisibilityIndex).isEmpty();
+
+    operation.commitChanges(42L, createMockWal());
+
+    // After commit, buffers are flushed to shared maps
+    assertThat(sharedSnapshotIndex).hasSize(1);
+    assertThat(sharedSnapshotIndex.get(snapKey)).isEqualTo(snapValue);
+    assertThat(sharedVisibilityIndex).hasSize(1);
+    assertThat(sharedVisibilityIndex.get(visKey)).isEqualTo(visValue);
+  }
+
+  @Test
+  public void testCommitChangesWithEmptyBuffersIsNoOp() throws IOException {
+    // No local puts — commitChanges() should not populate shared maps.
+    operation.commitChanges(42L, createMockWal());
+
+    assertThat(sharedSnapshotIndex).isEmpty();
+    assertThat(sharedVisibilityIndex).isEmpty();
+  }
+
+  @Test
+  public void testRollbackFlagPreventsFlushInCommitChanges() throws IOException {
+    // Tests the defensive `if (!rollback)` guard inside commitChanges().
+    // In production, AtomicOperationsManager skips commitChanges() entirely when
+    // rollback is in progress. This test exercises the belt-and-suspenders guard:
+    // even if commitChanges() were called after rollbackInProgress(), buffers must
+    // NOT be flushed to shared maps.
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L));
+    operation.putVisibilityEntry(
+        new VisibilityKey(100L, 1, 50L), new SnapshotKey(1, 50L, 10L));
+
+    operation.rollbackInProgress();
+    operation.commitChanges(42L, createMockWal());
+
+    assertThat(operation.isActive()).isFalse();
+    assertThat(sharedSnapshotIndex).isEmpty();
+    assertThat(sharedVisibilityIndex).isEmpty();
+  }
+
+  // --- Rollback: realistic error path ---
+
+  @Test
+  public void testRollbackViaEndAtomicOperationPattern() {
+    // Simulates the realistic error path from AtomicOperationsManager.endAtomicOperation():
+    // 1. put entries  2. rollbackInProgress()  3. skip commitChanges()  4. deactivate()
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L));
+    operation.putVisibilityEntry(
+        new VisibilityKey(100L, 1, 50L), new SnapshotKey(1, 50L, 10L));
+
+    // Error path: set rollback flag, then deactivate (commitChanges never called)
+    operation.rollbackInProgress();
+    assertThat(operation.isRollbackInProgress()).isTrue();
+    operation.deactivate();
+
+    // Shared maps must remain untouched
+    assertThat(sharedSnapshotIndex).isEmpty();
+    assertThat(sharedVisibilityIndex).isEmpty();
+  }
+
+  @Test
+  public void testRollbackPreservesOtherOperationCommittedEntries() {
+    // Op1 commits its entries to shared maps. Op2 populates buffers then rolls
+    // back. Op1's entries must survive; op2's must never appear.
+    var op1SnapKey = new SnapshotKey(1, 50L, 5L);
+    var op1SnapValue = new PositionEntry(1L, 0, 5L);
+    var op1VisKey = new VisibilityKey(50L, 1, 50L);
+    var op1VisValue = new SnapshotKey(1, 50L, 5L);
+
+    // Op1 commits
+    operation.putSnapshotEntry(op1SnapKey, op1SnapValue);
+    operation.putVisibilityEntry(op1VisKey, op1VisValue);
+    operation.flushSnapshotBuffers();
+    operation.deactivate();
+
+    assertThat(sharedSnapshotIndex).hasSize(1);
+    assertThat(sharedVisibilityIndex).hasSize(1);
+
+    // Op2 populates buffers then rolls back
+    var op2 = createOperation();
+    op2.putSnapshotEntry(
+        new SnapshotKey(2, 60L, 20L), new PositionEntry(3L, 0, 20L));
+    op2.putVisibilityEntry(
+        new VisibilityKey(200L, 2, 60L), new SnapshotKey(2, 60L, 20L));
+    op2.rollbackInProgress();
+    op2.deactivate();
+
+    // Op1's entries are intact; op2's entries never appeared
+    assertThat(sharedSnapshotIndex).hasSize(1);
+    assertThat(sharedSnapshotIndex.get(op1SnapKey)).isEqualTo(op1SnapValue);
+    assertThat(sharedVisibilityIndex).hasSize(1);
+    assertThat(sharedVisibilityIndex.get(op1VisKey)).isEqualTo(op1VisValue);
+  }
+
+  @Test
+  public void testSequentialCommitRollbackCommitCycle() throws IOException {
+    // Op1 commits, op2 rolls back, op3 commits. Shared maps must contain entries
+    // from op1 and op3 only. Op2's rollback must not corrupt op1's entries.
+    var snap1 = new SnapshotKey(1, 10L, 1L);
+    var val1 = new PositionEntry(1L, 0, 1L);
+    var vis1Key = new VisibilityKey(10L, 1, 10L);
+    var vis1Value = new SnapshotKey(1, 10L, 1L);
+    operation.putSnapshotEntry(snap1, val1);
+    operation.putVisibilityEntry(vis1Key, vis1Value);
+    operation.commitChanges(10L, createMockWal());
+    assertThat(operation.isActive()).isFalse();
+
+    // Op2 rolls back
+    var op2 = createOperation();
+    op2.putSnapshotEntry(new SnapshotKey(1, 20L, 2L), new PositionEntry(2L, 0, 2L));
+    op2.putVisibilityEntry(
+        new VisibilityKey(20L, 1, 20L), new SnapshotKey(1, 20L, 2L));
+    op2.rollbackInProgress();
+    op2.deactivate();
+
+    // Op3 commits
+    var op3 = createOperation();
+    var snap3 = new SnapshotKey(1, 30L, 3L);
+    var val3 = new PositionEntry(3L, 0, 3L);
+    var vis3Key = new VisibilityKey(30L, 1, 30L);
+    var vis3Value = new SnapshotKey(1, 30L, 3L);
+    op3.putSnapshotEntry(snap3, val3);
+    op3.putVisibilityEntry(vis3Key, vis3Value);
+    op3.commitChanges(30L, createMockWal());
+    assertThat(op3.isActive()).isFalse();
+
+    // Shared maps: op1 + op3 entries only
+    assertThat(sharedSnapshotIndex).hasSize(2);
+    assertThat(sharedSnapshotIndex.get(snap1)).isEqualTo(val1);
+    assertThat(sharedSnapshotIndex.get(snap3)).isEqualTo(val3);
+    assertThat(sharedVisibilityIndex).hasSize(2);
+    assertThat(sharedVisibilityIndex.get(vis1Key)).isEqualTo(vis1Value);
+    assertThat(sharedVisibilityIndex.get(vis3Key)).isEqualTo(vis3Value);
+  }
+
+  @Test
+  public void testRollbackWithOnlySnapshotBufferPopulated() {
+    // Populate only the snapshot buffer (not visibility). Rollback must not leak
+    // any partial buffer state to shared maps.
+    operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L));
+    // Deliberately do NOT put any visibility entry
+
+    operation.rollbackInProgress();
+    operation.deactivate();
+
+    assertThat(sharedSnapshotIndex).isEmpty();
+    assertThat(sharedVisibilityIndex).isEmpty();
+  }
+
   // --- Helper methods ---
+
+  private static WriteAheadLog createMockWal() throws IOException {
+    var wal = mock(WriteAheadLog.class);
+    var lsn = new LogSequenceNumber(1, 0);
+    when(wal.logAtomicOperationStartRecord(anyBoolean(), anyLong())).thenReturn(lsn);
+    when(wal.end()).thenReturn(lsn);
+    when(wal.log(any(WriteableWALRecord.class))).thenReturn(lsn);
+    return wal;
+  }
 
   private static List<SnapshotKey> collectKeys(
       Iterable<Map.Entry<SnapshotKey, PositionEntry>> iterable) {
