@@ -53,6 +53,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
 
   public OptionalMatchEdgeTraverser(Result lastUpstreamRecord, EdgeTraversal edge) {
     super(lastUpstreamRecord, edge);
+    assert lastUpstreamRecord != null : "upstream record must not be null for optional traversal";
   }
 
   /**

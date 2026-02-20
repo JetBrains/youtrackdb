@@ -1,10 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
@@ -43,9 +40,12 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
 
   public MatchReverseEdgeTraverser(Result lastUpstreamRecord, EdgeTraversal edge) {
     super(lastUpstreamRecord, edge);
+    assert lastUpstreamRecord != null : "upstream record must not be null";
     // Swap source/target aliases relative to the syntactic direction
     this.startingPointAlias = edge.edge.in.alias;
     this.endPointAlias = edge.edge.out.alias;
+    assert startingPointAlias != null : "starting point alias must not be null";
+    assert endPointAlias != null : "endpoint alias must not be null";
   }
 
   /** Uses the planner-provided left-class constraint (the original source node's class). */
@@ -76,16 +76,7 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
       Result startingPoint, CommandContext iCommandContext) {
 
     var qR = this.item.getMethod().executeReverse(startingPoint, iCommandContext);
-    return switch (qR) {
-      case null -> ExecutionStream.empty();
-      case ResultInternal resultInternal -> ExecutionStream.singleton(resultInternal);
-      case Identifiable identifiable -> ExecutionStream.singleton(
-          new ResultInternal(iCommandContext.getDatabaseSession(), identifiable));
-      case Relation<?> bidirectionalLink -> ExecutionStream.singleton(
-          new ResultInternal(iCommandContext.getDatabaseSession(), bidirectionalLink));
-      case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
-      default -> ExecutionStream.empty();
-    };
+    return toExecutionStream(qR, iCommandContext.getDatabaseSession());
   }
 
   @Override

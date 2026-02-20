@@ -104,6 +104,9 @@ public class MatchEdgeTraverser {
    * @param edge               the edge traversal (contains direction and constraints)
    */
   public MatchEdgeTraverser(Result lastUpstreamRecord, EdgeTraversal edge) {
+    assert edge != null : "edge must not be null";
+    assert edge.edge != null : "pattern edge must not be null";
+    assert edge.edge.item != null : "path item must not be null";
     this.sourceRecord = lastUpstreamRecord;
     this.edge = edge;
     this.item = edge.edge.item;
@@ -117,6 +120,7 @@ public class MatchEdgeTraverser {
    * @param item               the path item to traverse
    */
   public MatchEdgeTraverser(Result lastUpstreamRecord, SQLMatchPathItem item) {
+    assert item != null : "path item must not be null";
     this.sourceRecord = lastUpstreamRecord;
     this.item = item;
   }
@@ -478,12 +482,6 @@ public class MatchEdgeTraverser {
    * <p>
    * The method temporarily sets the `$current` context variable to the starting point
    * so that the method implementation can reference it.
-   * <p>
-   * The raw return value may be a single {@link Identifiable}, a {@link Relation},
-   * an {@link Iterable}, or `null` — each case is normalized into a uniform stream.
-   * Any other return type is **silently treated as empty** (the {@code default} branch
-   * returns {@link ExecutionStream#empty()}), so callers will never see an error for
-   * unexpected types — the candidate is simply not traversed.
    */
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
@@ -497,12 +495,30 @@ public class MatchEdgeTraverser {
       iCommandContext.setVariable("$current", prevCurrent);
     }
 
-    return switch (qR) {
+    return toExecutionStream(qR, iCommandContext.getDatabaseSession());
+  }
+
+  /**
+   * Converts a raw traversal result into a uniform {@link ExecutionStream}.
+   * <p>
+   * The raw return value from a graph method (e.g. `out()`, `in()`, `executeReverse()`)
+   * may be a single {@link Identifiable}, a {@link ResultInternal}, a {@link Relation},
+   * an {@link Iterable}, or `null`. Each case is normalized into a stream. Any other
+   * return type is silently treated as empty — the candidate is simply not traversed.
+   *
+   * @param rawResult the raw object returned by a traversal method
+   * @param session   the database session for wrapping records
+   * @return a stream of matching result records
+   */
+  static ExecutionStream toExecutionStream(
+      @Nullable Object rawResult, DatabaseSessionEmbedded session) {
+    return switch (rawResult) {
       case null -> ExecutionStream.empty();
-      case Identifiable identifiable -> ExecutionStream.singleton(new ResultInternal(
-          iCommandContext.getDatabaseSession(), identifiable));
-      case Relation<?> bidirectionalLink -> ExecutionStream.singleton(new ResultInternal(
-          iCommandContext.getDatabaseSession(), bidirectionalLink));
+      case ResultInternal resultInternal -> ExecutionStream.singleton(resultInternal);
+      case Identifiable identifiable -> ExecutionStream.singleton(
+          new ResultInternal(session, identifiable));
+      case Relation<?> relation -> ExecutionStream.singleton(
+          new ResultInternal(session, relation));
       case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
       default -> ExecutionStream.empty();
     };

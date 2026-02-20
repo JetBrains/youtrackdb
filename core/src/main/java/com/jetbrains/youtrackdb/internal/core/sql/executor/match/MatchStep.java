@@ -73,6 +73,7 @@ public class MatchStep extends AbstractExecutionStep {
    */
   public MatchStep(CommandContext context, EdgeTraversal edge, boolean profilingEnabled) {
     super(context, profilingEnabled);
+    assert edge != null : "edge traversal must not be null";
     this.edge = edge;
   }
 

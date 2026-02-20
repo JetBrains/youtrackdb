@@ -67,6 +67,8 @@ public class MatchFirstStep extends AbstractExecutionStep {
       InternalExecutionPlan subPlan,
       boolean profilingEnabled) {
     super(context, profilingEnabled);
+    assert node != null : "pattern node must not be null";
+    assert node.alias != null : "pattern node alias must not be null";
     this.node = node;
     this.executionPlan = subPlan;
   }
