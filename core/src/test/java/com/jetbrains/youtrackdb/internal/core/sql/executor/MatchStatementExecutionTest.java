@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -2407,12 +2408,6 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   /**
    * Exercises MatchReverseEdgeTraverser by creating a diamond pattern where the
-   * scheduler is forced to reverse one edge direction. The pattern a->b->d, a->c->d
-   * means that when scheduling the second path to 'd', it's already visited, creating
-   * a back-edge that may be reversed.
-   */
-  /**
-   * Exercises MatchReverseEdgeTraverser by creating a diamond pattern where the
    * scheduler encounters a back-edge to an already-visited node 'd'. The diamond
    * graph (0->1->3, 0->2->3) is created by initDiamondTest() in beforeTest().
    */
@@ -2577,6 +2572,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     // The EXPLAIN output should contain the plan structure
     var plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
+    assertTrue("Execution plan should contain MATCH step",
+        ((String) plan).contains("MATCH"));
     session.commit();
   }
 
@@ -2594,6 +2591,10 @@ public class MatchStatementExecutionTest extends DbTestBase {
                 + " RETURN a.name as aName, b.name as bName")
         .toList();
     assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertNotNull(row.getProperty("aName"));
+      assertNotNull(row.getProperty("bName"));
+    }
     session.commit();
   }
 
@@ -2674,7 +2675,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
                 + ".out('Friend'){class:Person, as:b}"
                 + " RETURN b.name as bName")
         .toList();
-    assertFalse(result.isEmpty());
+    // n1 has two Person friends: n2 and n3
+    assertEquals(2, result.size());
     session.commit();
   }
 
@@ -2694,6 +2696,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
         .toList();
     assertEquals(1, result.size());
     assertEquals("n6", result.get(0).getProperty("aName"));
+    // b should be null because n6 has no outgoing Friend edges
+    assertNull("Optional with no match should produce null",
+        result.get(0).getProperty("bValue"));
     session.commit();
   }
 
