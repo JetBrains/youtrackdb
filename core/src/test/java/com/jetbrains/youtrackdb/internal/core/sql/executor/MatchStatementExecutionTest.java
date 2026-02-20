@@ -2405,6 +2405,141 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Exercises MatchReverseEdgeTraverser by creating a diamond pattern where the
+   * scheduler is forced to reverse one edge direction. The pattern a->b->d, a->c->d
+   * means that when scheduling the second path to 'd', it's already visited, creating
+   * a back-edge that may be reversed.
+   */
+  /**
+   * Exercises MatchReverseEdgeTraverser by creating a diamond pattern where the
+   * scheduler encounters a back-edge to an already-visited node 'd'. The diamond
+   * graph (0->1->3, 0->2->3) is created by initDiamondTest() in beforeTest().
+   */
+  @Test
+  public void testDiamondPatternTriggersBackEdge() {
+    session.begin();
+    // Diamond from initDiamondTest: uid 0->1->3, 0->2->3
+    // Two paths to 'd' (uid=3): scheduler handles the second as a back-edge
+    var result = session.query(
+            "MATCH {class:DiamondV, as:a, where:(uid=0)}"
+                + ".out('DiamondE'){as:b}.out('DiamondE'){as:d},"
+                + " {as:a}.out('DiamondE'){as:c}.out('DiamondE'){as:d}"
+                + " RETURN a.uid as a, b.uid as b, c.uid as c, d.uid as d")
+        .toList();
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals(0, (int) row.getProperty("a"));
+      assertEquals(3, (int) row.getProperty("d"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchFieldTraverser with a LINKLIST property that returns an Iterable,
+   * covering the Iterable branch in traversePatternEdge().
+   */
+  @Test
+  public void testFieldMatchTraversalLinklist() {
+    session.execute("CREATE class LinkListV extends V").close();
+    session.execute("CREATE property LinkListV.links LINKLIST LinkListV")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LinkListV set name = 't1'").close();
+    session.execute("CREATE VERTEX LinkListV set name = 't2'").close();
+    session.execute("CREATE VERTEX LinkListV set name = 'src'").close();
+    session.commit();
+
+    // Use SQL UPDATE to set the LINKLIST property correctly
+    session.begin();
+    session.execute(
+        "UPDATE LinkListV SET links = (SELECT FROM LinkListV WHERE name IN ['t1','t2'])"
+            + " WHERE name = 'src'").close();
+    session.commit();
+
+    session.begin();
+    // .links{as:b} returns a LINKLIST (Iterable), exercising the Iterable branch
+    var result = session.query(
+            "MATCH {class:LinkListV, as:a, where:(name='src')}.links{as:b}"
+                + " RETURN b.name as bName")
+        .toList();
+    assertEquals(2, result.size());
+    var names = new HashSet<String>();
+    for (var row : result) {
+      names.add(row.getProperty("bName"));
+    }
+    assertTrue(names.contains("t1"));
+    assertTrue(names.contains("t2"));
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchMultiEdgeTraverser with a compound path containing multiple
+   * traversal steps, covering the left-to-right pipeline execution.
+   */
+  @Test
+  public void testCompoundPathTraversal() {
+    session.begin();
+    // Compound path: .out('Friend').out('Friend') as a single multi-step item
+    // n1 -> n2 -> n4, so traversing two hops from n1 should find n4
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".(out('Friend').out('Friend')){as:b}"
+                + " RETURN b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    boolean found = false;
+    for (var row : result) {
+      if ("n4".equals(row.getProperty("bName"))) {
+        found = true;
+      }
+    }
+    assertTrue("Compound path should find n4 via n1->n2->n4", found);
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchMultiEdgeTraverser with a compound path containing a WHILE
+   * clause on a sub-item, covering the recursive expansion within multi-edge.
+   */
+  @Test
+  public void testCompoundPathWithWhile() {
+    session.begin();
+    // Compound path with WHILE: traverse out('Friend') recursively up to depth 2
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".(out('Friend'){while:($depth < 2)}){as:b}"
+                + " RETURN b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchEdgeTraverser.matchesRid() by using a RID constraint in the
+   * MATCH filter, covering the RID matching branch.
+   */
+  @Test
+  public void testMatchWithRidConstraint() {
+    session.begin();
+    // Get the RID of n1
+    var n1Result = session.query("SELECT FROM Person WHERE name = 'n1'").toList();
+    assertFalse(n1Result.isEmpty());
+    var n1Rid = n1Result.get(0).getIdentity();
+
+    // Use RID in MATCH pattern
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(@rid = " + n1Rid + ")}"
+                + ".out('Friend'){as:b} RETURN a.name as aName, b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("aName"));
+    }
+    session.commit();
+  }
+
   private List<? extends Identifiable> getManagedPathElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
