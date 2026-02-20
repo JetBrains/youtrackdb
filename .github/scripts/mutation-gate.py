@@ -12,6 +12,8 @@ Usage:
 
 import argparse
 import os
+import re
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -43,6 +45,80 @@ def simplify_mutator(mutator_fqn):
     """
     short_name = mutator_fqn.rsplit(".", 1)[-1] if "." in mutator_fqn else mutator_fqn
     return MUTATOR_NAMES.get(short_name, short_name)
+
+
+def get_changed_lines(base_branch):
+    """Parse git diff to get changed line numbers per file.
+
+    Uses zero-context diff (-U0) to get only actually changed lines,
+    not surrounding context. Only includes production Java source files.
+
+    Returns:
+        dict mapping relative file path to set of changed line numbers
+        in the new (HEAD) version of the file.
+    """
+    result = subprocess.run(
+        ["git", "diff", "-U0", f"{base_branch}...HEAD", "--", "*.java"],
+        capture_output=True, text=True, check=True
+    )
+
+    changed_lines = {}
+    current_file = None
+
+    for line in result.stdout.split("\n"):
+        if line.startswith("+++ b/"):
+            current_file = line[6:]  # Strip '+++ b/' prefix
+        elif line.startswith("@@") and current_file:
+            # Parse unified diff hunk header: @@ -old,count +new,count @@
+            match = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            if match:
+                start = int(match.group(1))
+                count = int(match.group(2)) if match.group(2) else 1
+                if count > 0:
+                    if current_file not in changed_lines:
+                        changed_lines[current_file] = set()
+                    for i in range(start, start + count):
+                        changed_lines[current_file].add(i)
+
+    return changed_lines
+
+
+def class_to_path_suffix(mutated_class):
+    """Convert a fully qualified class name to a source file path suffix.
+
+    Handles inner classes by stripping the '$Inner' part.
+    Example: 'com.foo.Bar$Baz' -> 'com/foo/Bar.java'
+    """
+    outer_class = mutated_class.split("$")[0]
+    return outer_class.replace(".", "/") + ".java"
+
+
+def filter_mutations_by_changed_lines(mutations, changed_lines):
+    """Filter mutations to only include those on lines that actually changed.
+
+    Matches each mutation's class and line number against the git diff.
+    Mutations on unchanged lines are excluded.
+
+    Returns:
+        list of mutation dicts that are on changed lines
+    """
+    # Build a lookup: path_suffix -> file_path for fast matching
+    suffix_to_path = {}
+    for file_path in changed_lines:
+        # Only include production source files
+        if "/src/main/java/" in file_path:
+            # Extract the suffix after src/main/java/
+            idx = file_path.index("/src/main/java/") + len("/src/main/java/")
+            suffix_to_path[file_path[idx:]] = file_path
+
+    filtered = []
+    for m in mutations:
+        path_suffix = class_to_path_suffix(m["mutated_class"])
+        file_path = suffix_to_path.get(path_suffix)
+        if file_path and m["line_number"] in changed_lines[file_path]:
+            filtered.append(m)
+
+    return filtered
 
 
 def parse_pit_report(xml_path):
@@ -163,7 +239,8 @@ def format_line_ranges(line_numbers):
     return ", ".join(ranges)
 
 
-def generate_markdown(results, threshold, sampled=False, total_changed=0):
+def generate_markdown(results, threshold, sampled=False, total_changed=0,
+                      filtered=False, total_before_filter=0):
     """Generate markdown report with per-file mutation tables.
 
     Returns:
@@ -181,6 +258,13 @@ def generate_markdown(results, threshold, sampled=False, total_changed=0):
         lines.append(
             f"> **Note**: Mutation testing ran on a random sample of 20 "
             f"out of {total_changed} changed classes."
+        )
+        lines.append("")
+    if filtered:
+        lines.append(
+            f"> **Scope**: Filtered to {results['total']} mutations on "
+            f"changed lines (out of {total_before_filter} total in "
+            f"changed classes)."
         )
         lines.append("")
 
@@ -302,6 +386,12 @@ def main():
         default=0,
         help="Total number of changed classes before sampling",
     )
+    parser.add_argument(
+        "--base-branch",
+        default=None,
+        help="Base branch for git diff (e.g. origin/develop). "
+             "When set, only mutations on changed lines are counted.",
+    )
     args = parser.parse_args()
 
     modules = [m.strip() for m in args.modules.split(",") if m.strip()]
@@ -324,10 +414,38 @@ def main():
                 )
         return
 
+    # Filter to only mutations on changed lines when base branch is provided
+    total_before_filter = len(mutations)
+    filtered = False
+    if args.base_branch:
+        print(f"Filtering mutations to changed lines (base: {args.base_branch})")
+        changed_lines = get_changed_lines(args.base_branch)
+        mutations = filter_mutations_by_changed_lines(mutations, changed_lines)
+        filtered = True
+        print(
+            f"  Filtered: {len(mutations)} mutations on changed lines "
+            f"(out of {total_before_filter} total)"
+        )
+
+    if not mutations:
+        print("No mutations on changed lines. Skipping mutation gate.")
+        if args.output_md:
+            os.makedirs(os.path.dirname(args.output_md) or ".", exist_ok=True)
+            with open(args.output_md, "w") as f:
+                f.write(
+                    "<!-- mutation-gate-comment -->\n"
+                    "# Mutation Testing Gate Results\n"
+                    f"**Threshold**: {args.threshold:.0f}%\n\n"
+                    ":white_check_mark: No mutations on changed lines — "
+                    "mutation gate passed.\n"
+                )
+        return
+
     results = compute_results(mutations)
     md, passed = generate_markdown(
         results, args.threshold,
-        sampled=args.sampled, total_changed=args.total_changed
+        sampled=args.sampled, total_changed=args.total_changed,
+        filtered=filtered, total_before_filter=total_before_filter,
     )
 
     if args.output_md:

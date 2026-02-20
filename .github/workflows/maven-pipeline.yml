@@ -475,6 +475,7 @@ jobs:
             --threshold 85 \
             --modules "${{ steps.changes.outputs.modules }}" \
             --output-md /tmp/mutation-gate.md \
+            --base-branch "origin/${{ github.event.pull_request.base.ref }}" \
             $SAMPLING_ARGS
 
       - name: Post Mutation Gate Comment
