@@ -328,6 +328,28 @@ public class MatchStepUnitTest extends DbTestBase {
     step.reset();
   }
 
+  // -- AbstractExecutionStep tests --
+
+  /** Verifies sendTimeout propagates to previous step when prev is null (no-op). */
+  @Test
+  public void testAbstractExecutionStepSendTimeoutNoPrev() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    // sendTimeout with no prev should not throw
+    step.sendTimeout();
+  }
+
+  /** Verifies isProfilingEnabled/setProfilingEnabled round-trip. */
+  @Test
+  public void testAbstractExecutionStepProfiling() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    assertFalse(step.isProfilingEnabled());
+
+    step.setProfilingEnabled(true);
+    assertTrue(step.isProfilingEnabled());
+  }
+
   // -- Helper methods --
 
   private CommandContext createCommandContext() {

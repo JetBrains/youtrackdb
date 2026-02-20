@@ -232,6 +232,74 @@ public class MatchStatementTest {
             + " 10");
   }
 
+  /** Verifies that equals() returns false for different MATCH statements. */
+  @Test
+  public void testEqualsDifferentStatements() {
+    var osql1 = getParserFor("MATCH {class: V, as: a} RETURN a");
+    var osql2 = getParserFor("MATCH {class: E, as: b} RETURN b");
+    try {
+      var stm1 = (SQLMatchStatement) osql1.parse();
+      var stm2 = (SQLMatchStatement) osql2.parse();
+      assert !stm1.equals(stm2) : "different statements should not be equal";
+      assert stm1.equals(stm1) : "same statement should be equal to itself";
+      assert !stm1.equals(null) : "statement should not equal null";
+    } catch (ParseException e) {
+      fail("Parse should succeed: " + e.getMessage());
+    }
+  }
+
+  /** Verifies hashCode() consistency for equal MATCH statements. */
+  @Test
+  public void testHashCodeConsistency() {
+    var query = "MATCH {class: V, as: a}.out(){as: b} RETURN a, b";
+    try {
+      var stm1 = (SQLMatchStatement) getParserFor(query).parse();
+      var stm2 = (SQLMatchStatement) getParserFor(query).parse();
+      assert stm1.equals(stm2) : "same query should produce equal statements";
+      assert stm1.hashCode() == stm2.hashCode()
+          : "equal statements should have same hashCode";
+    } catch (ParseException e) {
+      fail("Parse should succeed: " + e.getMessage());
+    }
+  }
+
+  /** Verifies toGenericStatement() produces a re-parseable string. */
+  @Test
+  public void testToGenericStatement() {
+    var query = "MATCH {class: V, as: a}.out(){as: b} RETURN a, b";
+    try {
+      var stm = (SQLMatchStatement) getParserFor(query).parse();
+      var builder = new StringBuilder();
+      stm.toGenericStatement(builder);
+      var generic = builder.toString();
+      assert !generic.isEmpty() : "generic statement should not be empty";
+      // Verify the generic form can be re-parsed
+      getParserFor(generic).parse();
+    } catch (ParseException e) {
+      fail("Parse should succeed: " + e.getMessage());
+    }
+  }
+
+  /** Verifies toGenericStatement() for MATCH with NOT, optional, ORDER BY, LIMIT. */
+  @Test
+  public void testToGenericStatementComplex() {
+    var query = "MATCH {class: V, as: a}-->{as: b, optional: true},"
+        + " NOT {as: a}-->{as: c}"
+        + " RETURN a.name, b ORDER BY a.name SKIP 1 LIMIT 10";
+    try {
+      var stm = (SQLMatchStatement) getParserFor(query).parse();
+      var builder = new StringBuilder();
+      stm.toGenericStatement(builder);
+      var generic = builder.toString();
+      assert !generic.isEmpty() : "generic statement should not be empty";
+      // toGenericStatement produces a normalized form; verify it contains key parts
+      assert generic.contains("MATCH") : "should contain MATCH keyword";
+      assert generic.contains("RETURN") : "should contain RETURN keyword";
+    } catch (ParseException e) {
+      fail("Parse should succeed: " + e.getMessage());
+    }
+  }
+
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
     var osql = new YouTrackDBSql(is);
