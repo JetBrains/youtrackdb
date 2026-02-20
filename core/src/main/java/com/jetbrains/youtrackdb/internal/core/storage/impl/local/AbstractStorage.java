@@ -2023,7 +2023,16 @@ public abstract class AbstractStorage
               rollback(error, atomicOperation);
             } else {
               endTxCommit(atomicOperation);
-              cleanupSnapshotIndex();
+              try {
+                cleanupSnapshotIndex();
+              } catch (final RuntimeException e) {
+                // Cleanup is best-effort — its failure must never mask a successful commit.
+                // The commit is already durable (WAL flushed, pages applied). If cleanup
+                // throws, stale snapshot entries simply accumulate until the next successful
+                // cleanup pass.
+                LogManager.instance()
+                    .warn(this, "Snapshot index cleanup failed after successful commit", e);
+              }
             }
           }
         } finally {
