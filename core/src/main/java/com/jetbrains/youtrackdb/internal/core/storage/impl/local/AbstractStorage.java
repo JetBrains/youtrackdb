@@ -3804,7 +3804,41 @@ public abstract class AbstractStorage
   public AtomicOperation startStorageTx() {
     checkOpennessAndMigration();
 
-    return atomicOperationsManager.startAtomicOperation();
+    var atomicOperation = atomicOperationsManager.startAtomicOperation();
+
+    var holder = tsMinThreadLocal.get();
+    assert holder.activeTxCount >= 0 : "activeTxCount is negative: " + holder.activeTxCount;
+    long snapshotMin = atomicOperation.getAtomicOperationsSnapshot().minActiveOperationTs();
+    // Use min to preserve the oldest snapshot when multiple txs overlap on this thread.
+    // GC may retain entries slightly longer than necessary, but correctness is preserved.
+    holder.tsMin = Math.min(holder.tsMin, snapshotMin);
+    holder.activeTxCount++;
+    if (!holder.registeredInTsMins) {
+      tsMins.add(holder);
+      holder.registeredInTsMins = true;
+    }
+
+    return atomicOperation;
+  }
+
+  /**
+   * Decrements the current thread's active transaction count and resets {@code tsMin} to
+   * {@code Long.MAX_VALUE} when no transactions remain active. Called at transaction end
+   * (commit or rollback). Multiple sessions on the same thread may have overlapping
+   * transactions, so {@code tsMin} is only cleared when the last one ends.
+   */
+  public void resetTsMin() {
+    var holder = tsMinThreadLocal.get();
+    assert holder.activeTxCount > 0 : "activeTxCount underflow: " + holder.activeTxCount;
+    if (holder.activeTxCount <= 0) {
+      throw new IllegalStateException(
+          "resetTsMin called with no active transactions (activeTxCount="
+              + holder.activeTxCount + ")");
+    }
+    holder.activeTxCount--;
+    if (holder.activeTxCount == 0) {
+      holder.tsMin = Long.MAX_VALUE;
+    }
   }
 
   private void startTxCommit(AtomicOperation atomicOperation) {
