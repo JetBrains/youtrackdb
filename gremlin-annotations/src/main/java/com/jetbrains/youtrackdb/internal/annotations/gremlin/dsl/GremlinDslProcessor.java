@@ -152,8 +152,11 @@ public class GremlinDslProcessor extends AbstractProcessor {
             ? GremlinDslDigestHelper.computeSourceDigest(dslPath) : "";
 
         var generatedDir = processingEnv.getOptions().get(OPTION_GENERATED_DIR);
-        var outputPath = generatedDir != null
-            ? Paths.get(generatedDir) : null;
+        if (generatedDir == null || generatedDir.isEmpty()) {
+          throw new ProcessorException(dslElement,
+              "Processor option '%s' is required", OPTION_GENERATED_DIR);
+        }
+        var outputPath = Paths.get(generatedDir);
 
         generateTraversalInterface(ctx, sourceDigest, outputPath);
         generateDefaultTraversal(ctx, sourceDigest, outputPath);
@@ -168,7 +171,7 @@ public class GremlinDslProcessor extends AbstractProcessor {
   }
 
   private void generateAnonymousTraversal(final Context ctx, final String sourceDigest,
-      @Nullable final Path outputPath) throws IOException {
+      final Path outputPath) throws IOException {
     final var anonymousClass = TypeSpec.classBuilder("__")
         .addModifiers(Modifier.PUBLIC, Modifier.FINAL);
 
@@ -284,7 +287,7 @@ public class GremlinDslProcessor extends AbstractProcessor {
   }
 
   private void generateTraversalSource(final Context ctx, final String sourceDigest,
-      @Nullable final Path outputPath) throws IOException {
+      final Path outputPath) throws IOException {
     final var graphTraversalSourceElement = ctx.traversalSourceDslType;
     final var traversalSourceClass = TypeSpec.classBuilder(ctx.traversalSourceClazz)
         .addModifiers(Modifier.PUBLIC)
@@ -500,7 +503,7 @@ public class GremlinDslProcessor extends AbstractProcessor {
   }
 
   private void generateDefaultTraversal(final Context ctx, final String sourceDigest,
-      @Nullable final Path outputPath) throws IOException {
+      final Path outputPath) throws IOException {
     final var defaultTraversalClass = TypeSpec.classBuilder(ctx.defaultTraversalClazz)
         .addModifiers(Modifier.PUBLIC)
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
@@ -564,7 +567,7 @@ public class GremlinDslProcessor extends AbstractProcessor {
   }
 
   private void generateTraversalInterface(final Context ctx, final String sourceDigest,
-      @Nullable final Path outputPath) throws IOException {
+      final Path outputPath) throws IOException {
     final var traversalInterface = TypeSpec.interfaceBuilder(ctx.traversalClazz)
         .addModifiers(Modifier.PUBLIC)
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
@@ -614,13 +617,9 @@ public class GremlinDslProcessor extends AbstractProcessor {
     writeJavaFile(traversalJavaFile, outputPath);
   }
 
-  private void writeJavaFile(final JavaFile javaFile, @Nullable final Path outputPath)
+  private static void writeJavaFile(final JavaFile javaFile, final Path outputPath)
       throws IOException {
-    if (outputPath != null) {
-      javaFile.writeTo(outputPath);
-    } else {
-      javaFile.writeTo(processingEnv.getFiler());
-    }
+    javaFile.writeTo(outputPath);
   }
 
   private static MethodSpec constructMethod(final Element element, final ClassName returnClazz,

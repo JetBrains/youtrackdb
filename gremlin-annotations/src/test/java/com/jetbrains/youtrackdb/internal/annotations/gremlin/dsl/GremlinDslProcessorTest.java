@@ -15,7 +15,7 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.tools.JavaFileObject;
-import javax.tools.StandardLocation;
+
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Rule;
@@ -56,15 +56,26 @@ public class GremlinDslProcessorTest {
   }
 
   @Test
+  public void whenGeneratedDirNotSet_failsWithError() {
+    var compilation = javac()
+        .withProcessors(new GremlinDslProcessor())
+        .compile(
+            JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+    assertThat(compilation).failed();
+    assertThat(compilation).hadErrorContaining(GremlinDslProcessor.OPTION_GENERATED_DIR);
+  }
+
+  @Test
   public void shouldCompileToDefaultPackage() throws IOException {
+    var generatedDir = temp.newFolder("gen-default").toPath();
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
+        .withOptions("-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath())
         .compile(
             JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
     assertCompilationSuccess(compilation);
 
-    var anonymousSrc = readGeneratedSource(compilation,
-        "__.java");
+    var anonymousSrc = readGeneratedFile(generatedDir, "__.java");
     Assert.assertTrue("__.java should contain person() from @AnonymousMethod",
         anonymousSrc.contains("person("));
     Assert.assertTrue("__.java should contain knowsOverride() from @AnonymousMethod",
@@ -76,8 +87,7 @@ public class GremlinDslProcessorTest {
     Assert.assertTrue("__.java should contain start() method",
         anonymousSrc.contains("start()"));
 
-    var traversalSourceSrc = readGeneratedSource(compilation,
-        "SocialTraversalSource.java");
+    var traversalSourceSrc = readGeneratedFile(generatedDir, "SocialTraversalSource.java");
     Assert.assertTrue("TraversalSource should contain addV (default methods enabled)",
         traversalSourceSrc.contains("addV"));
     Assert.assertTrue("TraversalSource should contain addE (default methods enabled)",
@@ -85,16 +95,18 @@ public class GremlinDslProcessorTest {
   }
 
   @Test
-  public void shouldCompileAndMovePackage() {
+  public void shouldCompileAndMovePackage() throws IOException {
+    var generatedDir = temp.newFolder("gen-move").toPath();
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
+        .withOptions("-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath())
         .compile(JavaFileObjects.forResource(
             GremlinDsl.class.getResource("SocialMoveTraversalDsl.java")));
     assertCompilationSuccess(compilation);
-    assertThat(compilation)
-        .generatedFile(StandardLocation.SOURCE_OUTPUT,
-            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.social",
-            "SocialMoveTraversal.java");
+    Assert.assertTrue("SocialMoveTraversal.java should be generated",
+        Files.isRegularFile(generatedDir.resolve(
+            "com/jetbrains/youtrackdb/internal/annotations/gremlin/dsl/social")
+            .resolve("SocialMoveTraversal.java")));
   }
 
   /**
@@ -104,22 +116,23 @@ public class GremlinDslProcessorTest {
    */
   @Test
   public void shouldCompileTraversalAndTraversalSourceToDefaultPackage() throws IOException {
+    var generatedDir = temp.newFolder("gen-pkg").toPath();
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
+        .withOptions("-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath())
         .compile(JavaFileObjects.forResource(
             GremlinDsl.class.getResource("SocialPackageTraversalDsl.java")));
     assertCompilationSuccess(compilation);
 
-    var traversalSrc = readGeneratedSource(compilation,
-        "SocialPackageTraversal.java");
+    var traversalSrc = readGeneratedFile(generatedDir, "SocialPackageTraversal.java");
     Assert.assertTrue("Traversal interface should contain knows() override",
         traversalSrc.contains("knows("));
     Assert.assertTrue("Traversal interface should contain meanAgeOfFriends() override",
         traversalSrc.contains("meanAgeOfFriends("));
 
-    assertThat(compilation).generatedFile(StandardLocation.SOURCE_OUTPUT,
-        "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
-        "SocialPackageTraversalSource.java");
+    Assert.assertTrue("SocialPackageTraversalSource.java should be generated",
+        Files.isRegularFile(generatedDir.resolve(DSL_PACKAGE_PATH)
+            .resolve("SocialPackageTraversalSource.java")));
   }
 
   /**
@@ -127,13 +140,15 @@ public class GremlinDslProcessorTest {
    */
   @Test
   public void shouldCompileWithNoDefaultMethods() throws IOException {
+    var generatedDir = temp.newFolder("gen-nodefault").toPath();
     final var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
+        .withOptions("-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath())
         .compile(JavaFileObjects.forResource(
             GremlinDsl.class.getResource("SocialNoDefaultMethodsTraversalDsl.java")));
     assertCompilationSuccess(compilation);
 
-    var traversalSourceSrc = readGeneratedSource(compilation,
+    var traversalSourceSrc = readGeneratedFile(generatedDir,
         "SocialNoDefaultMethodsTraversalSource.java");
     Assert.assertFalse(
         "TraversalSource with generateDefaultMethods=false should NOT contain addV",
@@ -144,12 +159,40 @@ public class GremlinDslProcessorTest {
   }
 
   @Test
-  public void shouldCompileRemoteDslTraversal() {
-    final var compilation = javac()
+  @SuppressWarnings("resource")
+  public void shouldCompileRemoteDslTraversal() throws IOException {
+    var generatedDir = temp.newFolder("gen-remote").toPath();
+
+    var dslCompilation = javac()
         .withProcessors(new GremlinDslProcessor())
+        .withOptions("-Agremlin.dsl.generatedDir=" + generatedDir.toAbsolutePath())
         .compile(
-            JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")),
-            JavaFileObjects.forResource(GremlinDsl.class.getResource("RemoteDslTraversal.java")));
+            JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+    assertCompilationSuccess(dslCompilation);
+
+    var genPkgDir = generatedDir.resolve(DSL_PACKAGE_PATH);
+    var generatedSources = Files.list(genPkgDir)
+        .filter(p -> p.toString().endsWith(".java"))
+        .map(p -> {
+          try {
+            var className = DSL_PACKAGE_PATH.replace('/', '.')
+                + "." + p.getFileName().toString().replace(".java", "");
+            return JavaFileObjects.forSourceString(className, Files.readString(p));
+          } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+          }
+        })
+        .toList();
+
+    var allSources = new java.util.ArrayList<JavaFileObject>();
+    allSources.add(
+        JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
+    allSources.add(
+        JavaFileObjects.forResource(GremlinDsl.class.getResource("RemoteDslTraversal.java")));
+    allSources.addAll(generatedSources);
+
+    var compilation = javac().compile(allSources.toArray(new JavaFileObject[0]));
+    assertCompilationSuccess(compilation);
 
     try {
       final var cl = new JavaFileObjectClassLoader(compilation.generatedFiles());
@@ -216,10 +259,9 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    assertThat(compilation)
-        .generatedFile(StandardLocation.SOURCE_OUTPUT,
-            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
-            "SocialTraversal.java");
+    Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
+        Files.isRegularFile(
+            generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
   }
 
   /**
@@ -251,11 +293,10 @@ public class GremlinDslProcessorTest {
   }
 
   /**
-   * With -A options but one option is empty string, getDslSourcePath returns null (line 108:
-   * generatedDir.isEmpty() or sourceDir.isEmpty()). Processor runs full generation.
+   * Empty generatedDir option triggers a compilation error because the option is required.
    */
   @Test
-  public void withOptions_emptyStringOption_generatesBecauseGetDslSourcePathReturnsNull() throws IOException {
+  public void withOptions_emptyGeneratedDir_failsWithError() throws IOException {
     var sourceDir = temp.newFolder("src").toPath();
     var dslSource = sourceDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversalDsl.java");
     Files.createDirectories(dslSource.getParent());
@@ -270,11 +311,8 @@ public class GremlinDslProcessorTest {
             "-Agremlin.dsl.sourceDir=" + sourceDir.toAbsolutePath())
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
-    assertThat(compilation).succeeded();
-    assertThat(compilation)
-        .generatedFile(StandardLocation.SOURCE_OUTPUT,
-            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
-            "SocialTraversal.java");
+    assertThat(compilation).failed();
+    assertThat(compilation).hadErrorContaining(GremlinDslProcessor.OPTION_GENERATED_DIR);
   }
 
   /**
@@ -292,10 +330,9 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    assertThat(compilation)
-        .generatedFile(StandardLocation.SOURCE_OUTPUT,
-            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
-            "SocialTraversal.java");
+    Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
+        Files.isRegularFile(
+            generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
   }
 
   /**
@@ -317,10 +354,9 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    assertThat(compilation)
-        .generatedFile(StandardLocation.SOURCE_OUTPUT,
-            "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
-            "SocialTraversal.java");
+    Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
+        Files.isRegularFile(
+            generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
   }
 
   /**
@@ -364,10 +400,9 @@ public class GremlinDslProcessorTest {
           .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
       assertThat(compilation).succeeded();
-      assertThat(compilation)
-          .generatedFile(StandardLocation.SOURCE_OUTPUT,
-              "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl",
-              "SocialTraversal.java");
+      Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
+          Files.isRegularFile(
+              generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
     } finally {
       dslSource.toFile().setReadable(true, false);
       dslSource.toFile().setWritable(true, false);
@@ -378,14 +413,12 @@ public class GremlinDslProcessorTest {
     assertThat(compilation).succeeded();
   }
 
-  private static String readGeneratedSource(Compilation compilation, String fileName)
+  private static String readGeneratedFile(java.nio.file.Path generatedDir, String fileName)
       throws IOException {
-    var fileObject = compilation.generatedFile(StandardLocation.SOURCE_OUTPUT,
-        "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl", fileName);
-    Assert.assertTrue("Expected generated file " + "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl"
-            + "." + fileName + " not found",
-        fileObject.isPresent());
-    return fileObject.get().getCharContent(true).toString();
+    var filePath = generatedDir.resolve(DSL_PACKAGE_PATH).resolve(fileName);
+    Assert.assertTrue("Expected generated file " + filePath + " not found",
+        Files.isRegularFile(filePath));
+    return Files.readString(filePath);
   }
 
 
