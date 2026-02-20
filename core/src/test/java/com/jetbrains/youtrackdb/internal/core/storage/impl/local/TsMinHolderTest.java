@@ -13,6 +13,7 @@ public class TsMinHolderTest {
   public void testDefaultValues() {
     var holder = new TsMinHolder();
     assertThat(holder.tsMin).isEqualTo(Long.MAX_VALUE);
+    assertThat(holder.activeTxCount).isZero();
     assertThat(holder.registeredInTsMins).isFalse();
   }
 
@@ -118,6 +119,41 @@ public class TsMinHolderTest {
     // Simulate new transaction begin
     holder.tsMin = 200L;
     assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(200L);
+  }
+
+  @Test
+  public void testActiveTxCountLifecycle() {
+    var holder = new TsMinHolder();
+    assertThat(holder.activeTxCount).isZero();
+    assertThat(holder.tsMin).isEqualTo(Long.MAX_VALUE);
+
+    // Simulate first tx begin: tsMin set, count goes to 1
+    holder.tsMin = Math.min(holder.tsMin, 100L);
+    holder.activeTxCount++;
+    assertThat(holder.activeTxCount).isEqualTo(1);
+    assertThat(holder.tsMin).isEqualTo(100L);
+
+    // Simulate second tx begin (overlapping session): tsMin stays at min, count goes to 2
+    holder.tsMin = Math.min(holder.tsMin, 200L);
+    holder.activeTxCount++;
+    assertThat(holder.activeTxCount).isEqualTo(2);
+    assertThat(holder.tsMin).isEqualTo(100L);
+
+    // Simulate first tx end: count goes to 1, tsMin stays (still an active tx)
+    holder.activeTxCount--;
+    if (holder.activeTxCount == 0) {
+      holder.tsMin = Long.MAX_VALUE;
+    }
+    assertThat(holder.activeTxCount).isEqualTo(1);
+    assertThat(holder.tsMin).isEqualTo(100L);
+
+    // Simulate second tx end: count goes to 0, tsMin resets
+    holder.activeTxCount--;
+    if (holder.activeTxCount == 0) {
+      holder.tsMin = Long.MAX_VALUE;
+    }
+    assertThat(holder.activeTxCount).isZero();
+    assertThat(holder.tsMin).isEqualTo(Long.MAX_VALUE);
   }
 
   @Test
