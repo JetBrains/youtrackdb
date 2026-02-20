@@ -606,7 +606,7 @@ jobs:
   ci-status:
     name: CI Status
     if: always()
-    needs: [ detect-changes, test-linux, test-windows, qodana ]
+    needs: [ detect-changes, test-linux, test-windows, qodana, coverage-gate, mutation-testing ]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
@@ -616,6 +616,8 @@ jobs:
           LINUX_RESULT: ${{ needs.test-linux.result }}
           WINDOWS_RESULT: ${{ needs.test-windows.result }}
           QODANA_RESULT: ${{ needs.qodana.result }}
+          COVERAGE_RESULT: ${{ needs.coverage-gate.result }}
+          MUTATION_RESULT: ${{ needs.mutation-testing.result }}
         run: |
           if [[ "$DETECT_RESULT" != "success" ]]; then
             echo "detect-changes job did not succeed (result: $DETECT_RESULT)"
@@ -631,6 +633,16 @@ jobs:
             echo "Not all required jobs succeeded" \
               "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT," \
               "qodana=$QODANA_RESULT)"
+            exit 1
+          fi
+          # coverage-gate and mutation-testing only run on PRs;
+          # on push events their result is "skipped", which is acceptable.
+          if [[ "$COVERAGE_RESULT" != "success" && "$COVERAGE_RESULT" != "skipped" ]]; then
+            echo "Coverage gate did not succeed (result: $COVERAGE_RESULT)"
+            exit 1
+          fi
+          if [[ "$MUTATION_RESULT" != "success" && "$MUTATION_RESULT" != "skipped" ]]; then
+            echo "Mutation testing gate did not succeed (result: $MUTATION_RESULT)"
             exit 1
           fi
           echo "All required jobs passed"
