@@ -27,6 +27,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
@@ -50,8 +53,11 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -85,11 +91,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private final Map<IntIntImmutablePair, IntSet> deletedRecordPositions = new HashMap<>();
   private final @Nonnull AtomicOperationsSnapshot snapshot;
 
+  // References to storage-wide shared indexes (never null).
+  private final ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex;
+  private final ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex;
+
+  // Local overlay buffers — lazily allocated to avoid overhead for read-only transactions.
+  // Snapshot buffer uses TreeMap to support efficient subMap range queries in
+  // snapshotSubMapDescending without intermediate collection/sort.
+  @Nullable
+  private TreeMap<SnapshotKey, PositionEntry> localSnapshotBuffer;
+  @Nullable
+  private HashMap<VisibilityKey, SnapshotKey> localVisibilityBuffer;
+
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
       final WriteCache writeCache,
       final int storageId,
-      @Nonnull AtomicOperationsSnapshot snapshot) {
+      @Nonnull AtomicOperationsSnapshot snapshot,
+      @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex) {
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -97,6 +117,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.storageId = storageId;
     this.readCache = readCache;
     this.writeCache = writeCache;
+    this.sharedSnapshotIndex = sharedSnapshotIndex;
+    this.sharedVisibilityIndex = sharedVisibilityIndex;
     this.active = true;
   }
 
@@ -539,6 +561,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       txEndLsn =
           writeAheadLog.log(new AtomicUnitEndRecord(operationCommitTs, rollback, getMetadata()));
 
+      // Flush snapshot/visibility buffers to shared maps before applying page changes
+      // to cache. This ensures entries are visible by the time concurrent readers can
+      // see the new record versions through the cache. On rollback, buffers are
+      // discarded — the write-nothing-on-error pattern.
+      if (!rollback) {
+        flushSnapshotBuffers();
+      }
+
       deletedFilesIterator = deletedFiles.longIterator();
       while (deletedFilesIterator.hasNext()) {
         var deletedFileId = deletedFilesIterator.nextLong();
@@ -644,6 +674,157 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public Iterable<String> lockedObjects() {
     return lockedObjects;
+  }
+
+  // --- Snapshot / Visibility index proxy methods ---
+
+  @Override
+  public void putSnapshotEntry(SnapshotKey key, PositionEntry value) {
+    checkIfActive();
+    assert key != null : "SnapshotKey must not be null";
+    assert value != null : "PositionEntry must not be null";
+
+    if (localSnapshotBuffer == null) {
+      localSnapshotBuffer = new TreeMap<>();
+    }
+    localSnapshotBuffer.put(key, value);
+  }
+
+  @Override
+  public PositionEntry getSnapshotEntry(SnapshotKey key) {
+    checkIfActive();
+
+    if (localSnapshotBuffer != null) {
+      var local = localSnapshotBuffer.get(key);
+      if (local != null) {
+        return local;
+      }
+    }
+    return sharedSnapshotIndex.get(key);
+  }
+
+  @Override
+  public Iterable<Map.Entry<SnapshotKey, PositionEntry>> snapshotSubMapDescending(
+      SnapshotKey fromInclusive, SnapshotKey toInclusive) {
+    checkIfActive();
+    assert fromInclusive.compareTo(toInclusive) <= 0
+        : "fromInclusive must be <= toInclusive";
+
+    var sharedDescending = sharedSnapshotIndex
+        .subMap(fromInclusive, true, toInclusive, true)
+        .descendingMap().entrySet();
+
+    if (localSnapshotBuffer == null || localSnapshotBuffer.isEmpty()) {
+      return sharedDescending;
+    }
+
+    // TreeMap.subMap returns a view — no copy, no sort needed.
+    var localDescending = localSnapshotBuffer
+        .subMap(fromInclusive, true, toInclusive, true)
+        .descendingMap().entrySet();
+
+    if (localDescending.isEmpty()) {
+      return sharedDescending;
+    }
+
+    return () -> new MergingDescendingIterator(
+        sharedDescending.iterator(), localDescending.iterator());
+  }
+
+  @Override
+  public void putVisibilityEntry(VisibilityKey key, SnapshotKey value) {
+    checkIfActive();
+    assert key != null : "VisibilityKey must not be null";
+    assert value != null : "SnapshotKey value must not be null";
+
+    if (localVisibilityBuffer == null) {
+      localVisibilityBuffer = new HashMap<>();
+    }
+    localVisibilityBuffer.put(key, value);
+  }
+
+  @Override
+  public boolean containsVisibilityEntry(VisibilityKey key) {
+    checkIfActive();
+
+    if (localVisibilityBuffer != null && localVisibilityBuffer.containsKey(key)) {
+      return true;
+    }
+    return sharedVisibilityIndex.containsKey(key);
+  }
+
+  void flushSnapshotBuffers() {
+    if (localSnapshotBuffer != null) {
+      sharedSnapshotIndex.putAll(localSnapshotBuffer);
+    }
+    if (localVisibilityBuffer != null) {
+      sharedVisibilityIndex.putAll(localVisibilityBuffer);
+    }
+  }
+
+  /**
+   * Merges two iterators of {@code Map.Entry<SnapshotKey, PositionEntry>} that are each
+   * sorted in <b>descending</b> key order. On equal keys, the local entry takes priority
+   * (shadows the shared entry). Either or both iterators may be empty.
+   */
+  static final class MergingDescendingIterator
+      implements Iterator<Map.Entry<SnapshotKey, PositionEntry>> {
+
+    private final Iterator<Map.Entry<SnapshotKey, PositionEntry>> sharedIter;
+    private final Iterator<Map.Entry<SnapshotKey, PositionEntry>> localIter;
+    private Map.Entry<SnapshotKey, PositionEntry> nextShared;
+    private Map.Entry<SnapshotKey, PositionEntry> nextLocal;
+
+    MergingDescendingIterator(
+        Iterator<Map.Entry<SnapshotKey, PositionEntry>> sharedIter,
+        Iterator<Map.Entry<SnapshotKey, PositionEntry>> localIter) {
+      this.sharedIter = sharedIter;
+      this.localIter = localIter;
+      this.nextShared = sharedIter.hasNext() ? sharedIter.next() : null;
+      this.nextLocal = localIter.hasNext() ? localIter.next() : null;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return nextShared != null || nextLocal != null;
+    }
+
+    @Override
+    public Map.Entry<SnapshotKey, PositionEntry> next() {
+      if (nextLocal == null && nextShared == null) {
+        throw new NoSuchElementException();
+      }
+      if (nextLocal == null) {
+        var result = nextShared;
+        nextShared = sharedIter.hasNext() ? sharedIter.next() : null;
+        return result;
+      }
+      if (nextShared == null) {
+        var result = nextLocal;
+        nextLocal = localIter.hasNext() ? localIter.next() : null;
+        return result;
+      }
+
+      // Both non-null — compare descending (larger key first)
+      int cmp = nextLocal.getKey().compareTo(nextShared.getKey());
+      if (cmp > 0) {
+        // local key is larger → comes first in descending order
+        var result = nextLocal;
+        nextLocal = localIter.hasNext() ? localIter.next() : null;
+        return result;
+      } else if (cmp < 0) {
+        // shared key is larger → comes first in descending order
+        var result = nextShared;
+        nextShared = sharedIter.hasNext() ? sharedIter.next() : null;
+        return result;
+      } else {
+        // Equal keys: local shadows shared
+        var result = nextLocal;
+        nextLocal = localIter.hasNext() ? localIter.next() : null;
+        nextShared = sharedIter.hasNext() ? sharedIter.next() : null;
+        return result;
+      }
+    }
   }
 
   @Override
