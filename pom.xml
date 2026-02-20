@@ -1064,7 +1064,7 @@
             <groupId>org.pitest</groupId>
             <artifactId>pitest-maven</artifactId>
             <configuration>
-              <mutationThreshold>85</mutationThreshold>
+              <mutationThreshold>0</mutationThreshold>
               <failWhenNoMutations>false</failWhenNoMutations>
               <threads>1</threads>
               <timeoutConstant>10000</timeoutConstant>

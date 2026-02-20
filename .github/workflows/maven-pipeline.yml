@@ -512,7 +512,7 @@ jobs:
           fi
 
       - name: Enforce Mutation Gate
-        if: always() && steps.changes.outputs.skip != 'true' && (steps.pit.outcome == 'failure' || steps.gate.outcome == 'failure')
+        if: always() && steps.changes.outputs.skip != 'true' && steps.gate.outcome == 'failure'
         run: |
           echo "Mutation testing gate failed. See the PR comment for details."
           exit 1
