@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -8,6 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -42,6 +46,8 @@ public class TransactionTest {
     tx.commit();
   }
 
+  // ---------- Original single-threaded variants (multi-session on same thread) ----------
+
   /*
     val = 'Foo'
     tx1:begin
@@ -57,37 +63,32 @@ public class TransactionTest {
     var recordValue = "Foo";
     var updateRecordValue = "Bar";
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex("V");
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start read tx1
     var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    Assert.assertEquals(recordValue, v1.getProperty("name"));
-    System.out.println("On Load with txId = " + tx1.getId() + " sees: " + v1.getProperty("name"));
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      Assert.assertEquals(recordValue, v1.getProperty("name"));
 
-    // Session 1: start update tx2
-    var tx2 = db.begin();
-    Vertex v2 = tx2.load(rid);
-    v2.setProperty("name", updateRecordValue);
-    System.out.println("Modifying with txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
-    tx2.commit();
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      v2.setProperty("name", updateRecordValue);
+      tx2.commit();
 
-    // re-load inside tx1
-    db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    Vertex v3 = tx1.load(rid);
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      Vertex v3 = tx1.load(rid);
 
-    // isolation check tx1
-    System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
-    Assert.assertEquals(recordValue, v3.getProperty("name"));
-    tx1.commit();
+      Assert.assertEquals(recordValue, v3.getProperty("name"));
+      tx1.commit();
+    } finally {
+      db1.close();
+    }
   }
 
   /*
@@ -105,41 +106,33 @@ public class TransactionTest {
     var recordValue = "Foo";
     var updateRecordValue = "Bar";
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex("V");
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start an update tx1
     var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    v1.setProperty("name", updateRecordValue);
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      v1.setProperty("name", updateRecordValue);
 
-    // Session 1: start read tx2
-    var tx2 = db.begin();
-    Vertex v2 = tx2.load(rid);
-    System.out.println(
-        "Before modifying with txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
-    Assert.assertEquals(recordValue, v2.getProperty("name"));
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      Assert.assertEquals(recordValue, v2.getProperty("name"));
 
-    // commit tx1
-    System.out.println("Modifying with txId = " + tx1.getId() + " sees: " + v1.getProperty("name"));
+      tx1.commit();
 
-    tx1.commit();
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      Vertex v3 = tx2.load(rid);
 
-    // re-load inside tx2
-    db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    Vertex v3 = tx2.load(rid);
-
-    // isolation check tx2
-    System.out.println("Isolation txId = " + tx2.getId() + " sees: " + v3.getProperty("name"));
-    Assert.assertEquals(recordValue, v3.getProperty("name"));
-    tx2.commit();
+      Assert.assertEquals(recordValue, v3.getProperty("name"));
+      tx2.commit();
+    } finally {
+      db1.close();
+    }
   }
 
   /*
@@ -153,189 +146,139 @@ public class TransactionTest {
         tx3:commit
     tx1:read -> 'Foo'
     tx1:commit
-
    */
   @Test
   public void testSnapshotIsolationNewUpd() {
     var recordValue = "Foo";
     var updateRecordValue = "Bar";
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex("V");
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start read tx1
     var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    Assert.assertEquals(recordValue, v1.getProperty("name"));
-    System.out.println("On Load with txId = " + tx1.getId() + " sees: " + v1.getProperty("name"));
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      Assert.assertEquals(recordValue, v1.getProperty("name"));
 
-    // Session 1: start update tx2
-    var tx2 = db.begin();
-    Vertex v2 = tx2.load(rid);
-    v2.setProperty("name", updateRecordValue);
-    System.out.println("Modifying with txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
-    tx2.commit();
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      v2.setProperty("name", updateRecordValue);
+      tx2.commit();
 
-    db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    var tx3 = db.begin();
-    Vertex v4 = tx3.load(rid);
-    Assert.assertEquals(updateRecordValue, v4.getProperty("name"));
-    tx3.commit();
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      var tx3 = db.begin();
+      Vertex v4 = tx3.load(rid);
+      Assert.assertEquals(updateRecordValue, v4.getProperty("name"));
+      tx3.commit();
 
-    // re-load inside tx1
-    db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    Vertex v3 = tx1.load(rid);
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      Vertex v3 = tx1.load(rid);
 
-    // isolation check tx1
-    System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
-    Assert.assertEquals(recordValue, v3.getProperty("name"));
-    tx1.commit();
+      Assert.assertEquals(recordValue, v3.getProperty("name"));
+      tx1.commit();
+    } finally {
+      db1.close();
+    }
   }
 
-  /*
-  val = 'Foo'
-  tx1:begin
-  tx1:read -> 'Foo'
-    tx2:begin
-    tx2:remove property <- 'null'
-    tx2:commit
-  tx1:read -> 'Foo'
-  tx1:commit
- */
   @Test
   public void testSnapshotIsolationRemoveProperty() {
     var recordValue = "Foo";
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex("V");
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start read tx1
-    var db1 = youTrackDB.open("test", "admin",
-        DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    Assert.assertEquals(recordValue, v1.getProperty("name"));
-    System.out.println("On Load with txId = " + tx1.getId() + " sees: " + v1.getProperty("name"));
+    var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      Assert.assertEquals(recordValue, v1.getProperty("name"));
 
-    // Session 1: start update tx2
-    var tx2 = db.begin();
-    Vertex v2 = tx2.load(rid);
-    v2.removeProperty("name");
-    System.out.println(
-        "Remove property txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
-    tx2.commit();
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      v2.removeProperty("name");
+      tx2.commit();
 
-    // re-load inside tx1
-    db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    Vertex v3 = tx1.load(rid);
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      Vertex v3 = tx1.load(rid);
 
-    // isolation check tx1
-    System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
-    Assert.assertEquals(recordValue, v3.getProperty("name"));
-    tx1.commit();
+      Assert.assertEquals(recordValue, v3.getProperty("name"));
+      tx1.commit();
+    } finally {
+      db1.close();
+    }
   }
 
-  /*
- val = 'Foo'
- tx1:begin
- tx1:read -> 'Foo'
-   tx2:begin
-   tx2:remove record
-   tx2:commit
- tx1:read -> 'Foo'
- tx1:commit
-*/
   @Test
   public void testSnapshotIsolationRemoveRecord() {
     var recordValue = "Foo";
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex("V");
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start read tx1
-    var db1 = youTrackDB.open("test", "admin",
-        DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    Assert.assertEquals(recordValue, v1.getProperty("name"));
-    System.out.println("On Load with txId = " + tx1.getId() + " sees: " + v1.getProperty("name"));
+    var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      Assert.assertEquals(recordValue, v1.getProperty("name"));
 
-    // Session 1: start update tx2
-    var tx2 = db.begin();
-    Vertex v2 = tx2.load(rid);
-    //v2.removeProperty("name");
-    tx2.delete(v2);
-    System.out.println("Removing record with txId = " + tx2.getId() + " sees: " + v2);
-    tx2.commit();
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      tx2.delete(v2);
+      tx2.commit();
 
-    // re-load inside tx1
-    db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    Vertex v3 = tx1.load(rid);
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      Vertex v3 = tx1.load(rid);
 
-    // isolation check tx1
-    System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
-    Assert.assertEquals(recordValue, v3.getProperty("name"));
-    tx1.commit();
+      Assert.assertEquals(recordValue, v3.getProperty("name"));
+      tx1.commit();
+    } finally {
+      db1.close();
+    }
   }
 
-  @Test(expected = com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException.class)
+  @Test
   public void testConcurrentUpdate() {
     var recordValue = "Foo";
     var updateRecordValue = "Bar";
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex("V");
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start read tx1
     var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    v1.setProperty("name", "abc");
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      v1.setProperty("name", "abc");
 
-    // Session 1: start update tx2
-    var tx2 = db.begin();
-    Vertex v2 = tx2.load(rid);
-    v2.setProperty("name", updateRecordValue);
-    tx2.commit();
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      v2.setProperty("name", updateRecordValue);
+      tx2.commit();
 
-    tx1.commit();
+      Assert.assertThrows(ConcurrentModificationException.class, tx1::commit);
+    } finally {
+      db1.close();
+    }
   }
 
-  /*
-  val = 'Foo'
-  tx1:begin
-  tx1:read -> 'Foo'
-    tx2:begin
-    tx2:update <- 'Bar'
-    tx2:commit
-  tx1:read -> 'Foo'
-  tx1:commit
- */
   @Test
   public void testSnapshotIsolationIndexes() {
     var recordValue = "Foo";
@@ -343,61 +286,293 @@ public class TransactionTest {
 
     var user = db.createVertexClass("User");
     user.createProperty("name", PropertyType.STRING);
-
     user.createIndex(
         "IndexPropertyName",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"name"});
 
-    // Session 1: create record
     var tx = db.begin();
     var v = tx.newVertex(user);
     v.setProperty("name", recordValue);
     var rid = v.getIdentity();
-    System.out.println("Initial txId = " + tx.getId());
     tx.commit();
 
-    // Session 2: start read tx1
-    var db1 = youTrackDB.open("test", "admin",
-        DbTestBase.ADMIN_PASSWORD);
-    var tx1 = db1.begin();
-    Vertex v1 = tx1.load(rid);
-    Assert.assertEquals(recordValue, v1.getProperty("name"));
-    System.out.println("On Load with txId = " + tx1.getId() + " sees: " + v1.getProperty("name"));
+    var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    try {
+      var tx1 = db1.begin();
+      Vertex v1 = tx1.load(rid);
+      Assert.assertEquals(recordValue, v1.getProperty("name"));
 
-    // Session 1: start update tx2
+      var tx2 = db.begin();
+      Vertex v2 = tx2.load(rid);
+      v2.setProperty("name", updateRecordValue);
+      tx2.commit();
+
+      db.getLocalCache().clear();
+      db1.getLocalCache().clear();
+      Vertex v3 = tx1.load(rid);
+
+      var g = youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      g.tx().begin();
+      var list = g.V().has("name", "Bar").toList();
+      Assert.assertFalse("Index should find the updated record", list.isEmpty());
+      g.tx().commit();
+      g.close();
+
+      Assert.assertEquals(recordValue, v3.getProperty("name"));
+      tx1.commit();
+    } finally {
+      db1.close();
+    }
+  }
+
+  // ---------- Multi-threaded variants (concurrent isolation across threads) ----------
+
+  @Test
+  public void testSnapshotIsolationMultiThread() throws Exception {
+    var recordValue = "Foo";
+    var updateRecordValue = "Bar";
+
+    var tx = db.begin();
+    var v = tx.newVertex("V");
+    v.setProperty("name", recordValue);
+    var rid = v.getIdentity();
+    tx.commit();
+
+    var tx1Started = new CountDownLatch(1);
+    var tx2Committed = new CountDownLatch(1);
+
+    var threadError = new AtomicReference<Throwable>();
+    var thread = new Thread(() -> {
+      try {
+        var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+        try {
+          var tx1 = db1.begin();
+          Vertex v1 = tx1.load(rid);
+          Assert.assertEquals(recordValue, v1.getProperty("name"));
+
+          tx1Started.countDown();
+          awaitOrFail(tx2Committed);
+
+          db1.getLocalCache().clear();
+          Vertex v3 = tx1.load(rid);
+          Assert.assertEquals(recordValue, v3.getProperty("name"));
+          tx1.commit();
+        } finally {
+          db1.close();
+        }
+      } catch (Throwable t) {
+        threadError.set(t);
+      }
+    });
+    thread.start();
+
+    awaitOrFail(tx1Started);
     var tx2 = db.begin();
     Vertex v2 = tx2.load(rid);
     v2.setProperty("name", updateRecordValue);
-    System.out.println("Modifying with txId = " + tx2.getId() + " sees: " + v2.getProperty("name"));
+    tx2.commit();
+    db.getLocalCache().clear();
+    tx2Committed.countDown();
+
+    joinAndCheck(thread, threadError);
+  }
+
+  @Test
+  public void testIsolationLevelsOverlappedMultiThread() throws Exception {
+    var recordValue = "Foo";
+    var updateRecordValue = "Bar";
+
+    var tx = db.begin();
+    var v = tx.newVertex("V");
+    v.setProperty("name", recordValue);
+    var rid = v.getIdentity();
+    tx.commit();
+
+    var tx1Started = new CountDownLatch(1);
+    var tx2Read = new CountDownLatch(1);
+    var tx1Committed = new CountDownLatch(1);
+
+    var threadError = new AtomicReference<Throwable>();
+    var thread = new Thread(() -> {
+      try {
+        var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+        try {
+          var tx1 = db1.begin();
+          Vertex v1 = tx1.load(rid);
+          v1.setProperty("name", updateRecordValue);
+
+          tx1Started.countDown();
+          awaitOrFail(tx2Read);
+
+          tx1.commit();
+          tx1Committed.countDown();
+        } finally {
+          db1.close();
+        }
+      } catch (Throwable t) {
+        tx1Committed.countDown();
+        threadError.set(t);
+      }
+    });
+    thread.start();
+
+    awaitOrFail(tx1Started);
+    var tx2 = db.begin();
+    Vertex v2 = tx2.load(rid);
+    Assert.assertEquals(recordValue, v2.getProperty("name"));
+    tx2Read.countDown();
+
+    awaitOrFail(tx1Committed);
+    db.getLocalCache().clear();
+    Vertex v3 = tx2.load(rid);
+    Assert.assertEquals(recordValue, v3.getProperty("name"));
     tx2.commit();
 
-    // re-load inside tx1
+    joinAndCheck(thread, threadError);
+  }
+
+  @Test
+  public void testSnapshotIsolationNewUpdMultiThread() throws Exception {
+    var recordValue = "Foo";
+    var updateRecordValue = "Bar";
+
+    var tx = db.begin();
+    var v = tx.newVertex("V");
+    v.setProperty("name", recordValue);
+    var rid = v.getIdentity();
+    tx.commit();
+
+    var tx1Started = new CountDownLatch(1);
+    var mainDone = new CountDownLatch(1);
+
+    var threadError = new AtomicReference<Throwable>();
+    var thread = new Thread(() -> {
+      try {
+        var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+        try {
+          var tx1 = db1.begin();
+          Vertex v1 = tx1.load(rid);
+          Assert.assertEquals(recordValue, v1.getProperty("name"));
+
+          tx1Started.countDown();
+          awaitOrFail(mainDone);
+
+          db1.getLocalCache().clear();
+          Vertex v3 = tx1.load(rid);
+          Assert.assertEquals(recordValue, v3.getProperty("name"));
+          tx1.commit();
+        } finally {
+          db1.close();
+        }
+      } catch (Throwable t) {
+        threadError.set(t);
+      }
+    });
+    thread.start();
+
+    awaitOrFail(tx1Started);
+    var tx2 = db.begin();
+    Vertex v2 = tx2.load(rid);
+    v2.setProperty("name", updateRecordValue);
+    tx2.commit();
+
     db.getLocalCache().clear();
-    db1.getLocalCache().clear();
-    Vertex v3 = tx1.load(rid);
+    var tx3 = db.begin();
+    Vertex v4 = tx3.load(rid);
+    Assert.assertEquals(updateRecordValue, v4.getProperty("name"));
+    tx3.commit();
 
-    // try to find via index
+    mainDone.countDown();
 
-    var g = youTrackDB.openTraversal("test", "admin",
-        DbTestBase.ADMIN_PASSWORD);
-    g.tx().begin();
-    var list = g.V().has("name", "Bar").toList();
-    System.out.println("Found via index: " + list);
-    g.tx().commit();
-    g.close();
+    joinAndCheck(thread, threadError);
+  }
 
-    // isolation check tx1
-    System.out.println("Isolation txId = " + tx1.getId() + " sees: " + v3.getProperty("name"));
-    Assert.assertEquals(recordValue, v3.getProperty("name"));
+  @Test
+  public void testConcurrentUpdateMultiThread() throws Exception {
+    var recordValue = "Foo";
+    var updateRecordValue = "Bar";
 
-    tx1.commit();
+    var tx = db.begin();
+    var v = tx.newVertex("V");
+    v.setProperty("name", recordValue);
+    var rid = v.getIdentity();
+    tx.commit();
+
+    var tx1Started = new CountDownLatch(1);
+    var tx2Committed = new CountDownLatch(1);
+    var caughtCme = new AtomicReference<ConcurrentModificationException>();
+
+    var threadError = new AtomicReference<Throwable>();
+    var thread = new Thread(() -> {
+      try {
+        var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+        try {
+          var tx1 = db1.begin();
+          Vertex v1 = tx1.load(rid);
+          v1.setProperty("name", "abc");
+
+          tx1Started.countDown();
+          awaitOrFail(tx2Committed);
+
+          try {
+            tx1.commit();
+            Assert.fail("Expected ConcurrentModificationException");
+          } catch (ConcurrentModificationException e) {
+            caughtCme.set(e);
+          }
+        } finally {
+          db1.close();
+        }
+      } catch (Throwable t) {
+        threadError.set(t);
+      }
+    });
+    thread.start();
+
+    awaitOrFail(tx1Started);
+    var tx2 = db.begin();
+    Vertex v2 = tx2.load(rid);
+    v2.setProperty("name", updateRecordValue);
+    tx2.commit();
+    tx2Committed.countDown();
+
+    joinAndCheck(thread, threadError);
+    Assert.assertNotNull(
+        "Expected ConcurrentModificationException on Thread A", caughtCme.get());
   }
 
   @After
   public void after() {
     db.close();
     youTrackDB.close();
+  }
+
+  private static final long TIMEOUT_SECONDS = 30;
+
+  private static void awaitOrFail(CountDownLatch latch) throws InterruptedException {
+    if (!latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+      Assert.fail("Latch timed out after " + TIMEOUT_SECONDS + " seconds");
+    }
+  }
+
+  private static void joinAndCheck(Thread thread, AtomicReference<Throwable> error)
+      throws Exception {
+    thread.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
+    if (thread.isAlive()) {
+      thread.interrupt();
+      Assert.fail("Thread did not finish within " + TIMEOUT_SECONDS + " seconds");
+    }
+    var t = error.get();
+    if (t != null) {
+      if (t instanceof Error e) {
+        throw e;
+      }
+      if (t instanceof Exception e) {
+        throw e;
+      }
+      throw new RuntimeException(t);
+    }
   }
 }

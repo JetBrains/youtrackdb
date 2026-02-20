@@ -110,6 +110,25 @@ public class FrontendTransactionImpl implements
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
   private AtomicOperation atomicOperation;
 
+  // Thread that called startStorageTx() and incremented the per-thread activeTxCount.
+  // Pool shutdown may close a session from a different thread than the one that began the tx;
+  // in that case tsMin belongs to the originating thread's TsMinHolder and must not be reset.
+  private long storageTxThreadId;
+
+  /**
+   * Asserts that the current thread is the one that started this transaction. All transactional
+   * operations (begin, commit, read, write, delete) must happen on the originating thread.
+   *
+   * <p>Excluded from this check: {@link #close()} and {@link #rollbackInternal()}, which may
+   * be called cross-thread during pool shutdown ({@code DatabaseSessionEmbeddedPooled.realClose}).
+   */
+  private void assertOnOwningThread() {
+    assert storageTxThreadId == 0
+        || storageTxThreadId == Thread.currentThread().threadId()
+        : "Transaction used from thread " + Thread.currentThread().threadId()
+        + " but was started on thread " + storageTxThreadId;
+  }
+
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
     this(iDatabase, false);
   }
@@ -135,6 +154,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public int beginInternal() {
+    assertOnOwningThread();
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter: " + txStartCounter);
     }
@@ -155,6 +175,7 @@ public class FrontendTransactionImpl implements
 
       var storage = session.getStorage();
       atomicOperation = storage.startStorageTx();
+      storageTxThreadId = Thread.currentThread().threadId();
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
         throw new RollbackException(
@@ -180,6 +201,7 @@ public class FrontendTransactionImpl implements
    */
   @Override
   public Map<RID, RID> commitInternal(final boolean force) {
+    assertOnOwningThread();
     checkTransactionValid();
 
     if (txStartCounter < 0) {
@@ -210,6 +232,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public RecordAbstract getRecord(final RID rid) {
+    assertOnOwningThread();
     final var e = getRecordEntry(rid);
     if (e != null) {
       if (e.type == RecordOperation.DELETED) {
@@ -386,6 +409,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public boolean exists(@Nonnull RID rid) {
+    assertOnOwningThread();
     checkTransactionValid();
 
     final DBRecord txRecord = getRecord(rid);
@@ -402,6 +426,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public @Nonnull RecordAbstract loadRecord(RID rid) {
+    assertOnOwningThread();
     checkTransactionValid();
 
     if (isDeletedInTx(rid)) {
@@ -418,6 +443,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void deleteRecord(final RecordAbstract record) {
+    assertOnOwningThread();
     try {
       addRecordOperation(record, RecordOperation.DELETED);
       //execute it here because after this operation record will be unloaded
@@ -448,6 +474,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void addRecordOperation(RecordAbstract record, byte status) {
+    assertOnOwningThread();
     if (readOnly) {
       throw new DatabaseException(session, "Transaction is read-only");
     }
@@ -822,8 +849,11 @@ public class FrontendTransactionImpl implements
 
     if (atomicOperation != null) {
       atomicOperation.deactivate();
+      if (storageTxThreadId == Thread.currentThread().threadId()) {
+        session.getStorage().resetTsMin();
+      }
+      atomicOperation = null;
     }
-
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
   }
