@@ -9,8 +9,21 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExecutionStream;
 
 /**
- * Returns the number of records contained in a class (including subclasses) Executes a count(*) on
- * a class and returns a single record that contains that value (with a specific alias).
+ * Hardwired optimization step for {@code SELECT count(*) FROM ClassName} (no WHERE).
+ *
+ * <p>Instead of scanning all records and counting, this step reads the record count
+ * directly from the class metadata in O(1) time, producing a single result with
+ * the count value.
+ *
+ * <p>Cannot be cached because the count may change between executions (and security
+ * policies may require per-record filtering in a different session).
+ *
+ * <pre>
+ *  Normal:    [FetchFromClass] --&gt; [CountStep]      (scans all records, O(N))
+ *  Optimized: [CountFromClassStep]                   (reads metadata, O(1))
+ * </pre>
+ *
+ * @see SelectExecutionPlanner#handleHardwiredCountOnClass
  */
 public class CountFromClassStep extends AbstractExecutionStep {
 
@@ -18,7 +31,7 @@ public class CountFromClassStep extends AbstractExecutionStep {
   private final String alias;
 
   /**
-   * @param targetClass      An identifier containing the name of the class to count
+   * @param targetClass      the schema class whose record count is read from metadata
    * @param alias            the name of the property returned in the result-set
    * @param ctx              the query context
    * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
@@ -32,6 +45,7 @@ public class CountFromClassStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects (this step is a self-contained source).
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
@@ -57,9 +71,13 @@ public class CountFromClassStep extends AbstractExecutionStep {
     return result;
   }
 
+  /**
+   * Not cacheable: the record count may change between executions, and security
+   * policies may require per-record filtering in a different session context.
+   */
   @Override
   public boolean canBeCached() {
-    return false; // explicit: in case of active security policies, the COUNT has to be manual
+    return false;
   }
 
   @Override
