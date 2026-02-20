@@ -1044,6 +1044,7 @@
               <timeoutConstant>10000</timeoutConstant>
               <timeoutFactor>1.5</timeoutFactor>
               <verbose>false</verbose>
+              <verbosity>NO_SPINNER</verbosity>
               <mutators>
                 <mutator>NEGATE_CONDITIONALS</mutator>
                 <mutator>VOID_METHOD_CALLS</mutator>
