@@ -104,9 +104,9 @@ public class MatchEdgeTraverser {
    * @param edge               the edge traversal (contains direction and constraints)
    */
   public MatchEdgeTraverser(Result lastUpstreamRecord, EdgeTraversal edge) {
-    assert edge != null : "edge must not be null";
-    assert edge.edge != null : "pattern edge must not be null";
-    assert edge.edge.item != null : "path item must not be null";
+    assert MatchAssertions.checkNotNull(edge, "edge");
+    assert MatchAssertions.checkNotNull(edge.edge, "pattern edge");
+    assert MatchAssertions.checkNotNull(edge.edge.item, "path item");
     this.sourceRecord = lastUpstreamRecord;
     this.edge = edge;
     this.item = edge.edge.item;
@@ -120,7 +120,7 @@ public class MatchEdgeTraverser {
    * @param item               the path item to traverse
    */
   public MatchEdgeTraverser(Result lastUpstreamRecord, SQLMatchPathItem item) {
-    assert item != null : "path item must not be null";
+    assert MatchAssertions.checkNotNull(item, "path item");
     this.sourceRecord = lastUpstreamRecord;
     this.item = item;
   }

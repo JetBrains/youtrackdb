@@ -43,7 +43,7 @@ public class ReturnMatchPathsStep extends AbstractExecutionStep {
   /** Simply forwards the upstream stream unchanged. */
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    assert prev != null;
+    assert MatchAssertions.checkNotNull(prev, "previous step");
     return prev.start(ctx);
   }
 
