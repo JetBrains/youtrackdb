@@ -65,6 +65,8 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
       String alias,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
+    assert prefetchExecPlan != null : "prefetch execution plan must not be null";
+    assert alias != null : "alias must not be null";
     this.prefetchExecutionPlan = prefetchExecPlan;
     this.alias = alias;
   }

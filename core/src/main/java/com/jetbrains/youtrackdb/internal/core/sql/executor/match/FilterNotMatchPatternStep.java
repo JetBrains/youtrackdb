@@ -53,6 +53,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
   public FilterNotMatchPatternStep(
       List<AbstractExecutionStep> steps, CommandContext ctx, boolean enableProfiling) {
     super(ctx, enableProfiling);
+    assert steps != null : "sub-steps list must not be null";
     this.subSteps = steps;
   }
 

@@ -11,7 +11,9 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -348,6 +350,71 @@ public class MatchStepUnitTest extends DbTestBase {
 
     step.setProfilingEnabled(true);
     assertTrue(step.isProfilingEnabled());
+  }
+
+  // -- toExecutionStream tests (shared utility method) --
+
+  /** Verifies toExecutionStream returns empty for null input. */
+  @Test
+  public void testToExecutionStreamNull() {
+    var ctx = createCommandContext();
+    var stream = MatchEdgeTraverser.toExecutionStream(null, session);
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /** Verifies toExecutionStream wraps a ResultInternal as a singleton stream. */
+  @Test
+  public void testToExecutionStreamResultInternal() {
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session);
+    result.setProperty("x", 1);
+    var stream = MatchEdgeTraverser.toExecutionStream(result, session);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals(1, (int) stream.next(ctx).getProperty("x"));
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /** Verifies toExecutionStream wraps an Identifiable as a singleton stream. */
+  @Test
+  public void testToExecutionStreamIdentifiable() {
+    var ctx = createCommandContext();
+    session.begin();
+    var vertex = session.newVertex("V");
+    session.commit();
+
+    session.begin();
+    var stream = MatchEdgeTraverser.toExecutionStream(vertex, session);
+    assertTrue(stream.hasNext(ctx));
+    assertNotNull(stream.next(ctx));
+    assertFalse(stream.hasNext(ctx));
+    session.commit();
+  }
+
+  /** Verifies toExecutionStream wraps an Iterable as a multi-element stream. */
+  @Test
+  public void testToExecutionStreamIterable() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    r1.setProperty("n", 1);
+    var r2 = new ResultInternal(session);
+    r2.setProperty("n", 2);
+    Iterable<ResultInternal> iterable = List.of(r1, r2);
+
+    var stream = MatchEdgeTraverser.toExecutionStream(iterable, session);
+    assertTrue(stream.hasNext(ctx));
+    stream.next(ctx);
+    assertTrue(stream.hasNext(ctx));
+    stream.next(ctx);
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /** Verifies toExecutionStream returns empty for unrecognized types (default branch). */
+  @Test
+  public void testToExecutionStreamDefault() {
+    var ctx = createCommandContext();
+    // A plain String is not a recognized traversal result type
+    var stream = MatchEdgeTraverser.toExecutionStream("unexpected", session);
+    assertFalse(stream.hasNext(ctx));
   }
 
   // -- Helper methods --
