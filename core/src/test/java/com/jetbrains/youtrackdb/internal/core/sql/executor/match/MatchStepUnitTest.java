@@ -417,6 +417,59 @@ public class MatchStepUnitTest extends DbTestBase {
     assertFalse(stream.hasNext(ctx));
   }
 
+  // -- matchesRid tests --
+
+  /** Verifies matchesRid returns true when rid is null (no constraint). */
+  @Test
+  public void testMatchesRidNullRid() {
+    var ctx = createCommandContext();
+    assertTrue(MatchEdgeTraverser.matchesRid(ctx, null, new ResultInternal(session)));
+  }
+
+  /** Verifies matchesRid returns false when origin is null. */
+  @Test
+  public void testMatchesRidNullOrigin() {
+    var ctx = createCommandContext();
+    var rid = new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid(-1);
+    assertFalse(MatchEdgeTraverser.matchesRid(ctx, rid, null));
+  }
+
+  /** Verifies matchesRid returns false when origin has no identity. */
+  @Test
+  public void testMatchesRidNullIdentity() {
+    var ctx = createCommandContext();
+    var rid = new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid(-1);
+    var result = new ResultInternal(session);
+    // ResultInternal with no entity has null identity
+    assertFalse(MatchEdgeTraverser.matchesRid(ctx, rid, result));
+  }
+
+  // -- matchesClass tests --
+
+  /** Verifies matchesClass returns true when className is null (no constraint). */
+  @Test
+  public void testMatchesClassNullClassName() {
+    var ctx = createCommandContext();
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, null, new ResultInternal(session)));
+  }
+
+  /** Verifies matchesClass returns false when the entity has no schema class. */
+  @Test
+  public void testMatchesClassNoEntity() {
+    var ctx = createCommandContext();
+    // ResultInternal with no entity returns null from asEntityOrNull()
+    assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Person", new ResultInternal(session)));
+  }
+
+  // -- matchesFilters tests --
+
+  /** Verifies matchesFilters returns true when filter is null (no constraint). */
+  @Test
+  public void testMatchesFiltersNullFilter() {
+    var ctx = createCommandContext();
+    assertTrue(MatchEdgeTraverser.matchesFilters(ctx, null, new ResultInternal(session)));
+  }
+
   // -- Helper methods --
 
   private CommandContext createCommandContext() {

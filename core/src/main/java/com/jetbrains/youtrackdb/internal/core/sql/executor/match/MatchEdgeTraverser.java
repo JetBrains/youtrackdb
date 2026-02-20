@@ -427,7 +427,7 @@ public class MatchEdgeTraverser {
    * Checks whether the result's entity is an instance of (or subclass of) the given
    * class name. Returns `true` if no class constraint is specified.
    */
-  private static boolean matchesClass(
+  static boolean matchesClass(
       CommandContext context, String className, Result origin) {
     if (className == null) {
       return true;
@@ -447,7 +447,7 @@ public class MatchEdgeTraverser {
   }
 
   /** Checks whether the result's RID matches the given RID constraint. */
-  private static boolean matchesRid(CommandContext iCommandContext, SQLRid rid,
+  static boolean matchesRid(CommandContext iCommandContext, SQLRid rid,
       Result origin) {
     if (rid == null) {
       return true;
