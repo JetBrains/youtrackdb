@@ -729,6 +729,44 @@ public class StorageBackupTest {
     FileUtils.deleteDirectory(backupDir);
   }
 
+  // Verifies that the 3-arg restore(name, path, config) overload on
+  // YouTrackDBInternalEmbedded correctly delegates to the 4-arg version with null expectedUUID.
+  @Test
+  public void testRestoreWithConfig() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
+    final var dbName = StorageBackupTest.class.getSimpleName();
+
+    final var backupDir = new File(testDirectory, "backupDir");
+    FileUtils.deleteDirectory(backupDir);
+    Assert.assertTrue(backupDir.mkdirs());
+
+    var random = new Random();
+
+    try (var youTrackDB = YourTracks.instance(testDirectory)) {
+      youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
+
+      try (var traversal = youTrackDB.openTraversal(dbName, "admin", "admin")) {
+        generateChunkOfData(traversal, random);
+        traversal.backup(backupDir.toPath());
+      }
+    }
+
+    // Restore using the 3-arg internal restore(name, path, config) overload
+    final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.internal.restore(backupDbName, backupDir.getAbsolutePath(), null);
+
+      final var compare =
+          new DatabaseCompare(
+              youTrackDB.open(dbName, "admin", "admin"),
+              youTrackDB.open(backupDbName, "admin", "admin"),
+              System.out::println);
+
+      Assert.assertTrue(compare.compare());
+    }
+    FileUtils.deleteDirectory(backupDir);
+  }
+
   private static void generateChunkOfData(YTDBGraphTraversalSource traversalSource, Random random) {
     for (var i = 0; i < 1000; i++) {
       traversalSource.executeInTx(g -> {
