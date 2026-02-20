@@ -191,7 +191,7 @@ Runs on `develop` pushes and PRs:
 - **Mutation testing**: PIT mutation testing on changed classes with Ekstazi-selected tests, fails below 85% mutation score
 - **Qodana**: Static analysis integrated as a pipeline job (zero tolerance for critical/high/moderate issues; excludes generated SQL parser code)
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
-- **CI Status gate**: Consolidates all checks into a single required status for branch protection
+- **CI Status gate**: Consolidates all checks (test-linux, test-windows, qodana, coverage-gate, mutation-testing) into a single required status for branch protection
 - **Notifications**: Sends Zulip messages on build failure/recovery
 
 ### Nightly Integration Tests (`maven-integration-tests-pipeline.yml`)

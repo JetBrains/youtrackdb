@@ -23,6 +23,7 @@ flowchart TB
         mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
         mp_mutation["Mutation Testing<br/>PIT (unit tests only)<br/>85% kill rate<br/>PR comment"]
         mp_qodana["Qodana Scan<br/>Static analysis only"]
+        mp_ci_status["CI Status Gate<br/>Single required check<br/>for branch protection"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
@@ -30,6 +31,10 @@ flowchart TB
         mp_test --> mp_mutation
         mp_test --> mp_qodana
         mp_test --> mp_deploy
+        mp_coverage_gate --> mp_ci_status
+        mp_mutation --> mp_ci_status
+        mp_qodana --> mp_ci_status
+        mp_test --> mp_ci_status
         mp_deploy --> mp_annotate
         mp_deploy --> mp_notify
     end
@@ -191,6 +196,18 @@ Qodana runs as a pure static analysis tool (no coverage tracking).
 
 On successful push (not PRs), deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
 Central. Each deployment is annotated with the exact version for traceability.
+
+#### JOB 7: CI Status Gate
+
+Consolidates results from all required jobs (test-linux, test-windows, qodana, coverage-gate,
+mutation-testing) into a single required status check for branch protection. This job always runs
+and reports success only when:
+
+- All test and analysis jobs pass when a build is required.
+- The build is correctly skipped when no build-relevant changes are detected.
+- PR-only jobs (coverage-gate, mutation-testing) are allowed to be skipped on non-PR events.
+
+Configure this as the single required status check in GitHub branch protection rules.
 
 #### Notifications
 
