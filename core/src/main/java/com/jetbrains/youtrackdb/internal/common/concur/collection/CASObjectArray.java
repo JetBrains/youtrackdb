@@ -44,6 +44,11 @@ public final class CASObjectArray<T> {
   }
 
   public void set(int index, T value) {
+    if (defaultPlaceholder == null) {
+      throw new UnsupportedOperationException(
+          "set without placeholder only works with new CASObjectArray(defaultPlaceholder) constructed object."
+              + "Please use set(index, value, placeholder) instead.");
+    }
     set(index, value, defaultPlaceholder);
   }
 
