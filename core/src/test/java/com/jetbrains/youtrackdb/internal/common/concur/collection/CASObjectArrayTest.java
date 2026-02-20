@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.concur.collection;
 
+import static org.junit.Assert.assertNull;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -208,14 +210,14 @@ public class CASObjectArrayTest {
   public void shouldThrowIfIndexIsOutOfBounds() {
     final var array = new CASObjectArray<Integer>();
 
-    Assert.assertThrows(IndexOutOfBoundsException.class, () -> array.get(0));
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.get(0));
   }
 
   @Test
   public void shouldReturnNullIfElementDoesNotExistsLikeAMap() {
     final var array = new CASObjectArray<Integer>();
 
-    Assert.assertNull(array.getOrEmpty(0));
+    assertNull(array.getOrEmpty(0));
   }
 
   @Test
@@ -231,5 +233,41 @@ public class CASObjectArrayTest {
     final var array = new CASObjectArray<>();
 
     Assert.assertThrows(UnsupportedOperationException.class, () -> array.set(0, 1));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexGet() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.get(-2));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexGetOrEmpty() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.getOrEmpty(-2));
+  }
+
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexSet() {
+    final var array = new CASObjectArray<>(0);
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.set(-2, 1));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexSetWithPlaceholder() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.set(-2, 1, 0));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexCompareAndSet() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.compareAndSet(-2, 1, 0));
   }
 }
