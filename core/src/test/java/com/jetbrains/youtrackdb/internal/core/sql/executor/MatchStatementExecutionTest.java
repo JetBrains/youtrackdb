@@ -2297,6 +2297,114 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Exercises OptionalMatchEdgeTraverser with an optional node that HAS matches,
+   * verifying the non-null merge path in the optional traverser.
+   */
+  @Test
+  public void testOptionalMatchWithActualMatches() {
+    session.begin();
+    // n1 has outgoing Friend edges, so b should be populated
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".out('Friend'){as:b, optional:true} RETURN a.name as aName, b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("aName"));
+      assertNotNull("Optional node with match should have a value", row.getProperty("bName"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchFieldTraverser when the field value is null (no link set).
+   * The traverser should produce an empty result, not an error.
+   */
+  @Test
+  public void testFieldMatchTraversalNullField() {
+    // Schema changes must be outside a transaction
+    session.execute("CREATE class NullFieldV extends V").close();
+    session.execute("CREATE property NullFieldV.link LINK").close();
+
+    session.begin();
+    var v1 = session.newVertex("NullFieldV");
+    v1.setProperty("name", "nolink");
+    // link property is NOT set, so it's null
+    session.commit();
+
+    session.begin();
+    // .link{as:b} on a record with null link should produce no results
+    var result = session.query(
+            "MATCH {class:NullFieldV, as:a, where:(name='nolink')}.link{as:b}"
+                + " RETURN a.name as aName, b")
+        .toList();
+    // No results because the field is null (traversal produces empty stream)
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Exercises MATCH with WHILE clause and depthAlias to cover MatchEdgeTraverser's
+   * recursive path and depth metadata propagation.
+   */
+  @Test
+  public void testWhileTraversalWithDepthAlias() {
+    session.begin();
+    // n1 -> n2 -> n4 -> n5, with WHILE condition and depth tracking
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".out('Friend'){while:($depth < 3), as:b, depthAlias: d}"
+                + " RETURN b.name as bName, d")
+        .toList();
+    assertFalse(result.isEmpty());
+    // Should find records at various depths
+    boolean foundDepthZero = false;
+    for (var row : result) {
+      Object depth = row.getProperty("d");
+      if (depth != null && ((Number) depth).intValue() == 0) {
+        foundDepthZero = true;
+      }
+    }
+    assertTrue("WHILE traversal should include depth 0 (starting point)", foundDepthZero);
+    session.commit();
+  }
+
+  /**
+   * Exercises profiling path in AbstractExecutionStep by running a MATCH query
+   * with PROFILE keyword.
+   */
+  @Test
+  public void testProfileMatchQuery() {
+    session.begin();
+    var result = session.query(
+            "PROFILE MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
+                + " RETURN a.name, b.name")
+        .toList();
+    assertFalse(result.isEmpty());
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchEdgeTraverser consistency check by having the same alias
+   * in two different match expressions that must agree on the value.
+   */
+  @Test
+  public void testConsistencyCheckSameAlias() {
+    session.begin();
+    // Both paths must agree on 'b': a->b and b->c, where b is n2
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+                + " {as:b}.out('Friend'){as:c} RETURN a.name as a, b.name as b, c.name as c")
+        .toList();
+    // n1->n2->n4, n1->n3 (n3 has no out Friend), so we should get a=n1, b=n2, c=n4
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("a"));
+    }
+    session.commit();
+  }
+
   private List<? extends Identifiable> getManagedPathElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
