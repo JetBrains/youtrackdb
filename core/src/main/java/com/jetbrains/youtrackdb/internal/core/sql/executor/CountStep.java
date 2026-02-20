@@ -6,8 +6,16 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
- * Counts the records from the previous steps. Returns a record with a single property, called
- * "count" containing the count of records received from pervious steps
+ * Intermediate <b>blocking</b> step that counts all records from the upstream and produces
+ * a single result with a {@code "count"} property.
+ *
+ * <p>Unlike {@link CountFromClassStep} (which uses metadata), this step actually
+ * iterates through all upstream records, counting them one by one. It is used as
+ * a generic fallback when the optimized count paths are not applicable.
+ *
+ * @see CountFromClassStep
+ * @see CountFromIndexStep
+ * @see CountFromIndexWithKeyStep
  */
 public class CountStep extends AbstractExecutionStep {
 
@@ -23,6 +31,7 @@ public class CountStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
 
+    // Blocking: must consume the entire upstream before producing the single count result.
     var prevResult = prev.start(ctx);
     long count = 0;
     while (prevResult.hasNext(ctx)) {
@@ -47,6 +56,7 @@ public class CountStep extends AbstractExecutionStep {
     return result.toString();
   }
 
+  /** Cacheable: this step has no external state -- it simply counts upstream records. */
   @Override
   public boolean canBeCached() {
     return true;

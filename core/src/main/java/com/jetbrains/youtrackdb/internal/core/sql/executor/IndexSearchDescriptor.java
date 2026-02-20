@@ -12,12 +12,57 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Describes an index search operation including the target index, key condition, and remaining filter. */
+/**
+ * Describes how to use a specific index to evaluate a subset of WHERE conditions.
+ *
+ * <p>Produced by {@link SelectExecutionPlanner#buildIndexSearchDescriptor} during
+ * index selection and consumed by {@link FetchFromIndexStep} during execution.
+ *
+ * <h2>Structure</h2>
+ * <pre>
+ *  Given:
+ *    Index on [city, age]
+ *    WHERE city = 'NYC' AND age &gt; 20 AND name = 'Alice'
+ *
+ *  IndexSearchDescriptor:
+ *    index                    = idx_city_age
+ *    keyCondition             = AND[city = 'NYC', age &gt; 20]
+ *                               (conditions that form the index key)
+ *    additionalRangeCondition = null  (or a second bound on the last key field)
+ *    remainingCondition       = AND[name = 'Alice']
+ *                               (conditions NOT covered by the index,
+ *                                applied as a post-fetch filter)
+ * </pre>
+ *
+ * <h2>Cost estimation</h2>
+ * The {@link #cost(CommandContext)} method queries stored index statistics to estimate
+ * the I/O cost. The planner uses this to choose the cheapest index among candidates.
+ *
+ * @see SelectExecutionPlanner#findBestIndexFor
+ * @see FetchFromIndexStep
+ */
 public class IndexSearchDescriptor {
 
+  /** The index to use for the lookup. */
   private final Index index;
+
+  /**
+   * The conditions that form the index key (an AND block of equalities / ranges).
+   * Passed to the index API as the search key.
+   */
   private final SQLBooleanExpression keyCondition;
+
+  /**
+   * Optional second range bound on the last key field, used when two range conditions
+   * exist on the same field (e.g. {@code age >= 20 AND age < 30}). The first range
+   * is in the keyCondition; this is the complementary bound.
+   */
   private final SQLBinaryCondition additionalRangeCondition;
+
+  /**
+   * WHERE conditions NOT covered by the index key. These must be applied as a
+   * post-fetch {@link FilterStep} after the index scan.
+   */
   private final SQLBooleanExpression remainingCondition;
 
   public IndexSearchDescriptor(
@@ -45,6 +90,10 @@ public class IndexSearchDescriptor {
     this.remainingCondition = null;
   }
 
+  /**
+   * Estimates the I/O cost of this index lookup by querying stored index statistics.
+   * Returns {@link Integer#MAX_VALUE} if no statistics are available.
+   */
   public int cost(CommandContext ctx) {
     var stats = QueryStats.get(ctx.getDatabaseSession());
 
@@ -69,6 +118,7 @@ public class IndexSearchDescriptor {
     return Integer.MAX_VALUE;
   }
 
+  /** Unwraps the key condition into its sub-blocks (AND block -> sub-blocks, else singleton). */
   private List<SQLBooleanExpression> getSubBlocks() {
     if (keyCondition instanceof SQLAndBlock andBlock) {
       return andBlock.getSubBlocks();
@@ -77,6 +127,7 @@ public class IndexSearchDescriptor {
     }
   }
 
+  /** Returns the number of condition sub-blocks in the key condition. */
   public int blockCount() {
     return getSubBlocks().size();
   }
@@ -98,8 +149,9 @@ public class IndexSearchDescriptor {
   }
 
   /**
-   * checks whether the condition has CONTAINSANY or similar expressions, that require multiple
-   * index evaluations
+   * Returns {@code true} if any sub-block in the key condition is not a simple binary
+   * comparison (e.g. it is an IN or CONTAINSANY expression), which requires multiple
+   * separate index lookups rather than a single range scan.
    */
   public boolean requiresMultipleIndexLookups() {
     for (var oBooleanExpression : getSubBlocks()) {
@@ -110,10 +162,19 @@ public class IndexSearchDescriptor {
     return false;
   }
 
+  /**
+   * Returns {@code true} if a {@link DistinctExecutionStep} must follow this index lookup
+   * to deduplicate results (because multiple lookups or multi-value properties can produce
+   * duplicate RIDs).
+   */
   public boolean requiresDistinctStep() {
     return requiresMultipleIndexLookups() || duplicateResultsForRecord();
   }
 
+  /**
+   * Returns {@code true} if the index is a composite index with multi-value properties
+   * (e.g. EMBEDDEDLIST fields), which can produce the same RID multiple times.
+   */
   public boolean duplicateResultsForRecord() {
     if (index.getDefinition() instanceof CompositeIndexDefinition compDef) {
       return compDef.hasMultiValueProperties();
@@ -121,6 +182,39 @@ public class IndexSearchDescriptor {
     return false;
   }
 
+  /**
+   * Returns {@code true} if this index lookup produces results that are already sorted
+   * according to the given ORDER BY field list, so no in-memory sort is needed.
+   *
+   * <p>The check accounts for equality conditions (whose values are fixed) overlapping
+   * with the ORDER BY fields. For example, if the index is on [city, age] and the
+   * condition fixes city='NYC', then ORDER BY age is already satisfied.
+   *
+   * <pre>
+   *  Example 1 -- fully sorted:
+   *    Index fields:     [city, age, name]
+   *    Key conditions:   [city = 'NYC']        (fixed by equality)
+   *    ORDER BY:         [age, name]
+   *    Merged order:     [city, age, name]      matches index prefix -> sorted
+   *
+   *  Example 2 -- NOT sorted:
+   *    Index fields:     [city, age]
+   *    Key conditions:   [city = 'NYC']
+   *    ORDER BY:         [name]
+   *    Merged order:     [city, name]           name != age -> not sorted
+   *
+   *  Example 3 -- overlap:
+   *    Index fields:     [city, age]
+   *    Key conditions:   [city = 'NYC']
+   *    ORDER BY:         [city, age]
+   *    city overlaps condition -> consumed; remaining [age] matches -> sorted
+   * </pre>
+   *
+   * @param orderItems mutable list of ORDER BY field names.
+   *     <b>WARNING: this list is destructively modified in-place</b> -- matching
+   *     entries are removed during the overlap check. Callers must pass a
+   *     defensive copy if they need the original list afterward.
+   */
   public boolean fullySorted(List<String> orderItems) {
     var conditions = getSubBlocks();
     List<String> conditionItems = new ArrayList<>();
@@ -171,8 +265,12 @@ public class IndexSearchDescriptor {
   }
 
   /**
-   * returns true if the first argument is a prefix for the second argument, eg. if the first
-   * argument is [a] and the second argument is [a, b]
+   * Returns {@code true} if this descriptor's key condition blocks are a prefix of
+   * {@code other}'s. For example, if this has blocks [a] and {@code other} has [a, b],
+   * this is a prefix of other.
+   *
+   * @param other the descriptor to compare against
+   * @return true if this descriptor's conditions are a prefix of the other's
    */
   public boolean isPrefixOf(IndexSearchDescriptor other) {
     var left = getSubBlocks();
@@ -188,6 +286,10 @@ public class IndexSearchDescriptor {
     return true;
   }
 
+  /**
+   * Returns {@code true} if this descriptor uses the same key conditions (same number
+   * and equal sub-blocks) as another descriptor, regardless of which index is used.
+   */
   public boolean isSameCondition(IndexSearchDescriptor desc) {
     if (blockCount() != desc.blockCount()) {
       return false;

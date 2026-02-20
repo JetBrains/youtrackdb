@@ -9,7 +9,21 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExecutionStream;
 
 /**
- * Returns an Result containing metadata regarding the database
+ * Source step for {@code SELECT FROM metadata:DATABASE}.
+ *
+ * <p>Produces a single result record containing database-level metadata:
+ * <ul>
+ *   <li>{@code name} -- the database name</li>
+ *   <li>{@code user} -- the current user's name (or null)</li>
+ *   <li>{@code dateFormat} -- date format pattern</li>
+ *   <li>{@code dateTimeFormat} -- date-time format pattern</li>
+ *   <li>{@code timezone} -- database timezone</li>
+ *   <li>{@code localeCountry} -- locale country code</li>
+ *   <li>{@code localeLanguage} -- locale language code</li>
+ *   <li>{@code charset} -- character set name</li>
+ * </ul>
+ *
+ * @see SelectExecutionPlanner#handleMetadataAsTarget
  */
 public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
 
@@ -19,6 +33,7 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects before producing metadata.
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
@@ -58,6 +73,15 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  /**
+   * Not cacheable: database metadata (user, timezone, etc.) may change between
+   * executions and must always be read fresh.
+   */
+  @Override
+  public boolean canBeCached() {
+    return false;
   }
 
   @Override

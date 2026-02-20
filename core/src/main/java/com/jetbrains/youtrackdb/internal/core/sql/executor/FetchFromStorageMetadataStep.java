@@ -13,7 +13,24 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Returns an Result containing metadata regarding the storage
+ * Source step for {@code SELECT FROM metadata:STORAGE}.
+ *
+ * <p>Produces a single result record containing storage-level metadata:
+ * collections (with their details), configuration entries, conflict strategy, size, and version.
+ *
+ * <pre>
+ *  Result (top-level)
+ *  +-- collections: List&lt;Result&gt;
+ *  |     +-- name, fileName, id, entries, conflictStrategy, tombstonesCount
+ *  +-- totalCollections: int
+ *  +-- configuration: Result
+ *  |     +-- charset, collectionSelection, conflictStrategy, dateFormat, ...
+ *  |     +-- properties: List&lt;Result&gt;
+ *  |           +-- name, value
+ *  +-- conflictStrategy, name, size, type, version, createdAtVersion
+ * </pre>
+ *
+ * @see SelectExecutionPlanner#handleMetadataAsTarget
  */
 public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
 
@@ -23,6 +40,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects before producing metadata.
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
@@ -82,6 +100,15 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  /**
+   * Not cacheable: storage metadata (size, collections, configuration) may change
+   * between executions and must always be read fresh.
+   */
+  @Override
+  public boolean canBeCached() {
+    return false;
   }
 
   @Override

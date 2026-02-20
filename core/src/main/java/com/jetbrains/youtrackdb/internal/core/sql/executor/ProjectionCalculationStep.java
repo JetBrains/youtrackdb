@@ -7,9 +7,42 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 
-/** Execution step that applies a SQL projection to each incoming result record. */
+/**
+ * Intermediate step that computes the SELECT projections for each record.
+ *
+ * <p>Takes each upstream result, sets it as the {@code $current} context variable,
+ * and evaluates the projection expressions to produce a new result with the
+ * requested output columns.
+ *
+ * <pre>
+ *  SQL:  SELECT name, age * 2 AS doubleAge FROM Person
+ *
+ *  Input record:  { name: "Alice", age: 30, city: "NYC" }
+ *  Output record: { name: "Alice", doubleAge: 60 }
+ * </pre>
+ *
+ * <p>This step is used in multiple roles during the projection pipeline:
+ * <ul>
+ *   <li>Pre-aggregate projection (Phase 1)</li>
+ *   <li>Post-aggregate / final projection (Phase 3)</li>
+ *   <li>Post-ORDER-BY projection (stripping temporary ORDER BY aliases)</li>
+ * </ul>
+ *
+ * <pre>
+ *  Three-phase projection pipeline (when aggregates are present):
+ *    Phase 1: ProjectionCalculationStep    -- pre-aggregate expressions
+ *    Phase 2: AggregateProjectionCalcStep  -- aggregate functions (COUNT, SUM, ...)
+ *    Phase 3: ProjectionCalculationStep    -- post-aggregate aliases and expressions
+ *
+ *  Simple projection (no aggregates):
+ *    upstream --&gt; ProjectionCalculationStep --&gt; downstream
+ * </pre>
+ *
+ * @see SelectExecutionPlanner#handleProjections
+ */
 public class ProjectionCalculationStep extends AbstractExecutionStep {
 
+  /** The projection definition (list of expressions with aliases). */
   protected final SQLProjection projection;
 
   public ProjectionCalculationStep(
@@ -29,9 +62,11 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
+    // Temporarily set $current so projection expressions (e.g. $current.name) can reference this row.
     var oldCurrent = ctx.getVariable("$current");
     ctx.setVariable("$current", result);
     var newResult = calculateProjections(ctx, result);
+    // Restore the previous $current to support correct behavior in nested contexts.
     ctx.setVariable("$current", oldCurrent);
     return newResult;
   }
@@ -52,6 +87,7 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
     return result;
   }
 
+  /** Cacheable: the projection definition is a structural AST node deep-copied per execution. */
   @Override
   public boolean canBeCached() {
     return true;

@@ -7,9 +7,20 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExecutionStream;
 
-/** Execution step that generates a specified number of empty result records. */
+/**
+ * Source step that generates a specified number of empty result records.
+ *
+ * <p>Used for queries without a FROM clause (e.g. {@code SELECT 1+1, sysdate()}).
+ * A single empty record is produced so that the downstream projection step can
+ * evaluate constant expressions exactly once.
+ *
+ * <p>Each generated record is also set as the {@code $current} context variable.
+ *
+ * @see SelectExecutionPlanner#handleNoTarget
+ */
 public class EmptyDataGeneratorStep extends AbstractExecutionStep {
 
+  /** Number of empty records to generate (typically 1). */
   private final int size;
 
   public EmptyDataGeneratorStep(int size, CommandContext ctx, boolean profilingEnabled) {
@@ -19,10 +30,13 @@ public class EmptyDataGeneratorStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects before generating empty records.
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
 
+    // ProduceExecutionStream invokes the factory on each next() call (infinite stream).
+    // .limit(size) caps the output.
     return new ProduceExecutionStream(EmptyDataGeneratorStep::create).limit(size);
   }
 
@@ -40,6 +54,12 @@ public class EmptyDataGeneratorStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  /** Cacheable: the step only generates empty records -- no external state dependency. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override

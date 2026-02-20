@@ -12,9 +12,35 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import javax.annotation.Nullable;
 
+/**
+ * Intermediate step that filters records by class membership.
+ *
+ * <p>Always appended after an index-based fetch because an index may be defined on a
+ * superclass and return records from sibling subclasses that don't match the target.
+ *
+ * <pre>
+ *  Example:
+ *    Class hierarchy: Animal &gt; Dog, Animal &gt; Cat
+ *    Index on Animal.name
+ *    SELECT FROM Dog WHERE name = 'Rex'
+ *
+ *    FetchFromIndex(idx_animal_name, 'Rex')  -- may return Dogs AND Cats
+ *      -&gt; FilterByClassStep('Dog')           -- keeps only Dog instances
+ * </pre>
+ *
+ * <p>The filter checks
+ * {@code ((EntityImpl) entity).getImmutableSchemaClass(session).isSubClassOf(className)}
+ * so it correctly handles further subclasses (e.g. GermanShepherd extends Dog).
+ * Records with no schema class (schema-less entities) are silently dropped.
+ *
+ * @see SelectExecutionPlanner#handleClassAsTarget
+ */
 public class FilterByClassStep extends AbstractExecutionStep {
 
+  /** The SQL identifier for the target class. */
   private SQLIdentifier identifier;
+
+  /** The resolved class name string for the subclass check. */
   private final String className;
 
   public FilterByClassStep(SQLIdentifier identifier, CommandContext ctx, boolean profilingEnabled) {
@@ -37,7 +63,9 @@ public class FilterByClassStep extends AbstractExecutionStep {
   private Result filterMap(Result result, CommandContext ctx) {
     if (result.isEntity()) {
       var session = ctx.getDatabaseSession();
+      // Use getImmutableSchemaClass for a thread-safe schema snapshot.
       var clazz = ((EntityImpl) result.asEntity()).getImmutableSchemaClass(session);
+      // isSubClassOf returns true for the class itself and all descendants.
       if (clazz != null && clazz.isSubClassOf(className)) {
         return result;
       }
@@ -78,6 +106,7 @@ public class FilterByClassStep extends AbstractExecutionStep {
     }
   }
 
+  /** Cacheable: the target class name is a stable string. */
   @Override
   public boolean canBeCached() {
     return true;

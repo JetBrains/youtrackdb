@@ -57,12 +57,68 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
+/**
+ * Source step that fetches records by performing an index lookup described by an
+ * {@link IndexSearchDescriptor}.
+ *
+ * <p>This is one of the most complex steps because it must handle many different
+ * WHERE condition types and translate each into the appropriate index API call:
+ *
+ * <pre>
+ *  Condition type          | Index API used
+ *  ------------------------|---------------------------------------------
+ *  field = value           | index.get(key) -- point lookup
+ *  field &gt; value           | index.iterateEntriesMajor(key, exclusive)
+ *  field &lt; value           | index.iterateEntriesMinor(key, exclusive)
+ *  field BETWEEN a AND b   | index.iterateEntriesBetween(a, b, ...)
+ *  field IN [a, b, c]      | multiple point lookups, merged
+ *  CONTAINS / CONTAINSKEY  | index.get(key)
+ *  CONTAINSTEXT            | FULLTEXT index lookup
+ * </pre>
+ *
+ * <p>For composite indexes, the step builds a {@link CompositeKey} from multiple
+ * conditions and may append a range condition on the last key field:
+ * <pre>
+ *  Index on [city, age]
+ *  WHERE city = 'NYC' AND age &gt; 20
+ *    key  = CompositeKey('NYC')
+ *    range = iterateEntriesMajor(CompositeKey('NYC', 20), exclusive=true)
+ * </pre>
+ *
+ * <h2>Composite key construction example</h2>
+ * <pre>
+ *  Index on [city, age, name]
+ *  WHERE city = 'NYC' AND age &gt; 20
+ *
+ *  keyCondition = AND[city = 'NYC', age &gt; 20]
+ *
+ *  indexKeyFrom():     [NYC, 20]    (lower bound)
+ *  indexKeyTo():       [NYC, MAX]   (upper bound)
+ *  fromKeyIncluded:    false        (age &gt; 20, exclusive)
+ *  toKeyIncluded:      true
+ *
+ *  Index API call:
+ *    index.streamEntriesBetween(
+ *        CompositeKey(NYC, 20), exclusive,
+ *        CompositeKey(NYC, MAX), inclusive, ASC)
+ * </pre>
+ *
+ * <p>Results are returned as key-RID pairs (not full records). A downstream
+ * {@link GetValueFromIndexEntryStep} loads the actual records from the RIDs.
+ *
+ * @see IndexSearchDescriptor
+ * @see GetValueFromIndexEntryStep
+ * @see SelectExecutionPlanner#handleClassAsTargetWithIndex
+ */
 public class FetchFromIndexStep extends AbstractExecutionStep {
 
+  /** Describes which index to use and what key/range conditions to apply. */
   protected IndexSearchDescriptor desc;
 
+  /** Sort direction for the index scan (true = ascending, false = descending). */
   private boolean orderAsc;
 
+  /** Running count of results produced (reported to {@link QueryStats} on close). */
   private long count = 0;
 
   public FetchFromIndexStep(
@@ -167,6 +223,16 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     stats.pushIndexStats(indexName, size, range, additionalRangeCondition != null, count);
   }
 
+  /**
+   * Initializes the index lookup streams based on the descriptor's key condition type.
+   *
+   * <pre>
+   *  condition == null     -> full index scan (processFlatIteration)
+   *  condition == AndBlock -> range/equality lookup (processAndBlock)
+   * </pre>
+   *
+   * @return a list of streams, each producing key-RID pairs from the index
+   */
   private static List<Stream<RawPair<Object, RID>>> init(
       IndexSearchDescriptor desc, boolean isOrderAsc, CommandContext ctx) {
 
@@ -186,9 +252,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     };
   }
 
+  /**
+   * Handles {@code key IN [a, b, c]} conditions by performing one point lookup per value
+   * and collecting the resulting streams.
+   */
   private static List<Stream<RawPair<Object, RID>>> processInCondition(
       Index index, SQLBooleanExpression condition, CommandContext ctx, boolean orderAsc) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
+    // Track streams by identity (not equals()) to avoid adding the same stream object
+    // twice, which would cause double-close or duplicate results.
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
     var definition = index.getDefinition();
@@ -235,8 +307,12 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   /**
-   * it's not key = [...] but a real condition on field names, already ordered (field names will be
-   * ignored)
+   * Processes an AND block of conditions against a (potentially composite) index.
+   * Computes the from-key and to-key bounds from the conditions, then delegates
+   * to {@link #multipleRange} for the actual index API calls.
+   *
+   * <p>Field names in the conditions have already been matched to index key positions
+   * by the planner, so they are ignored here -- only the values and operators matter.
    */
   private static List<Stream<RawPair<Object, RID>>> processAndBlock(
       Index index,
@@ -260,6 +336,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         ctx);
   }
 
+  /**
+   * Full index scan (no key condition). First fetches null-key entries (if the index
+   * stores them), then streams all entries in ASC or DESC order.
+   */
   private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
       DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
@@ -279,6 +359,13 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
+  /**
+   * Returns a stream of null-key index entries, or {@code null} if the index ignores nulls.
+   *
+   * <p>Indexes that do not ignore null values store entries under a {@code null} key for
+   * records where the indexed field is null. These must be included in a full index scan
+   * to return complete results.
+   */
   @Nullable
   private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionEmbedded session,
       Index index) {
@@ -289,6 +376,11 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return getStreamForNullKey(session, index);
   }
 
+  /**
+   * Performs one or more range lookups on the index. Each (fromKey, toKey) pair defines
+   * a range to scan. For IN conditions or subqueries that return collections, the
+   * Cartesian product of possible key values is computed, producing multiple ranges.
+   */
   private static List<Stream<RawPair<Object, RID>>> multipleRange(
       Index index,
       SQLCollection fromKey,
@@ -302,6 +394,9 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
+    // Expand multi-valued key expressions (from IN or subqueries) into all combinations.
+    // secondValueCombinations[i] = lower bound key for range i
+    // thirdValueCombinations[i]  = upper bound key for range i
     var secondValueCombinations = cartesianProduct(fromKey, ctx);
     var thirdValueCombinations = cartesianProduct(toKey, ctx);
 
@@ -310,6 +405,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var transaction = session.getActiveTransaction();
     for (var i = 0; i < secondValueCombinations.size(); i++) {
 
+      // Evaluate the i-th from-key and to-key expressions to concrete values.
+      // For single-field indexes with a single-element list, unwrap the list.
       var secondValue = secondValueCombinations.get(i).execute((Result) null, ctx);
       if (secondValue instanceof List
           && ((List<?>) secondValue).size() == 1
@@ -328,12 +425,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       thirdValue = unboxResult(thirdValue);
 
       try {
+        // Convert user-supplied values to the types expected by the index definition.
         secondValue = convertToIndexDefinitionTypes(session, condition, secondValue,
             indexDef.getTypes());
         thirdValue = convertToIndexDefinitionTypes(session, condition, thirdValue,
             indexDef.getTypes());
       } catch (Exception e) {
-        // manage subquery that returns a single collection
+        // Type conversion failed. This can happen when a subquery returns a raw
+        // collection (e.g. [1,2,3]) instead of individual values. If both bounds
+        // are the same collection, iterate its elements as individual point lookups.
         if (secondValue instanceof Collection && secondValue.equals(thirdValue)) {
           //noinspection rawtypes,unchecked
           ((Collection) secondValue)
@@ -365,9 +465,20 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                   });
         }
 
-        // some problems in key conversion, so the params do not match the key types
+        // Key conversion failed and could not be recovered -- skip this combination.
         continue;
       }
+
+      // --- Dispatch to the appropriate index API based on index capabilities ---
+      //
+      //  Decision tree:
+      //    supportsOrderedIterations?
+      //      YES -> streamEntriesBetween(from, to)      [range scan]
+      //      NO  -> allEqualities?
+      //               YES -> streamEntries(key)          [point lookup]
+      //               NO  -> isFullTextIndex?
+      //                        YES -> streamEntries(key)  [full-text lookup]
+      //                        NO  -> UnsupportedOperationException
       Stream<RawPair<Object, RID>> stream;
       var from = toBetweenIndexKey(transaction, indexDef, secondValue);
       var to = toBetweenIndexKey(transaction, indexDef, thirdValue);
@@ -414,6 +525,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
+  /**
+   * Returns a stream of key-RID pairs for entries stored under a {@code null} index key.
+   * The returned pairs have {@code null} as the key component and the stored RID as the value.
+   */
   private static Stream<RawPair<Object, RID>> getStreamForNullKey(
       DatabaseSessionEmbedded session, Index index) {
     final var stream = index.getRids(session, null);
@@ -421,12 +536,17 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   /**
-   * this is for subqueries, when a Result is found
+   * Unwraps {@link Result} and {@link List} values that come from subqueries so that
+   * index key conversion receives plain scalar values rather than Result wrappers.
    *
-   * <ul>
-   *   <li>if it's a projection with a single column, the value is returned
-   *   <li>if it's a document, the RID is returned
-   * </ul>
+   * <pre>
+   *  Input type         | Output
+   *  -------------------|-------------------------------
+   *  List               | recursively unboxed elements
+   *  Result (entity)    | the entity's RID
+   *  Result (1 column)  | the single property value
+   *  other              | returned as-is
+   * </pre>
    */
   private static Object unboxResult(Object value) {
     if (value instanceof List<?> list) {
@@ -447,10 +567,33 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return value;
   }
 
+  /**
+   * Computes the Cartesian product of all collection-valued expressions in an index key.
+   *
+   * <p>When an IN condition or subquery produces multiple values for one position
+   * in a composite index key, the planner must expand those into all possible key
+   * combinations. For example:
+   * <pre>
+   *  Index on [city, status]
+   *  WHERE city IN ['NYC', 'LA'] AND status = 'active'
+   *
+   *  key = ['NYC','LA'], ['active']
+   *  cartesianProduct = [('NYC','active'), ('LA','active')]
+   * </pre>
+   *
+   * @param key the SQLCollection whose expressions may contain multi-valued items
+   * @param ctx command context for evaluating expressions
+   * @return a list of SQLCollections, each representing one key combination
+   */
   private static List<SQLCollection> cartesianProduct(SQLCollection key, CommandContext ctx) {
     return cartesianProduct(new SQLCollection(-1), key, ctx);
   }
 
+  /**
+   * Recursive helper: builds key combinations by consuming one expression at a time from
+   * {@code key}, expanding collection values into separate branches, and appending each
+   * to the running {@code head} prefix.
+   */
   private static List<SQLCollection> cartesianProduct(
       SQLCollection head, SQLCollection key, CommandContext ctx) {
     if (key.getExpressions().isEmpty()) {
@@ -489,6 +632,20 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return new SQLValueExpression(value);
   }
 
+  /**
+   * Converts a user-supplied value (or list of values for composite keys) to the types
+   * expected by the index definition, using {@link PropertyTypeInternal#convert}.
+   *
+   * <p>Special handling for CONTAINSKEY and CONTAINSVALUE operators: the converted value
+   * is wrapped in a single-entry {@link Map} because the index stores map entries as
+   * composite keys where the key or value occupies a specific position.
+   *
+   * @param session   the database session (for type conversion)
+   * @param condition the WHERE condition (inspected for CONTAINSKEY/CONTAINSVALUE operators)
+   * @param val       the raw value(s) to convert
+   * @param types     the index field types, one per key position
+   * @return the converted value, or {@code null} if the input was null
+   */
   @Nullable
   private static Object convertToIndexDefinitionTypes(
       DatabaseSessionEmbedded session, SQLBooleanExpression condition, Object val,
@@ -531,6 +688,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return types[0].convert(val, null, null, session);
   }
 
+  /** Handles {@code key BETWEEN a AND b} conditions with an inclusive range scan. */
   private static List<Stream<RawPair<Object, RID>>> processBetweenCondition(
       Index index, SQLBooleanExpression condition, boolean isOrderAsc,
       CommandContext ctx) {
@@ -561,6 +719,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
+  /** Handles a single binary condition (=, >, <, >=, <=) against the index key. */
   private static List<Stream<RawPair<Object, RID>>> processBinaryCondition(
       FrontendTransaction transaction,
       Index index,
@@ -588,6 +747,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
+  /** Converts a user-supplied value into an index key suitable for point lookups. */
   private static Collection<?> toIndexKey(
       FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
     if (definition.getProperties().size() == 1 && rightValue instanceof Collection) {
@@ -604,6 +764,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return (Collection<?>) rightValue;
   }
 
+  /** Converts a user-supplied value into an index key suitable for range (BETWEEN) lookups. */
   private static Object toBetweenIndexKey(
       FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
     if (definition.getProperties().size() == 1 && rightValue instanceof Collection) {
@@ -623,6 +784,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return rightValue;
   }
 
+  /**
+   * Creates an index cursor stream for the given operator and value. Dispatches to
+   * the appropriate index API (point lookup, major, minor) based on operator type.
+   */
   private static Stream<RawPair<Object, RID>> createCursor(
       FrontendTransaction transaction,
       Index index,
@@ -654,6 +819,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return orderAsc;
   }
 
+  /** Extracts the lower bound key values from the AND block conditions. */
   private static SQLCollection indexKeyFrom(SQLAndBlock keyCondition,
       SQLBinaryCondition additional) {
     var result = new SQLCollection(-1);
@@ -666,6 +832,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return result;
   }
 
+  /** Extracts the upper bound key values from the AND block conditions. */
   private static SQLCollection indexKeyTo(SQLAndBlock keyCondition, SQLBinaryCondition additional) {
     var result = new SQLCollection(-1);
     for (var exp : keyCondition.getSubBlocks()) {
@@ -677,6 +844,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return result;
   }
 
+  /** Returns true if the lower bound is inclusive (>=) rather than exclusive (>). */
   private static boolean indexKeyFromIncluded(
       SQLAndBlock keyCondition, SQLBinaryCondition additional) {
     var exp =
@@ -710,6 +878,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
   }
 
+  /** Returns {@code true} for {@code >=} and {@code >} operators. */
   private static boolean isGreaterOperator(SQLBinaryCompareOperator operator) {
     if (operator == null) {
       return false;
@@ -717,6 +886,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return operator instanceof SQLGeOperator || operator instanceof SQLGtOperator;
   }
 
+  /** Returns {@code true} for {@code <=} and {@code <} operators. */
   private static boolean isLessOperator(SQLBinaryCompareOperator operator) {
     if (operator == null) {
       return false;
@@ -724,6 +894,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return operator instanceof SQLLeOperator || operator instanceof SQLLtOperator;
   }
 
+  /** Returns {@code true} for inclusive operators ({@code >=} and {@code <=}). */
   private static boolean isIncludeOperator(SQLBinaryCompareOperator operator) {
     if (operator == null) {
       return false;
@@ -731,6 +902,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return operator instanceof SQLGeOperator || operator instanceof SQLLeOperator;
   }
 
+  /** Returns true if the upper bound is inclusive (<=) rather than exclusive (<). */
   private static boolean indexKeyToIncluded(SQLAndBlock keyCondition,
       SQLBinaryCondition additional) {
     var exp =
@@ -827,12 +999,21 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
   }
 
+  /**
+   * Resets this step for re-initialization (typically via deserialization).
+   *
+   * <p><b>Warning:</b> after calling this method, {@link #desc} is {@code null}.
+   * Calling {@link #internalStart} before re-initializing the descriptor (e.g. via
+   * {@link #deserialize}) will result in a {@link NullPointerException}. This method
+   * should only be called as part of a deserialization lifecycle.
+   */
   @Override
   public void reset() {
     desc = null;
     count = 0;
   }
 
+  /** Cacheable: the index descriptor captures the lookup conditions structurally. */
   @Override
   public boolean canBeCached() {
     return true;
