@@ -1,0 +1,23 @@
+runs:
+  - dbs:
+#      - name: "DbCreationTest"
+#        location:
+#          source: "/Users/logart/dev/youtrackdb/tests/target/test-db"
+#          type: FILE
+#        user: "admin"
+#        password: "admin"
+      - name: "DbCreationTest"
+        location:
+          source: "https://github.com/logart/youtrackdb/releases/download/1.0-new-classes/new-class-names-test-db.tar.gz"
+          type: HTTP
+        user: "admin"
+        password: "admin"
+    versions:
+      - name: io.youtrackdb:youtrackdb-core:1.0.0-SNAPSHOT
+        location:
+          source: https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily
+          type: MAVEN
+      - name: "develop"
+        location:
+          source: https://github.com/youtrackdb/youtrackdb
+          type: GIT
