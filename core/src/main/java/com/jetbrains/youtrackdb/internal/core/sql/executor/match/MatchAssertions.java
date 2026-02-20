@@ -50,4 +50,25 @@ final class MatchAssertions {
     }
     return true;
   }
+
+  /**
+   * Validates all preconditions for {@link EdgeTraversal} construction: the edge itself,
+   * its source node ({@code edge.out}), and its target node ({@code edge.in}) must all
+   * be non-null.
+   *
+   * <p>Consolidating three checks into a single method reduces the number of
+   * {@code assert} call sites in EdgeTraversal from three to one, which minimises
+   * JaCoCo phantom-branch noise while keeping full branch coverage on the checks
+   * themselves.
+   *
+   * @param edge the pattern edge to validate
+   * @return always {@code true}
+   * @throws AssertionError if any precondition is violated
+   */
+  static boolean validateEdgeTraversalArgs(PatternEdge edge) {
+    checkNotNull(edge, "pattern edge");
+    checkNotNull(edge.out, "edge source node");
+    checkNotNull(edge.in, "edge target node");
+    return true;
+  }
 }

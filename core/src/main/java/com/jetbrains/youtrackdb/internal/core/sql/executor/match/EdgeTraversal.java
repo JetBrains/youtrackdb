@@ -58,9 +58,7 @@ public class EdgeTraversal {
    * @param out  `true` for forward traversal, `false` for reverse
    */
   public EdgeTraversal(PatternEdge edge, boolean out) {
-    assert MatchAssertions.checkNotNull(edge, "pattern edge");
-    assert MatchAssertions.checkNotNull(edge.out, "edge source node");
-    assert MatchAssertions.checkNotNull(edge.in, "edge target node");
+    assert MatchAssertions.validateEdgeTraversalArgs(edge);
     this.edge = edge;
     this.out = out;
   }
@@ -98,7 +96,9 @@ public class EdgeTraversal {
   public EdgeTraversal copy() {
     var copy = new EdgeTraversal(edge, out);
 
-    copy.leftClass = leftClass;
+    if (leftClass != null) {
+      copy.leftClass = leftClass;
+    }
     if (leftFilter != null) {
       copy.leftFilter = leftFilter.copy();
     }
