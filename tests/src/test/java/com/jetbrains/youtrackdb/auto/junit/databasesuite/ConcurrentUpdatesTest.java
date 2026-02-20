@@ -1,0 +1,464 @@
+/*
+ * JUnit 4 version of ConcurrentUpdatesTest.
+ * Original: tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
+ */
+package com.jetbrains.youtrackdb.auto.junit.databasesuite;
+
+import com.jetbrains.youtrackdb.auto.junit.BaseDBTest;
+import com.jetbrains.youtrackdb.auto.junit.BaseTest;
+
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.concurrent.atomic.AtomicLong;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.FixMethodOrder;
+import org.junit.Test;
+import org.junit.runners.MethodSorters;
+
+/**
+ * JUnit 4 version of ConcurrentUpdatesTest. Original:
+ * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
+ */
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
+public class ConcurrentUpdatesTest extends BaseDBTest {
+
+  private static final int OPTIMISTIC_CYCLES = 100;
+  private static final int PESSIMISTIC_CYCLES = 100;
+  private static final int THREADS = 10;
+
+  private static ConcurrentUpdatesTest instance;
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    instance = new ConcurrentUpdatesTest();
+    instance.beforeClass();
+  }
+
+  /**
+   * Original: concurrentOptimisticUpdates (line 142) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
+   */
+  @Test
+  public void test01_ConcurrentOptimisticUpdates() throws Exception {
+    counter.set(0);
+
+    var database = acquireSession();
+
+    database.begin();
+    EntityImpl doc1 = database.newInstance();
+    doc1.setProperty("INIT", "ok");
+    database.commit();
+
+    RID rid1 = doc1.getIdentity();
+
+    database.begin();
+    EntityImpl doc2 = database.newInstance();
+    doc2.setProperty("INIT", "ok");
+
+    database.commit();
+
+    RID rid2 = doc2.getIdentity();
+
+    var ops = new OptimisticUpdateField[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
+      ops[i] = new OptimisticUpdateField(rid1, rid2, "thread" + i);
+    }
+
+    var threads = new Thread[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
+    }
+
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i].start();
+    }
+
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i].join();
+    }
+
+    Assert.assertEquals(counter.get(), OPTIMISTIC_CYCLES * THREADS);
+
+    database.begin();
+    doc1 = database.load(rid1);
+
+    for (var i = 0; i < THREADS; ++i) {
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc1.getProperty(ops[i].threadName));
+    }
+
+    doc1.toJSON();
+
+    doc2 = database.load(rid2);
+
+    for (var i = 0; i < THREADS; ++i) {
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc2.getProperty(ops[i].threadName));
+    }
+
+    doc2.toJSON();
+    System.out.println(doc2.toJSON());
+    database.commit();
+
+    database.close();
+  }
+
+  /**
+   * Original: concurrentOptimisticSQLUpdates (line 212) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
+   */
+  @Test
+  public void test02_ConcurrentOptimisticSQLUpdates() throws Exception {
+    sqlUpdate(false);
+  }
+
+  /**
+   * Original: concurrentUpdateDelete (line 257) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
+   */
+  @Test
+  public void test03_ConcurrentUpdateDelete() {
+
+    try (
+        var session1 = acquireSession();
+        var session2 = acquireSession()
+    ) {
+      final var tx0 = session1.begin();
+
+      var e1 = tx0.newEntity();
+      var e2 = tx0.newEntity();
+      e2.setLink("link", e1);
+      tx0.commit();
+
+      final var tx1 = session1.begin();
+      e1 = tx1.load(e1.getIdentity());
+      e2 = tx1.load(e2.getIdentity());
+      e1.setProperty("test", 1);
+      e2.setProperty("test", 2);
+
+      final var tx2 = session2.begin();
+      tx2.load(e1.getIdentity()).delete();
+      tx2.commit();
+
+      try {
+        tx1.commit();
+        Assert.fail("Should throw ConcurrentModificationException");
+      } catch (ConcurrentModificationException ex) {
+        // okay
+      }
+    }
+  }
+
+  /**
+   * Original: concurrentDeleteDelete (line 290) Location:
+   * tests/src/test/java/com/jetbrains/youtrackdb/auto/ConcurrentUpdatesTest.java
+   */
+  @Test
+  public void test04_ConcurrentDeleteDelete() {
+
+    try (
+        var session1 = acquireSession();
+        var session2 = acquireSession()
+    ) {
+      final var tx0 = session1.begin();
+      var e = tx0.newEntity();
+      tx0.commit();
+      final var eid = e.getIdentity();
+
+      final var tx1 = session1.begin();
+      DBRecord eee = tx1.load(eid);
+      eee.delete();
+
+      final var tx2 = session2.begin();
+      DBRecord ee = tx2.load(eid);
+      ee.delete();
+      tx2.commit();
+
+      // we don't throw ConcurrentModificationException here
+      tx1.commit();
+    }
+  }
+
+  // Helper methods from original
+  private final AtomicLong counter = new AtomicLong();
+  private final AtomicLong totalRetries = new AtomicLong();
+
+  class OptimisticUpdateField implements Runnable {
+
+    RID rid1;
+    RID rid2;
+    String fieldValue = null;
+    String threadName;
+
+    public OptimisticUpdateField(RID iRid1, RID iRid2, String iThreadName) {
+      super();
+      rid1 = iRid1;
+      rid2 = iRid2;
+      threadName = iThreadName;
+    }
+
+    public void run() {
+      try {
+        var db = acquireSession();
+        for (var i = 0; i < OPTIMISTIC_CYCLES; i++) {
+          var retries = 0;
+          while (true) {
+            retries++;
+            try {
+              db.begin();
+
+              EntityImpl vDoc1 = db.load(rid1);
+              Object iPropertyValue1 = vDoc1.getProperty(threadName) + ";" + i;
+              vDoc1.setProperty(threadName, iPropertyValue1);
+
+              EntityImpl vDoc2 = db.load(rid2);
+              Object iPropertyValue = vDoc2.getProperty(threadName) + ";" + i;
+              vDoc2.setProperty(threadName, iPropertyValue);
+
+              db.commit();
+
+              counter.incrementAndGet();
+              totalRetries.addAndGet(retries);
+              break;
+            } catch (NeedRetryException e) {
+              Thread.sleep(retries * 10L);
+            }
+          }
+          fieldValue += ";" + i;
+        }
+
+      } catch (Throwable e) {
+        throw new IllegalStateException(e);
+      }
+    }
+  }
+
+  class PessimisticUpdate implements Runnable {
+
+    RID rid;
+    String threadName;
+    boolean lock;
+
+    public PessimisticUpdate(RID iRid, String iThreadName, boolean iLock) {
+      super();
+
+      rid = iRid;
+      threadName = iThreadName;
+      lock = iLock;
+    }
+
+    public void run() {
+      try {
+        var db = acquireSession();
+
+        for (var i = 0; i < PESSIMISTIC_CYCLES; i++) {
+          var cmd = "update " + rid + " set total = total + 1";
+          if (lock) {
+            cmd += " lock record";
+          }
+
+          var retries = 0;
+          while (true) {
+            try {
+              retries++;
+              db.begin();
+              db.execute(cmd).close();
+              db.commit();
+              counter.incrementAndGet();
+
+              if (retries % 10 == 0) {
+                System.out.println(retries + " retries for thread " + threadName);
+              }
+
+              break;
+
+            } catch (NeedRetryException e) {
+              if (lock) {
+                Assert.fail(NeedRetryException.class.getSimpleName() + " was encountered");
+              }
+            }
+          }
+        }
+      } catch (RuntimeException e) {
+        e.printStackTrace();
+        throw e;
+      }
+    }
+  }
+
+  public void concurrentOptimisticUpdates() throws Exception {
+    counter.set(0);
+
+    var database = acquireSession();
+
+    database.begin();
+    EntityImpl doc1 = database.newInstance();
+    doc1.setProperty("INIT", "ok");
+    database.commit();
+
+    RID rid1 = doc1.getIdentity();
+
+    database.begin();
+    EntityImpl doc2 = database.newInstance();
+    doc2.setProperty("INIT", "ok");
+
+    database.commit();
+
+    RID rid2 = doc2.getIdentity();
+
+    var ops = new OptimisticUpdateField[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
+      ops[i] = new OptimisticUpdateField(rid1, rid2, "thread" + i);
+    }
+
+    var threads = new Thread[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
+    }
+
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i].start();
+    }
+
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i].join();
+    }
+
+    Assert.assertEquals(counter.get(), OPTIMISTIC_CYCLES * THREADS);
+
+    database.begin();
+    doc1 = database.load(rid1);
+
+    for (var i = 0; i < THREADS; ++i) {
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc1.getProperty(ops[i].threadName));
+    }
+
+    doc1.toJSON();
+
+    doc2 = database.load(rid2);
+
+    for (var i = 0; i < THREADS; ++i) {
+      Assert.assertEquals(ops[i].threadName, ops[i].fieldValue,
+          doc2.getProperty(ops[i].threadName));
+    }
+
+    doc2.toJSON();
+    System.out.println(doc2.toJSON());
+    database.commit();
+
+    database.close();
+  }
+
+  @Test
+  @org.junit.Ignore("Original test was disabled (enabled = false)")
+  public void concurrentPessimisticSQLUpdates() throws Exception {
+    sqlUpdate(true);
+  }
+
+  public void concurrentOptimisticSQLUpdates() throws Exception {
+    sqlUpdate(false);
+  }
+
+  protected void sqlUpdate(boolean lock) throws InterruptedException {
+    counter.set(0);
+
+    var database = acquireSession();
+    database.begin();
+    EntityImpl doc1 = database.newInstance();
+    doc1.setProperty("total", 0);
+
+    database.commit();
+
+    RID rid1 = doc1.getIdentity();
+
+    var ops = new PessimisticUpdate[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
+      ops[i] = new PessimisticUpdate(rid1, "thread" + i, lock);
+    }
+
+    var threads = new Thread[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
+    }
+
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i].start();
+    }
+
+    for (var i = 0; i < THREADS; ++i) {
+      threads[i].join();
+    }
+
+    Assert.assertEquals(counter.get(), PESSIMISTIC_CYCLES * THREADS);
+
+    database.begin();
+    doc1 = database.load(rid1);
+    Assert.assertEquals(doc1.<Object>getProperty("total"), PESSIMISTIC_CYCLES * THREADS);
+    database.commit();
+
+    database.close();
+  }
+
+  public void concurrentUpdateDelete() {
+
+    try (
+        var session1 = acquireSession();
+        var session2 = acquireSession()
+    ) {
+      final var tx0 = session1.begin();
+
+      var e1 = tx0.newEntity();
+      var e2 = tx0.newEntity();
+      e2.setLink("link", e1);
+      tx0.commit();
+
+      final var tx1 = session1.begin();
+      e1 = tx1.load(e1.getIdentity());
+      e2 = tx1.load(e2.getIdentity());
+      e1.setProperty("test", 1);
+      e2.setProperty("test", 2);
+
+      final var tx2 = session2.begin();
+      tx2.load(e1.getIdentity()).delete();
+      tx2.commit();
+
+      try {
+        tx1.commit();
+        Assert.fail("Should throw ConcurrentModificationException");
+      } catch (ConcurrentModificationException ex) {
+        // okay
+      }
+    }
+  }
+
+  public void concurrentDeleteDelete() {
+
+    try (
+        var session1 = acquireSession();
+        var session2 = acquireSession()
+    ) {
+      final var tx0 = session1.begin();
+      var e = tx0.newEntity();
+      tx0.commit();
+      final var eid = e.getIdentity();
+
+      final var tx1 = session1.begin();
+      DBRecord eee = tx1.load(eid);
+      eee.delete();
+
+      final var tx2 = session2.begin();
+      DBRecord ee = tx2.load(eid);
+      ee.delete();
+      tx2.commit();
+
+      // we don't throw ConcurrentModificationException here
+      tx1.commit();
+    }
+  }
+}
+
