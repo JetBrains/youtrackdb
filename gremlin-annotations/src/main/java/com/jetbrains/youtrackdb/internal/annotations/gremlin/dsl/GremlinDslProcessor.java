@@ -26,7 +26,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.processing.AbstractProcessor;
-import javax.annotation.processing.Filer;
 import javax.annotation.processing.Messager;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.RoundEnvironment;
@@ -83,7 +82,6 @@ public class GremlinDslProcessor extends AbstractProcessor {
 
   private Messager messager;
   private Elements elementUtils;
-  private Filer filer;
   private Types typeUtils;
 
   @Override
@@ -96,7 +94,6 @@ public class GremlinDslProcessor extends AbstractProcessor {
     super.init(processingEnv);
     messager = processingEnv.getMessager();
     elementUtils = processingEnv.getElementUtils();
-    filer = processingEnv.getFiler();
     typeUtils = processingEnv.getTypeUtils();
   }
 
@@ -151,22 +148,17 @@ public class GremlinDslProcessor extends AbstractProcessor {
         }
 
         var dslPath = getDslSourcePath((TypeElement) dslElement, ctx);
-        var sourceDigest = dslPath != null ? GremlinDslDigestHelper.computeSourceDigest(dslPath) : "";
+        var sourceDigest = dslPath != null
+            ? GremlinDslDigestHelper.computeSourceDigest(dslPath) : "";
 
-        // creates the "Traversal" interface using an extension of the GraphTraversal class that has the
-        // GremlinDsl annotation on it
-        generateTraversalInterface(ctx, sourceDigest);
+        var generatedDir = processingEnv.getOptions().get(OPTION_GENERATED_DIR);
+        var outputPath = generatedDir != null
+            ? Paths.get(generatedDir) : null;
 
-        // create the "DefaultTraversal" class which implements the above generated "Traversal" and can then
-        // be used by the "TraversalSource" generated below to spawn new traversal instances.
-        generateDefaultTraversal(ctx, sourceDigest);
-
-        // create the "TraversalSource" class which is used to spawn traversals from a Graph instance. It will
-        // spawn instances of the "DefaultTraversal" generated above.
-        generateTraversalSource(ctx, sourceDigest);
-
-        // create anonymous traversal for DSL
-        generateAnonymousTraversal(ctx, sourceDigest);
+        generateTraversalInterface(ctx, sourceDigest, outputPath);
+        generateDefaultTraversal(ctx, sourceDigest, outputPath);
+        generateTraversalSource(ctx, sourceDigest, outputPath);
+        generateAnonymousTraversal(ctx, sourceDigest, outputPath);
       }
     } catch (Exception ex) {
       messager.printMessage(Diagnostic.Kind.ERROR, ex.getMessage());
@@ -175,8 +167,8 @@ public class GremlinDslProcessor extends AbstractProcessor {
     return true;
   }
 
-  private void generateAnonymousTraversal(final Context ctx, final String sourceDigest)
-      throws IOException {
+  private void generateAnonymousTraversal(final Context ctx, final String sourceDigest,
+      @Nullable final Path outputPath) throws IOException {
     final var anonymousClass = TypeSpec.classBuilder("__")
         .addModifiers(Modifier.PUBLIC, Modifier.FINAL);
 
@@ -288,11 +280,11 @@ public class GremlinDslProcessor extends AbstractProcessor {
         anonymousClass.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    traversalSourceJavaFile.writeTo(filer);
+    writeJavaFile(traversalSourceJavaFile, outputPath);
   }
 
-  private void generateTraversalSource(final Context ctx, final String sourceDigest)
-      throws IOException {
+  private void generateTraversalSource(final Context ctx, final String sourceDigest,
+      @Nullable final Path outputPath) throws IOException {
     final var graphTraversalSourceElement = ctx.traversalSourceDslType;
     final var traversalSourceClass = TypeSpec.classBuilder(ctx.traversalSourceClazz)
         .addModifiers(Modifier.PUBLIC)
@@ -495,7 +487,7 @@ public class GremlinDslProcessor extends AbstractProcessor {
         traversalSourceClass.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    traversalSourceJavaFile.writeTo(filer);
+    writeJavaFile(traversalSourceJavaFile, outputPath);
   }
 
   private Element findClassAsElement(final Element element, final Class<?> clazz) {
@@ -507,8 +499,8 @@ public class GremlinDslProcessor extends AbstractProcessor {
     return findClassAsElement(typeUtils.asElement(supertypes.getFirst()), clazz);
   }
 
-  private void generateDefaultTraversal(final Context ctx, final String sourceDigest)
-      throws IOException {
+  private void generateDefaultTraversal(final Context ctx, final String sourceDigest,
+      @Nullable final Path outputPath) throws IOException {
     final var defaultTraversalClass = TypeSpec.classBuilder(ctx.defaultTraversalClazz)
         .addModifiers(Modifier.PUBLIC)
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
@@ -568,11 +560,11 @@ public class GremlinDslProcessor extends AbstractProcessor {
         defaultTraversalClass.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    defaultTraversalJavaFile.writeTo(filer);
+    writeJavaFile(defaultTraversalJavaFile, outputPath);
   }
 
-  private void generateTraversalInterface(final Context ctx, final String sourceDigest)
-      throws IOException {
+  private void generateTraversalInterface(final Context ctx, final String sourceDigest,
+      @Nullable final Path outputPath) throws IOException {
     final var traversalInterface = TypeSpec.interfaceBuilder(ctx.traversalClazz)
         .addModifiers(Modifier.PUBLIC)
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
@@ -619,7 +611,16 @@ public class GremlinDslProcessor extends AbstractProcessor {
     final var traversalJavaFile = JavaFile.builder(ctx.packageName, traversalInterface.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    traversalJavaFile.writeTo(filer);
+    writeJavaFile(traversalJavaFile, outputPath);
+  }
+
+  private void writeJavaFile(final JavaFile javaFile, @Nullable final Path outputPath)
+      throws IOException {
+    if (outputPath != null) {
+      javaFile.writeTo(outputPath);
+    } else {
+      javaFile.writeTo(processingEnv.getFiler());
+    }
   }
 
   private static MethodSpec constructMethod(final Element element, final ClassName returnClazz,

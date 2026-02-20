@@ -271,7 +271,6 @@
               com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
             </annotationProcessor>
           </annotationProcessors>
-          <generatedSourcesDirectory>${generated.gremlin.dir}</generatedSourcesDirectory>
           <compilerArgs>
             <arg>-parameters</arg>
             <arg>-Agremlin.dsl.generatedDir=${project.basedir}/src/main/generated/java/gremlin</arg>
