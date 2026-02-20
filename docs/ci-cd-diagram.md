@@ -19,7 +19,8 @@ flowchart TB
 
     subgraph maven_pipeline["maven-pipeline.yml<br/>(develop branch)"]
         direction TB
-        mp_test["Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>Self-hosted Linux x86/arm + Windows"]
+        mp_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>Self-hosted Hetzner Runners</i>"]
+        mp_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
         mp_mutation["Mutation Testing<br/>PIT (unit tests only)<br/>85% kill rate<br/>PR comment"]
         mp_qodana["Qodana Scan<br/>Static analysis only"]
@@ -27,14 +28,16 @@ flowchart TB
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
         mp_notify["Zulip Notifications"]
-        mp_test --> mp_coverage_gate
-        mp_test --> mp_mutation
-        mp_test --> mp_qodana
-        mp_test --> mp_deploy
+        mp_test_linux --> mp_coverage_gate
+        mp_test_linux --> mp_mutation
+        mp_test_linux --> mp_qodana
+        mp_test_linux --> mp_deploy
+        mp_test_windows --> mp_deploy
+        mp_test_linux --> mp_ci_status
+        mp_test_windows --> mp_ci_status
         mp_coverage_gate --> mp_ci_status
         mp_mutation --> mp_ci_status
         mp_qodana --> mp_ci_status
-        mp_test --> mp_ci_status
         mp_deploy --> mp_annotate
         mp_deploy --> mp_notify
     end
@@ -87,7 +90,8 @@ flowchart TB
     schedule --> integration_pipeline
     push_main --> main_pipeline
 %% Pipelines use Maven mirror for dependency resolution
-    mp_test -.->|" dependencies "| maven_mirror
+    mp_test_linux -.->|" dependencies "| maven_mirror
+    mp_test_windows -.->|" dependencies "| maven_mirror
     it_test_linux -.->|" dependencies "| maven_mirror
     it_test_windows -.->|" dependencies "| maven_mirror
 %% Pipeline to artifacts
