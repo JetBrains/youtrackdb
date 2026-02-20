@@ -943,9 +943,17 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return new RawBuffer(recordContent, recordVersion, recordType);
   }
 
+  /// Checks whether a record version is visible to the current operation.
+  ///
+  /// The self-read shortcut ({@code recordVersion == currentOperationTs}) is essential:
+  /// internal atomic operations (managed by {@code AtomicOperationsManager}) freely mix
+  /// reads and writes within the same scope — e.g., storage configuration creates records
+  /// then reads them back. These records are stamped with {@code commitTs} as their
+  /// record version during page writes, and {@code commitTs >= maxActiveOperationTs},
+  /// so {@code snapshot.isEntryVisible()} returns false for them.
+  /// The self-read check makes these intra-operation reads work correctly.
   private static boolean isRecordVersionVisible(long recordVersion, long currentOperationTs,
       @Nonnull AtomicOperationsSnapshot snapshot) {
-    //we always read what we wrote
     if (recordVersion == currentOperationTs) {
       return true;
     }
@@ -953,24 +961,33 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return snapshot.isEntryVisible(recordVersion);
   }
 
+  /// Searches historical snapshot entries for the most recent visible version of a record.
+  ///
+  /// The {@code currentOperationTs} parameter serves two purposes that cannot be removed:
+  ///
+  /// 1. **Search bound**: When the current operation has a commitTs ({@code >= 0}), the
+  ///    upper bound is {@code currentOperationTs} (which is {@code >= maxActiveOperationTs}
+  ///    per the assertion). This ensures entries written by the current operation are
+  ///    included in the range scan. Without this, the bound would be
+  ///    {@code maxActiveOperationTs} and we would miss versions at or above that timestamp.
+  ///
+  /// 2. **Self-read shortcut**: The {@code version == currentOperationTs} check in the loop
+  ///    makes versions written by the current atomic operation visible to its own reads.
+  ///    Internal atomic operations (managed by {@code AtomicOperationsManager}) freely mix
+  ///    reads and writes — e.g., storage configuration creates records then reads them
+  ///    back. {@code snapshot.isEntryVisible()} returns false for these versions because
+  ///    {@code commitTs >= maxActiveOperationTs}.
   @Nullable
   private PositionEntry findHistoricalPositionEntry(long collectionPosition,
       long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot) {
 
-    // Search historical entries for this collection position in reverse version order.
-    // Upper bound: max(currentOperationTs, maxActiveOperationTs). Since the assertion
-    // guarantees currentOperationTs >= maxActiveOperationTs when >= 0, this simplifies to
-    // currentOperationTs when assigned, maxActiveOperationTs otherwise. Versions at or
-    // above this bound are never visible per snapshot isolation rules.
-    // Lower bound: Long.MIN_VALUE to cover all possible historical versions.
-    // The subMap is scoped to the exact collection position to avoid spilling into
-    // adjacent positions.
     var maxActiveOperationTs = snapshot.maxActiveOperationTs();
 
     assert currentOperationTs == -1 || currentOperationTs >= maxActiveOperationTs;
 
     var searchBound = currentOperationTs >= 0
         ? currentOperationTs : maxActiveOperationTs;
+    // Scope to this exact collection position; cover all historical versions
     var lowerKey = new CompositeKey(collectionPosition, Long.MIN_VALUE);
     var upperKey = new CompositeKey(collectionPosition, searchBound);
     var versionedChain =
