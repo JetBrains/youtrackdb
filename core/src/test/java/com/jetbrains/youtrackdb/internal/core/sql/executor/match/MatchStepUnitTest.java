@@ -564,6 +564,234 @@ public class MatchStepUnitTest extends DbTestBase {
     MatchAssertions.validateEdgeTraversalArgs(edge);
   }
 
+  // -- MatchReverseEdgeTraverser tests --
+
+  /**
+   * Verifies that the reverse traverser constructor correctly swaps the aliases:
+   * startingPointAlias comes from edge.in.alias, endPointAlias from edge.out.alias.
+   */
+  @Test
+  public void testReverseEdgeTraverserConstructor() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+
+    // edge.in.alias = "b" (target in pattern → starting point in reverse)
+    assertEquals("b", traverser.getStartingPointAlias());
+    // edge.out.alias = "a" (source in pattern → endpoint in reverse)
+    assertEquals("a", traverser.getEndpointAlias());
+  }
+
+  /**
+   * Verifies that the constructor asserts when lastUpstreamRecord is null.
+   * Covers the false branch of the upstream record null check.
+   */
+  @Test(expected = AssertionError.class)
+  public void testReverseEdgeTraverserConstructorNullUpstream() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    new MatchReverseEdgeTraverser(null, edgeTraversal);
+  }
+
+  /**
+   * Verifies that the constructor asserts when edge.in.alias is null,
+   * which would result in a null startingPointAlias.
+   */
+  @Test(expected = AssertionError.class)
+  public void testReverseEdgeTraverserConstructorNullStartingAlias() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = null; // null in-alias → null startingPointAlias
+    var item = new SQLMatchPathItem(-1);
+    nodeA.addEdge(item, nodeB);
+    var patternEdge = nodeA.out.iterator().next();
+    var edgeTraversal = new EdgeTraversal(patternEdge, false);
+    var sourceResult = new ResultInternal(session);
+
+    new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+  }
+
+  /**
+   * Verifies that the constructor asserts when edge.out.alias is null,
+   * which would result in a null endPointAlias.
+   */
+  @Test(expected = AssertionError.class)
+  public void testReverseEdgeTraverserConstructorNullEndpointAlias() {
+    var nodeA = new PatternNode();
+    nodeA.alias = null; // null out-alias → null endPointAlias
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var item = new SQLMatchPathItem(-1);
+    nodeA.addEdge(item, nodeB);
+    var patternEdge = nodeA.out.iterator().next();
+    var edgeTraversal = new EdgeTraversal(patternEdge, false);
+    var sourceResult = new ResultInternal(session);
+
+    new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+  }
+
+  /**
+   * Verifies that targetClassName delegates to edge.getLeftClass(),
+   * returning the planner-provided class constraint for the reverse target.
+   */
+  @Test
+  public void testReverseEdgeTraverserTargetClassName() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    edgeTraversal.setLeftClass("Person");
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    var ctx = createCommandContext();
+    // targetClassName returns edge.getLeftClass(), ignoring the item parameter
+    assertEquals("Person", traverser.targetClassName(null, ctx));
+  }
+
+  /**
+   * Verifies that targetClassName returns null when no left class is set on the edge.
+   */
+  @Test
+  public void testReverseEdgeTraverserTargetClassNameNull() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    // leftClass is not set, defaults to null
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    var ctx = createCommandContext();
+    assertNull(traverser.targetClassName(null, ctx));
+  }
+
+  /**
+   * Verifies that targetRid delegates to edge.getLeftRid(),
+   * returning the planner-provided RID constraint for the reverse target.
+   */
+  @Test
+  public void testReverseEdgeTraverserTargetRid() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var rid = new SQLRid(-1);
+    edgeTraversal.setLeftRid(rid);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    var ctx = createCommandContext();
+    assertEquals(rid, traverser.targetRid(null, ctx));
+  }
+
+  /**
+   * Verifies that targetRid returns null when no left RID is set.
+   */
+  @Test
+  public void testReverseEdgeTraverserTargetRidNull() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    var ctx = createCommandContext();
+    assertNull(traverser.targetRid(null, ctx));
+  }
+
+  /**
+   * Verifies that getTargetFilter delegates to edge.getLeftFilter(),
+   * returning the planner-provided WHERE clause for the reverse target.
+   */
+  @Test
+  public void testReverseEdgeTraverserGetTargetFilter() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var filter = new SQLWhereClause(-1);
+    edgeTraversal.setLeftFilter(filter);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    assertEquals(filter, traverser.getTargetFilter(null));
+  }
+
+  /**
+   * Verifies that getTargetFilter returns null when no left filter is set.
+   */
+  @Test
+  public void testReverseEdgeTraverserGetTargetFilterNull() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    assertNull(traverser.getTargetFilter(null));
+  }
+
+  /**
+   * Verifies that traversePatternEdge calls executeReverse() on the path item's
+   * method and returns an execution stream. Uses a vertex with no incoming edges
+   * so the reverse of out() (i.e. in()) yields an empty stream.
+   */
+  @Test
+  public void testReverseEdgeTraverserTraversePatternEdge() {
+    session.begin();
+    session.createClassIfNotExist("V");
+    session.createClassIfNotExist("E");
+    var vertex = session.newVertex("V");
+    session.commit();
+
+    session.begin();
+    try {
+      var traverser = createReverseTraverserWithOutPath();
+      var startResult = new ResultInternal(session, vertex);
+      var ctx = createCommandContext();
+      // Reverse of out('E') = in('E'); vertex has no incoming edges → empty stream
+      var stream = traverser.traversePatternEdge(startResult, ctx);
+      assertFalse(stream.hasNext(ctx));
+    } finally {
+      session.commit();
+    }
+  }
+
+  /**
+   * Verifies that traversePatternEdge asserts when startingPoint is null.
+   * Covers the false branch of the starting-point null check.
+   */
+  @Test(expected = AssertionError.class)
+  public void testReverseEdgeTraverserTraversePatternEdgeNullStartingPoint() {
+    var traverser = createReverseTraverserWithOutPath();
+    var ctx = createCommandContext();
+    traverser.traversePatternEdge(null, ctx);
+  }
+
+  /**
+   * Verifies that getStartingPointAlias returns edge.in.alias (the syntactic
+   * target, which is the starting point in reverse traversal).
+   */
+  @Test
+  public void testReverseEdgeTraverserGetStartingPointAlias() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    // edge.in.alias = "b"
+    assertEquals("b", traverser.getStartingPointAlias());
+  }
+
+  /**
+   * Verifies that getEndpointAlias returns edge.out.alias (the syntactic
+   * source, which is the endpoint in reverse traversal).
+   */
+  @Test
+  public void testReverseEdgeTraverserGetEndpointAlias() {
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    // edge.out.alias = "a"
+    assertEquals("a", traverser.getEndpointAlias());
+  }
+
   // -- Helper methods --
 
   private CommandContext createCommandContext() {
@@ -593,6 +821,21 @@ public class MatchStepUnitTest extends DbTestBase {
     item.outPath(null);
     nodeA.addEdge(item, nodeB);
     return nodeA.out.iterator().next();
+  }
+
+  /** Creates a MatchReverseEdgeTraverser with an outPath method (supports executeReverse). */
+  private MatchReverseEdgeTraverser createReverseTraverserWithOutPath() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var item = new SQLMatchPathItem(-1);
+    item.outPath(null);
+    nodeA.addEdge(item, nodeB);
+    var patternEdge = nodeA.out.iterator().next();
+    var edgeTraversal = new EdgeTraversal(patternEdge, false);
+    var sourceResult = new ResultInternal(session);
+    return new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
   }
 
   private EdgeTraversal createTestEdgeTraversal() {
