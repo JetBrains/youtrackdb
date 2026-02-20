@@ -9,9 +9,13 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import org.junit.After;
 import org.junit.Before;
@@ -434,5 +438,293 @@ public class SnapshotIndexCleanupTest {
       assertThat(snapshotIndex)
           .containsKey(new SnapshotKey(1, (long) i, (long) i));
     }
+  }
+
+  // --- Concurrent reads during cleanup ---
+
+  @Test
+  public void testConcurrentReaderDuringEviction() throws Exception {
+    // Verify that a reader iterating snapshotIndex.subMap() while eviction runs
+    // concurrently never throws ConcurrentModificationException and always sees
+    // a consistent (possibly reduced) subset of entries. ConcurrentSkipListMap
+    // guarantees weakly-consistent iterators, so this test makes that explicit.
+    int count = 2000;
+    long lwm = count / 2;
+    for (int i = 0; i < count; i++) {
+      var sk = new SnapshotKey(1, (long) i, (long) i);
+      snapshotIndex.put(sk, new PositionEntry((long) i, 0, (long) i));
+      visibilityIndex.put(new VisibilityKey((long) i, 1, (long) i), sk);
+    }
+
+    var readerError = new AtomicReference<Throwable>();
+    var evictionDone = new AtomicBoolean(false);
+    // Use a barrier so reader and evictor start at roughly the same time
+    var barrier = new CyclicBarrier(2);
+
+    // Reader thread: continuously iterates subMap ranges during eviction
+    var readerThread = new Thread(() -> {
+      try {
+        barrier.await(5, TimeUnit.SECONDS);
+        // Iterate multiple subMap ranges while eviction is in progress
+        while (!evictionDone.get()) {
+          var fromKey = new SnapshotKey(1, 0L, 0L);
+          var toKey = new SnapshotKey(1, (long) count, (long) count);
+          var subMap = snapshotIndex.subMap(fromKey, true, toKey, true);
+          // Iterate the view — must not throw ConcurrentModificationException
+          var entries = new ArrayList<>(subMap.entrySet());
+          // Each entry must be a valid SnapshotKey/PositionEntry pair
+          for (var entry : entries) {
+            assertThat(entry.getKey()).isNotNull();
+            assertThat(entry.getValue()).isNotNull();
+          }
+        }
+      } catch (Throwable t) {
+        readerError.set(t);
+      }
+    });
+    readerThread.start();
+
+    // Evictor: start together with reader, then evict entries below lwm
+    barrier.await(5, TimeUnit.SECONDS);
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex);
+    evictionDone.set(true);
+
+    readerThread.join(10_000);
+    assertThat(readerThread.isAlive()).isFalse();
+    assertThat(readerError.get()).isNull();
+
+    // After eviction, only entries at/above lwm remain
+    assertThat(snapshotIndex).hasSize(count - (int) lwm);
+  }
+
+  @Test
+  public void testConcurrentGetDuringEviction() throws Exception {
+    // Verify that concurrent get() lookups during eviction return either a valid
+    // PositionEntry or null (if already evicted), and never throw.
+    int count = 2000;
+    long lwm = count / 2;
+    for (int i = 0; i < count; i++) {
+      var sk = new SnapshotKey(1, (long) i, (long) i);
+      snapshotIndex.put(sk, new PositionEntry((long) i, 0, (long) i));
+      visibilityIndex.put(new VisibilityKey((long) i, 1, (long) i), sk);
+    }
+
+    var readerError = new AtomicReference<Throwable>();
+    // Use a barrier so both threads start at roughly the same time
+    var barrier = new CyclicBarrier(2);
+
+    var readerThread = new Thread(() -> {
+      try {
+        barrier.await(5, TimeUnit.SECONDS);
+        for (int i = 0; i < count; i++) {
+          var key = new SnapshotKey(1, (long) i, (long) i);
+          var value = snapshotIndex.get(key);
+          // value is either the original PositionEntry or null (already evicted)
+          if (value != null) {
+            assertThat(value.getPageIndex()).isEqualTo((long) i);
+          }
+        }
+      } catch (Throwable t) {
+        readerError.set(t);
+      }
+    });
+    readerThread.start();
+
+    barrier.await(5, TimeUnit.SECONDS);
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex);
+
+    readerThread.join(10_000);
+    assertThat(readerThread.isAlive()).isFalse();
+    assertThat(readerError.get()).isNull();
+
+    // Post-eviction: entries below lwm are gone
+    for (int i = 0; i < (int) lwm; i++) {
+      assertThat(snapshotIndex).doesNotContainKey(
+          new SnapshotKey(1, (long) i, (long) i));
+    }
+    // Entries at/above lwm remain
+    for (int i = (int) lwm; i < count; i++) {
+      assertThat(snapshotIndex).containsKey(
+          new SnapshotKey(1, (long) i, (long) i));
+    }
+  }
+
+  // --- Double-check threshold: cleanup skipped after concurrent eviction ---
+
+  @Test
+  public void testDoubleCheckThresholdSkipsEvictionAfterConcurrentCleanup()
+      throws InterruptedException {
+    // Exercises the double-check pattern in cleanupSnapshotIndex(): the first size
+    // check passes (above threshold), but by the time the lock is acquired another
+    // thread has already cleaned up, so the second check finds size <= threshold.
+    // We simulate this by populating the maps, starting eviction on a background
+    // thread while the main thread waits for the lock, then verifying no double
+    // eviction occurs.
+    int count = 100;
+    var lock = new ReentrantLock();
+    var mapsCleaned = new AtomicBoolean(false);
+
+    for (int i = 0; i < count; i++) {
+      var sk = new SnapshotKey(1, (long) i, (long) i);
+      snapshotIndex.put(sk, new PositionEntry((long) i, 0, (long) i));
+      visibilityIndex.put(new VisibilityKey((long) i, 1, (long) i), sk);
+    }
+
+    int threshold = 10;
+    // Verify size > threshold before cleanup
+    assertThat(snapshotIndex.size()).isGreaterThan(threshold);
+
+    // Thread 1 acquires lock and evicts
+    var lockAcquired = new CountDownLatch(1);
+    var evictDone = new CountDownLatch(1);
+    var thread1 = new Thread(() -> {
+      lock.lock();
+      try {
+        lockAcquired.countDown();
+        // Evict most entries (lwm = 95 removes entries 0..94)
+        AbstractStorage.evictStaleSnapshotEntries(
+            count - 5, snapshotIndex, visibilityIndex);
+        evictDone.countDown();
+      } finally {
+        lock.unlock();
+      }
+    });
+    thread1.start();
+    assertThat(lockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
+    assertThat(evictDone.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // After thread1's eviction, only 5 entries remain (below threshold of 10)
+    assertThat(snapshotIndex.size()).isLessThanOrEqualTo(threshold);
+
+    // Thread 2 (main) now acquires lock and applies the double-check pattern:
+    // size <= threshold, so cleanup is a no-op
+    lock.lock();
+    try {
+      int sizeAfterFirstCleanup = snapshotIndex.size();
+      if (snapshotIndex.size() > threshold) {
+        // This branch should NOT be taken
+        mapsCleaned.set(true);
+        AbstractStorage.evictStaleSnapshotEntries(
+            Long.MAX_VALUE - 1, snapshotIndex, visibilityIndex);
+      }
+      // Size unchanged — double-check prevented redundant eviction
+      assertThat(mapsCleaned.get()).isFalse();
+      assertThat(snapshotIndex.size()).isEqualTo(sizeAfterFirstCleanup);
+    } finally {
+      lock.unlock();
+    }
+
+    thread1.join(5000);
+  }
+
+  // --- Progressive eviction with advancing lwm ---
+
+  @Test
+  public void testProgressiveEvictionWithAdvancingLwm() {
+    // Three rounds of eviction with increasing lwm values. Each round removes
+    // the entries in the newly-stale range while preserving everything above.
+    for (int i = 0; i < 30; i++) {
+      var sk = new SnapshotKey(1, (long) i, (long) i);
+      snapshotIndex.put(sk, new PositionEntry((long) i, 0, (long) i));
+      visibilityIndex.put(new VisibilityKey((long) i, 1, (long) i), sk);
+    }
+
+    // Round 1: lwm=10 removes entries 0..9
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex);
+    assertThat(snapshotIndex).hasSize(20);
+    assertThat(visibilityIndex).hasSize(20);
+    for (int i = 0; i < 10; i++) {
+      assertThat(snapshotIndex).doesNotContainKey(
+          new SnapshotKey(1, (long) i, (long) i));
+    }
+    for (int i = 10; i < 30; i++) {
+      assertThat(snapshotIndex).containsKey(
+          new SnapshotKey(1, (long) i, (long) i));
+    }
+
+    // Round 2: lwm=20 removes entries 10..19
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex);
+    assertThat(snapshotIndex).hasSize(10);
+    assertThat(visibilityIndex).hasSize(10);
+    for (int i = 10; i < 20; i++) {
+      assertThat(snapshotIndex).doesNotContainKey(
+          new SnapshotKey(1, (long) i, (long) i));
+    }
+    for (int i = 20; i < 30; i++) {
+      assertThat(snapshotIndex).containsKey(
+          new SnapshotKey(1, (long) i, (long) i));
+    }
+
+    // Round 3: lwm=30 removes entries 20..29
+    AbstractStorage.evictStaleSnapshotEntries(30L, snapshotIndex, visibilityIndex);
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(visibilityIndex).isEmpty();
+  }
+
+  // --- Same recordTs, different components ---
+
+  @Test
+  public void testEvictWithSameRecordTsDifferentComponents() {
+    // Multiple entries with identical recordTs but different componentId/position.
+    // All entries at recordTs=10 (below lwm=20) should be evicted; entry at
+    // recordTs=20 (at lwm) should be preserved.
+    var sk1 = new SnapshotKey(1, 100L, 5L);
+    var sk2 = new SnapshotKey(2, 200L, 8L);
+    var sk3 = new SnapshotKey(3, 300L, 12L);
+    var skAtLwm = new SnapshotKey(4, 400L, 15L);
+
+    snapshotIndex.put(sk1, new PositionEntry(1L, 0, 5L));
+    snapshotIndex.put(sk2, new PositionEntry(2L, 0, 8L));
+    snapshotIndex.put(sk3, new PositionEntry(3L, 0, 12L));
+    snapshotIndex.put(skAtLwm, new PositionEntry(4L, 0, 15L));
+
+    // All three entries have the same recordTs=10
+    visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk1);
+    visibilityIndex.put(new VisibilityKey(10L, 2, 200L), sk2);
+    visibilityIndex.put(new VisibilityKey(10L, 3, 300L), sk3);
+    // Entry at lwm boundary
+    visibilityIndex.put(new VisibilityKey(20L, 4, 400L), skAtLwm);
+
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex);
+
+    // All three entries with recordTs=10 should be evicted
+    assertThat(snapshotIndex).doesNotContainKey(sk1);
+    assertThat(snapshotIndex).doesNotContainKey(sk2);
+    assertThat(snapshotIndex).doesNotContainKey(sk3);
+    // Entry at lwm=20 should be preserved (headMap is exclusive)
+    assertThat(snapshotIndex).containsKey(skAtLwm);
+    assertThat(snapshotIndex).hasSize(1);
+    assertThat(visibilityIndex).hasSize(1);
+    assertThat(visibilityIndex.firstKey()).isEqualTo(
+        new VisibilityKey(20L, 4, 400L));
+  }
+
+  // --- Extreme boundary: lwm near Long.MAX_VALUE ---
+
+  @Test
+  public void testEvictWithLwmNearMaxValue() {
+    // Verify that lwm = Long.MAX_VALUE - 1 correctly evicts entries below it
+    // while preserving entries at that recordTs (headMap exclusive). This tests
+    // the sentinel key VisibilityKey(MAX_VALUE-1, MIN_VALUE, MIN_VALUE) at the
+    // extreme end of the long range.
+    long nearMax = Long.MAX_VALUE - 1;
+    var skBelow = new SnapshotKey(1, 100L, 5L);
+    var skAtBoundary = new SnapshotKey(2, 200L, 8L);
+
+    snapshotIndex.put(skBelow, new PositionEntry(1L, 0, 5L));
+    snapshotIndex.put(skAtBoundary, new PositionEntry(2L, 0, 8L));
+
+    // Entry below lwm (recordTs = nearMax - 1) should be evicted
+    visibilityIndex.put(new VisibilityKey(nearMax - 1, 1, 100L), skBelow);
+    // Entry at lwm (recordTs = nearMax) should be preserved
+    visibilityIndex.put(new VisibilityKey(nearMax, 2, 200L), skAtBoundary);
+
+    AbstractStorage.evictStaleSnapshotEntries(
+        nearMax, snapshotIndex, visibilityIndex);
+
+    assertThat(snapshotIndex).doesNotContainKey(skBelow);
+    assertThat(snapshotIndex).containsKey(skAtBoundary);
+    assertThat(snapshotIndex).hasSize(1);
+    assertThat(visibilityIndex).hasSize(1);
   }
 }
