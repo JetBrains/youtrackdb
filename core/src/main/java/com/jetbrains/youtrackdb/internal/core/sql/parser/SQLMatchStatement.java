@@ -2,39 +2,25 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.IterableRecordSource;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternEdge;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-public final class SQLMatchStatement extends SQLStatement implements IterableRecordSource {
+public final class SQLMatchStatement extends SQLStatement {
 
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
@@ -55,7 +41,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   // post-parsing generated data
   Pattern pattern;
 
-  private Map<String, SQLWhereClause> aliasFilters;
+  Map<String, SQLWhereClause> aliasFilters;
 
   // execution data
   private CommandContext context;
@@ -92,6 +78,10 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     this.returnAliases.add(alias);
   }
 
+  /**
+   * Per-row match state used during legacy traversal. Carries the set of matched
+   * aliases and their candidate record sets for a single result row.
+   */
   public static class MatchContext {
 
     int currentEdgeNumber = 0;
@@ -112,17 +102,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       result.matchedEdges.putAll(matchedEdges);
       result.currentEdgeNumber = currentEdgeNumber;
       return result;
-    }
-  }
-
-  public static class EdgeTraversal {
-
-    private boolean out = true;
-    private final PatternEdge edge;
-
-    public EdgeTraversal(PatternEdge edge, boolean out) {
-      this.edge = edge;
-      this.out = out;
     }
   }
 
@@ -147,7 +126,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
     ctx.setDatabaseSession(session);
-    Map<Object, Object> params = new HashMap<>();
+    Map<Object, Object> params = new java.util.HashMap<>();
     if (args != null) {
       for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
@@ -203,8 +182,8 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       pattern.addExpression(expr);
     }
 
-    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<String, SQLWhereClause>();
-    Map<String, String> aliasClasses = new LinkedHashMap<String, String>();
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    Map<String, String> aliasClasses = new LinkedHashMap<>();
     for (var expr : this.matchExpressions) {
       addAliases(expr, aliasFilters, aliasClasses, context);
     }
@@ -232,7 +211,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   /**
    * assigns default aliases to pattern nodes that do not have an explicit alias
    */
-  private static void assignDefaultAliases(List<SQLMatchExpression> matchExpressions) {
+  static void assignDefaultAliases(List<SQLMatchExpression> matchExpressions) {
     var counter = 0;
     for (var expression : matchExpressions) {
       if (expression.origin.getAlias() == null) {
@@ -247,248 +226,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
           item.filter.setAlias(DEFAULT_ALIAS_PREFIX + (counter++));
         }
       }
-    }
-  }
-
-  /**
-   * Start a depth-first traversal from the starting node, adding all viable unscheduled edges and
-   * vertices.
-   *
-   * @param startNode             the node from which to start the depth-first traversal
-   * @param visitedNodes          set of nodes that are already visited (mutated in this function)
-   * @param visitedEdges          set of edges that are already visited and therefore don't need to
-   *                              be scheduled (mutated in this function)
-   * @param remainingDependencies dependency map including only the dependencies that haven't yet
-   *                              been satisfied (mutated in this function)
-   * @param resultingSchedule     the schedule being computed i.e. appended to (mutated in this
-   *                              function)
-   */
-  private static void updateScheduleStartingAt(
-      PatternNode startNode,
-      Set<PatternNode> visitedNodes,
-      Set<PatternEdge> visitedEdges,
-      Map<String, Set<String>> remainingDependencies,
-      List<EdgeTraversal> resultingSchedule) {
-    // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
-    // condition
-    // than simply visiting all nodes in the query. Consider the following example query:
-    //     MATCH {
-    //         class: A,
-    //         as: foo
-    //     }.in() {
-    //         as: bar
-    //     }, {
-    //         class: B,
-    //         as: bar
-    //     }.out() {
-    //         as: foo
-    //     } RETURN $matches
-    // The schedule for the above query must have two edges, even though there are only two nodes
-    // and they can both
-    // be visited with the traversal of a single edge.
-    //
-    // To satisfy it, we obey the following for each non-optional node:
-    // - ignore edges to neighboring nodes which have unsatisfied dependencies;
-    // - for visited neighboring nodes, add their edge if it wasn't already present in the schedule,
-    // but do not
-    //   recurse into the neighboring node;
-    // - for unvisited neighboring nodes with satisfied dependencies, add their edge and recurse
-    // into them.
-    visitedNodes.add(startNode);
-    for (var dependencies : remainingDependencies.values()) {
-      dependencies.remove(startNode.alias);
-    }
-
-    Map<PatternEdge, Boolean> edges = new LinkedHashMap<PatternEdge, Boolean>();
-    for (var outEdge : startNode.out) {
-      edges.put(outEdge, true);
-    }
-    for (var inEdge : startNode.in) {
-      edges.put(inEdge, false);
-    }
-
-    for (var edgeData : edges.entrySet()) {
-      var edge = edgeData.getKey();
-      boolean isOutbound = edgeData.getValue();
-      var neighboringNode = isOutbound ? edge.in : edge.out;
-
-      if (!remainingDependencies.get(neighboringNode.alias).isEmpty()) {
-        // Unsatisfied dependencies, ignore this neighboring node.
-        continue;
-      }
-
-      if (visitedNodes.contains(neighboringNode)) {
-        if (!visitedEdges.contains(edge)) {
-          // If we are executing in this block, we are in the following situation:
-          // - the startNode has not been visited yet;
-          // - it has a neighboringNode that has already been visited;
-          // - the edge between the startNode and the neighboringNode has not been scheduled yet.
-          //
-          // The isOutbound value shows us whether the edge is outbound from the point of view of
-          // the startNode.
-          // However, if there are edges to the startNode, we must visit the startNode from an
-          // already-visited
-          // neighbor, to preserve the validity of the traversal. Therefore, we negate the value of
-          // isOutbound
-          // to ensure that the edge is always scheduled in the direction from the already-visited
-          // neighbor
-          // toward the startNode. Notably, this is also the case when evaluating "optional" nodes
-          // -- we always
-          // visit the optional node from its non-optional and already-visited neighbor.
-          //
-          // The only exception to the above is when we have edges with "while" conditions. We are
-          // not allowed
-          // to flip their directionality, so we leave them as-is.
-          boolean traversalDirection;
-          if (startNode.optional || edge.item.isBidirectional()) {
-            traversalDirection = !isOutbound;
-          } else {
-            traversalDirection = isOutbound;
-          }
-
-          visitedEdges.add(edge);
-          resultingSchedule.add(new EdgeTraversal(edge, traversalDirection));
-        }
-      } else if (!startNode.optional) {
-        // If the neighboring node wasn't visited, we don't expand the optional node into it, hence
-        // the above check.
-        // Instead, we'll allow the neighboring node to add the edge we failed to visit, via the
-        // above block.
-        if (visitedEdges.contains(edge)) {
-          // Should never happen.
-          throw new AssertionError(
-              "The edge was visited, but the neighboring vertex was not: "
-                  + edge
-                  + " "
-                  + neighboringNode);
-        }
-
-        visitedEdges.add(edge);
-        resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
-        updateScheduleStartingAt(
-            neighboringNode, visitedNodes, visitedEdges, remainingDependencies, resultingSchedule);
-      }
-    }
-  }
-
-  /**
-   * Calculate the set of dependency aliases for each alias in the pattern.
-   *
-   * @return map of alias to the set of aliases it depends on
-   */
-  private Map<String, Set<String>> getDependencies(Pattern pattern) {
-    Map<String, Set<String>> result = new HashMap<String, Set<String>>();
-
-    for (var node : pattern.aliasToNode.values()) {
-      Set<String> currentDependencies = new HashSet<String>();
-
-      var filter = aliasFilters.get(node.alias);
-      if (filter != null && filter.baseExpression != null) {
-        var involvedAliases = filter.baseExpression.getMatchPatternInvolvedAliases();
-        if (involvedAliases != null) {
-          currentDependencies.addAll(involvedAliases);
-        }
-      }
-
-      result.put(node.alias, currentDependencies);
-    }
-
-    return result;
-  }
-
-  /**
-   * sort edges in the order they will be matched
-   */
-  private List<EdgeTraversal> getTopologicalSortedSchedule(
-      Map<String, Long> estimatedRootEntries, Pattern pattern) {
-    List<EdgeTraversal> resultingSchedule = new ArrayList<EdgeTraversal>();
-    var remainingDependencies = getDependencies(pattern);
-    Set<PatternNode> visitedNodes = new HashSet<PatternNode>();
-    Set<PatternEdge> visitedEdges = new HashSet<PatternEdge>();
-
-    // Sort the possible root vertices in order of estimated size, since we want to start with a
-    // small vertex set.
-    List<PairLongObject<String>> rootWeights = new ArrayList<>();
-    for (var root : estimatedRootEntries.entrySet()) {
-      rootWeights.add(new PairLongObject<>(root.getValue(), root.getKey()));
-    }
-    Collections.sort(rootWeights);
-
-    // Add the starting vertices, in the correct order, to an ordered set.
-    Set<String> remainingStarts = new LinkedHashSet<String>();
-    for (var item : rootWeights) {
-      remainingStarts.add(item.getValue());
-    }
-    // Add all the remaining aliases after all the suggested start points.
-    remainingStarts.addAll(pattern.aliasToNode.keySet());
-
-    while (resultingSchedule.size() < pattern.numOfEdges) {
-      // Start a new depth-first pass, adding all nodes with satisfied dependencies.
-      // 1. Find a starting vertex for the depth-first pass.
-      PatternNode startingNode = null;
-      List<String> startsToRemove = new ArrayList<String>();
-      for (var currentAlias : remainingStarts) {
-        var currentNode = pattern.aliasToNode.get(currentAlias);
-
-        if (visitedNodes.contains(currentNode)) {
-          // If a previous traversal already visited this alias, remove it from further
-          // consideration.
-          startsToRemove.add(currentAlias);
-        } else if (remainingDependencies.get(currentAlias).isEmpty()) {
-          // If it hasn't been visited, and has all dependencies satisfied, visit it.
-          startsToRemove.add(currentAlias);
-          startingNode = currentNode;
-          break;
-        }
-      }
-      startsToRemove.forEach(remainingStarts::remove);
-
-      if (startingNode == null) {
-        // We didn't manage to find a valid root, and yet we haven't constructed a complete
-        // schedule.
-        // This means there must be a cycle in our dependency graph, or all dependency-free nodes
-        // are optional.
-        // Therefore, the query is invalid.
-        throw new CommandExecutionException(
-            "This query contains MATCH conditions that cannot be evaluated, "
-                + "like an undefined alias or a circular dependency on a $matched condition.");
-      }
-
-      // 2. Having found a starting vertex, traverse its neighbors depth-first,
-      //    adding any non-visited ones with satisfied dependencies to our schedule.
-      updateScheduleStartingAt(
-          startingNode, visitedNodes, visitedEdges, remainingDependencies, resultingSchedule);
-    }
-
-    if (resultingSchedule.size() != pattern.numOfEdges) {
-      throw new AssertionError(
-          "Incorrect number of edges: " + resultingSchedule.size() + " vs " + pattern.numOfEdges);
-    }
-
-    return resultingSchedule;
-  }
-
-
-  private static boolean matchesClass(DatabaseSessionEmbedded session, Identifiable identifiable,
-      SchemaClass oClass) {
-    if (identifiable == null) {
-      return false;
-    }
-    try {
-      var transaction = session.getActiveTransaction();
-      var record = transaction.load(identifiable);
-      if (record instanceof EntityImpl) {
-        SchemaImmutableClass result;
-        result = ((EntityImpl) record).getImmutableSchemaClass(session);
-        SchemaClass schemaClass = result;
-        if (schemaClass == null) {
-          return false;
-        }
-        return schemaClass.isSubClassOf(oClass);
-      }
-      return false;
-    } catch (RecordNotFoundException rnf) {
-      return false;
     }
   }
 
@@ -591,7 +328,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   }
 
   @Nullable
-  private static String getLowerSubclass(DatabaseSessionEmbedded session, String className1,
+  static String getLowerSubclass(DatabaseSessionEmbedded session, String className1,
       String className2) {
     Schema schema = session.getMetadata().getSchema();
     var class1 = schema.getClass(className1);
@@ -730,68 +467,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       builder.append(" ");
       limit.toGenericStatement(builder);
     }
-  }
-
-  @Override
-  public Iterator<Identifiable> iterator(DatabaseSessionEmbedded session,
-      Map<Object, Object> iArgs) {
-    if (context == null) {
-      var context = new BasicCommandContext();
-      context.setDatabaseSession(session);
-
-      this.context = context;
-    }
-
-    var result = execute(session, iArgs);
-    return result.stream().map(x -> (Identifiable) x.getIdentity()).iterator();
-  }
-
-  @Override
-  public SQLMatchStatement copy() {
-    var result = new SQLMatchStatement(-1);
-    //noinspection ReturnOfNull
-    result.matchExpressions =
-        matchExpressions == null
-            ? null
-            : matchExpressions.stream()
-                .map(x -> x == null ? null : x.copy())
-                .collect(Collectors.toList());
-    //noinspection ReturnOfNull
-    result.notMatchExpressions =
-        notMatchExpressions == null
-            ? null
-            : notMatchExpressions.stream()
-                .map(x -> x == null ? null : x.copy())
-                .collect(Collectors.toList());
-    //noinspection ReturnOfNull
-    result.returnItems =
-        returnItems == null
-            ? null
-            : returnItems.stream()
-                .map(x -> x == null ? null : x.copy())
-                .collect(Collectors.toList());
-    //noinspection ReturnOfNull
-    result.returnAliases =
-        returnAliases == null
-            ? null
-            : returnAliases.stream()
-                .map(x -> x == null ? null : x.copy())
-                .collect(Collectors.toList());
-    //noinspection ReturnOfNull
-    result.returnNestedProjections =
-        returnNestedProjections == null
-            ? null
-            : returnNestedProjections.stream()
-                .map(x -> x == null ? null : x.copy())
-                .collect(Collectors.toList());
-    result.groupBy = groupBy == null ? null : groupBy.copy();
-    result.orderBy = orderBy == null ? null : orderBy.copy();
-    result.unwind = unwind == null ? null : unwind.copy();
-    result.skip = skip == null ? null : skip.copy();
-    result.limit = limit == null ? null : limit.copy();
-    result.returnDistinct = this.returnDistinct;
-    result.buildPatterns();
-    return result;
   }
 
   @Override
