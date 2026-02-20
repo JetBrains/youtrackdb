@@ -1078,7 +1078,9 @@
                 <mutator>FALSE_RETURNS</mutator>
                 <mutator>NULL_RETURNS</mutator>
               </mutators>
-              <maxMutationsPerClass>150</maxMutationsPerClass>
+              <features>
+                <feature>+CLASSLIMIT(limit[150])</feature>
+              </features>
               <excludedClasses>
                 <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
                 <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
