@@ -4,35 +4,52 @@ import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Default implementation of {@link Ticker} that updates its internal time at a certain granularity
- * in a separate thread.
- */
+/// Default implementation of [Ticker] that updates its internal time at a certain granularity in a
+/// separate thread.
 public class GranularTicker implements Ticker, AutoCloseable {
 
   private final long granularity;
-  private volatile long time;
+  private final long timestampRefreshRate;
+  private volatile long nanoTime;
+  /// Offset between {@link System#currentTimeMillis()} and {@link System#nanoTime()} converted to
+  /// milliseconds. Since {@code nanoTime} has no defined origin (it is only meaningful for
+  /// measuring elapsed time), this difference lets us derive an approximate wall-clock timestamp
+  /// from the cached {@code nanoTime} without an extra {@code currentTimeMillis()} call. Refreshed
+  /// periodically to account for clock drift.
+  private volatile long nanoTimeDifference;
 
   private final ScheduledExecutorService executor;
 
-  public GranularTicker(long granularity) {
+  public GranularTicker(long granularityNanos, long timestampRefreshRate) {
     this.executor = ThreadPoolExecutors.newSingleThreadScheduledPool("GranularTicker");
-    this.granularity = granularity;
+    this.timestampRefreshRate = timestampRefreshRate;
+    this.granularity = granularityNanos;
   }
 
   @Override
   public void start() {
-    assert time == 0 : "Ticker is already started";
-    this.time = System.nanoTime();
+    assert nanoTime == 0 : "Ticker is already started";
+    this.nanoTime = System.nanoTime();
+    this.nanoTimeDifference = System.currentTimeMillis() - this.nanoTime / 1_000_000;
+
     executor.scheduleAtFixedRate(
-        () -> time = System.nanoTime(),
-        0, granularity, TimeUnit.NANOSECONDS
+        () -> nanoTime = System.nanoTime(),
+        granularity, granularity, TimeUnit.NANOSECONDS
+    );
+    executor.scheduleAtFixedRate(
+        () -> nanoTimeDifference = System.currentTimeMillis() - System.nanoTime() / 1_000_000,
+        timestampRefreshRate, timestampRefreshRate, TimeUnit.NANOSECONDS
     );
   }
 
   @Override
-  public long lastNanoTime() {
-    return time;
+  public long approximateNanoTime() {
+    return nanoTime;
+  }
+
+  @Override
+  public long approximateCurrentTimeMillis() {
+    return nanoTime / 1_000_000 + nanoTimeDifference;
   }
 
   @Override
@@ -42,7 +59,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   @Override
   public long getTick() {
-    return time / granularity;
+    return nanoTime / granularity;
   }
 
   @Override
@@ -56,7 +73,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     stop();
   }
 }
