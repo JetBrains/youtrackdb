@@ -38,6 +38,17 @@ jobs:
           cache: 'maven'
           overwrite-settings: false
 
+      - name: Configure Maven Settings
+        run: |
+          if [ -n "$MAVEN_MIRROR_USERNAME" ]; then
+            echo "MVN_SETTINGS=-s .github/workflows/settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "Mirror credentials not available — using Maven Central directly"
+            echo "MVN_SETTINGS=" >> "$GITHUB_ENV"
+          fi
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+
       - name: Check for build-relevant changes
         id: filter
         env:
@@ -89,7 +100,7 @@ jobs:
 
           # Extract Maven module directories using Maven itself
           set +e
-          MODULES=$(./mvnw -s .github/workflows/settings.xml -q help:evaluate \
+          MODULES=$(./mvnw $MVN_SETTINGS -q help:evaluate \
             -Dexpression=project.modules -DforceStdout -N \
             | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
           MVN_EXIT=$?
@@ -178,6 +189,16 @@ jobs:
           distribution: ${{ matrix.distribution }}
           architecture: ${{ matrix.java_arch }}
           overwrite-settings: false
+      - name: Configure Maven Settings
+        run: |
+          if [ -n "$MAVEN_MIRROR_USERNAME" ]; then
+            echo "MVN_SETTINGS=-s .github/workflows/settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "Mirror credentials not available — using Maven Central directly"
+            echo "MVN_SETTINGS=" >> "$GITHUB_ENV"
+          fi
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
       - name: Cache Ekstazi data
         uses: actions/cache@v4
         with:
@@ -188,12 +209,12 @@ jobs:
             ekstazi-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-
       - name: Run Unit Tests
         id: tests
-        run: ./mvnw -s .github/workflows/settings.xml clean package -B ${{ matrix.mvn_opts }}
+        run: ./mvnw $MVN_SETTINGS clean package -B ${{ matrix.mvn_opts }}
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
       - name: Run Integration Tests
-        run: ./mvnw -s .github/workflows/settings.xml verify -B -Dmaven.test.failure.ignore=true -P docker-images,ekstazi,coverage
+        run: ./mvnw $MVN_SETTINGS verify -B -Dmaven.test.failure.ignore=true -P docker-images,ekstazi,coverage
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
@@ -239,10 +260,21 @@ jobs:
           architecture: x64
           cache: 'maven'
           overwrite-settings: false
+      - name: Configure Maven Settings
+        shell: bash
+        run: |
+          if [ -n "$MAVEN_MIRROR_USERNAME" ]; then
+            echo "MVN_SETTINGS=-s .github/workflows/settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "Mirror credentials not available — using Maven Central directly"
+            echo "MVN_SETTINGS=" >> "$GITHUB_ENV"
+          fi
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
       - name: Run Unit Tests
         id: tests
         shell: bash
-        run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true
+        run: ./mvnw $MVN_SETTINGS clean package -B -Dmaven.test.failure.ignore=true
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
@@ -279,7 +311,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download Coverage Data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: coverage-data
           path: .coverage/reports
@@ -378,6 +410,17 @@ jobs:
           cache: 'maven'
           overwrite-settings: false
 
+      - name: Configure Maven Settings
+        run: |
+          if [ -n "$MAVEN_MIRROR_USERNAME" ]; then
+            echo "MVN_SETTINGS=-s .github/workflows/settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "Mirror credentials not available — using Maven Central directly"
+            echo "MVN_SETTINGS=" >> "$GITHUB_ENV"
+          fi
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -439,7 +482,7 @@ jobs:
       - name: Compile Test Classes
         if: steps.changes.outputs.skip != 'true'
         run: |
-          ./mvnw -s .github/workflows/settings.xml \
+          ./mvnw $MVN_SETTINGS \
             -pl ${{ steps.changes.outputs.modules }} \
             test-compile -B
         env:
@@ -453,7 +496,7 @@ jobs:
         run: |
           # Integration tests (*IT, *IntegrationTest) are excluded via the
           # mutation-testing Maven profile so PIT runs only with unit tests.
-          ./mvnw -s .github/workflows/settings.xml \
+          ./mvnw $MVN_SETTINGS \
             -pl ${{ steps.changes.outputs.modules }} \
             org.pitest:pitest-maven:mutationCoverage \
             -P mutation-testing \
@@ -531,12 +574,26 @@ jobs:
       checks: write
       actions: read
     steps:
+      - name: Check Qodana Token
+        id: token-check
+        run: |
+          if [ -n "$QODANA_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "QODANA_TOKEN not available — skipping Qodana scan"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
       - uses: actions/checkout@v6
+        if: steps.token-check.outputs.available == 'true'
         with:
           fetch-depth: 0
           lfs: true
 
       - name: Qodana Scan
+        if: steps.token-check.outputs.available == 'true'
         uses: JetBrains/qodana-action@v2025.3
         with:
           args: >-
@@ -627,7 +684,7 @@ jobs:
           fi
           if [[ "$LINUX_RESULT" != "success" ]] || \
              [[ "$WINDOWS_RESULT" != "success" ]] || \
-             [[ "$QODANA_RESULT" != "success" ]]; then
+             [[ "$QODANA_RESULT" != "success" && "$QODANA_RESULT" != "skipped" ]]; then
             echo "Not all required jobs succeeded" \
               "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT," \
               "qodana=$QODANA_RESULT)"
