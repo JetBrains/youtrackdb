@@ -2702,6 +2702,67 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Exercises the Object[] args overload of SQLMatchStatement.execute() by using
+   * positional parameters in a MATCH query.
+   */
+  @Test
+  public void testMatchWithPositionalArgs() {
+    session.begin();
+    var result = session.execute(
+            "MATCH {class:Person, as:a, where:(name = ?)}.out('Friend'){as:b}"
+                + " RETURN a.name as aName, b.name as bName",
+            "n1")
+        .toList();
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("aName"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Exercises SQLMatchStatement.getLowerSubclass() by referencing the same alias
+   * with a class constraint that is a subclass of V (Person extends V).
+   */
+  @Test
+  public void testMatchWithSameAliasSubclassConstraint() {
+    session.begin();
+    // Two expressions referencing 'a' with class:Person — both specify the same class,
+    // which triggers getLowerSubclass() to determine the more specific type
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+                + " {class:Person, as:a}"
+                + " RETURN a.name as aName, b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("aName"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Exercises MATCH with DISTINCT in the return clause, covering the returnDistinct
+   * branch in SQLMatchStatement.toString().
+   */
+  @Test
+  public void testMatchReturnDistinct() {
+    session.begin();
+    var result = session.query(
+            "MATCH {class:Person, as:a}.out('Friend'){as:b}"
+                + " RETURN DISTINCT b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    // Verify distinct: friend names should not repeat
+    var names = new java.util.HashSet<String>();
+    for (var row : result) {
+      assertTrue("DISTINCT should not produce duplicates",
+          names.add(row.getProperty("bName")));
+    }
+    session.commit();
+  }
+
   private List<? extends Identifiable> getManagedPathElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
