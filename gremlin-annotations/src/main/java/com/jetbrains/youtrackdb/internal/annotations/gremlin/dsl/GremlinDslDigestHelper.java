@@ -5,12 +5,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.CRC32;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Helper for DSL source digest (CRC32) used to decide whether to skip regeneration.
  * Extracted for unit testing.
  */
 public final class GremlinDslDigestHelper {
+
+  private static final Logger log = LoggerFactory.getLogger(GremlinDslDigestHelper.class);
 
   /** Comment line prefix written into generated files; stored digest follows. */
   public static final String DSL_SOURCE_DIGEST_PREFIX =
@@ -27,6 +31,7 @@ public final class GremlinDslDigestHelper {
       crc.update(bytes);
       return Long.toHexString(crc.getValue());
     } catch (IOException e) {
+      log.warn("Cannot read DSL source for digest: {}", sourcePath, e);
       return "";
     }
   }
@@ -48,7 +53,8 @@ public final class GremlinDslDigestHelper {
           return line.substring(start).trim();
         }
       }
-    } catch (IOException ignored) {
+    } catch (IOException e) {
+      log.warn("Cannot read stored digest from: {}", generatedPath, e);
       return null;
     }
     return null;
