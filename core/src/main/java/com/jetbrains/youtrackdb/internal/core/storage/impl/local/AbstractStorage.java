@@ -98,8 +98,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUT
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -156,6 +159,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -287,6 +291,17 @@ public abstract class AbstractStorage
   // thread death releases the ThreadLocal's strong reference).
   protected final Set<TsMinHolder> tsMins =
       Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+
+  // Shared snapshot index: maps (componentId, collectionPosition, recordVersion) → PositionEntry.
+  // Replaces per-collection snapshotIndex fields in PaginatedCollectionV2, enabling centralized
+  // low-water-mark GC across all collections.
+  protected final ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex =
+      new ConcurrentSkipListMap<>();
+
+  // Visibility index: maps (recordTs, componentId, collectionPosition) → SnapshotKey.
+  // Ordering by recordTs first enables efficient range-scan eviction via headMap(lowWaterMark).
+  protected final ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIndex =
+      new ConcurrentSkipListMap<>();
 
   public AbstractStorage(
       final String name, final String filePath, final int id,
@@ -4280,6 +4295,8 @@ public abstract class AbstractStorage
       collectionMap.clear();
       indexEngines.clear();
       indexEngineNameMap.clear();
+      sharedSnapshotIndex.clear();
+      visibilityIndex.clear();
 
       if (writeCache != null) {
         writeCache.removeBackgroundExceptionListener(this);
@@ -4342,6 +4359,8 @@ public abstract class AbstractStorage
         collectionMap.clear();
         indexEngines.clear();
         indexEngineNameMap.clear();
+        sharedSnapshotIndex.clear();
+        visibilityIndex.clear();
 
         if (writeCache != null) {
           writeCache.removeBackgroundExceptionListener(this);
@@ -5363,6 +5382,14 @@ public abstract class AbstractStorage
 
   public long computeGlobalLowWaterMark() {
     return computeGlobalLowWaterMark(tsMins);
+  }
+
+  public ConcurrentSkipListMap<SnapshotKey, PositionEntry> getSharedSnapshotIndex() {
+    return sharedSnapshotIndex;
+  }
+
+  public ConcurrentSkipListMap<VisibilityKey, SnapshotKey> getVisibilityIndex() {
+    return visibilityIndex;
   }
 
   /**
