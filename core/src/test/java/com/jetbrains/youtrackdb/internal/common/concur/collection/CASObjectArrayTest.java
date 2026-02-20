@@ -225,4 +225,11 @@ public class CASObjectArrayTest {
 
     Assert.assertSame(defaultPlaceholder, array.getOrEmpty(0));
   }
+
+  @Test
+  public void shouldThrowWhenSetMethodWithoutPlaceholderIsUsedAndPlaceholderIsNotSet() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(UnsupportedOperationException.class, () -> array.set(0, 1));
+  }
 }
