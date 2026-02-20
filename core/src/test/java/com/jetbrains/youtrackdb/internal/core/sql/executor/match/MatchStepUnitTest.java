@@ -470,6 +470,38 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(MatchEdgeTraverser.matchesFilters(ctx, null, new ResultInternal(session)));
   }
 
+  // -- MatchAssertions tests --
+
+  /** Verifies checkNotNull returns true for non-null value. */
+  @Test
+  public void testCheckNotNullPasses() {
+    assertTrue(MatchAssertions.checkNotNull("value", "label"));
+  }
+
+  /** Verifies checkNotNull throws AssertionError for null value. */
+  @Test(expected = AssertionError.class)
+  public void testCheckNotNullFails() {
+    MatchAssertions.checkNotNull(null, "label");
+  }
+
+  /** Verifies checkNotEmpty returns true for non-empty string. */
+  @Test
+  public void testCheckNotEmptyPasses() {
+    assertTrue(MatchAssertions.checkNotEmpty("value", "label"));
+  }
+
+  /** Verifies checkNotEmpty throws AssertionError for null string. */
+  @Test(expected = AssertionError.class)
+  public void testCheckNotEmptyFailsNull() {
+    MatchAssertions.checkNotEmpty(null, "label");
+  }
+
+  /** Verifies checkNotEmpty throws AssertionError for empty string. */
+  @Test(expected = AssertionError.class)
+  public void testCheckNotEmptyFailsEmpty() {
+    MatchAssertions.checkNotEmpty("", "label");
+  }
+
   // -- Helper methods --
 
   private CommandContext createCommandContext() {

@@ -73,7 +73,7 @@ public class MatchStep extends AbstractExecutionStep {
    */
   public MatchStep(CommandContext context, EdgeTraversal edge, boolean profilingEnabled) {
     super(context, profilingEnabled);
-    assert edge != null : "edge traversal must not be null";
+    assert MatchAssertions.checkNotNull(edge, "edge traversal");
     this.edge = edge;
   }
 
@@ -83,7 +83,7 @@ public class MatchStep extends AbstractExecutionStep {
    */
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    assert prev != null;
+    assert MatchAssertions.checkNotNull(prev, "previous step");
 
     var resultSet = prev.start(ctx);
     return resultSet.flatMap(this::createNextResultSet);

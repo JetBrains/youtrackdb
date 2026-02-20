@@ -29,7 +29,7 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    assert prev != null;
+    assert MatchAssertions.checkNotNull(prev, "previous step");
 
     var upstream = prev.start(ctx);
     return upstream.map(RemoveEmptyOptionalsStep::mapResult);

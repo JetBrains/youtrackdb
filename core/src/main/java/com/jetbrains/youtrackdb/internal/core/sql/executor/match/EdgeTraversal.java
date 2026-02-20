@@ -58,9 +58,9 @@ public class EdgeTraversal {
    * @param out  `true` for forward traversal, `false` for reverse
    */
   public EdgeTraversal(PatternEdge edge, boolean out) {
-    assert edge != null : "pattern edge must not be null";
-    assert edge.out != null : "edge source node must not be null";
-    assert edge.in != null : "edge target node must not be null";
+    assert MatchAssertions.checkNotNull(edge, "pattern edge");
+    assert MatchAssertions.checkNotNull(edge.out, "edge source node");
+    assert MatchAssertions.checkNotNull(edge.in, "edge target node");
     this.edge = edge;
     this.out = out;
   }

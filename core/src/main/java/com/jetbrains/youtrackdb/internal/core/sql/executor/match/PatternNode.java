@@ -71,8 +71,8 @@ public class PatternNode {
    *         the total edge count)
    */
   public int addEdge(SQLMatchPathItem item, PatternNode to) {
-    assert item != null : "path item must not be null";
-    assert to != null : "target node must not be null";
+    assert MatchAssertions.checkNotNull(item, "path item");
+    assert MatchAssertions.checkNotNull(to, "target node");
     var edge = new PatternEdge();
     edge.item = item;
     edge.out = this;

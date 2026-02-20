@@ -40,12 +40,12 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
 
   public MatchReverseEdgeTraverser(Result lastUpstreamRecord, EdgeTraversal edge) {
     super(lastUpstreamRecord, edge);
-    assert lastUpstreamRecord != null : "upstream record must not be null";
+    assert MatchAssertions.checkNotNull(lastUpstreamRecord, "upstream record");
     // Swap source/target aliases relative to the syntactic direction
     this.startingPointAlias = edge.edge.in.alias;
     this.endPointAlias = edge.edge.out.alias;
-    assert startingPointAlias != null : "starting point alias must not be null";
-    assert endPointAlias != null : "endpoint alias must not be null";
+    assert MatchAssertions.checkNotNull(startingPointAlias, "starting point alias");
+    assert MatchAssertions.checkNotNull(endPointAlias, "endpoint alias");
   }
 
   /** Uses the planner-provided left-class constraint (the original source node's class). */
