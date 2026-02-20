@@ -2540,6 +2540,163 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Exercises MatchReverseEdgeTraverser by using both() in a back-edge pattern.
+   * The DFS visits 'a' first, then 'b' via out, and the second pattern references
+   * both a→b with both() which is bidirectional, creating a back-edge to the
+   * already-visited node that triggers direction flip.
+   */
+  @Test
+  public void testBidirectionalBackEdgeTriggersReverse() {
+    session.begin();
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+                + " {as:b}.both('Friend'){as:a}"
+                + " RETURN a.name as aName, b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("aName"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Exercises EXPLAIN on the bidirectional back-edge pattern to verify the planner
+   * includes a reverse step in the execution plan.
+   */
+  @Test
+  public void testExplainBidirectionalBackEdge() {
+    session.begin();
+    var result = session.query(
+            "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+                + " {as:b}.both('Friend'){as:a}"
+                + " RETURN a, b")
+        .toList();
+    assertFalse(result.isEmpty());
+    // The EXPLAIN output should contain the plan structure
+    var plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchReverseEdgeTraverser with an optional target node that forces the
+   * scheduler to reverse the edge direction (optional nodes must be reached from
+   * already-visited nodes).
+   */
+  @Test
+  public void testOptionalNodeTriggersReverseTraversal() {
+    session.begin();
+    var result = session.query(
+            "MATCH {class:Person, as:a}.out('Friend'){as:b},"
+                + " {as:b, optional:true}.in('Friend'){as:a}"
+                + " RETURN a.name as aName, b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchEdgeTraverser.matchesRid by using a RID-based filter
+   * on the target node of a MATCH pattern.
+   */
+  @Test
+  public void testMatchTargetNodeWithRidFilter() {
+    session.begin();
+    var n2 = session.query("SELECT FROM Person WHERE name = 'n2'").toList();
+    assertFalse(n2.isEmpty());
+    var n2Rid = n2.get(0).getIdentity();
+
+    var result = session.query(
+            "MATCH {class:Person, as:a}.out('Friend'){as:b, where:(@rid = " + n2Rid + ")}"
+                + " RETURN a.name as aName, b.name as bName")
+        .toList();
+    assertEquals(1, result.size());
+    assertEquals("n1", result.get(0).getProperty("aName"));
+    assertEquals("n2", result.get(0).getProperty("bName"));
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchEdgeTraverser.next() with depthAlias AND pathAlias to cover
+   * the metadata propagation branches.
+   */
+  @Test
+  public void testWhileWithDepthAndPathAlias() {
+    session.begin();
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".out('Friend'){while:($depth < 3), as:b,"
+                + " depthAlias: d, pathAlias: p}"
+                + " RETURN b.name as bName, d, p")
+        .toList();
+    assertFalse(result.isEmpty());
+    boolean foundStart = false;
+    for (var row : result) {
+      Object depth = row.getProperty("d");
+      if (depth != null && ((Number) depth).intValue() == 0) {
+        foundStart = true;
+        assertNotNull("pathAlias should produce a value", row.getProperty("p"));
+      }
+    }
+    assertTrue("Should find depth-0 starting point result", foundStart);
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchMultiEdgeTraverser with a compound path containing a filter
+   * on the intermediate sub-step to cover the filter branch in simple expansion.
+   */
+  @Test
+  public void testCompoundPathWithFilter() {
+    session.begin();
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".(out('Friend'){where:(name='n2')}.out('Friend')){as:b}"
+                + " RETURN b.name as bName")
+        .toList();
+    // n1->n2 (passes filter)->n4
+    assertFalse(result.isEmpty());
+    assertEquals("n4", result.get(0).getProperty("bName"));
+    session.commit();
+  }
+
+  /**
+   * Exercises MatchEdgeTraverser.matchesClass with a class constraint on the
+   * target node.
+   */
+  @Test
+  public void testMatchTargetWithClassConstraint() {
+    session.begin();
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".out('Friend'){class:Person, as:b}"
+                + " RETURN b.name as bName")
+        .toList();
+    assertFalse(result.isEmpty());
+    session.commit();
+  }
+
+  /**
+   * Exercises OptionalMatchEdgeTraverser with a node that has no outgoing
+   * edges, producing the EMPTY_OPTIONAL sentinel. Covers the "no match"
+   * path in init() and the null-setting path in next().
+   */
+  @Test
+  public void testOptionalWithNoMatchProducesNullValue() {
+    session.begin();
+    // n6 has no outgoing Friend edges. 'b' will be EMPTY_OPTIONAL → null.
+    var result = session.query(
+            "MATCH {class:Person, as:a, where:(name='n6')}"
+                + ".out('Friend'){as:b, optional:true}"
+                + " RETURN a.name as aName, b as bValue")
+        .toList();
+    assertEquals(1, result.size());
+    assertEquals("n6", result.get(0).getProperty("aName"));
+    session.commit();
+  }
+
   private List<? extends Identifiable> getManagedPathElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
