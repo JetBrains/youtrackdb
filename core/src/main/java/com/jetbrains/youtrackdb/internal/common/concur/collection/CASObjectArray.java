@@ -53,6 +53,9 @@ public final class CASObjectArray<T> {
   }
 
   public void set(int index, T value, T placeholder) {
+    if (index < 0) {
+      throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
+    }
     Objects.requireNonNull(value);
     Objects.requireNonNull(placeholder);
 
@@ -88,7 +91,7 @@ public final class CASObjectArray<T> {
 
     final var size = this.size.get();
 
-    if (size <= index) {
+    if (index < 0 || size <= index) {
       throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
     }
 
@@ -118,6 +121,9 @@ public final class CASObjectArray<T> {
   }
 
   private T get(int index, boolean throwOnOutOfBounds) {
+    if (index < 0) {
+      throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
+    }
     final var size = this.size.get();
 
     if (size <= index) {
