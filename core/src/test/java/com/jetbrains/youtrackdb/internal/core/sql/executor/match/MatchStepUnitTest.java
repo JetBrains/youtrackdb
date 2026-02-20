@@ -13,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -62,6 +62,35 @@ public class MatchStepUnitTest extends DbTestBase {
     assertNotSame(traversal, copy);
     assertFalse(copy.out);
     assertEquals(edge, copy.edge);
+  }
+
+  /** Verifies EdgeTraversal.toString() delegates to the underlying PatternEdge. */
+  @Test
+  public void testEdgeTraversalToString() {
+    var edge = createTestPatternEdgeWithOutPath();
+    var traversal = new EdgeTraversal(edge, true);
+    assertNotNull(traversal.toString());
+    assertEquals(edge.toString(), traversal.toString());
+  }
+
+  /** Verifies copy() deep-copies non-null leftFilter, leftRid, and leftClass. */
+  @Test
+  public void testEdgeTraversalCopyWithNonNullConstraints() {
+    var edge = createTestPatternEdge();
+    var traversal = new EdgeTraversal(edge, true);
+    traversal.setLeftClass("Person");
+    var filter = new SQLWhereClause(-1);
+    filter.setBaseExpression(SQLBooleanExpression.TRUE);
+    traversal.setLeftFilter(filter);
+    traversal.setLeftRid(new SQLRid(-1));
+
+    var copy = traversal.copy();
+    assertNotSame(traversal, copy);
+    assertEquals("Person", copy.getLeftClass());
+    assertNotNull(copy.getLeftFilter());
+    assertNotSame(traversal.getLeftFilter(), copy.getLeftFilter());
+    assertNotNull(copy.getLeftRid());
+    assertNotSame(traversal.getLeftRid(), copy.getLeftRid());
   }
 
   /** Verifies getter/setter round-trips for leftClass, leftRid, leftFilter. */
@@ -502,6 +531,39 @@ public class MatchStepUnitTest extends DbTestBase {
     MatchAssertions.checkNotEmpty("", "label");
   }
 
+  // -- validateEdgeTraversalArgs tests --
+
+  /** Verifies validateEdgeTraversalArgs returns true for a valid edge. */
+  @Test
+  public void testValidateEdgeTraversalArgsPasses() {
+    var edge = createTestPatternEdge();
+    assertTrue(MatchAssertions.validateEdgeTraversalArgs(edge));
+  }
+
+  /** Verifies validateEdgeTraversalArgs throws for null edge. */
+  @Test(expected = AssertionError.class)
+  public void testValidateEdgeTraversalArgsNullEdge() {
+    MatchAssertions.validateEdgeTraversalArgs(null);
+  }
+
+  /** Verifies validateEdgeTraversalArgs throws for edge with null source node. */
+  @Test(expected = AssertionError.class)
+  public void testValidateEdgeTraversalArgsNullOut() {
+    var edge = new PatternEdge();
+    edge.in = new PatternNode();
+    edge.out = null;
+    MatchAssertions.validateEdgeTraversalArgs(edge);
+  }
+
+  /** Verifies validateEdgeTraversalArgs throws for edge with null target node. */
+  @Test(expected = AssertionError.class)
+  public void testValidateEdgeTraversalArgsNullIn() {
+    var edge = new PatternEdge();
+    edge.out = new PatternNode();
+    edge.in = null;
+    MatchAssertions.validateEdgeTraversalArgs(edge);
+  }
+
   // -- Helper methods --
 
   private CommandContext createCommandContext() {
@@ -517,6 +579,18 @@ public class MatchStepUnitTest extends DbTestBase {
     var nodeB = new PatternNode();
     nodeB.alias = "b";
     var item = new SQLMatchPathItem(-1);
+    nodeA.addEdge(item, nodeB);
+    return nodeA.out.iterator().next();
+  }
+
+  /** Creates a PatternEdge with a fully-initialized outPath method (toString-safe). */
+  private PatternEdge createTestPatternEdgeWithOutPath() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var item = new SQLMatchPathItem(-1);
+    item.outPath(null);
     nodeA.addEdge(item, nodeB);
     return nodeA.out.iterator().next();
   }
