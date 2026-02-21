@@ -926,17 +926,21 @@ In practice, snapshots are deleted on PR merge, so typical storage cost is negli
 
 | Model | Input | Output | Typical session |
 |---|---|---|---|
-| Claude Sonnet 4.6 (recommended) | $3/MTok | $15/MTok | $2–8 |
-| Claude Opus 4.6 | $5/MTok | $25/MTok | $5–20 |
+| Claude Opus 4.6 (1M context) | $5/MTok | $25/MTok | $5–20 |
 
-For YouTrackDB with its 1.3 GB codebase and large CLAUDE.md, expect sessions on
-the higher end. Use `--max-turns` to cap runaway sessions.
+**Why Opus 4.6 exclusively**: YouTrackDB is a complex database engine with a massive
+codebase (1.3 GB, ~500k LOC). Effective work on storage internals, WAL, B-tree indices,
+and Gremlin integration requires the strongest reasoning model with the largest context
+window (1M tokens). The 1M context is critical for holding the full CLAUDE.md project
+guide, relevant source files, test output, and conversation history simultaneously —
+smaller models lose context mid-session and produce lower-quality changes that fail
+CI gates (85% coverage, 85% mutation score). Use `--max-turns` to cap runaway sessions.
 
 ### 8.3 Monthly estimate (moderate usage)
 
 ```mermaid
-pie title Monthly Cost Breakdown (~20 PRs, Sonnet)
-    "Anthropic API" : 110
+pie title Monthly Cost Breakdown (~20 PRs, Opus 4.6)
+    "Anthropic API" : 250
     "Orchestrator CX22" : 4
     "Agent compute" : 1.2
     "Snapshot storage" : 1
@@ -947,8 +951,8 @@ pie title Monthly Cost Breakdown (~20 PRs, Sonnet)
 | Orchestrator (CX22) | 1 × 24/7 | €4/month |
 | Agent sessions | ~20 PRs/month | ~€1.20/month |
 | Snapshots (transient) | ~5 active at any time | ~€1/month |
-| Anthropic API (Sonnet) | ~20 sessions | ~$60–160/month |
-| **Total** | | **~$70–170/month** |
+| Anthropic API (Opus 4.6) | ~20 sessions | ~$100–400/month |
+| **Total** | | **~$110–410/month** |
 
 ---
 
@@ -1048,7 +1052,7 @@ gantt
 ## 11. Future Enhancements (not in v1)
 
 - **Live terminal view**: Stream raw terminal output alongside chat
-- **Multi-model routing**: Use Haiku for simple questions, Opus for architecture decisions
+- **Cost optimization**: Explore prompt caching and context summarization to reduce per-session token usage
 - **Cost dashboard**: Real-time Anthropic API + Hetzner spend tracking
 - **Integration test trigger**: Auto-run `./mvnw verify -P ci-integration-tests` before PR creation
 - **Reviewer approval routing**: Forward CI failures to chat for interactive debugging
