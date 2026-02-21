@@ -13,8 +13,22 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Source step that fetches records by a pre-computed list of Record IDs (RIDs).
+ *
+ * <p>Used when the FROM clause specifies explicit RIDs:
+ * <pre>
+ *  SELECT FROM [#10:3, #10:7, #22:1]
+ * </pre>
+ * or when the planner resolves input parameters / metadata targets to specific RIDs.
+ *
+ * <p>Each RID is loaded from the storage engine via the standard record iterator.
+ *
+ * @see SelectExecutionPlanner#handleRidsAsTarget
+ */
 public class FetchFromRidsStep extends AbstractExecutionStep {
 
+  /** The collection of RIDs to fetch; iterated lazily during execution. */
   private Collection<RecordIdInternal> rids;
 
   public FetchFromRidsStep(
@@ -25,6 +39,7 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects before fetching by RID.
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
@@ -63,6 +78,15 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
+  }
+
+  /**
+   * Not cacheable: the RID list is typically resolved from runtime parameters or
+   * literal values in the SQL statement, which may differ between executions.
+   */
+  @Override
+  public boolean canBeCached() {
+    return false;
   }
 
   @Override

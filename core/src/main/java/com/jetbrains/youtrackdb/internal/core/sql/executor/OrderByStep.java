@@ -12,9 +12,45 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Intermediate <b>blocking</b> step that sorts all upstream records according to an
+ * ORDER BY clause.
+ *
+ * <p>This step must consume the entire upstream before producing any output (it cannot
+ * stream sorted results lazily). The sorted records are cached in-memory.
+ *
+ * <pre>
+ *  SQL:   SELECT FROM Person ORDER BY lastName, firstName
+ *
+ *  Processing:
+ *    1. Pull ALL records from upstream into cachedResult list
+ *    2. Sort using orderBy.apply(comparator)
+ *    3. Emit sorted records as an iterator-based stream
+ * </pre>
+ *
+ * <h2>Memory optimization</h2>
+ * When {@code maxResults} is set (derived from SKIP + LIMIT), the step periodically
+ * sorts and truncates the cached list to keep at most {@code maxResults * 2} entries
+ * in memory at a time. This trades extra sort passes for reduced peak heap usage.
+ *
+ * <p>The step also respects {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} and throws
+ * a {@link CommandExecutionException} if the result set exceeds the configured limit.
+ *
+ * @see SelectExecutionPlanner#handleOrderBy
+ * @see SelectExecutionPlanner#handleProjectionsBlock
+ */
 public class OrderByStep extends AbstractExecutionStep {
+
+  /** The ORDER BY clause defining sort keys and directions. */
   private final SQLOrderBy orderBy;
+
+  /** Query timeout in milliseconds (-1 = no timeout). */
   private final long timeoutMillis;
+
+  /**
+   * When non-null, the maximum number of results needed (SKIP + LIMIT).
+   * Used to compact the sort buffer periodically, reducing memory usage.
+   */
   private Integer maxResults;
 
   public OrderByStep(
@@ -22,6 +58,14 @@ public class OrderByStep extends AbstractExecutionStep {
     this(orderBy, null, ctx, timeoutMillis, profilingEnabled);
   }
 
+  /**
+   * @param orderBy          the ORDER BY clause defining sort keys and directions
+   * @param maxResults       max rows needed (SKIP+LIMIT); null for unlimited.
+   *                         When set, enables periodic buffer compaction to reduce memory.
+   * @param ctx              the query context
+   * @param timeoutMillis    query timeout in milliseconds (-1 = no timeout)
+   * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
+   */
   public OrderByStep(
       SQLOrderBy orderBy,
       Integer maxResults,
@@ -50,6 +94,30 @@ public class OrderByStep extends AbstractExecutionStep {
     return ExecutionStream.resultIterator(results.iterator());
   }
 
+  /**
+   * Pulls all records from the upstream step, sorts them, and returns the sorted list.
+   *
+   * <p>When {@code maxResults} is set (derived from SKIP + LIMIT), a memory optimization
+   * is applied: once the buffer exceeds {@code 2 * maxResults}, it is sorted and truncated
+   * to {@code maxResults} entries. This trades extra sort passes for reduced peak memory.
+   *
+   * <pre>
+   *  Without maxResults:
+   *    pull all -> sort once -> return
+   *
+   *  With maxResults = 100:
+   *    pull records into buffer
+   *    when buffer > 200: sort + truncate to 100
+   *    ... continue pulling ...
+   *    final sort + truncate -> return
+   * </pre>
+   *
+   * @param p   the upstream step to pull from
+   * @param ctx the command context
+   * @return the sorted (and possibly truncated) list of results
+   * @throws CommandExecutionException if the buffer exceeds
+   *         {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}
+   */
   private List<Result> init(ExecutionStepInternal p, CommandContext ctx) {
     var timeoutBegin = System.currentTimeMillis();
     List<Result> cachedResult = new ArrayList<>();
@@ -73,7 +141,9 @@ public class OrderByStep extends AbstractExecutionStep {
                 + " to increase this limit");
       }
       sorted = false;
-      // compact, only at twice as the buffer, to avoid to do it at each add
+      // Memory optimization: when we know only maxResults rows are needed (SKIP+LIMIT),
+      // periodically sort and truncate the buffer to maxResults once it exceeds
+      // 2x maxResults. This trades extra sort passes for reduced peak heap usage.
       if (this.maxResults != null) {
         var compactThreshold = 2L * maxResults;
         if (compactThreshold < cachedResult.size()) {
@@ -84,7 +154,7 @@ public class OrderByStep extends AbstractExecutionStep {
       }
     }
     lastBatch.close(ctx);
-    // compact at each batch, if needed
+    // Post-loop compaction: sort and truncate if new unsorted records were added.
     if (!sorted && this.maxResults != null && maxResults < cachedResult.size()) {
       cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
       cachedResult = new ArrayList<>(cachedResult.subList(0, maxResults));
@@ -104,6 +174,12 @@ public class OrderByStep extends AbstractExecutionStep {
     }
     result += (maxResults != null ? "\n  (buffer size: " + maxResults + ")" : "");
     return result;
+  }
+
+  /** Cacheable: the ORDER BY clause is a structural AST node deep-copied per execution. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override

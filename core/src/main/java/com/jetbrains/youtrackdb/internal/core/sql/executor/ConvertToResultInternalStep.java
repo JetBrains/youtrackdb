@@ -8,10 +8,22 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import javax.annotation.Nullable;
 
 /**
- * takes a result set made of OUpdatableRecord instances and transforms it in another result set
- * made of normal ResultInternal instances.
+ * Intermediate step that converts {@link UpdatableResult} instances back to immutable
+ * {@link ResultInternal} instances.
  *
- * <p>This is the opposite of ConvertToUpdatableResultStep
+ * <p>This is the inverse of {@code ConvertToUpdatableResultStep}. It is used after
+ * DML operations (UPDATE, DELETE) to convert the mutable result rows back into
+ * the standard read-only format expected by downstream projection and filtering steps.
+ *
+ * <p>Conversion rules:
+ * <ul>
+ *   <li>{@link UpdatableResult} with an entity -- unwrapped to a new
+ *       {@link ResultInternal} wrapping the entity</li>
+ *   <li>{@link UpdatableResult} without an entity -- passed through as-is</li>
+ *   <li>Any other {@link com.jetbrains.youtrackdb.internal.core.query.Result} type --
+ *       silently discarded (filtered out) because it was not produced by the
+ *       DML step and should not appear in the output</li>
+ * </ul>
  */
 public class ConvertToResultInternalStep extends AbstractExecutionStep {
 
@@ -22,7 +34,7 @@ public class ConvertToResultInternalStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
-      throw new IllegalStateException("filter step requires a previous step");
+      throw new IllegalStateException("ConvertToResultInternalStep requires a previous step");
     }
     var resultSet = prev.start(ctx);
     return resultSet.filter(ConvertToResultInternalStep::filterMap);
@@ -48,6 +60,12 @@ public class ConvertToResultInternalStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  /** Cacheable: this step is stateless -- it only converts result types per record. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override

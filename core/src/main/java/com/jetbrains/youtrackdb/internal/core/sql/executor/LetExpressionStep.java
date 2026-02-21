@@ -12,9 +12,32 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 
+/**
+ * Per-record LET step that evaluates an expression for each row flowing through
+ * the pipeline and attaches the result as metadata on the record.
+ *
+ * <pre>
+ *  SQL:  SELECT *, $fullName FROM Person
+ *        LET $fullName = firstName + ' ' + lastName
+ *
+ *  For each record:
+ *    1. Evaluate expression(firstName + ' ' + lastName) against the record
+ *    2. Store result as record.metadata("fullName")
+ *    3. Pass the record downstream (now carrying the $fullName metadata)
+ * </pre>
+ *
+ * <p>Unlike {@link GlobalLetExpressionStep}, this step executes once per record
+ * and the result may differ for each row.
+ *
+ * @see SelectExecutionPlanner#handleLet
+ * @see GlobalLetExpressionStep
+ */
 public class LetExpressionStep extends AbstractExecutionStep {
 
+  /** The variable name to store per-record values under. */
   private SQLIdentifier varname;
+
+  /** The expression to evaluate against each record. */
   private SQLExpression expression;
 
   public LetExpressionStep(
@@ -38,6 +61,11 @@ public class LetExpressionStep extends AbstractExecutionStep {
   private Result mapResult(Result result, CommandContext ctx) {
     var varName = varname.getStringValue();
     var value = expression.execute(result, ctx);
+    // Only set per-record metadata if no global variable with the same name exists.
+    // Global LETs (evaluated once before the fetch) take precedence over per-record LETs.
+    // Without this guard, a per-record LET with the same name would shadow the global
+    // value, which would be incorrect because global LETs are expected to be immutable
+    // throughout the query execution.
     if (ctx.getVariable(varName) == null) {
       ((ResultInternal) result)
           .setMetadata(varname.getStringValue(), SQLProjectionItem.convert(value, ctx));
@@ -78,6 +106,12 @@ public class LetExpressionStep extends AbstractExecutionStep {
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
+  }
+
+  /** Cacheable: expression AST is deep-copied per execution via {@link #copy}. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override
