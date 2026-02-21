@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
@@ -227,7 +228,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   }
 
   @Override
-  public void executeCommand(String command, Map<?, ?> params) {
+  public ResultSet executeCommand(String command, Map<?, ?> params) {
     if (command == null || command.isBlank()) {
       throw new IllegalArgumentException("Command cannot be null or empty");
     }
@@ -240,7 +241,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         if (!tx.isOpen()) {
           tx.readWrite();
         }
-        return;
+        return null;
       }
       case "COMMIT" -> {
         if (tx.isOpen()) {
@@ -248,7 +249,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         } else {
           throw new IllegalStateException("No active transaction to commit");
         }
-        return;
+        return null;
       }
       case "ROLLBACK" -> {
         if (tx.isOpen()) {
@@ -256,7 +257,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         } else {
           throw new IllegalStateException("No active transaction to rollback");
         }
-        return;
+        return null;
       }
     }
 
@@ -267,8 +268,10 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         schemaSession.command(statement, params);
       }
     } else {
-      tx.getDatabaseSession().command(statement, params);
+      return tx.getDatabaseSession().execute(statement, params);
     }
+
+    return null;
   }
 
   private static SQLStatement getSqlStatement(String command) {
