@@ -48,13 +48,7 @@ public class DefaultCollate extends DefaultComparator implements Collate {
 
   @Override
   public boolean equals(Object obj) {
-    if (obj == null || obj.getClass() != this.getClass()) {
-      return false;
-    }
-
-    final var that = (DefaultCollate) obj;
-
-    return NAME.equals(NAME);
+    return obj instanceof DefaultCollate;
   }
 
   @Override

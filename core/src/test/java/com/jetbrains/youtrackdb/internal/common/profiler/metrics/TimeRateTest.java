@@ -140,7 +140,8 @@ public class TimeRateTest extends MetricsBaseTest {
 
     // 5 threads producing 1 event every 1000ns = 5_000 events per millisecond
     for (int i = 0; i < writerThreadCount; i++) {
-      closeable(Executors.newSingleThreadScheduledExecutor())
+      @SuppressWarnings("unused")
+      var unused = closeable(Executors.newSingleThreadScheduledExecutor())
           .scheduleAtFixedRate(
               () -> meter.record(1), 0, eventPeriodNanos, TimeUnit.NANOSECONDS
           );

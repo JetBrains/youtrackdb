@@ -51,10 +51,11 @@ public class CompositeKeyTest extends DbTestBase {
   }
 
   @Test
-  public void testEqualSame() {
-    final var compositeKey = new CompositeKey();
-    //noinspection EqualsWithItself
-    assertEquals(compositeKey, compositeKey);
+  public void testEqualEquivalent() {
+    final var compositeKey1 = new CompositeKey();
+    final var compositeKey2 = new CompositeKey();
+    assertEquals(compositeKey1, compositeKey2);
+    assertEquals(compositeKey1.hashCode(), compositeKey2.hashCode());
   }
 
   @Test

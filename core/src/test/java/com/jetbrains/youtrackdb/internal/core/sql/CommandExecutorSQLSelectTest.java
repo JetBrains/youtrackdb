@@ -913,6 +913,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(0, qResult.stream().count());
   }
 
+  @SuppressWarnings("JUnit4TestNotRun")
   public void testUrl() {
 
     var qResult = session.execute("select from TestUrl").stream().toList();

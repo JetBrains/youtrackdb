@@ -757,7 +757,6 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.begin();
     var account = session.newEntity("Account");
     account.setProperty("name", "John Grisham");
-    account = account;
     session.commit();
 
     session.begin();
@@ -788,7 +787,6 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(account.<List<Identifiable>>getProperty("addresses").size(), 1);
     account.setProperty(
         "name", "New Name"); // change an attribute to see if the change is rolled back
-    account = account;
 
     Assert.assertEquals(
         account.<List<Identifiable>>getProperty("addresses").size(),

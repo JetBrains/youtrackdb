@@ -1,12 +1,25 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 public class StubTicker implements Ticker {
 
+  private static final VarHandle TIME;
+
+  static {
+    try {
+      TIME = MethodHandles.lookup().findVarHandle(StubTicker.class, "time", long.class);
+    } catch (ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
   private final long granularity;
+  @SuppressWarnings("FieldMayBeFinal")
   private volatile long time;
 
   public StubTicker(long initialNanoTime, long granularity) {
@@ -24,11 +37,11 @@ public class StubTicker implements Ticker {
   }
 
   public void setTime(long time) {
-    this.time = time;
+    TIME.setVolatile(this, time);
   }
 
   public void advanceTime(long time) {
-    this.time += time;
+    TIME.getAndAdd(this, time);
   }
 
   public void advanceTime(long time, TimeUnit unit) {

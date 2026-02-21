@@ -304,6 +304,15 @@ public class LinkBag
 
 
   @Override
+  public int hashCode() {
+    int result = delegate.getClass().hashCode();
+    for (var rid : delegate) {
+      result = 31 * result + Objects.hashCode(rid);
+    }
+    return result;
+  }
+
+  @Override
   public boolean equals(Object other) {
     if (!(other instanceof LinkBag otherRidbag)) {
       return false;

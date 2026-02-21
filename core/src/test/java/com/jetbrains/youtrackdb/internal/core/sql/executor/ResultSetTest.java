@@ -2,11 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import java.util.NoSuchElementException;
 import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests for ResultSet behavior including stream access and empty result set handling.
  */
 public class ResultSetTest extends DbTestBase {
 
@@ -32,7 +33,8 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
+    @SuppressWarnings("unused")
+    var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
   @Test(expected = IllegalStateException.class)
@@ -43,7 +45,8 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
+    @SuppressWarnings("unused")
+    var unused = rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
   @Test
@@ -79,5 +82,43 @@ public class ResultSetTest extends DbTestBase {
 
     rs2.toList();
 
+  }
+
+  /** Verify findFirstEntityOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstEntityOrNullThrowsOnEmpty() {
+    session.command("CREATE CLASS EmptyResultSetTest;");
+    try (var rs = session.query("SELECT FROM EmptyResultSetTest")) {
+      rs.findFirstEntityOrNull(e -> e.getProperty("x"));
+    }
+  }
+
+  /** Verify findFirstVertexOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstVertexOrNullThrowsOnEmpty() {
+    session.createVertexClass("EmptyVertexTest");
+    try (var rs = session.query("SELECT FROM EmptyVertexTest")) {
+      rs.findFirstVertexOrNull(v -> v.getProperty("x"));
+    }
+  }
+
+  /** Verify findFirstEdgeOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstEdgeOrNullThrowsOnEmpty() {
+    session.createVertexClass("EmptyEdgeTestV");
+    session.createEdgeClass("EmptyEdgeTestE");
+    try (var rs = session.query("SELECT FROM EmptyEdgeTestE")) {
+      rs.findFirstEdgeOrNull(e -> null);
+    }
+  }
+
+  /** Verify findFirstSateFullEdgeOrNull throws NoSuchElementException on empty result set. */
+  @Test(expected = NoSuchElementException.class)
+  public void testFindFirstStateFullEdgeOrNullThrowsOnEmpty() {
+    session.createVertexClass("EmptySFEdgeTestV");
+    session.createEdgeClass("EmptySFEdgeTestE");
+    try (var rs = session.query("SELECT FROM EmptySFEdgeTestE")) {
+      rs.findFirstSateFullEdgeOrNull(e -> null);
+    }
   }
 }

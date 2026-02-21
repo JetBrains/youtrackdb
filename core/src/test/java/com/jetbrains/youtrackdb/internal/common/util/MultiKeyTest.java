@@ -30,9 +30,11 @@ public class MultiKeyTest {
   }
 
   @Test
-  public void testEqualsTheSame() {
-    final var multiKey = new MultiKey(Collections.singletonList("a"));
-    assertEquals(multiKey, multiKey);
+  public void testEqualsEquivalent() {
+    final var multiKey1 = new MultiKey(Collections.singletonList("a"));
+    final var multiKey2 = new MultiKey(Collections.singletonList("a"));
+    assertEquals(multiKey1, multiKey2);
+    assertEquals(multiKey1.hashCode(), multiKey2.hashCode());
   }
 
   @Test

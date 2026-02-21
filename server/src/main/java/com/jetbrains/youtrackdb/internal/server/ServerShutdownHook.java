@@ -48,6 +48,7 @@ public class ServerShutdownHook extends Thread {
     try {
       Runtime.getRuntime().removeShutdownHook(this);
     } catch (IllegalStateException e) {
+      // Expected when JVM is already shutting down
     }
   }
 }

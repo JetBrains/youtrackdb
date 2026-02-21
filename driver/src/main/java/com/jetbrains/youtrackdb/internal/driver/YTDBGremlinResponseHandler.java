@@ -105,7 +105,8 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
         ExceptionUtils.getThrowableList(cause).iterator(),
         t -> t instanceof SerializationException)) {
       if (ctx.channel().isActive()) {
-        ctx.close();
+        @SuppressWarnings("unused")
+        var unused = ctx.close();
       }
     }
   }

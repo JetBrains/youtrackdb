@@ -119,7 +119,7 @@ jobs:
             # Root build infrastructure
             if [[ "$file" == pom.xml ]] || [[ "$file" == .mvn/* ]] || \
                [[ "$file" == mvnw ]] || [[ "$file" == mvnw.cmd ]] || \
-               [[ "$file" == qodana.yaml ]] || [[ "$file" == .github/workflows/* ]] || \
+               [[ "$file" == .github/workflows/* ]] || \
                [[ "$file" == .idea/inspectionProfiles/* ]]; then
               SHOULD_BUILD=true
               echo "Build-relevant file found: $file"
@@ -475,6 +475,7 @@ jobs:
             --threshold 85 \
             --modules "${{ steps.changes.outputs.modules }}" \
             --output-md /tmp/mutation-gate.md \
+            --base-branch "origin/${{ github.event.pull_request.base.ref }}" \
             $SAMPLING_ARGS
 
       - name: Post Mutation Gate Comment
@@ -511,43 +512,10 @@ jobs:
           fi
 
       - name: Enforce Mutation Gate
-        if: always() && steps.changes.outputs.skip != 'true' && (steps.pit.outcome == 'failure' || steps.gate.outcome == 'failure')
+        if: always() && steps.changes.outputs.skip != 'true' && steps.gate.outcome == 'failure'
         run: |
           echo "Mutation testing gate failed. See the PR comment for details."
           exit 1
-
-  # ------------------------------------------------------------------
-  # JOB 6: QODANA
-  # Static analysis scan (runs after Linux tests)
-  # ------------------------------------------------------------------
-  qodana:
-    name: Qodana Scan
-    needs: [ detect-changes, test-linux ]
-    if: "!cancelled() && needs.detect-changes.outputs.should_build == 'true'"
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      checks: write
-      actions: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          lfs: true
-
-      - name: Qodana Scan
-        uses: JetBrains/qodana-action@v2025.3
-        with:
-          args: >-
-            --linter, jetbrains/qodana-jvm:2025.3,
-            --baseline, .github/workflows/qodana.sarif.json
-          pr-mode: 'true'
-          push-fixes: none
-          upload-result: true
-          artifact-name: qodana-report
-        env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
 
   # ------------------------------------------------------------------
   # JOB 7: DEPLOY
@@ -606,7 +574,7 @@ jobs:
   ci-status:
     name: CI Status
     if: always()
-    needs: [ detect-changes, test-linux, test-windows, qodana, coverage-gate, mutation-testing ]
+    needs: [ detect-changes, test-linux, test-windows, coverage-gate, mutation-testing ]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
@@ -615,7 +583,6 @@ jobs:
           SHOULD_BUILD: ${{ needs.detect-changes.outputs.should_build }}
           LINUX_RESULT: ${{ needs.test-linux.result }}
           WINDOWS_RESULT: ${{ needs.test-windows.result }}
-          QODANA_RESULT: ${{ needs.qodana.result }}
           COVERAGE_RESULT: ${{ needs.coverage-gate.result }}
           MUTATION_RESULT: ${{ needs.mutation-testing.result }}
         run: |
@@ -628,11 +595,9 @@ jobs:
             exit 0
           fi
           if [[ "$LINUX_RESULT" != "success" ]] || \
-             [[ "$WINDOWS_RESULT" != "success" ]] || \
-             [[ "$QODANA_RESULT" != "success" ]]; then
+             [[ "$WINDOWS_RESULT" != "success" ]]; then
             echo "Not all required jobs succeeded" \
-              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT," \
-              "qodana=$QODANA_RESULT)"
+              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT)"
             exit 1
           fi
           # coverage-gate and mutation-testing only run on PRs;

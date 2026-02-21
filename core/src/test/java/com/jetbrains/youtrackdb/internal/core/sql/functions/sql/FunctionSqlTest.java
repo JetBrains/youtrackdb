@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.query.LegacyResultSet;
 import java.util.ArrayList;
+import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -30,11 +31,7 @@ public class FunctionSqlTest extends DbTestBase {
     function.setName("test");
     function.setCode("select from Test where name = :name");
     function.setParameters(
-        new ArrayList<>() {
-          {
-            add("name");
-          }
-        });
+        new ArrayList<>(List.of("name")));
     function.save(session);
     session.commit();
 
@@ -64,11 +61,7 @@ public class FunctionSqlTest extends DbTestBase {
     function.setCode(
         "select name from Test where name = :name and hello(:name) = 'Hello Enrico'");
     function.setParameters(
-        new ArrayList<>() {
-          {
-            add("name");
-          }
-        });
+        new ArrayList<>(List.of("name")));
     function.save(session);
     session.commit();
 
@@ -78,11 +71,7 @@ public class FunctionSqlTest extends DbTestBase {
     function1.setLanguage("javascript");
     function1.setCode("return 'Hello ' + name");
     function1.setParameters(
-        new ArrayList<>() {
-          {
-            add("name");
-          }
-        });
+        new ArrayList<>(List.of("name")));
     function1.save(session);
     session.commit();
 

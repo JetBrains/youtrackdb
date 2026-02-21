@@ -28,9 +28,9 @@ public class MultiCollectionIteratorTest {
       map.put(((Entry<?, ?>) entry).getKey(), ((Entry<?, ?>) entry).getValue());
     }
 
-    assertThat(map).isEqualTo(new HashMap<>() {{
-      putAll(map1);
-      putAll(map2);
-    }});
+    var expected = new HashMap<>();
+    expected.putAll(map1);
+    expected.putAll(map2);
+    assertThat(map).isEqualTo(expected);
   }
 }

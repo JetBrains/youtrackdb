@@ -106,7 +106,6 @@ public class CollectionIndexTest extends BaseDBTest {
     session.begin();
     var collector = session.newEntity("Collector");
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
-    collector = collector;
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
     session.commit();
 
@@ -164,7 +163,6 @@ public class CollectionIndexTest extends BaseDBTest {
     session.begin();
     var collector = session.newEntity("Collector");
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
-    collector = collector;
     session.commit();
 
     session.begin();

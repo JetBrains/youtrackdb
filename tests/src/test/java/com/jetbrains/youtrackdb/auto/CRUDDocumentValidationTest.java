@@ -51,6 +51,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
       session.commit();
       Assert.fail();
     } catch (ValidationException ignored) {
+      // Expected: validation should reject entity without mandatory fields
     }
 
     session

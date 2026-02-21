@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema.validation;
 
 import java.util.Map;
 
+@SuppressWarnings("ComparableType")
 public class ValidationMapComparable implements Comparable<Object> {
 
   private final int size;

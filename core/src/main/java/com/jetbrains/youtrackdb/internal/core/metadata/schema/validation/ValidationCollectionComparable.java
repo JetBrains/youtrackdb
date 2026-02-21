@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema.validation;
 
 import java.util.Collection;
 
+@SuppressWarnings("ComparableType")
 public class ValidationCollectionComparable implements Comparable<Object> {
 
   private final int size;

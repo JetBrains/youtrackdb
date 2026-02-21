@@ -148,9 +148,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
 
   static {
     DEFAULT_SETTINGS.className = StandardOpProcessor.class.getCanonicalName();
-    DEFAULT_SETTINGS.config = new HashMap<>() {{
-      put(CONFIG_MAX_PARAMETERS, DEFAULT_MAX_PARAMETERS);
-    }};
+    DEFAULT_SETTINGS.config = new HashMap<>(Map.of(
+        CONFIG_MAX_PARAMETERS, DEFAULT_MAX_PARAMETERS));
   }
 
   protected int maxParameters = DEFAULT_MAX_PARAMETERS;
@@ -658,7 +657,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     try {
       final var evalFuture = gremlinExecutor.eval(script, language, bindings, lifeCycle);
 
-      evalFuture.handle((v, t) -> {
+      @SuppressWarnings("unused")
+      var unused = evalFuture.handle((v, t) -> {
         timerContext.stop();
 
         if (t != null) {

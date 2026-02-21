@@ -123,6 +123,5 @@ On every pull request, the CI pipeline enforces:
 | Line coverage | coverage-gate.py | 70% or 85% | New/changed lines only |
 | Branch coverage | coverage-gate.py | 70% or 85% | New/changed lines only |
 | Mutation score | PIT | 85% | New/changed production classes only |
-| Static analysis | Qodana | 0 new issues | Full codebase (baseline) |
 
 All gates must pass for a PR to be mergeable.

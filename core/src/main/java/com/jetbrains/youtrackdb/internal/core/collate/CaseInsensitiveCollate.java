@@ -47,17 +47,17 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
       return ((String) obj).toLowerCase(Locale.ENGLISH);
     }
 
-    if (obj instanceof Set) {
-      Set result = new HashSet();
-      for (var o : (Set) obj) {
+    if (obj instanceof Set<?> set) {
+      Set<Object> result = new HashSet<>();
+      for (var o : set) {
         result.add(transform(o));
       }
       return result;
     }
 
-    if (obj instanceof List) {
-      List result = new ArrayList();
-      for (var o : (List) obj) {
+    if (obj instanceof List<?> list) {
+      List<Object> result = new ArrayList<>();
+      for (var o : list) {
         result.add(transform(o));
       }
       return result;
@@ -72,13 +72,7 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
   @Override
   public boolean equals(Object obj) {
-    if (obj == null || obj.getClass() != this.getClass()) {
-      return false;
-    }
-
-    final var that = (CaseInsensitiveCollate) obj;
-
-    return NAME.equals(NAME);
+    return obj instanceof CaseInsensitiveCollate;
   }
 
   @Override

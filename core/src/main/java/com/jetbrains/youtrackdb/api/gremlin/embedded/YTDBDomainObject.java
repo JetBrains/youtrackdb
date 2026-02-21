@@ -132,6 +132,7 @@ public interface YTDBDomainObject extends Vertex {
     return Collections.unmodifiableSet(keys);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   default <V> V value(String key) throws NoSuchElementException {
     var pToken = pToken(key);

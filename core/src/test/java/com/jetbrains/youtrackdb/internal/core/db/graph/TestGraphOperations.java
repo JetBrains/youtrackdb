@@ -36,22 +36,20 @@ public class TestGraphOperations extends DbTestBase {
 
     try {
       session.begin();
-      var activeTx = session.getActiveTransaction();
-      var activeTx1 = session.getActiveTransaction();
-      edge = activeTx1.<Vertex>load(vertex)
-          .addStateFulEdge(activeTx.load(vertex1), "TestLabel");
+      var tx = session.getActiveTransaction();
+      edge = tx.<Vertex>load(vertex)
+          .addStateFulEdge(tx.load(vertex1), "TestLabel");
       edge.setProperty("key", "unique");
       session.commit();
       Assert.fail("It should not be inserted  a duplicated edge");
     } catch (RecordDuplicatedException e) {
-
+      // Expected: duplicate edge should be rejected
     }
 
     session.begin();
-    var activeTx = session.getActiveTransaction();
-    var activeTx1 = session.getActiveTransaction();
-    edge = activeTx1.<Vertex>load(vertex)
-        .addStateFulEdge(activeTx.load(vertex1), "TestLabel");
+    var tx2 = session.getActiveTransaction();
+    edge = tx2.<Vertex>load(vertex)
+        .addStateFulEdge(tx2.load(vertex1), "TestLabel");
     edge.setProperty("key", "notunique");
     session.commit();
   }

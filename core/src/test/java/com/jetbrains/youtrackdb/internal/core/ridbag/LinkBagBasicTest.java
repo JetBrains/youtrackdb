@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.ridbag;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -14,6 +16,40 @@ public class LinkBagBasicTest extends DbTestBase {
   public void testExceptionInCaseOfNull() {
     var bag = new EmbeddedLinkBag(session, Integer.MAX_VALUE);
     bag.add(null);
+  }
+
+  /** Verify that hashCode() returns consistent values for equal LinkBags. */
+  @Test
+  public void testHashCodeConsistentWithEquals() {
+    session.begin();
+    var entity1 = session.newEntity();
+    var entity2 = session.newEntity();
+    session.commit();
+
+    session.begin();
+    var bag1 = new LinkBag(session);
+    bag1.add(entity1.getIdentity());
+    bag1.add(entity2.getIdentity());
+
+    var bag2 = new LinkBag(session);
+    bag2.add(entity1.getIdentity());
+    bag2.add(entity2.getIdentity());
+
+    assertEquals(bag1, bag2);
+    assertEquals(bag1.hashCode(), bag2.hashCode());
+    session.rollback();
+  }
+
+  /** Verify that hashCode() works for an empty LinkBag. */
+  @Test
+  public void testHashCodeEmptyBag() {
+    session.begin();
+    var bag1 = new LinkBag(session);
+    var bag2 = new LinkBag(session);
+
+    assertEquals(bag1, bag2);
+    assertEquals(bag1.hashCode(), bag2.hashCode());
+    session.rollback();
   }
 
   @Test

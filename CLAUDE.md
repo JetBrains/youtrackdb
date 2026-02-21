@@ -173,6 +173,9 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
   trade-offs. Not a restatement of the diff.>
   ```
 
+### Force Pushing
+- **Always use `--force-with-lease`** instead of `--force` when force pushing. This prevents accidentally overwriting commits pushed by others since your last fetch.
+
 ### Pull Requests
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
@@ -189,7 +192,6 @@ Runs on `develop` pushes and PRs:
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
 - **Coverage gate**: Enforces 85% line and branch coverage on new/changed code for Claude co-authored PRs, 70% otherwise. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
 - **Mutation testing**: PIT mutation testing on changed classes with Ekstazi-selected tests, fails below 85% mutation score
-- **Qodana**: Static analysis integrated as a pipeline job (zero tolerance for critical/high/moderate issues; excludes generated SQL parser code)
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
 - **CI Status gate**: Consolidates all checks (test-linux, test-windows, qodana, coverage-gate, mutation-testing) into a single required status for branch protection
 - **Notifications**: Sends Zulip messages on build failure/recovery

@@ -981,7 +981,6 @@ public class IndexTest extends BaseDBTest {
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = profile;
     session.commit();
 
     var idxManager = session.getSharedContext().getIndexManager();
@@ -1011,7 +1010,6 @@ public class IndexTest extends BaseDBTest {
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = profile;
     session.commit();
 
     session.begin();

@@ -168,7 +168,7 @@ public class GraphIndexTest extends GraphBaseTest {
 
 
   // TODO Enable when it's fixed
-  //  @Test
+  @SuppressWarnings("JUnit4TestNotRun")
   public void vertexUniqueIndexLookupWithMultipleValues() {
     var schema = session.getSchema();
     var cls = schema.createVertexClass(vertexLabel1);

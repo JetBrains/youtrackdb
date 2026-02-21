@@ -616,8 +616,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     EntityImpl doc2 = null;
     //noinspection LoopStatementThatDoesntLoop
     for (Iterator<EntityImpl> itDoc = session.browseClass("Account"); itDoc.hasNext(); ) {
-      //noinspection ResultOfMethodCallIgnored
-      itDoc.hasNext();
+      // Intentionally call hasNext() again to verify idempotency
+      @SuppressWarnings("unused")
+      var unused = itDoc.hasNext();
       doc2 = itDoc.next();
       break;
     }

@@ -5,6 +5,7 @@ import static org.apache.tinkerpop.gremlin.driver.RequestOptions.getRequestOptio
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -20,7 +21,7 @@ import org.apache.tinkerpop.gremlin.structure.Transaction;
 
 public class YTDBDriverRemoteConnection extends DriverRemoteConnection {
 
-  private final HashMap<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDMap = new HashMap<>();
+  private final Map<RecordIdInternal, Set<ChangeableRecordId>> changeableRIDMap = new HashMap<>();
 
   public YTDBDriverRemoteConnection(Configuration conf) {
     super(conf);

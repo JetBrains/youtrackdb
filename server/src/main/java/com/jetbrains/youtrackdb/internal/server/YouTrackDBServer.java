@@ -521,7 +521,7 @@ public class YouTrackDBServer {
 
     var existsRoot =
         serverCfg.existsUser(DEFAULT_ROOT_USER) ||
-            systemDbEnabled && existsSystemUser(DEFAULT_ROOT_USER);
+            (systemDbEnabled && existsSystemUser(DEFAULT_ROOT_USER));
 
     if (!existsRoot) {
       if (rootSecretFilePassword == null || rootSecretFilePassword.isEmpty()) {

@@ -183,7 +183,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             let $a = select 1 as one;
             if    ($a[0].one = 1)   {;
              return 'OK';
-                 };     \s
+                 };
             return 'FAIL';
             """;
     var qResult = session.computeScript("sql", script).stream().findFirst().orElseThrow();
