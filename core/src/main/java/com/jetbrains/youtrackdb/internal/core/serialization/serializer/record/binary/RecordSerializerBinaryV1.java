@@ -1034,16 +1034,16 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         bytes.bytes[pointer] = ((Boolean) value) ? (byte) 1 : (byte) 0;
         break;
       case DATETIME:
-        if (value instanceof Number) {
-          pointer = VarIntSerializer.write(bytes, ((Number) value).longValue());
+        if (value instanceof Number number) {
+          pointer = VarIntSerializer.write(bytes, number.longValue());
         } else {
           pointer = VarIntSerializer.write(bytes, ((Date) value).getTime());
         }
         break;
       case DATE:
         long dateValue;
-        if (value instanceof Number) {
-          dateValue = ((Number) value).longValue();
+        if (value instanceof Number number) {
+          dateValue = number.longValue();
         } else {
           dateValue = ((Date) value).getTime();
         }
@@ -1054,8 +1054,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         break;
       case EMBEDDED:
         pointer = bytes.offset;
-        if (value instanceof EntitySerializable) {
-          var cur = ((EntitySerializable) value).toEntity(session);
+        if (value instanceof EntitySerializable entitySerializable) {
+          var cur = entitySerializable.toEntity(session);
           cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serializeWithClassName(session, cur, bytes);
         } else {

@@ -16,9 +16,9 @@ public class DocumentEqualityWrapper {
   }
 
   public boolean equals(Object obj) {
-    if (obj instanceof DocumentEqualityWrapper) {
+    if (obj instanceof DocumentEqualityWrapper other) {
       return EntityHelper.hasSameContentOf(
-          internal, internal.getSession(), ((DocumentEqualityWrapper) obj).internal,
+          internal, internal.getSession(), other.internal,
           internal.getSession(), null);
     }
     return false;

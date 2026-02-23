@@ -612,8 +612,8 @@ public class SelectExecutionPlanner {
       List<SQLBooleanExpression> nonEqualityExpressions = new ArrayList<>();
       var newBlock = block.copy();
       for (var exp : newBlock.getSubBlocks()) {
-        if (exp instanceof SQLBinaryCondition) {
-          if (((SQLBinaryCondition) exp).getOperator() instanceof SQLEqualsOperator) {
+        if (exp instanceof SQLBinaryCondition binCond) {
+          if (binCond.getOperator() instanceof SQLEqualsOperator) {
             equalityExpressions.add(exp);
           } else {
             nonEqualityExpressions.add(exp);
@@ -1081,11 +1081,11 @@ public class SelectExecutionPlanner {
         // try list of RIDs
         List<SQLRid> rids = new ArrayList<>();
         for (var x : iterable) {
-          if (!(x instanceof Identifiable)) {
+          if (!(x instanceof Identifiable id)) {
             throw new CommandExecutionException(session,
                 "Cannot use colleciton as target: " + paramValue);
           }
-          var orid = ((Identifiable) x).getIdentity();
+          var orid = id.getIdentity();
 
           var rid = new SQLRid(-1);
           var collection = new SQLInteger(-1);

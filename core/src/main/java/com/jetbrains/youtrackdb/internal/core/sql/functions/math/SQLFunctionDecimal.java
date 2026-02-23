@@ -52,28 +52,28 @@ public class SQLFunctionDecimal extends SQLFunctionMathAbstract {
       result = inputValue;
       return result;
     }
-    if (inputValue instanceof BigInteger) {
-      result = new BigDecimal((BigInteger) inputValue);
+    if (inputValue instanceof BigInteger bi) {
+      result = new BigDecimal(bi);
       return result;
     }
-    if (inputValue instanceof Integer) {
-      result = BigDecimal.valueOf(((Integer) inputValue));
-      return result;
-    }
-
-    if (inputValue instanceof Long) {
-      result = new BigDecimal(((Long) inputValue));
+    if (inputValue instanceof Integer i) {
+      result = BigDecimal.valueOf(i);
       return result;
     }
 
-    if (inputValue instanceof Number) {
-      result = BigDecimal.valueOf(((Number) inputValue).doubleValue());
+    if (inputValue instanceof Long l) {
+      result = new BigDecimal(l);
+      return result;
+    }
+
+    if (inputValue instanceof Number n) {
+      result = BigDecimal.valueOf(n.doubleValue());
       return result;
     }
 
     try {
-      if (inputValue instanceof String) {
-        result = new BigDecimal((String) inputValue);
+      if (inputValue instanceof String s) {
+        result = new BigDecimal(s);
       }
 
     } catch (Exception ignore) {

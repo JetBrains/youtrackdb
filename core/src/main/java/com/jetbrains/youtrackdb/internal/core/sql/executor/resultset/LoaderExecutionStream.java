@@ -58,8 +58,8 @@ public final class LoaderExecutionStream implements ExecutionStream {
           try {
             var nextDoc = db.load(nextRid.getIdentity());
             var res = new ResultInternal(db, nextDoc);
-            if (nextRid instanceof ContextualRecordId) {
-              res.addMetadata(((ContextualRecordId) nextRid).getContext());
+            if (nextRid instanceof ContextualRecordId ctxRid) {
+              res.addMetadata(ctxRid.getContext());
             }
             nextResult = res;
             return;

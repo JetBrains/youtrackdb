@@ -1030,8 +1030,8 @@ public class FrontendTransactionImpl implements
 
   private static boolean isIndexKeyMayDependOnRid(
       Object key, RID rid, Dependency[] keyDependencies) {
-    if (key instanceof CompositeKey) {
-      final var subKeys = ((CompositeKey) key).getKeys();
+    if (key instanceof CompositeKey compositeKey) {
+      final var subKeys = compositeKey.getKeys();
       for (var i = 0; i < subKeys.size(); ++i) {
         if (isIndexKeyMayDependOnRid(
             subKeys.get(i), rid, keyDependencies == null ? null : keyDependencies[i])) {

@@ -612,8 +612,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   @Override
   public void registerListener(YouTrackDBListener listener) {
-    if (listener instanceof YouTrackDBStartupListener) {
-      registerYouTrackDBStartupListener((YouTrackDBStartupListener) listener);
+    if (listener instanceof YouTrackDBStartupListener startupListener) {
+      registerYouTrackDBStartupListener(startupListener);
     }
 
     super.registerListener(listener);
@@ -621,8 +621,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   @Override
   public void unregisterListener(YouTrackDBListener listener) {
-    if (listener instanceof YouTrackDBStartupListener) {
-      unregisterYouTrackDBStartupListener((YouTrackDBStartupListener) listener);
+    if (listener instanceof YouTrackDBStartupListener startupListener) {
+      unregisterYouTrackDBStartupListener(startupListener);
     }
 
     super.unregisterListener(listener);

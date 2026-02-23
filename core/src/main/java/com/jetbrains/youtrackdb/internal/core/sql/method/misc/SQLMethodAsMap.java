@@ -57,10 +57,10 @@ public class SQLMethodAsMap extends AbstractSQLMethod {
       return Collections.EMPTY_MAP;
     }
 
-    if (ioResult instanceof EntityImpl)
+    if (ioResult instanceof EntityImpl entity)
     // CONVERT ODOCUMENT TO MAP
     {
-      return ((EntityImpl) ioResult).toMap();
+      return entity.toMap();
     }
 
     Iterator<Object> iter;

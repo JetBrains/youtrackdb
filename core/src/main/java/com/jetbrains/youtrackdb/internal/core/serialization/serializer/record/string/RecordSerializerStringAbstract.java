@@ -524,8 +524,8 @@ public abstract class RecordSerializerStringAbstract {
       case LINK:
         if (iValue instanceof RID) {
           return iValue.toString();
-        } else if (iValue instanceof String) {
-          return RecordIdInternal.fromString((String) iValue, false);
+        } else if (iValue instanceof String s) {
+          return RecordIdInternal.fromString(s, false);
         } else {
           return ((DBRecord) iValue).getIdentity().toString();
         }
@@ -557,8 +557,8 @@ public abstract class RecordSerializerStringAbstract {
         break;
 
       case DECIMAL:
-        if (iValue instanceof BigDecimal) {
-          iBuffer.append(((BigDecimal) iValue).toPlainString());
+        if (iValue instanceof BigDecimal bigDecimal) {
+          iBuffer.append(bigDecimal.toPlainString());
         } else {
           iBuffer.append(iValue.toString());
         }
@@ -583,8 +583,8 @@ public abstract class RecordSerializerStringAbstract {
       case BYTE:
         if (iValue instanceof Character character) {
           iBuffer.append(character);
-        } else if (iValue instanceof String) {
-          iBuffer.append(((String) iValue).charAt(0));
+        } else if (iValue instanceof String s) {
+          iBuffer.append(s.charAt(0));
         } else {
           iBuffer.append(iValue.toString());
         }
@@ -593,9 +593,9 @@ public abstract class RecordSerializerStringAbstract {
 
       case BINARY:
         iBuffer.append(StringSerializerHelper.BINARY_BEGINEND);
-        if (iValue instanceof Byte) {
+        if (iValue instanceof Byte b) {
           iBuffer.append(
-              Base64.getEncoder().encodeToString(new byte[]{((Byte) iValue).byteValue()}));
+              Base64.getEncoder().encodeToString(new byte[]{b.byteValue()}));
         } else {
           iBuffer.append(Base64.getEncoder().encodeToString((byte[]) iValue));
         }
@@ -603,10 +603,10 @@ public abstract class RecordSerializerStringAbstract {
         break;
 
       case DATE:
-        if (iValue instanceof Date) {
+        if (iValue instanceof Date date) {
           // RESET HOURS, MINUTES, SECONDS AND MILLISECONDS
           final var calendar = DateHelper.getDatabaseCalendar(session);
-          calendar.setTime((Date) iValue);
+          calendar.setTime(date);
           calendar.set(Calendar.HOUR_OF_DAY, 0);
           calendar.set(Calendar.MINUTE, 0);
           calendar.set(Calendar.SECOND, 0);
@@ -620,8 +620,8 @@ public abstract class RecordSerializerStringAbstract {
         break;
 
       case DATETIME:
-        if (iValue instanceof Date) {
-          iBuffer.append(String.valueOf(((Date) iValue).getTime()));
+        if (iValue instanceof Date date) {
+          iBuffer.append(String.valueOf(date.getTime()));
         } else {
           iBuffer.append(iValue.toString());
         }

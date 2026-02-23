@@ -1111,8 +1111,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   @Override
   @Nullable
   public String getDirectory() {
-    if (storage instanceof DiskStorage) {
-      return ((DiskStorage) storage).getStoragePath().toString();
+    if (storage instanceof DiskStorage disk) {
+      return disk.getStoragePath().toString();
     } else {
       return null;
     }

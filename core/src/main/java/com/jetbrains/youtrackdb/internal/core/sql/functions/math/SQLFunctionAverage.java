@@ -105,8 +105,8 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
       return iSum.floatValue() / iTotal;
     } else if (iSum instanceof Double) {
       return iSum.doubleValue() / iTotal;
-    } else if (iSum instanceof BigDecimal) {
-      return ((BigDecimal) iSum).divide(new BigDecimal(iTotal), RoundingMode.HALF_UP);
+    } else if (iSum instanceof BigDecimal bd) {
+      return bd.divide(new BigDecimal(iTotal), RoundingMode.HALF_UP);
     }
 
     return null;

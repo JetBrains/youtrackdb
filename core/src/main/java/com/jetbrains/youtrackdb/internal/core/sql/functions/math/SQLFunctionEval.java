@@ -57,7 +57,7 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     }
 
     final var currentResult =
-        iCurrentResult instanceof EntityImpl ? (EntityImpl) iCurrentResult : null;
+        iCurrentResult instanceof EntityImpl e ? e : null;
     try {
       return predicate.evaluate(iRecord, currentResult, context);
     } catch (ArithmeticException e) {

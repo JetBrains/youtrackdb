@@ -121,8 +121,8 @@ public class MultiValue {
       }
       return i;
     }
-    if (iObject instanceof InternalResultSet) {
-      return ((InternalResultSet) iObject).size();
+    if (iObject instanceof InternalResultSet internalResultSet) {
+      return internalResultSet.size();
     }
     if (iObject instanceof ResultSet resultSet) {
       var res = resultSet.stream().count();
@@ -881,8 +881,8 @@ public class MultiValue {
       return -1;
     }
 
-    if (iObject instanceof List) {
-      return ((List) iObject).indexOf(iItem);
+    if (iObject instanceof List list) {
+      return list.indexOf(iItem);
     } else if (iObject.getClass().isArray()) {
       final var size = Array.getLength(iObject);
       for (var i = 0; i < size; ++i) {
@@ -922,8 +922,8 @@ public class MultiValue {
       }
 
       return set;
-    } else if (o instanceof Iterable && !(o instanceof Identifiable)) {
-      var iterator = ((Iterable) o).iterator();
+    } else if (o instanceof Iterable iterable && !(o instanceof Identifiable)) {
+      var iterator = iterable.iterator();
       Set result = new HashSet();
       while (iterator.hasNext()) {
         result.add(iterator.next());

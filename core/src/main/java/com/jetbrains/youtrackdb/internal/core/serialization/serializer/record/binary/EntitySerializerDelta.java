@@ -800,9 +800,9 @@ public class EntitySerializerDelta {
             .filter(
                 (v) -> v instanceof TrackedMultiValue<?, ?> trackedMultiValue &&
                     trackedMultiValue.isTransactionModified()
-                    || v instanceof EntityImpl
-                    && ((EntityImpl) v).isEmbedded()
-                    && ((EntityImpl) v).isDirty())
+                    || v instanceof EntityImpl entity
+                    && entity.isEmbedded()
+                    && entity.isDirty())
             .count();
     VarIntSerializer.write(bytes, count);
     for (var singleEntry : value.entrySet()) {
@@ -814,9 +814,9 @@ public class EntitySerializerDelta {
         var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
-      } else if (singleValue instanceof EntityImpl
-          && ((EntityImpl) singleValue).isEmbedded()
-          && ((EntityImpl) singleValue).isDirty()) {
+      } else if (singleValue instanceof EntityImpl entity
+          && entity.isEmbedded()
+          && entity.isDirty()) {
         serializeByte(bytes, CHANGED);
         writeString(bytes, singleEntry.getKey());
         var type = PropertyTypeInternal.getTypeByValue(singleValue);
@@ -872,9 +872,9 @@ public class EntitySerializerDelta {
             .filter(
                 (v) -> v instanceof TrackedMultiValue<?, ?> trackedMultiValue
                     && trackedMultiValue.isTransactionModified()
-                    || v instanceof EntityImpl
-                    && ((EntityImpl) v).isEmbedded()
-                    && ((EntityImpl) v).isDirty())
+                    || v instanceof EntityImpl entity
+                    && entity.isEmbedded()
+                    && entity.isDirty())
             .count();
     VarIntSerializer.write(bytes, count);
     for (var i = 0; i < value.size(); i++) {
@@ -886,9 +886,9 @@ public class EntitySerializerDelta {
         var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
-      } else if (singleValue instanceof EntityImpl
-          && ((EntityImpl) singleValue).isEmbedded()
-          && ((EntityImpl) singleValue).isDirty()) {
+      } else if (singleValue instanceof EntityImpl entity
+          && entity.isEmbedded()
+          && entity.isDirty()) {
         serializeByte(bytes, CHANGED);
         VarIntSerializer.write(bytes, i);
         var type = PropertyTypeInternal.getTypeByValue(singleValue);
@@ -941,9 +941,9 @@ public class EntitySerializerDelta {
             .filter(
                 (v) -> v instanceof TrackedMultiValue<?, ?> trackedMultiValue
                     && trackedMultiValue.isTransactionModified()
-                    || v instanceof EntityImpl
-                    && ((EntityImpl) v).isEmbedded()
-                    && ((EntityImpl) v).isDirty())
+                    || v instanceof EntityImpl entity
+                    && entity.isEmbedded()
+                    && entity.isDirty())
             .count();
     VarIntSerializer.write(bytes, count);
     var i = 0;
@@ -955,9 +955,9 @@ public class EntitySerializerDelta {
         var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
-      } else if (singleValue instanceof EntityImpl
-          && ((EntityImpl) singleValue).isEmbedded()
-          && ((EntityImpl) singleValue).isDirty()) {
+      } else if (singleValue instanceof EntityImpl entity
+          && entity.isEmbedded()
+          && entity.isDirty()) {
         serializeByte(bytes, CHANGED);
         VarIntSerializer.write(bytes, i);
         var type = PropertyTypeInternal.getTypeByValue(singleValue);
@@ -1048,16 +1048,16 @@ public class EntitySerializerDelta {
         bytes.bytes[pointer] = ((Boolean) value) ? (byte) 1 : (byte) 0;
         break;
       case DATETIME:
-        if (value instanceof Long) {
-          VarIntSerializer.write(bytes, (Long) value);
+        if (value instanceof Long longVal) {
+          VarIntSerializer.write(bytes, longVal);
         } else {
           VarIntSerializer.write(bytes, ((Date) value).getTime());
         }
         break;
       case DATE:
         long dateValue;
-        if (value instanceof Long) {
-          dateValue = (Long) value;
+        if (value instanceof Long longVal) {
+          dateValue = longVal;
         } else {
           dateValue = ((Date) value).getTime();
         }
@@ -1067,8 +1067,8 @@ public class EntitySerializerDelta {
         VarIntSerializer.write(bytes, dateValue / MILLISEC_PER_DAY);
         break;
       case EMBEDDED:
-        if (value instanceof EntitySerializable) {
-          var cur = ((EntitySerializable) value).toEntity(session);
+        if (value instanceof EntitySerializable entitySerializable) {
+          var cur = entitySerializable.toEntity(session);
           cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serialize(session, cur, bytes);
         } else {

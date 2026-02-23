@@ -257,15 +257,15 @@ public class SQLFilterCondition {
 
   private void extractInvolvedFields(Object left, List<String> list) {
     if (left != null) {
-      if (left instanceof SQLFilterItemField) {
-        if (((SQLFilterItemField) left).isFieldChain()) {
+      if (left instanceof SQLFilterItemField filterItemField) {
+        if (filterItemField.isFieldChain()) {
           list.add(
-              ((SQLFilterItemField) left)
+              filterItemField
                   .getFieldChain()
-                  .getItemName(((SQLFilterItemField) left).getFieldChain().getItemCount() - 1));
+                  .getItemName(filterItemField.getFieldChain().getItemCount() - 1));
         }
-      } else if (left instanceof SQLFilterCondition) {
-        ((SQLFilterCondition) left).getInvolvedFields(list);
+      } else if (left instanceof SQLFilterCondition filterCondition) {
+        filterCondition.getInvolvedFields(list);
       }
     }
   }
@@ -388,9 +388,9 @@ public class SQLFilterCondition {
     }
 
     var storage = session.getStorage();
-    if (value instanceof Long) {
+    if (value instanceof Long longValue) {
       var calendar = Calendar.getInstance(storage.getTimeZone());
-      calendar.setTimeInMillis(((Long) value));
+      calendar.setTimeInMillis(longValue);
       return calendar.getTime();
     }
 
@@ -452,23 +452,23 @@ public class SQLFilterCondition {
     if (iCurrentRecord != null && iCurrentRecord.isEntity()) {
       var entity = iCurrentRecord.asEntity();
       if (binaryEvaluation
-          && iValue instanceof SQLFilterItemField
+          && iValue instanceof SQLFilterItemField filterItemField
           && !entity.isDirty()
           && !((RecordIdInternal) entity.getIdentity()).isTemporary()) {
-        final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, entity);
+        final var bField = filterItemField.getBinaryField(session, entity);
         if (bField != null) {
           return bField;
         }
       }
     }
 
-    if (iValue instanceof SQLFilterItem) {
-      return ((SQLFilterItem) iValue).getValue(iCurrentRecord, iCurrentResult, iContext);
+    if (iValue instanceof SQLFilterItem filterItem) {
+      return filterItem.getValue(iCurrentRecord, iCurrentResult, iContext);
     }
 
-    if (iValue instanceof SQLFilterCondition) {
+    if (iValue instanceof SQLFilterCondition filterCondition) {
       // NESTED CONDITION: EVALUATE IT RECURSIVELY
-      return ((SQLFilterCondition) iValue).evaluate(iCurrentRecord, iCurrentResult, iContext);
+      return filterCondition.evaluate(iCurrentRecord, iCurrentResult, iContext);
     }
 
     if (MultiValue.isMultiValue(iValue) && !Map.class.isAssignableFrom(iValue.getClass())) {
@@ -478,8 +478,8 @@ public class SQLFilterCondition {
       final var result = new ArrayList<>((int) MultiValue.getSize(iValue));
 
       for (final var value : multiValue) {
-        if (value instanceof SQLFilterItem) {
-          result.add(((SQLFilterItem) value).getValue(iCurrentRecord, iCurrentResult, iContext));
+        if (value instanceof SQLFilterItem filterItem) {
+          result.add(filterItem.getValue(iCurrentRecord, iCurrentResult, iContext));
         } else {
           result.add(value);
         }

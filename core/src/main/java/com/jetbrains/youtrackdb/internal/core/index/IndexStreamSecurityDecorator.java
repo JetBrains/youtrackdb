@@ -15,8 +15,8 @@ public class IndexStreamSecurityDecorator {
       return stream;
     }
     var security = session.getSharedContext().getSecurity();
-    if (security instanceof SecurityShared
-        && !((SecurityShared) security).couldHaveActivePredicateSecurityRoles(session,
+    if (security instanceof SecurityShared securityShared
+        && !securityShared.couldHaveActivePredicateSecurityRoles(session,
         indexClass)) {
       return stream;
     }
@@ -32,8 +32,8 @@ public class IndexStreamSecurityDecorator {
       return stream;
     }
     var security = session.getSharedContext().getSecurity();
-    if (security instanceof SecurityShared
-        && !((SecurityShared) security).couldHaveActivePredicateSecurityRoles(session,
+    if (security instanceof SecurityShared securityShared
+        && !securityShared.couldHaveActivePredicateSecurityRoles(session,
         indexClass)) {
       return stream;
     }

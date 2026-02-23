@@ -85,12 +85,12 @@ public class SQLFunctionIf extends SQLFunctionAbstract {
 
     try {
       var condition = iParams[0];
-      if (condition instanceof Boolean) {
-        result = (Boolean) condition;
-      } else if (condition instanceof String) {
-        result = Boolean.parseBoolean(condition.toString());
-      } else if (condition instanceof Number) {
-        result = ((Number) condition).intValue() > 0;
+      if (condition instanceof Boolean b) {
+        result = b;
+      } else if (condition instanceof String s) {
+        result = Boolean.parseBoolean(s);
+      } else if (condition instanceof Number n) {
+        result = n.intValue() > 0;
       } else {
         return null;
       }

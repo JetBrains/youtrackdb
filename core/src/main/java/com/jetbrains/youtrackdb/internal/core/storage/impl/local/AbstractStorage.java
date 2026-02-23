@@ -1895,8 +1895,8 @@ public abstract class AbstractStorage
                 "Unloaded record " + record.getIdentity() + " cannot be committed");
           }
 
-          if (record instanceof EntityImpl) {
-            ((EntityImpl) record).validate();
+          if (record instanceof EntityImpl entity) {
+            entity.validate();
           }
         }
 
@@ -1913,12 +1913,12 @@ public abstract class AbstractStorage
 
           if (record.isDirty()
               && collectionId == RID.COLLECTION_ID_INVALID
-              && record instanceof EntityImpl) {
+              && record instanceof EntityImpl entity) {
             // TRY TO FIX COLLECTION ID TO THE DEFAULT COLLECTION ID DEFINED IN SCHEMA CLASS
 
-            var cls = ((EntityImpl) record).getImmutableSchemaClass(session);
+            var cls = entity.getImmutableSchemaClass(session);
             if (cls != null) {
-              collectionId = cls.getCollectionForNewInstance((EntityImpl) record);
+              collectionId = cls.getCollectionForNewInstance(entity);
               collectionOverrides.put(recordOperation, collectionId);
             }
           }
@@ -2022,9 +2022,8 @@ public abstract class AbstractStorage
                 indexOperations);
           } catch (final IOException | RuntimeException e) {
             error = e;
-
-            if (e instanceof RuntimeException) {
-              throw ((RuntimeException) e);
+            if (e instanceof RuntimeException runtimeException) {
+              throw runtimeException;
             } else {
               throw BaseException.wrapException(
                   new StorageException(name, "Error during transaction commit"), e, name);
@@ -2745,12 +2744,12 @@ public abstract class AbstractStorage
       final var engine = indexEngines.get(indexId);
       assert indexId == engine.getId();
 
-      if (engine instanceof IndexEngine) {
-        return ((IndexEngine) engine).validatedPut(atomicOperation, key, value, validator);
+      if (engine instanceof IndexEngine indexEngine) {
+        return indexEngine.validatedPut(atomicOperation, key, value, validator);
       }
 
-      if (engine instanceof SingleValueIndexEngine) {
-        return ((SingleValueIndexEngine) engine)
+      if (engine instanceof SingleValueIndexEngine singleValueIndexEngine) {
+        return singleValueIndexEngine
             .validatedPut(atomicOperation, key, value.getIdentity(), validator);
       }
 
@@ -3242,9 +3241,9 @@ public abstract class AbstractStorage
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
         try {
           for (final var indexEngine : indexEngines) {
-            if (indexEngine instanceof FreezableStorageComponent) {
-              ((FreezableStorageComponent) indexEngine).freeze(db, false);
-              frozenIndexes.add((FreezableStorageComponent) indexEngine);
+            if (indexEngine instanceof FreezableStorageComponent freezable) {
+              freezable.freeze(db, false);
+              frozenIndexes.add(freezable);
             }
           }
         } catch (final Exception e) {
@@ -3274,8 +3273,8 @@ public abstract class AbstractStorage
   public final void release(DatabaseSessionEmbedded db) {
     try {
       for (final var indexEngine : indexEngines) {
-        if (indexEngine instanceof FreezableStorageComponent) {
-          ((FreezableStorageComponent) indexEngine).release(db);
+        if (indexEngine instanceof FreezableStorageComponent freezable) {
+          freezable.release(db);
         }
       }
 
@@ -4543,9 +4542,9 @@ public abstract class AbstractStorage
     }
 
     // RESET TRACKING
-    if (rec instanceof EntityImpl) {
-      ((EntityImpl) rec).clearTrackData();
-      ((EntityImpl) rec).clearTransactionTrackData();
+    if (rec instanceof EntityImpl entity) {
+      entity.clearTrackData();
+      entity.clearTransactionTrackData();
     }
 
     rec.unsetDirty();

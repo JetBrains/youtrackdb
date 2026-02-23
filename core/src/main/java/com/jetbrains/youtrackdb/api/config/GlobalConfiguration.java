@@ -1291,7 +1291,7 @@ public enum GlobalConfiguration {
 
   public boolean getValueAsBoolean() {
     final var v = value != null && value != nullValue ? value : defValue;
-    return v instanceof Boolean ? (Boolean) v : Boolean.parseBoolean(v.toString());
+    return v instanceof Boolean b ? b : Boolean.parseBoolean(v.toString());
   }
 
   @Nullable
@@ -1304,19 +1304,19 @@ public enum GlobalConfiguration {
   public int getValueAsInteger() {
     final var v = value != null && value != nullValue ? value : defValue;
     return (int)
-        (v instanceof Number ? ((Number) v).intValue() : FileUtils.getSizeAsNumber(v.toString()));
+        (v instanceof Number n ? n.intValue() : FileUtils.getSizeAsNumber(v.toString()));
   }
 
   public long getValueAsLong() {
     final var v = value != null && value != nullValue ? value : defValue;
-    return v instanceof Number
-        ? ((Number) v).longValue()
+    return v instanceof Number n
+        ? n.longValue()
         : FileUtils.getSizeAsNumber(v.toString());
   }
 
   public float getValueAsFloat() {
     final var v = value != null && value != nullValue ? value : defValue;
-    return v instanceof Float ? (Float) v : Float.parseFloat(v.toString());
+    return v instanceof Float f ? f : Float.parseFloat(v.toString());
   }
 
   public String getKey() {

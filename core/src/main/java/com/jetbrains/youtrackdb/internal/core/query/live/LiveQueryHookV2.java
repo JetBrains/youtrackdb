@@ -289,9 +289,9 @@ public class LiveQueryHookV2 {
   }
 
   private static Object convert(Object originalValue) {
-    if (originalValue instanceof LinkBag) {
+    if (originalValue instanceof LinkBag linkBag) {
       Set result = new LinkedHashSet<>();
-      ((LinkBag) originalValue).forEach(result::add);
+      linkBag.forEach(result::add);
       return result;
     }
     return originalValue;
@@ -313,9 +313,9 @@ public class LiveQueryHookV2 {
 
   public static Object unboxRidbags(Object value) {
     // TODO move it to some helper class
-    if (value instanceof LinkBag) {
-      List<Identifiable> result = new ArrayList<>(((LinkBag) value).size());
-      for (Identifiable oIdentifiable : (LinkBag) value) {
+    if (value instanceof LinkBag linkBag) {
+      List<Identifiable> result = new ArrayList<>(linkBag.size());
+      for (Identifiable oIdentifiable : linkBag) {
         result.add(oIdentifiable);
       }
       return result;

@@ -85,11 +85,11 @@ public class FrontendTransactionIndexChangesList
 
   @Override
   public boolean contains(Object o) {
-    if (!(o instanceof TransactionIndexEntry)) {
+    if (!(o instanceof TransactionIndexEntry entry)) {
       return false;
     }
 
-    var record = ((TransactionIndexEntry) o).getValue();
+    var record = entry.getValue();
     var rid = record == null ? null : record.getIdentity();
     var items = ridToNodes.get(rid);
     if (items == null) {

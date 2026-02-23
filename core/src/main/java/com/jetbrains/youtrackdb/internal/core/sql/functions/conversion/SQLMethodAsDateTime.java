@@ -52,8 +52,8 @@ public class SQLMethodAsDateTime extends AbstractSQLMethod {
     if (iThis != null) {
       if (iThis instanceof Date) {
         return iThis;
-      } else if (iThis instanceof Number) {
-        return new Date(((Number) iThis).longValue());
+      } else if (iThis instanceof Number n) {
+        return new Date(n.longValue());
       } else {
         try {
           return DateHelper.getDateTimeFormatInstance(iContext.getDatabaseSession())

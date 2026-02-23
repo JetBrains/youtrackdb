@@ -340,8 +340,8 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
           braces--;
           parserMoveCurrentPosition(+1);
         }
-        if (subCondition instanceof SQLFilterCondition) {
-          ((SQLFilterCondition) subCondition).inBraces = true;
+        if (subCondition instanceof SQLFilterCondition filterCondition) {
+          filterCondition.inBraces = true;
         }
         result[i] = subCondition;
       } else if (word.charAt(0) == StringSerializerHelper.LIST_BEGIN) {
@@ -468,18 +468,18 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
       final Set<String> iFields) {
     var left = iCondition.getLeft();
     var right = iCondition.getRight();
-    if (left instanceof SQLFilterItemField) {
-      ((SQLFilterItemField) left).setPreLoadedFields(iFields);
-      iFields.add(((SQLFilterItemField) left).getRoot(session));
-    } else if (left instanceof SQLFilterCondition) {
-      computePrefetchFieldList(session, (SQLFilterCondition) left, iFields);
+    if (left instanceof SQLFilterItemField leftField) {
+      leftField.setPreLoadedFields(iFields);
+      iFields.add(leftField.getRoot(session));
+    } else if (left instanceof SQLFilterCondition leftCondition) {
+      computePrefetchFieldList(session, leftCondition, iFields);
     }
 
-    if (right instanceof SQLFilterItemField) {
-      ((SQLFilterItemField) right).setPreLoadedFields(iFields);
-      iFields.add(((SQLFilterItemField) right).getRoot(session));
-    } else if (right instanceof SQLFilterCondition) {
-      computePrefetchFieldList(session, (SQLFilterCondition) right, iFields);
+    if (right instanceof SQLFilterItemField rightField) {
+      rightField.setPreLoadedFields(iFields);
+      iFields.add(rightField.getRoot(session));
+    } else if (right instanceof SQLFilterCondition rightCondition) {
+      computePrefetchFieldList(session, rightCondition, iFields);
     }
 
   }

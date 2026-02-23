@@ -55,20 +55,20 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
     final var format = iParams[1].toString();
 
     byte[] data = null;
-    if (candidate instanceof byte[]) {
-      data = (byte[]) candidate;
-    } else if (candidate instanceof RecordIdInternal) {
+    if (candidate instanceof byte[] bytes) {
+      data = bytes;
+    } else if (candidate instanceof RecordIdInternal rid) {
       try {
         var transaction = context.getDatabaseSession().getActiveTransaction();
-        final RecordAbstract rec = transaction.load(((RecordIdInternal) candidate));
+        final RecordAbstract rec = transaction.load(rid);
         if (rec instanceof Blob) {
           data = rec.toStream();
         }
       } catch (RecordNotFoundException rnf) {
         return null;
       }
-    } else if (candidate instanceof SerializableStream) {
-      data = ((SerializableStream) candidate).toStream();
+    } else if (candidate instanceof SerializableStream ss) {
+      data = ss.toStream();
     }
 
     if (data == null) {

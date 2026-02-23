@@ -66,8 +66,8 @@ public class DynamicSQLElementFactory
       throw new CommandExecutionException(session, "Unknown function name :" + name);
     }
 
-    if (obj instanceof SQLFunction) {
-      return (SQLFunction) obj;
+    if (obj instanceof SQLFunction sqlFunction) {
+      return sqlFunction;
     } else {
       // it's a class
       final var clazz = (Class<?>) obj;

@@ -41,10 +41,10 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
   private Result filterMap(Result result, CommandContext ctx) {
     var finalVal = result.getProperty("rid");
     if (filterCollectionIds != null) {
-      if (!(finalVal instanceof Identifiable)) {
+      if (!(finalVal instanceof Identifiable id)) {
         return null;
       }
-      var rid = ((Identifiable) finalVal).getIdentity();
+      var rid = id.getIdentity();
       var found = false;
       for (int filterCollectionId : filterCollectionIds) {
         if (rid.getCollectionId() < 0 || filterCollectionId == rid.getCollectionId()) {
@@ -56,11 +56,11 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
         return null;
       }
     }
-    if (finalVal instanceof Identifiable) {
-      return new ResultInternal(ctx.getDatabaseSession(), (Identifiable) finalVal);
+    if (finalVal instanceof Identifiable id) {
+      return new ResultInternal(ctx.getDatabaseSession(), id);
 
-    } else if (finalVal instanceof Result) {
-      return (Result) finalVal;
+    } else if (finalVal instanceof Result res) {
+      return res;
     }
     return null;
   }

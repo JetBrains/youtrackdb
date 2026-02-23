@@ -46,8 +46,8 @@ public abstract class SQLFunctionFactoryTemplate implements SQLFunctionFactory {
       throw new CommandExecutionException(session, "Unknown function name :" + name);
     }
 
-    if (obj instanceof SQLFunction) {
-      return (SQLFunction) obj;
+    if (obj instanceof SQLFunction fn) {
+      return fn;
     } else {
       // it's a class
       final var clazz = (Class<?>) obj;

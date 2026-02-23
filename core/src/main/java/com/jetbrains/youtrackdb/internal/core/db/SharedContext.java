@@ -185,8 +185,8 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       try {
         var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
-        if (factory instanceof DatabaseLifecycleListener) {
-          ((DatabaseLifecycleListener) factory).onCreate(session);
+        if (factory instanceof DatabaseLifecycleListener listener) {
+          listener.onCreate(session);
         }
       } catch (IndexException x) {
         // the index does not exist

@@ -26,11 +26,11 @@ public class UpdateMergeStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    if (result instanceof ResultInternal) {
+    if (result instanceof ResultInternal resInt) {
       if (result.isEntity()) {
         Identifiable identifiable = result.asEntity();
         var transaction = ctx.getDatabaseSession().getActiveTransaction();
-        ((ResultInternal) result).setIdentifiable(
+        resInt.setIdentifiable(
             transaction.load(identifiable));
       }
       if (!result.isEntity()) {

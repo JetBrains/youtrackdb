@@ -54,8 +54,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Boolean) {
-      return (Boolean) value;
+    if (value instanceof Boolean b) {
+      return b;
     }
 
     throw new DatabaseException(
@@ -72,8 +72,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Byte) {
-      return (Byte) value;
+    if (value instanceof Byte b) {
+      return b;
     }
 
     throw new DatabaseException(
@@ -90,8 +90,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Short) {
-      return (Short) value;
+    if (value instanceof Short s) {
+      return s;
     }
 
     throw new DatabaseException(
@@ -108,8 +108,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Integer) {
-      return (Integer) value;
+    if (value instanceof Integer i) {
+      return i;
     }
 
     throw new DatabaseException(
@@ -128,8 +128,8 @@ public interface BasicResult {
       return null;
     }
 
-    if (value instanceof Long) {
-      return (Long) value;
+    if (value instanceof Long l) {
+      return l;
     }
 
     throw new DatabaseException(
@@ -146,8 +146,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Float) {
-      return (Float) value;
+    if (value instanceof Float f) {
+      return f;
     }
 
     throw new DatabaseException(
@@ -164,8 +164,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Double) {
-      return (Double) value;
+    if (value instanceof Double d) {
+      return d;
     }
 
     throw new DatabaseException(
@@ -182,8 +182,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof String) {
-      return (String) value;
+    if (value instanceof String s) {
+      return s;
     }
 
     throw new DatabaseException(
@@ -196,8 +196,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof byte[]) {
-      return (byte[]) value;
+    if (value instanceof byte[] bytes) {
+      return bytes;
     }
 
     throw new DatabaseException(
@@ -210,8 +210,8 @@ public interface BasicResult {
     if (value == null) {
       return null;
     }
-    if (value instanceof Date) {
-      return (Date) value;
+    if (value instanceof Date date) {
+      return date;
     }
 
     throw new DatabaseException(
@@ -230,8 +230,8 @@ public interface BasicResult {
       return null;
     }
 
-    if (value instanceof BigDecimal) {
-      return (BigDecimal) value;
+    if (value instanceof BigDecimal bigDecimal) {
+      return bigDecimal;
     }
 
     throw new DatabaseException(

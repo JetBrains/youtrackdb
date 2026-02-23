@@ -80,7 +80,7 @@ public class DatabaseRepair extends DatabaseTool<DatabaseSessionEmbedded> {
             for (var fieldName : entity.propertyNames()) {
               final var fieldValue = entity.getProperty(fieldName);
 
-              if (fieldValue instanceof Identifiable) {
+              if (fieldValue instanceof Identifiable identifiable) {
                 if (fixLink(fieldValue)) {
                   entity.setProperty(fieldName, null);
                   fixedLinks++;
@@ -88,7 +88,7 @@ public class DatabaseRepair extends DatabaseTool<DatabaseSessionEmbedded> {
                   if (verbose) {
                     message(
                         "\n--- reset link "
-                            + ((Identifiable) fieldValue).getIdentity()
+                            + identifiable.getIdentity()
                             + " in field '"
                             + fieldName
                             + "' (rid="
@@ -146,8 +146,8 @@ public class DatabaseRepair extends DatabaseTool<DatabaseSessionEmbedded> {
    * @return true to fix it, otherwise false
    */
   protected boolean fixLink(final Object fieldValue) {
-    if (fieldValue instanceof Identifiable) {
-      final var id = ((Identifiable) fieldValue).getIdentity();
+    if (fieldValue instanceof Identifiable identifiable) {
+      final var id = identifiable.getIdentity();
 
       if (id.getCollectionId() == 0 && id.getCollectionPosition() == 0) {
         return true;

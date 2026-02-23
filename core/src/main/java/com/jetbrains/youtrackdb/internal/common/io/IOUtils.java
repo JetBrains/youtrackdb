@@ -60,10 +60,10 @@ public class IOUtils {
       throw new IllegalArgumentException("Time is null");
     }
 
-    if (iSize instanceof Number)
+    if (iSize instanceof Number number)
     // MILLISECS
     {
-      return ((Number) iSize).longValue();
+      return number.longValue();
     }
 
     var time = iSize.toString();
@@ -238,8 +238,8 @@ public class IOUtils {
 
 
   public static Object encode(final Object iValue) {
-    if (iValue instanceof String) {
-      return java2unicode(((String) iValue).replace("\\", "\\\\").replace("\"", "\\\""));
+    if (iValue instanceof String s) {
+      return java2unicode(s.replace("\\", "\\\\").replace("\"", "\\\""));
     } else {
       return iValue;
     }

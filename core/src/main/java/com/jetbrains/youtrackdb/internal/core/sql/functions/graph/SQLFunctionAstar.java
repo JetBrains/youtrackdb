@@ -248,11 +248,11 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     }
     var db = context.getDatabaseSession();
     Map<String, ?> mapParams = null;
-    if (additionalParams instanceof Map) {
-      mapParams = (Map) additionalParams;
-    } else if (additionalParams instanceof Identifiable) {
+    if (additionalParams instanceof Map m) {
+      mapParams = m;
+    } else if (additionalParams instanceof Identifiable id) {
       var transaction = db.getActiveTransaction();
-      mapParams = ((EntityImpl) transaction.load(((Identifiable) additionalParams))).toMap();
+      mapParams = ((EntityImpl) transaction.load(id)).toMap();
     }
     if (mapParams != null) {
       ctx.paramEdgeTypeNames = stringArray(mapParams.get(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES));
@@ -324,10 +324,10 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     if (e != null && e.isStateful()) {
       final var fieldValue = e.asStatefulEdge().getProperty(paramWeightFieldName);
       if (fieldValue != null) {
-        if (fieldValue instanceof Float) {
-          return (Float) fieldValue;
-        } else if (fieldValue instanceof Number) {
-          return ((Number) fieldValue).doubleValue();
+        if (fieldValue instanceof Float f) {
+          return f;
+        } else if (fieldValue instanceof Number n) {
+          return n.doubleValue();
         }
       }
     }
@@ -339,10 +339,10 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     if (edge != null && edge.isStateful()) {
       final var fieldValue = edge.asStatefulEdge().getProperty(paramWeightFieldName);
       if (fieldValue != null) {
-        if (fieldValue instanceof Float) {
-          return (Float) fieldValue;
-        } else if (fieldValue instanceof Number) {
-          return ((Number) fieldValue).doubleValue();
+        if (fieldValue instanceof Float f) {
+          return f;
+        } else if (fieldValue instanceof Number n) {
+          return n.doubleValue();
         }
       }
     }

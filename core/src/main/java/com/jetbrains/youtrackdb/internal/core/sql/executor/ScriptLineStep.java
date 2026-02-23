@@ -22,52 +22,52 @@ public class ScriptLineStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    if (plan instanceof InsertExecutionPlan) {
-      ((InsertExecutionPlan) plan).executeInternal();
-    } else if (plan instanceof DeleteExecutionPlan) {
-      ((DeleteExecutionPlan) plan).executeInternal();
-    } else if (plan instanceof UpdateExecutionPlan) {
-      ((UpdateExecutionPlan) plan).executeInternal();
-    } else if (plan instanceof DDLExecutionPlan) {
-      ((DDLExecutionPlan) plan).executeInternal((BasicCommandContext) ctx);
-    } else if (plan instanceof SingleOpExecutionPlan) {
-      ((SingleOpExecutionPlan) plan).executeInternal((BasicCommandContext) ctx);
+    if (plan instanceof InsertExecutionPlan insertPlan) {
+      insertPlan.executeInternal();
+    } else if (plan instanceof DeleteExecutionPlan deletePlan) {
+      deletePlan.executeInternal();
+    } else if (plan instanceof UpdateExecutionPlan updatePlan) {
+      updatePlan.executeInternal();
+    } else if (plan instanceof DDLExecutionPlan ddlPlan) {
+      ddlPlan.executeInternal((BasicCommandContext) ctx);
+    } else if (plan instanceof SingleOpExecutionPlan singleOpPlan) {
+      singleOpPlan.executeInternal((BasicCommandContext) ctx);
     }
     return plan.start();
   }
 
   public boolean containsReturn() {
-    if (plan instanceof ScriptExecutionPlan) {
-      return ((ScriptExecutionPlan) plan).containsReturn();
+    if (plan instanceof ScriptExecutionPlan scriptPlan) {
+      return scriptPlan.containsReturn();
     }
-    if (plan instanceof SingleOpExecutionPlan) {
-      if (((SingleOpExecutionPlan) plan).statement instanceof SQLReturnStatement) {
+    if (plan instanceof SingleOpExecutionPlan singleOpPlan) {
+      if (singleOpPlan.statement instanceof SQLReturnStatement) {
         return true;
       }
     }
-    if (plan instanceof IfExecutionPlan) {
-      if (((IfExecutionPlan) plan).containsReturn()) {
+    if (plan instanceof IfExecutionPlan ifPlan) {
+      if (ifPlan.containsReturn()) {
         return true;
       }
     }
 
-    if (plan instanceof ForEachExecutionPlan) {
-      return ((ForEachExecutionPlan) plan).containsReturn();
+    if (plan instanceof ForEachExecutionPlan forEachPlan) {
+      return forEachPlan.containsReturn();
     }
     return false;
   }
 
   public ExecutionStepInternal executeUntilReturn(CommandContext ctx) {
-    if (plan instanceof ScriptExecutionPlan) {
-      return ((ScriptExecutionPlan) plan).executeUntilReturn();
+    if (plan instanceof ScriptExecutionPlan scriptPlan) {
+      return scriptPlan.executeUntilReturn();
     }
-    if (plan instanceof SingleOpExecutionPlan) {
-      if (((SingleOpExecutionPlan) plan).statement instanceof SQLReturnStatement) {
-        return new ReturnStep(((SingleOpExecutionPlan) plan).statement, ctx, profilingEnabled);
+    if (plan instanceof SingleOpExecutionPlan singleOpPlan) {
+      if (singleOpPlan.statement instanceof SQLReturnStatement) {
+        return new ReturnStep(singleOpPlan.statement, ctx, profilingEnabled);
       }
     }
-    if (plan instanceof IfExecutionPlan) {
-      return ((IfExecutionPlan) plan).executeUntilReturn();
+    if (plan instanceof IfExecutionPlan ifPlan) {
+      return ifPlan.executeUntilReturn();
     }
     throw new IllegalStateException();
   }

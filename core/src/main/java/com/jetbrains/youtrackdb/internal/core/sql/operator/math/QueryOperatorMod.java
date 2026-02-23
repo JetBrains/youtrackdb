@@ -73,19 +73,19 @@ public class QueryOperatorMod extends QueryOperator {
         return l.floatValue() % r.floatValue();
       } else if (l instanceof Double) {
         return l.doubleValue() % r.doubleValue();
-      } else if (l instanceof BigDecimal) {
-        if (r instanceof BigDecimal) {
-          return ((BigDecimal) l).remainder((BigDecimal) r);
+      } else if (l instanceof BigDecimal bd) {
+        if (r instanceof BigDecimal rBd) {
+          return bd.remainder(rBd);
         } else if (r instanceof Float) {
-          return ((BigDecimal) l).remainder(BigDecimal.valueOf(r.floatValue()));
+          return bd.remainder(BigDecimal.valueOf(r.floatValue()));
         } else if (r instanceof Double) {
-          return ((BigDecimal) l).remainder(BigDecimal.valueOf(r.doubleValue()));
+          return bd.remainder(BigDecimal.valueOf(r.doubleValue()));
         } else if (r instanceof Long) {
-          return ((BigDecimal) l).remainder(new BigDecimal(r.longValue()));
+          return bd.remainder(new BigDecimal(r.longValue()));
         } else if (r instanceof Integer) {
-          return ((BigDecimal) l).remainder(new BigDecimal(r.intValue()));
+          return bd.remainder(new BigDecimal(r.intValue()));
         } else if (r instanceof Short) {
-          return ((BigDecimal) l).remainder(new BigDecimal(r.shortValue()));
+          return bd.remainder(new BigDecimal(r.shortValue()));
         }
       }
     }

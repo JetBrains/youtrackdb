@@ -85,8 +85,8 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
       return rid;
     }
 
-    if (id instanceof Number) {
-      var numericId = ((Number) id).longValue();
+    if (id instanceof Number number) {
+      var numericId = number.longValue();
       return new RecordId(new Random(numericId).nextInt(32767), numericId);
     }
 

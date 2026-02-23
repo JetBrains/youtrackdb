@@ -233,11 +233,11 @@ public final class ChangeableRecordId implements ChangeableIdentity, RecordIdInt
     if (obj == null) {
       return false;
     }
-    if (!(obj instanceof Identifiable)) {
+    if (!(obj instanceof Identifiable identifiable)) {
       return false;
     }
 
-    final var other = (RecordIdInternal) ((Identifiable) obj).getIdentity();
+    final var other = (RecordIdInternal) identifiable.getIdentity();
 
     var immutableRecordId = recordIdAtomicReference.get();
 

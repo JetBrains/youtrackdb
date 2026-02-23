@@ -94,10 +94,10 @@ public class SQLMethodInclude extends AbstractSQLMethod {
 
     var session = iContext.getDatabaseSession();
     if (iParams[0] != null) {
-      if (iThis instanceof Identifiable) {
+      if (iThis instanceof Identifiable id) {
         try {
           var transaction = session.getActiveTransaction();
-          iThis = transaction.load(((Identifiable) iThis));
+          iThis = transaction.load(id);
         } catch (RecordNotFoundException rnf) {
           return null;
         }
@@ -114,10 +114,10 @@ public class SQLMethodInclude extends AbstractSQLMethod {
         // ACT ON MULTIPLE DOCUMENTS
         final List<Object> result = new ArrayList<Object>((int) MultiValue.getSize(iThis));
         for (var o : MultiValue.getMultiValueIterable(iThis)) {
-          if (o instanceof Identifiable) {
+          if (o instanceof Identifiable id) {
             try {
               var transaction = session.getActiveTransaction();
-              var record = transaction.load(((Identifiable) o));
+              var record = transaction.load(id);
               result.add(copy((EntityImpl) record, iParams, session));
             } catch (RecordNotFoundException rnf) {
               // IGNORE IT

@@ -83,9 +83,9 @@ public class JSONWriter {
     final var buffer = new StringBuilder(64);
     if (iValue instanceof Boolean || iValue instanceof Number) {
 
-      if (iValue instanceof Double && !Double.isFinite((Double) iValue)) {
+      if (iValue instanceof Double d && !Double.isFinite(d)) {
         buffer.append("null");
-      } else if ((iValue instanceof Float && !Float.isFinite((Float) iValue))) {
+      } else if ((iValue instanceof Float f && !Float.isFinite(f))) {
         buffer.append("null");
       } else {
         buffer.append(iValue);
@@ -156,16 +156,16 @@ public class JSONWriter {
       }
       buffer.append(writeValue(db, entry.getValue(), iFormat));
       buffer.append('}');
-    } else if (iValue instanceof Date) {
+    } else if (iValue instanceof Date date) {
       if (iFormat.indexOf("dateAsLong") > -1) {
-        buffer.append(((Date) iValue).getTime());
+        buffer.append(date.getTime());
       } else {
         buffer.append('"');
         buffer.append(DateHelper.getDateTimeFormatInstance(db).format(iValue));
         buffer.append('"');
       }
-    } else if (iValue instanceof BigDecimal) {
-      buffer.append(((BigDecimal) iValue).toPlainString());
+    } else if (iValue instanceof BigDecimal bigDecimal) {
+      buffer.append(bigDecimal.toPlainString());
     } else if (iValue instanceof Iterable<?>) {
       iteratorToJSON(db, ((Iterable<?>) iValue).iterator(), iFormat, buffer);
     } else {
@@ -207,8 +207,8 @@ public class JSONWriter {
   }
 
   public static Object encode(final Object iValue) {
-    if (iValue instanceof String) {
-      return IOUtils.encodeJsonString((String) iValue);
+    if (iValue instanceof String s) {
+      return IOUtils.encodeJsonString(s);
     } else {
       return iValue;
     }

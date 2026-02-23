@@ -52,8 +52,8 @@ public class IndexSearchDescriptor {
     var size = getSubBlocks().size();
     var range = false;
     var lastOp = getSubBlocks().get(getSubBlocks().size() - 1);
-    if (lastOp instanceof SQLBinaryCondition) {
-      var op = ((SQLBinaryCondition) lastOp).getOperator();
+    if (lastOp instanceof SQLBinaryCondition binCond) {
+      var op = binCond.getOperator();
       range = op.isRangeOperator();
     }
 
@@ -70,8 +70,8 @@ public class IndexSearchDescriptor {
   }
 
   private List<SQLBooleanExpression> getSubBlocks() {
-    if (keyCondition instanceof SQLAndBlock) {
-      return ((SQLAndBlock) keyCondition).getSubBlocks();
+    if (keyCondition instanceof SQLAndBlock andBlock) {
+      return andBlock.getSubBlocks();
     } else {
       return Collections.singletonList(keyCondition);
     }
@@ -115,8 +115,8 @@ public class IndexSearchDescriptor {
   }
 
   public boolean duplicateResultsForRecord() {
-    if (index.getDefinition() instanceof CompositeIndexDefinition) {
-      return ((CompositeIndexDefinition) index.getDefinition()).hasMultiValueProperties();
+    if (index.getDefinition() instanceof CompositeIndexDefinition compDef) {
+      return compDef.hasMultiValueProperties();
     }
     return false;
   }

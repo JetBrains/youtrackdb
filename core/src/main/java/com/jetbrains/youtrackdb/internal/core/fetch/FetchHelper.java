@@ -622,9 +622,9 @@ public class FetchHelper {
 
   public static boolean isEmbedded(Object fieldValue) {
     var isEmbedded =
-        fieldValue instanceof EntityImpl
-            && (((EntityImpl) fieldValue).isEmbedded()
-            || !((EntityImpl) fieldValue).getIdentity().isPersistent());
+        fieldValue instanceof EntityImpl entityImpl
+            && (entityImpl.isEmbedded()
+            || !entityImpl.getIdentity().isPersistent());
 
     // ridbag can contain only edges no embedded documents are allowed.
     if (fieldValue instanceof LinkBag) {
@@ -635,9 +635,9 @@ public class FetchHelper {
         final var f = MultiValue.getFirstValue(fieldValue);
         isEmbedded =
             f != null
-                && (f instanceof EntityImpl
-                && (((EntityImpl) f).isEmbedded()
-                || !((EntityImpl) f).getIdentity().isPersistent()));
+                && (f instanceof EntityImpl entity
+                && (entity.isEmbedded()
+                || !entity.getIdentity().isPersistent()));
       } catch (Exception e) {
         LogManager.instance().error(FetchHelper.class, "", e);
         // IGNORE IT
@@ -671,12 +671,12 @@ public class FetchHelper {
     if (fieldValue == null) {
       iListener.processStandardField(db, iRootRecord, null, fieldName, iContext, iUserObject, "",
           null);
-    } else if (fieldValue instanceof Identifiable) {
+    } else if (fieldValue instanceof Identifiable identifiable) {
       fetchEntity(db,
           iRootRecord,
           iUserObject,
           iFetchPlan,
-          (Identifiable) fieldValue,
+          identifiable,
           fieldName,
           currentLevel,
           iLevelFromRoot,

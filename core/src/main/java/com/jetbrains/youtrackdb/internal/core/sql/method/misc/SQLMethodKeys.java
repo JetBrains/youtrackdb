@@ -45,11 +45,11 @@ public class SQLMethodKeys extends AbstractSQLMethod {
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    if (ioResult instanceof Map) {
-      return ((Map<?, ?>) ioResult).keySet();
+    if (ioResult instanceof Map<?, ?> map) {
+      return map.keySet();
     }
-    if (ioResult instanceof EntityImpl) {
-      return Arrays.asList(((EntityImpl) ioResult).propertyNames());
+    if (ioResult instanceof EntityImpl entity) {
+      return Arrays.asList(entity.propertyNames());
     }
     if (ioResult instanceof Result res) {
       return res.getPropertyNames();

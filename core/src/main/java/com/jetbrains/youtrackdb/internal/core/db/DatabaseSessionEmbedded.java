@@ -1721,8 +1721,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (collectionId == RID.COLLECTION_ID_INVALID) {
       // COMPUTE THE COLLECTION ID
       SchemaClassInternal schemaClass = null;
-      if (record instanceof EntityImpl) {
-        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
+      if (record instanceof EntityImpl entity) {
+        schemaClass = entity.getImmutableSchemaClass(this);
       }
       if (schemaClass != null) {
         // FIND THE RIGHT COLLECTION AS CONFIGURED IN CLASS
@@ -2626,13 +2626,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     } catch (BaseException e) {
       throw e;
     } catch (Exception e) {
-      if (record instanceof EntityImpl) {
+      if (record instanceof EntityImpl entity) {
         throw BaseException.wrapException(
             new DatabaseException(getDatabaseName(),
                 "Error on deleting record "
                     + record.getIdentity()
                     + " of class '"
-                    + ((EntityImpl) record).getSchemaClassName()
+                    + entity.getSchemaClassName()
                     + "'"),
             e, getDatabaseName());
       } else {
@@ -2927,8 +2927,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         }
       }
     } else {
-      if (record instanceof EntityImpl) {
-        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
+      if (record instanceof EntityImpl entity) {
+        schemaClass = entity.getImmutableSchemaClass(this);
       }
     }
     // If the collection id was set check is validity
@@ -3019,8 +3019,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var result = JSONSerializerJackson.INSTANCE.fromString(this, json);
 
-    if (result instanceof Entity) {
-      return (Entity) result;
+    if (result instanceof Entity entity) {
+      return entity;
     }
 
     throw new DatabaseException(getDatabaseName(), "The record is not an entity");
@@ -3161,8 +3161,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       for (var op : getTransactionInternal().getRecordOperationsInternal()) {
         if (op.type == RecordOperation.DELETED) {
           final DBRecord rec = op.record;
-          if (rec instanceof EntityImpl) {
-            var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass(this);
+          if (rec instanceof EntityImpl entity) {
+            var schemaClass = entity.getImmutableSchemaClass(this);
             if (iPolymorphic) {
               if (schemaClass.isSubClassOf(className)) {
                 deletedInTx++;
@@ -3176,8 +3176,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         }
         if (op.type == RecordOperation.CREATED) {
           final DBRecord rec = op.record;
-          if (rec instanceof EntityImpl) {
-            var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass(this);
+          if (rec instanceof EntityImpl entity) {
+            var schemaClass = entity.getImmutableSchemaClass(this);
             if (schemaClass != null) {
               if (iPolymorphic) {
                 if (schemaClass.isSubClassOf(className)) {
@@ -3364,8 +3364,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
     checkSecurity(ResourceGeneric.COLLECTION, operation, collection);
 
-    if (record instanceof EntityImpl) {
-      var clazzName = ((EntityImpl) record).getSchemaClassName();
+    if (record instanceof EntityImpl entity) {
+      var clazzName = entity.getSchemaClassName();
       if (clazzName != null) {
         checkSecurity(ResourceGeneric.CLASS, operation, clazzName);
       }

@@ -126,8 +126,8 @@ public class EntityFieldWalker {
           || PropertyTypeInternal.LINKSET == fieldType
           || PropertyTypeInternal.LINKMAP == fieldType)) {
         if (fieldWalker.goDeeper(fieldType, linkedType, fieldValue)) {
-          if (fieldValue instanceof Map) {
-            walkMap(session, (Map) fieldValue, fieldType, fieldWalker, walked);
+          if (fieldValue instanceof Map map) {
+            walkMap(session, map, fieldType, fieldWalker, walked);
           } else if (fieldValue instanceof EntityImpl e) {
             if (PropertyTypeInternal.EMBEDDED.equals(fieldType) || e.isEmbedded()) {
               if (e.isUnloaded()) {

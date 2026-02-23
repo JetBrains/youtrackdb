@@ -99,8 +99,8 @@ public class ModifiableLong extends Number implements Comparable<ModifiableLong>
 
   @Override
   public boolean equals(final Object o) {
-    if (o instanceof ModifiableLong) {
-      return value == ((ModifiableLong) o).value;
+    if (o instanceof ModifiableLong other) {
+      return value == other.value;
     }
     return false;
   }

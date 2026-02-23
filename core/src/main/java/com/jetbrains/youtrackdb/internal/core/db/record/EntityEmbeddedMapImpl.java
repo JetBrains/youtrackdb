@@ -120,8 +120,8 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
       return;
     }
 
-    if (oldValue instanceof EntityImpl) {
-      ((EntityImpl) oldValue).removeOwner(this);
+    if (oldValue instanceof EntityImpl entity) {
+      entity.removeOwner(this);
     }
 
     addOwner(value);

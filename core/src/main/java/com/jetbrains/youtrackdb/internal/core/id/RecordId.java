@@ -148,11 +148,11 @@ public record RecordId(int collectionId, long collectionPosition) implements
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof Identifiable)) {
+    if (!(obj instanceof Identifiable identifiable)) {
       return false;
     }
 
-    final var other = (RecordIdInternal) ((Identifiable) obj).getIdentity();
+    final var other = (RecordIdInternal) identifiable.getIdentity();
     return other.getCollectionId() == collectionId
         && other.getCollectionPosition() == collectionPosition;
   }

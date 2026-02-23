@@ -20,8 +20,8 @@ Only `NullAway` is explicitly set to ERROR. All other checks use default severit
 |---|-------|-----------|--------|--------|
 | 1 | `BooleanLiteral` | 13 | done | 70baa040ae |
 | 2 | `MissingSummary` | 356 | done | beb19dc9e6 |
-| 3 | `StringCaseLocaleUsage` | 30 | done | PENDING |
-| 4 | `PatternMatchingInstanceof` | 5 | pending | - |
+| 3 | `StringCaseLocaleUsage` | 30 | done | 9e5b7379a8 |
+| 4 | `PatternMatchingInstanceof` | 227 | done | f9958b82ec |
 | 5 | `UnusedVariable` | 2 | pending | - |
 | 6 | `UnnecessaryParentheses` | 2 | pending | - |
 | 7 | `MixedMutabilityReturnType` | 1 | pending | - |

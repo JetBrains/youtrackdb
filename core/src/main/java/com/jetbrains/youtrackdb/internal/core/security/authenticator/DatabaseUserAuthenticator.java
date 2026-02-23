@@ -24,13 +24,13 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
 
   @Override
   public SecurityUser authenticate(DatabaseSessionEmbedded session, AuthenticationInfo info) {
-    if (info instanceof UserPasswordAuthInfo) {
+    if (info instanceof UserPasswordAuthInfo userPasswordAuthInfo) {
       return authenticate(
           session,
-          ((UserPasswordAuthInfo) info).getUser(),
-          ((UserPasswordAuthInfo) info).getPassword());
-    } else if (info instanceof TokenAuthInfo) {
-      var token = ((TokenAuthInfo) info).getToken();
+          userPasswordAuthInfo.getUser(),
+          userPasswordAuthInfo.getPassword());
+    } else if (info instanceof TokenAuthInfo tokenAuthInfo) {
+      var token = tokenAuthInfo.getToken();
 
       if (tokenSign != null && !tokenSign.verifyTokenSign(token)) {
         throw new SecurityAccessException(session.getDatabaseName(),

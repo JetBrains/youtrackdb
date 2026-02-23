@@ -450,8 +450,8 @@ public class ResultInternal implements Result, BasicResultInternal {
       temporaryContent = new HashMap<>();
     }
 
-    if (value instanceof Result && ((Result) value).isEntity()) {
-      temporaryContent.put(name, ((Result) value).asEntity());
+    if (value instanceof Result result && result.isEntity()) {
+      temporaryContent.put(name, result.asEntity());
     } else {
       temporaryContent.put(name, value);
     }
@@ -1207,8 +1207,8 @@ public class ResultInternal implements Result, BasicResultInternal {
       jsonVal = "\"" + encode(val.toString()) + "\"";
     } else if (val instanceof Number || val instanceof Boolean) {
       jsonVal = val.toString();
-    } else if (val instanceof Result) {
-      jsonVal = ((Result) val).toJSON();
+    } else if (val instanceof Result result) {
+      jsonVal = result.toJSON();
     } else if (val instanceof RID) {
       jsonVal = "\"" + val + "\"";
     } else if (val instanceof Iterable) {
@@ -1254,8 +1254,8 @@ public class ResultInternal implements Result, BasicResultInternal {
       }
       builder.append("}");
       jsonVal = builder.toString();
-    } else if (val instanceof byte[]) {
-      jsonVal = "\"" + Base64.getEncoder().encodeToString((byte[]) val) + "\"";
+    } else if (val instanceof byte[] bytes) {
+      jsonVal = "\"" + Base64.getEncoder().encodeToString(bytes) + "\"";
     } else if (val instanceof Date) {
       jsonVal = "\"" + DateHelper.getDateTimeFormatInstance(session).format(val) + "\"";
     } else if (val.getClass().isArray()) {

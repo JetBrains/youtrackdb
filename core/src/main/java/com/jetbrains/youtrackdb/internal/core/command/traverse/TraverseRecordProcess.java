@@ -171,10 +171,10 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
       var field = target.next();
 
       final Object fieldValue;
-      if (field instanceof SQLFilterItem) {
+      if (field instanceof SQLFilterItem filterItem) {
         var context = new BasicCommandContext();
         context.setParent(command.getContext());
-        fieldValue = ((SQLFilterItem) field).getValue(entity, null, context);
+        fieldValue = filterItem.getValue(entity, null, context);
       } else {
         fieldValue = entity.getProperty(field.toString());
       }
@@ -189,13 +189,13 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
           subProcess =
               new TraverseMultiValueProcess(
                   command, (Iterator<Object>) coll, path.appendField(field.toString()), session);
-        } else if (fieldValue instanceof Identifiable
-            && transaction1.load(((Identifiable) fieldValue)) instanceof EntityImpl) {
+        } else if (fieldValue instanceof Identifiable identifiable
+            && transaction1.load(identifiable) instanceof EntityImpl) {
           var transaction = session.getActiveTransaction();
           subProcess =
               new TraverseRecordProcess(
                   command,
-                  transaction.load(((Identifiable) fieldValue)),
+                  transaction.load(identifiable),
                   path.appendField(field.toString()), session);
         } else {
           continue;

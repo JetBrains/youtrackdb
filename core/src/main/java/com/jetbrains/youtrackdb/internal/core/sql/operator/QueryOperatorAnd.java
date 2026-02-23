@@ -67,14 +67,14 @@ public class QueryOperatorAnd extends QueryOperator {
     final RID leftRange;
     final RID rightRange;
 
-    if (iLeft instanceof SQLFilterCondition) {
-      leftRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
+    if (iLeft instanceof SQLFilterCondition leftCond) {
+      leftRange = leftCond.getBeginRidRange(session);
     } else {
       leftRange = null;
     }
 
-    if (iRight instanceof SQLFilterCondition) {
-      rightRange = ((SQLFilterCondition) iRight).getBeginRidRange(session);
+    if (iRight instanceof SQLFilterCondition rightCond) {
+      rightRange = rightCond.getBeginRidRange(session);
     } else {
       rightRange = null;
     }
@@ -97,14 +97,14 @@ public class QueryOperatorAnd extends QueryOperator {
     final RID leftRange;
     final RID rightRange;
 
-    if (iLeft instanceof SQLFilterCondition) {
-      leftRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);
+    if (iLeft instanceof SQLFilterCondition leftCond) {
+      leftRange = leftCond.getEndRidRange(session);
     } else {
       leftRange = null;
     }
 
-    if (iRight instanceof SQLFilterCondition) {
-      rightRange = ((SQLFilterCondition) iRight).getEndRidRange(session);
+    if (iRight instanceof SQLFilterCondition rightCond) {
+      rightRange = rightCond.getEndRidRange(session);
     } else {
       rightRange = null;
     }

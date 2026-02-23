@@ -46,22 +46,22 @@ public class ExecutionThreadLocal extends ThreadLocal<ExecutionThreadData> {
 
   public static boolean isInterruptCurrentOperation() {
     final var t = Thread.currentThread();
-    if (t instanceof SoftThread) {
-      return ((SoftThread) t).isShutdownFlag();
+    if (t instanceof SoftThread softThread) {
+      return softThread.isShutdownFlag();
     }
     return false;
   }
 
   public void setInterruptCurrentOperation(final Thread t) {
-    if (t instanceof SoftThread) {
-      ((SoftThread) t).softShutdown();
+    if (t instanceof SoftThread softThread) {
+      softThread.softShutdown();
     }
   }
 
   public static void setInterruptCurrentOperation() {
     final var t = Thread.currentThread();
-    if (t instanceof SoftThread) {
-      ((SoftThread) t).softShutdown();
+    if (t instanceof SoftThread softThread) {
+      softThread.softShutdown();
     }
   }
 

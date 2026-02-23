@@ -50,8 +50,8 @@ public class SQLMethodRemove extends AbstractSQLMethod {
 
                 @Override
                 public Object call(final Object iArgument) {
-                  if (iArgument instanceof String && ((String) iArgument).startsWith("$")) {
-                    return iContext.getVariable((String) iArgument);
+                  if (iArgument instanceof String s && s.startsWith("$")) {
+                    return iContext.getVariable(s);
                   }
                   return iArgument;
                 }

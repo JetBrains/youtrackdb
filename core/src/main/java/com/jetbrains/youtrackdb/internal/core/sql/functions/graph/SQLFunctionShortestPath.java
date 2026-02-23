@@ -139,10 +139,10 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     if (iParams.length > 3) {
 
       var param = iParams[3];
-      if (param instanceof Collection
-          && ((Collection) param).stream().allMatch(x -> x instanceof String)) {
-        ctx.edgeType = ((Collection<String>) param).stream().collect(Collectors.joining(","));
-        ctx.edgeTypeParam = (String[]) ((Collection) param).toArray(new String[0]);
+      if (param instanceof Collection<?> coll
+          && coll.stream().allMatch(x -> x instanceof String)) {
+        ctx.edgeType = ((Collection<String>) coll).stream().collect(Collectors.joining(","));
+        ctx.edgeTypeParam = (String[]) coll.toArray(new String[0]);
       } else {
         ctx.edgeType = param == null ? null : "" + param;
         ctx.edgeTypeParam = new String[]{ctx.edgeType};
@@ -236,11 +236,11 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     }
 
     Map<String, ?> mapParams = null;
-    if (additionalParams instanceof Map) {
-      mapParams = (Map) additionalParams;
-    } else if (additionalParams instanceof Identifiable) {
+    if (additionalParams instanceof Map m) {
+      mapParams = m;
+    } else if (additionalParams instanceof Identifiable id) {
       var transaction = db.getActiveTransaction();
-      mapParams = ((EntityImpl) transaction.load(((Identifiable) additionalParams))).toMap();
+      mapParams = ((EntityImpl) transaction.load(id)).toMap();
     }
     if (mapParams != null) {
       ctx.maxDepth = integer(mapParams.get("maxDepth"));
@@ -254,8 +254,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     if (fromObject == null) {
       return null;
     }
-    if (fromObject instanceof Number) {
-      return ((Number) fromObject).intValue();
+    if (fromObject instanceof Number n) {
+      return n.intValue();
     }
     if (fromObject instanceof String) {
       try {
@@ -274,8 +274,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     if (fromObject == null) {
       return null;
     }
-    if (fromObject instanceof Boolean) {
-      return (Boolean) fromObject;
+    if (fromObject instanceof Boolean b) {
+      return b;
     }
     if (fromObject instanceof String) {
       try {

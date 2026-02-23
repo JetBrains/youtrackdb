@@ -624,13 +624,13 @@ public class JSONSerializerJackson {
           var fieldValue = jsonParser.getText();
           if (fieldValue == null || "null".equals(fieldValue)) {
             record.fromStream(CommonConst.EMPTY_BYTE_ARRAY);
-          } else if (record instanceof Blob) {
+          } else if (record instanceof Blob blob) {
             // BYTES
             // we can do better here: read and decode base64 at the same time without creating
             // intermediate structures.
             final var iBuffer = jsonParser.getBinaryValue();
             if (iBuffer != null && iBuffer.length > 0) {
-              ((Blob) record).fromInputStream(new ByteArrayInputStream(iBuffer));
+              blob.fromInputStream(new ByteArrayInputStream(iBuffer));
             }
           } else {
             throw new SerializationException(session,

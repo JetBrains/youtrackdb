@@ -101,8 +101,8 @@ public class IfStep extends AbstractExecutionStep {
     if (stm instanceof SQLReturnStatement) {
       return true;
     }
-    if (stm instanceof SQLIfStatement) {
-      for (var o : ((SQLIfStatement) stm).getStatements()) {
+    if (stm instanceof SQLIfStatement ifStatement) {
+      for (var o : ifStatement.getStatements()) {
         if (containsReturn(o)) {
           return true;
         }

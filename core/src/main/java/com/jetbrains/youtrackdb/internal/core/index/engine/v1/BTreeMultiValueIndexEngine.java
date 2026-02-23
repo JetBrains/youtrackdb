@@ -338,8 +338,8 @@ public final class BTreeMultiValueIndexEngine
 
   private static CompositeKey convertToCompositeKey(Object rangeFrom) {
     CompositeKey firstKey;
-    if (rangeFrom instanceof CompositeKey) {
-      firstKey = (CompositeKey) rangeFrom;
+    if (rangeFrom instanceof CompositeKey compositeKey) {
+      firstKey = compositeKey;
     } else {
       firstKey = new CompositeKey(rangeFrom);
     }

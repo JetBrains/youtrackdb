@@ -53,15 +53,15 @@ public class RecordNotFoundException extends CoreException implements HighLevelE
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof RecordNotFoundException)) {
+    if (!(obj instanceof RecordNotFoundException other)) {
       return false;
     }
 
-    if (rid == null && ((RecordNotFoundException) obj).rid == null) {
+    if (rid == null && other.rid == null) {
       return toString().equals(obj.toString());
     }
 
-    return rid != null && rid.equals(((RecordNotFoundException) obj).rid);
+    return rid != null && rid.equals(other.rid);
   }
 
   @Override

@@ -259,20 +259,20 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     if (collate != null || operationsChain == null || !isFieldChain()) {
       return collate;
     }
-    if (!(object instanceof Identifiable)) {
+    if (!(object instanceof Identifiable identifiable)) {
       return null;
     }
     var chain = getFieldChain();
     try {
       var transaction1 = session.getActiveTransaction();
-      EntityImpl lastDoc = transaction1.load(((Identifiable) object));
+      EntityImpl lastDoc = transaction1.load(identifiable);
       for (var i = 0; i < chain.getItemCount() - 1; i++) {
         var nextDoc = lastDoc.getProperty(chain.getItemName(i));
-        if (!(nextDoc instanceof Identifiable)) {
+        if (!(nextDoc instanceof Identifiable nextIdentifiable)) {
           return null;
         }
         var transaction = session.getActiveTransaction();
-        lastDoc = transaction.load(((Identifiable) nextDoc));
+        lastDoc = transaction.load(nextIdentifiable);
       }
       var schemaClass = lastDoc.getImmutableSchemaClass(session);
       if (schemaClass == null) {

@@ -195,8 +195,8 @@ public abstract class StringSerializerHelper {
       case LINK:
         if (iValue instanceof RID) {
           return iValue.toString();
-        } else if (iValue instanceof String) {
-          return RecordIdInternal.fromString((String) iValue, false);
+        } else if (iValue instanceof String s) {
+          return RecordIdInternal.fromString(s, false);
         } else {
           return ((DBRecord) iValue).getIdentity().toString();
         }
@@ -1352,10 +1352,10 @@ public abstract class StringSerializerHelper {
   public static byte[] getBinaryContent(final Object iValue) {
     if (iValue == null) {
       return null;
-    } else if (iValue instanceof Binary) {
-      return ((Binary) iValue).toByteArray();
-    } else if (iValue instanceof byte[]) {
-      return (byte[]) iValue;
+    } else if (iValue instanceof Binary binary) {
+      return binary.toByteArray();
+    } else if (iValue instanceof byte[] bytes) {
+      return bytes;
     } else if (iValue instanceof String s) {
       if (s.length() > 1
           && (s.charAt(0) == BINARY_BEGINEND && s.charAt(s.length() - 1) == BINARY_BEGINEND)
