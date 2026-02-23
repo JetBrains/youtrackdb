@@ -270,7 +270,11 @@ public class MatchStatementTest {
     parse(generic);
   }
 
-  /** Verifies toGenericStatement() for MATCH with NOT, optional, ORDER BY, LIMIT. */
+  /**
+   * Verifies toGenericStatement() preserves ORDER BY, SKIP, and LIMIT clauses.
+   * Note: toGenericStatement() serializes only matchExpressions, not notMatchExpressions,
+   * so the NOT clause is not expected in the output.
+   */
   @Test
   public void testToGenericStatementComplex() {
     var stm = parse("MATCH {class: V, as: a}-->{as: b, optional: true},"
@@ -280,9 +284,11 @@ public class MatchStatementTest {
     stm.toGenericStatement(builder);
     var generic = builder.toString();
     assertFalse("generic statement should not be empty", generic.isEmpty());
-    // toGenericStatement produces a normalized form; verify it contains key parts
     assertTrue("should contain MATCH keyword", generic.contains("MATCH"));
     assertTrue("should contain RETURN keyword", generic.contains("RETURN"));
+    assertTrue("should contain ORDER BY clause", generic.contains("ORDER BY"));
+    assertTrue("should contain SKIP clause", generic.contains("SKIP"));
+    assertTrue("should contain LIMIT clause", generic.contains("LIMIT"));
   }
 
   /** Verifies MATCH with GROUP BY clause parses correctly and round-trips through toString. */
@@ -413,22 +419,24 @@ public class MatchStatementTest {
   }
 
   /**
-   * Verifies that hashCode produces different values for statements with and without
-   * GROUP BY, ORDER BY, UNWIND, SKIP, LIMIT (exercises non-null ternary branches).
+   * Verifies hashCode consistency: equal statements have equal hash codes, and
+   * hashCode is deterministic across multiple calls.
    */
   @Test
-  public void testHashCodeWithAllClauses() {
-    var full = parse(
+  public void testHashCodeConsistencyWithAllClauses() {
+    var full1 = parse(
         "MATCH {class: V, as: a}-->{as:b}"
             + " RETURN a, b GROUP BY a ORDER BY a SKIP 1 LIMIT 10");
-    var minimal = parse("MATCH {class: V, as: a}-->{as:b} RETURN a, b");
+    var full2 = parse(
+        "MATCH {class: V, as: a}-->{as:b}"
+            + " RETURN a, b GROUP BY a ORDER BY a SKIP 1 LIMIT 10");
 
-    // Hash codes should differ (extremely unlikely to collide for different clause sets)
-    assertNotEquals("different statements should usually have different hashCodes",
-        minimal.hashCode(), full.hashCode());
+    // Equal objects must have equal hash codes (hashCode contract)
+    assertEquals("equal statements must have equal hashCodes",
+        full1.hashCode(), full2.hashCode());
 
-    // Verify hashCode is consistent
-    assertEquals("hashCode should be consistent", full.hashCode(), full.hashCode());
+    // Verify hashCode is consistent across calls
+    assertEquals("hashCode should be deterministic", full1.hashCode(), full1.hashCode());
   }
 
   /**

@@ -2023,25 +2023,31 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
-  /** Exercises ReturnMatchElementsStep by using RETURN $elements. */
+  /**
+   * Exercises ReturnMatchElementsStep by using RETURN $elements.
+   * n1 has 2 friends (n2, n3), producing 2 MATCH rows with 2 user-defined aliases
+   * each (a, b). $elements unrolls each row into separate records, yielding 4 elements.
+   */
   @Test
   public void testReturnElementsUnrolls() {
     session.begin();
     var result = session.query(
             "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b} RETURN $elements")
         .toList();
-    // $elements should unroll into individual elements - 2 per row (a and b)
-    // n1 has 2 friends (n2, n3) so we expect 2 rows * 2 elements = 4 result rows
-    // But each row in MATCH result becomes 2 elements (a=n1, b=friend)
-    assertFalse(result.isEmpty());
-    // Each result should be a single record, not a map with aliases
+    // 2 MATCH rows (n1->n2, n1->n3) * 2 user-defined aliases = 4 unrolled elements
+    assertEquals(4, result.size());
+    // Each result should be a single identifiable record, not a map with aliases
     for (var row : result) {
       assertNotNull(row.getIdentity());
     }
     session.commit();
   }
 
-  /** Exercises ReturnMatchPathElementsStep by using RETURN $pathElements. */
+  /**
+   * Exercises ReturnMatchPathElementsStep by using RETURN $pathElements.
+   * Unlike $elements, $pathElements includes auto-generated aliases too, yielding
+   * more elements per row. Each result should be an identifiable record.
+   */
   @Test
   public void testReturnPathElementsIncludesAll() {
     session.begin();
@@ -2049,7 +2055,10 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b} "
                 + "RETURN $pathElements")
         .toList();
-    assertFalse(result.isEmpty());
+    // At minimum, should have the same elements as $elements (4), possibly more
+    // from auto-generated aliases
+    assertTrue("$pathElements should produce at least 4 records",
+        result.size() >= 4);
     for (var row : result) {
       assertNotNull(row.getIdentity());
     }
@@ -2071,7 +2080,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, result.size());
     assertEquals("n5", result.get(0).getProperty("aName"));
     // b should be null because n5 has no outgoing Friend edges
-    // (Optional: LEFT JOIN semantics - row is preserved)
+    // (Optional: LEFT JOIN semantics - row is preserved with null for unmatched alias)
+    assertNull("optional node with no match should produce null",
+        result.get(0).getProperty("b"));
     session.commit();
   }
 
@@ -2137,7 +2148,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   /**
    * Exercises explain() which invokes prettyPrint() on all execution steps in the plan.
-   * This covers prettyPrint() methods on MatchFirstStep, MatchStep, and return steps.
+   * Verifies the plan contains expected step types: SET (MatchFirstStep) and MATCH.
    */
   @Test
   public void testExplainMatchQuery() {
@@ -2146,13 +2157,18 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
                 + " RETURN a.name, b.name")
         .toList();
-    assertFalse(result.isEmpty());
-    // EXPLAIN should return a result with the execution plan description
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("plan should contain SET step", plan.contains("SET"));
+    assertTrue("plan should contain MATCH step", plan.contains("MATCH"));
+    assertTrue("plan should contain forward arrow", plan.contains("---->"));
     session.commit();
   }
 
   /**
    * Exercises explain() with optional match to cover OptionalMatchStep.prettyPrint().
+   * Verifies the plan contains "OPTIONAL MATCH".
    */
   @Test
   public void testExplainMatchOptionalQuery() {
@@ -2161,12 +2177,16 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
                 + ".out('Friend'){as:b, optional:true} RETURN a, b")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain OPTIONAL MATCH", plan.contains("OPTIONAL MATCH"));
     session.commit();
   }
 
   /**
    * Exercises explain() with NOT pattern to cover FilterNotMatchPatternStep.prettyPrint().
+   * Verifies the plan contains "NOT".
    */
   @Test
   public void testExplainMatchNotPattern() {
@@ -2176,12 +2196,16 @@ public class MatchStatementExecutionTest extends DbTestBase {
                 + " NOT {as:a}.out('Friend'){as:b, where:(name='n3')}"
                 + " RETURN a, b")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain NOT step", plan.contains("NOT"));
     session.commit();
   }
 
   /**
    * Exercises explain() with RETURN $paths to cover ReturnMatchPathsStep.prettyPrint().
+   * Verifies the plan contains "RETURN $paths".
    */
   @Test
   public void testExplainReturnPaths() {
@@ -2190,12 +2214,16 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
                 + " RETURN $paths")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain RETURN $paths", plan.contains("RETURN $paths"));
     session.commit();
   }
 
   /**
    * Exercises explain() with RETURN $elements to cover ReturnMatchElementsStep.prettyPrint().
+   * Verifies the plan contains "UNROLL $elements".
    */
   @Test
   public void testExplainReturnElements() {
@@ -2204,13 +2232,16 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
                 + " RETURN $elements")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain UNROLL $elements", plan.contains("UNROLL $elements"));
     session.commit();
   }
 
   /**
    * Exercises explain() with RETURN $pathElements to cover
-   * ReturnMatchPathElementsStep.prettyPrint().
+   * ReturnMatchPathElementsStep.prettyPrint(). Verifies plan contains "UNROLL $pathElements".
    */
   @Test
   public void testExplainReturnPathElements() {
@@ -2219,13 +2250,17 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
                 + " RETURN $pathElements")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain UNROLL $pathElements",
+        plan.contains("UNROLL $pathElements"));
     session.commit();
   }
 
   /**
    * Exercises explain() with RETURN $patterns to cover
-   * ReturnMatchPatternsStep.prettyPrint().
+   * ReturnMatchPatternsStep.prettyPrint(). Verifies plan contains "RETURN $patterns".
    */
   @Test
   public void testExplainReturnPatterns() {
@@ -2234,13 +2269,15 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
                 + " RETURN $patterns")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain RETURN $patterns", plan.contains("RETURN $patterns"));
     session.commit();
   }
 
   /**
-   * Tests reverse MatchStep prettyPrint direction indicator by exercising EXPLAIN
-   * on a pattern that requires reverse traversal.
+   * Verifies EXPLAIN on reverse traversal shows the reverse arrow indicator in the plan.
    */
   @Test
   public void testExplainReverseTraversal() {
@@ -2249,30 +2286,29 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "EXPLAIN MATCH {class:Person, as:a, where:(name='n4')}.in('Friend'){as:b}"
                 + " RETURN a, b")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should contain MATCH step", plan.contains("MATCH"));
     session.commit();
   }
 
   /**
-   * Exercises MatchMultiEdgeTraverser by testing multi-step path traversal.
+   * Exercises chained single-step edges: .out('Friend').out('Friend'){as:b} creates two
+   * separate MatchStep instances with an auto-generated intermediate alias. This is NOT
+   * the same as compound path (parenthesized) syntax, which uses MatchMultiEdgeTraverser.
    */
   @Test
-  public void testMultiEdgeTraversal() {
+  public void testChainedEdgeTraversal() {
     session.begin();
-    // Multi-step: n1 -> n2 -> n4, compound path
+    // Chained edges: n1 -> n2 -> n4, and n1 -> n3 (n3 has no outgoing Friend)
     var result = session.query(
             "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend').out('Friend'){as:b}"
                 + " RETURN b.name as bName")
         .toList();
-    assertFalse(result.isEmpty());
-    // n1->n2->n4 and n1->n3 (n3 has no outgoing), so should get n4
-    boolean foundN4 = false;
-    for (var row : result) {
-      if ("n4".equals(row.getProperty("bName"))) {
-        foundN4 = true;
-      }
-    }
-    assertTrue("Should find n4 through multi-edge traversal", foundN4);
+    // Only n1->n2->n4 produces a 2-hop result (n3 has no outgoing edges)
+    assertEquals(1, result.size());
+    assertEquals("n4", result.get(0).getProperty("bName"));
     session.commit();
   }
 
@@ -2345,31 +2381,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
-  /**
-   * Exercises MATCH with WHILE clause and depthAlias to cover MatchEdgeTraverser's
-   * recursive path and depth metadata propagation.
-   */
-  @Test
-  public void testWhileTraversalWithDepthAlias() {
-    session.begin();
-    // n1 -> n2 -> n4 -> n5, with WHILE condition and depth tracking
-    var result = session.query(
-            "MATCH {class:Person, as:a, where:(name='n1')}"
-                + ".out('Friend'){while:($depth < 3), as:b, depthAlias: d}"
-                + " RETURN b.name as bName, d")
-        .toList();
-    assertFalse(result.isEmpty());
-    // Should find records at various depths
-    boolean foundDepthZero = false;
-    for (var row : result) {
-      Object depth = row.getProperty("d");
-      if (depth != null && ((Number) depth).intValue() == 0) {
-        foundDepthZero = true;
-      }
-    }
-    assertTrue("WHILE traversal should include depth 0 (starting point)", foundDepthZero);
-    session.commit();
-  }
+  // NOTE: WHILE with depthAlias is tested by testWhileWithDepthAndPathAlias below,
+  // which covers both depthAlias and pathAlias in a single, more comprehensive test.
 
   /**
    * Exercises profiling path in AbstractExecutionStep by running a MATCH query
@@ -2382,7 +2395,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
             "PROFILE MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
                 + " RETURN a.name, b.name")
         .toList();
-    assertFalse(result.isEmpty());
+    assertEquals(1, result.size());
+    // PROFILE result should contain the execution plan with timing information
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull("PROFILE should produce executionPlanAsString", plan);
+    assertTrue("profiled plan should contain MATCH step", plan.contains("MATCH"));
     session.commit();
   }
 
@@ -2483,14 +2500,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
                 + ".(out('Friend').out('Friend')){as:b}"
                 + " RETURN b.name as bName")
         .toList();
-    assertFalse(result.isEmpty());
-    boolean found = false;
-    for (var row : result) {
-      if ("n4".equals(row.getProperty("bName"))) {
-        found = true;
-      }
-    }
-    assertTrue("Compound path should find n4 via n1->n2->n4", found);
+    // n1->n2->n4 is the only 2-hop Friend path from n1 (n1->n3 has no out Friend)
+    assertEquals(1, result.size());
+    assertEquals("n4", result.get(0).getProperty("bName"));
     session.commit();
   }
 
@@ -2502,12 +2514,20 @@ public class MatchStatementExecutionTest extends DbTestBase {
   public void testCompoundPathWithWhile() {
     session.begin();
     // Compound path with WHILE: traverse out('Friend') recursively up to depth 2
+    // n1 -> n2 -> n4 -> n5/n6, depth<2 means depths 0 and 1
+    // depth 0: n1 itself, depth 1: n2, n3
     var result = session.query(
             "MATCH {class:Person, as:a, where:(name='n1')}"
                 + ".(out('Friend'){while:($depth < 2)}){as:b}"
                 + " RETURN b.name as bName")
         .toList();
-    assertFalse(result.isEmpty());
+    assertFalse("WHILE traversal should produce results", result.isEmpty());
+    var names = new HashSet<String>();
+    for (var row : result) {
+      names.add(row.getProperty("bName"));
+    }
+    // n1 at depth 0 should be included (WHILE starts from the starting point)
+    assertTrue("should include starting point n1", names.contains("n1"));
     session.commit();
   }
 
@@ -2578,22 +2598,26 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Exercises MatchReverseEdgeTraverser with an optional target node that forces the
-   * scheduler to reverse the edge direction (optional nodes must be reached from
-   * already-visited nodes).
+   * Tests that the planner handles a redundant back-edge pattern where 'b' is already
+   * matched by the first expression but also referenced as optional in a second expression.
+   * The second expression ({as:b, optional:true}.in('Friend'){as:a}) re-validates
+   * the a→b relationship. The planner may use reverse traversal for the back-edge.
    */
   @Test
-  public void testOptionalNodeTriggersReverseTraversal() {
+  public void testBackEdgeWithOptionalAnnotation() {
     session.begin();
+    // First expression: a->b via out('Friend')
+    // Second expression: b->a via in('Friend'), b marked optional (already matched)
     var result = session.query(
             "MATCH {class:Person, as:a}.out('Friend'){as:b},"
                 + " {as:b, optional:true}.in('Friend'){as:a}"
                 + " RETURN a.name as aName, b.name as bName")
         .toList();
     assertFalse(result.isEmpty());
+    // The back-edge re-validates a→b, so results should be consistent friend pairs
     for (var row : result) {
-      assertNotNull(row.getProperty("aName"));
-      assertNotNull(row.getProperty("bName"));
+      assertNotNull("a should always have a name", row.getProperty("aName"));
+      assertNotNull("b should always have a name (already matched)", row.getProperty("bName"));
     }
     session.commit();
   }
@@ -2620,8 +2644,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Exercises MatchEdgeTraverser.next() with depthAlias AND pathAlias to cover
-   * the metadata propagation branches.
+   * Exercises MatchEdgeTraverser.next() with both depthAlias and pathAlias to cover
+   * the metadata propagation branches for depth tracking and path recording.
+   * n1 -> n2 -> n4 -> n5/n6, with WHILE $depth < 3: depths 0, 1, 2.
    */
   @Test
   public void testWhileWithDepthAndPathAlias() {
@@ -2634,14 +2659,23 @@ public class MatchStatementExecutionTest extends DbTestBase {
         .toList();
     assertFalse(result.isEmpty());
     boolean foundStart = false;
+    boolean foundDeeper = false;
     for (var row : result) {
       Object depth = row.getProperty("d");
-      if (depth != null && ((Number) depth).intValue() == 0) {
+      assertNotNull("every result should have a depth", depth);
+      int d = ((Number) depth).intValue();
+      assertNotNull("every result should have a path", row.getProperty("p"));
+      if (d == 0) {
         foundStart = true;
-        assertNotNull("pathAlias should produce a value", row.getProperty("p"));
+        assertEquals("depth 0 should be the starting point n1", "n1",
+            row.getProperty("bName"));
+      }
+      if (d > 0) {
+        foundDeeper = true;
       }
     }
-    assertTrue("Should find depth-0 starting point result", foundStart);
+    assertTrue("should include depth-0 starting point", foundStart);
+    assertTrue("should include deeper traversal results", foundDeeper);
     session.commit();
   }
 
@@ -2681,28 +2715,6 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Exercises OptionalMatchEdgeTraverser with a node that has no outgoing
-   * edges, producing the EMPTY_OPTIONAL sentinel. Covers the "no match"
-   * path in init() and the null-setting path in next().
-   */
-  @Test
-  public void testOptionalWithNoMatchProducesNullValue() {
-    session.begin();
-    // n6 has no outgoing Friend edges. 'b' will be EMPTY_OPTIONAL → null.
-    var result = session.query(
-            "MATCH {class:Person, as:a, where:(name='n6')}"
-                + ".out('Friend'){as:b, optional:true}"
-                + " RETURN a.name as aName, b as bValue")
-        .toList();
-    assertEquals(1, result.size());
-    assertEquals("n6", result.get(0).getProperty("aName"));
-    // b should be null because n6 has no outgoing Friend edges
-    assertNull("Optional with no match should produce null",
-        result.get(0).getProperty("bValue"));
-    session.commit();
-  }
-
-  /**
    * Exercises the Object[] args overload of SQLMatchStatement.execute() by using
    * positional parameters in a MATCH query.
    */
@@ -2723,15 +2735,16 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   /**
    * Exercises SQLMatchStatement.getLowerSubclass() by referencing the same alias
-   * with a class constraint that is a subclass of V (Person extends V).
+   * with a superclass (V) in one expression and a subclass (Person) in another.
+   * The planner must resolve the two to the more specific type (Person).
    */
   @Test
   public void testMatchWithSameAliasSubclassConstraint() {
     session.begin();
-    // Two expressions referencing 'a' with class:Person — both specify the same class,
-    // which triggers getLowerSubclass() to determine the more specific type
+    // Alias 'a' is constrained to V in one expression and Person in another.
+    // getLowerSubclass() should resolve to Person (the more specific type).
     var result = session.query(
-            "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+            "MATCH {class:V, as:a, where:(name='n1')}.out('Friend'){as:b},"
                 + " {class:Person, as:a}"
                 + " RETURN a.name as aName, b.name as bName")
         .toList();
@@ -2744,22 +2757,34 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   /**
    * Exercises MATCH with DISTINCT in the return clause, covering the returnDistinct
-   * branch in SQLMatchStatement.toString().
+   * branch in SQLMatchStatement. Uses both() which naturally produces duplicates:
+   * n2 appears as both out-Friend of n1 and in-Friend of n4.
    */
   @Test
   public void testMatchReturnDistinct() {
     session.begin();
-    var result = session.query(
-            "MATCH {class:Person, as:a}.out('Friend'){as:b}"
+    // Without DISTINCT, both('Friend') from multiple starting points would produce
+    // duplicate friend names (e.g., n2 is connected to both n1 and n4).
+    var withoutDistinct = session.query(
+            "MATCH {class:Person, as:a}.both('Friend'){as:b}"
+                + " RETURN b.name as bName")
+        .toList();
+    var withDistinct = session.query(
+            "MATCH {class:Person, as:a}.both('Friend'){as:b}"
                 + " RETURN DISTINCT b.name as bName")
         .toList();
-    assertFalse(result.isEmpty());
-    // Verify distinct: friend names should not repeat
+    // DISTINCT should reduce the result count
+    assertTrue("DISTINCT should produce fewer or equal results than non-DISTINCT",
+        withDistinct.size() <= withoutDistinct.size());
+    // Verify no duplicates in DISTINCT result
     var names = new java.util.HashSet<String>();
-    for (var row : result) {
-      assertTrue("DISTINCT should not produce duplicates",
+    for (var row : withDistinct) {
+      assertTrue("DISTINCT should not produce duplicate names",
           names.add(row.getProperty("bName")));
     }
+    // Verify DISTINCT actually removed something (data has natural duplicates via both())
+    assertTrue("DISTINCT should have removed duplicates",
+        withDistinct.size() < withoutDistinct.size());
     session.commit();
   }
 

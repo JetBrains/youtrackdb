@@ -347,8 +347,12 @@ public class PatternTest extends ParserTestAbstract {
   }
 
   /**
-   * Verifies that buildPatterns resolves the lower (more specific) class when the
-   * same alias is referenced with two classes in a subclass hierarchy.
+   * Verifies that buildPatterns succeeds when the same alias is referenced with a
+   * superclass (Creature) and a subclass (Human). This is the success-path
+   * complement to {@link #testBuildPatternsThrowsForIncompatibleClasses()}.
+   * The class resolution internally picks the more specific class, but since the
+   * resolved class map is local to buildPatterns(), we verify the observable outcome:
+   * pattern built without exception and the alias node exists.
    */
   @Test
   public void testBuildPatternsResolvesClassHierarchyForSameAlias() throws ParseException {
@@ -362,11 +366,14 @@ public class PatternTest extends ParserTestAbstract {
     var parser = getParserFor(query);
     var stm = (SQLMatchStatement) parser.parse();
     stm.setContext(getContext());
+    // Should NOT throw — Creature and Human are in the same hierarchy
     stm.buildPatterns();
 
-    // buildPatterns should resolve to the more specific class 'Human'
     assertNotNull("pattern should be built", stm.pattern);
     assertNotNull("alias 'a' should exist in pattern", stm.pattern.get("a"));
+    assertEquals("pattern should have one edge (a→b)", 1, stm.pattern.getNumOfEdges());
+    assertEquals("pattern should have two nodes (a, b)", 2,
+        stm.pattern.getAliasToNode().size());
   }
 
   /**

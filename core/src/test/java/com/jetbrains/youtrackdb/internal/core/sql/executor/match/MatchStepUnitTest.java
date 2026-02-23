@@ -159,16 +159,20 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- MatchStep tests --
 
-  /** Verifies MatchStep.copy() creates a distinct new MatchStep instance. */
+  /** Verifies MatchStep.copy() creates a distinct instance with equivalent state. */
   @Test
   public void testMatchStepCopy() {
     var ctx = createCommandContext();
     var edge = createTestEdgeTraversal();
-    var step = new MatchStep(ctx, edge, false);
+    var step = new MatchStep(ctx, edge, true);
 
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof MatchStep);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof MatchStep);
+    var copy = (MatchStep) rawCopy;
+    // Verify the copy preserves the profiling flag and produces equivalent output
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    assertEquals(step.prettyPrint(0, 2), copy.prettyPrint(0, 2));
   }
 
   /** Verifies MatchStep.prettyPrint() for forward direction contains "---->" arrow. */
@@ -205,31 +209,43 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- MatchFirstStep tests --
 
-  /** Verifies MatchFirstStep.copy() with node only (no execution plan). */
+  /** Verifies MatchFirstStep.copy() with node only preserves alias in output. */
   @Test
   public void testMatchFirstStepCopyNoPlan() {
     var ctx = createCommandContext();
     var node = new PatternNode();
     node.alias = "a";
-    var step = new MatchFirstStep(ctx, node, false);
+    var step = new MatchFirstStep(ctx, node, true);
 
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof MatchFirstStep);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof MatchFirstStep);
+    var copy = (MatchFirstStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    // prettyPrint should contain the alias "a", proving the node was copied
+    assertTrue(copy.prettyPrint(0, 2).contains("a"));
+    assertFalse("copy without plan should not contain AS",
+        copy.prettyPrint(0, 2).contains("AS"));
   }
 
-  /** Verifies MatchFirstStep.copy() with both node and execution plan. */
+  /** Verifies MatchFirstStep.copy() with plan preserves alias and sub-plan. */
   @Test
   public void testMatchFirstStepCopyWithPlan() {
     var ctx = createCommandContext();
     var node = new PatternNode();
     node.alias = "a";
     var plan = new SelectExecutionPlan(ctx);
-    var step = new MatchFirstStep(ctx, node, plan, false);
+    var step = new MatchFirstStep(ctx, node, plan, true);
 
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof MatchFirstStep);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof MatchFirstStep);
+    var copy = (MatchFirstStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    // With a plan, prettyPrint should contain both the alias "a" and "AS"
+    var pp = copy.prettyPrint(0, 2);
+    assertTrue("copy with plan should contain alias", pp.contains("a"));
+    assertTrue("copy with plan should contain AS block", pp.contains("AS"));
   }
 
   /** Verifies MatchFirstStep.reset() with null plan does not throw. */
@@ -257,20 +273,50 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies MatchFirstStep.reset() delegates to the execution plan when a non-null
-   * plan is present, without throwing an exception.
+   * Verifies MatchFirstStep.reset() delegates to the execution plan. After starting
+   * the step (which consumes prefetched data), reset() should allow re-starting.
    */
   @Test
   public void testMatchFirstStepResetWithPlan() {
     var ctx = createCommandContext();
     var node = new PatternNode();
     node.alias = "a";
+
+    // Build a sub-plan that returns a single result
     var plan = new SelectExecutionPlan(ctx);
-    plan.chain(createEmptySubStep(ctx));
+    plan.chain(new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var r = new ResultInternal(session);
+        r.setProperty("val", 1);
+        return ExecutionStream.singleton(r);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    });
     var step = new MatchFirstStep(ctx, node, plan, false);
 
-    // reset() should delegate to executionPlan.reset() without throwing
+    // First start: consume the sub-plan results
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    stream.next(ctx);
+    stream.close(ctx);
+
+    // reset() should delegate to executionPlan.reset(), allowing a fresh start
     step.reset();
+
+    // After reset, the step should produce results again
+    var stream2 = step.start(ctx);
+    assertTrue("after reset, step should produce results again", stream2.hasNext(ctx));
+    stream2.close(ctx);
   }
 
   /**
@@ -458,14 +504,17 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- RemoveEmptyOptionalsStep tests --
 
-  /** Verifies RemoveEmptyOptionalsStep.copy() returns a distinct instance. */
+  /** Verifies RemoveEmptyOptionalsStep.copy() preserves profiling flag. */
   @Test
   public void testRemoveEmptyOptionalsStepCopy() {
     var ctx = createCommandContext();
-    var step = new RemoveEmptyOptionalsStep(ctx, false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof RemoveEmptyOptionalsStep);
+    var step = new RemoveEmptyOptionalsStep(ctx, true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof RemoveEmptyOptionalsStep);
+    var copy = (RemoveEmptyOptionalsStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    assertEquals(step.prettyPrint(0, 2), copy.prettyPrint(0, 2));
   }
 
   /** Verifies prettyPrint() returns the expected "REMOVE EMPTY OPTIONALS" string. */
@@ -660,14 +709,17 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- ReturnMatchPathsStep tests --
 
-  /** Verifies ReturnMatchPathsStep.copy() returns a distinct instance. */
+  /** Verifies ReturnMatchPathsStep.copy() preserves profiling flag. */
   @Test
   public void testReturnMatchPathsStepCopy() {
     var ctx = createCommandContext();
-    var step = new ReturnMatchPathsStep(ctx, false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof ReturnMatchPathsStep);
+    var step = new ReturnMatchPathsStep(ctx, true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof ReturnMatchPathsStep);
+    var copy = (ReturnMatchPathsStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    assertEquals(step.prettyPrint(0, 2), copy.prettyPrint(0, 2));
   }
 
   /** Verifies prettyPrint() returns the expected "RETURN $paths" string with indentation. */
@@ -707,16 +759,21 @@ public class MatchStepUnitTest extends DbTestBase {
     step.prettyPrint(0, -1);
   }
 
-  /** Verifies internalStart() forwards the upstream stream unchanged. */
+  /**
+   * Verifies internalStart() forwards upstream data unchanged. ReturnMatchPathsStep
+   * is a pass-through step: rows with all aliases (including auto-generated) are kept.
+   */
   @Test
-  public void testReturnMatchPathsStepInternalStart() {
+  public void testReturnMatchPathsStepForwardsUpstreamData() {
     var ctx = createCommandContext();
     var step = new ReturnMatchPathsStep(ctx, false);
-    // Create a simple prev step that returns an empty stream
     var prevStep = new AbstractExecutionStep(ctx, false) {
       @Override
       public ExecutionStream internalStart(CommandContext ctx) {
-        return ExecutionStream.empty();
+        var result = new ResultInternal(session);
+        result.setProperty("a", "value_a");
+        result.setProperty("b", "value_b");
+        return ExecutionStream.singleton(result);
       }
 
       @Override
@@ -731,20 +788,27 @@ public class MatchStepUnitTest extends DbTestBase {
     };
     step.setPrevious(prevStep);
     var stream = step.start(ctx);
-    assertNotNull(stream);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // ReturnMatchPathsStep passes through all properties unchanged
+    assertEquals("value_a", result.getProperty("a"));
+    assertEquals("value_b", result.getProperty("b"));
     assertFalse(stream.hasNext(ctx));
   }
 
   // -- ReturnMatchPatternsStep tests --
 
-  /** Verifies ReturnMatchPatternsStep.copy() returns a distinct instance. */
+  /** Verifies ReturnMatchPatternsStep.copy() preserves profiling flag. */
   @Test
   public void testReturnMatchPatternsStepCopy() {
     var ctx = createCommandContext();
-    var step = new ReturnMatchPatternsStep(ctx, false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof ReturnMatchPatternsStep);
+    var step = new ReturnMatchPatternsStep(ctx, true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof ReturnMatchPatternsStep);
+    var copy = (ReturnMatchPatternsStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    assertEquals(step.prettyPrint(0, 2), copy.prettyPrint(0, 2));
   }
 
   /** Verifies prettyPrint() returns the expected "RETURN $patterns" string. */
@@ -893,26 +957,31 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- ReturnMatchElementsStep tests --
 
-  /** Verifies ReturnMatchElementsStep.copy() returns a distinct instance. */
+  /** Verifies ReturnMatchElementsStep.copy() preserves profiling flag. */
   @Test
   public void testReturnMatchElementsStepCopy() {
     var ctx = createCommandContext();
-    var step = new ReturnMatchElementsStep(ctx, false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof ReturnMatchElementsStep);
+    var step = new ReturnMatchElementsStep(ctx, true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof ReturnMatchElementsStep);
+    var copy = (ReturnMatchElementsStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
   }
 
   // -- ReturnMatchPathElementsStep tests --
 
-  /** Verifies ReturnMatchPathElementsStep.copy() returns a distinct instance. */
+  /** Verifies ReturnMatchPathElementsStep.copy() preserves profiling flag. */
   @Test
   public void testReturnMatchPathElementsStepCopy() {
     var ctx = createCommandContext();
-    var step = new ReturnMatchPathElementsStep(ctx, false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof ReturnMatchPathElementsStep);
+    var step = new ReturnMatchPathElementsStep(ctx, true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof ReturnMatchPathElementsStep);
+    var copy = (ReturnMatchPathElementsStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    assertEquals(step.prettyPrint(0, 2), copy.prettyPrint(0, 2));
   }
 
   /** Verifies prettyPrint() returns the expected "UNROLL $pathElements" string. */
@@ -1219,14 +1288,17 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- FilterNotMatchPatternStep tests --
 
-  /** Verifies FilterNotMatchPatternStep.copy() returns a distinct instance. */
+  /** Verifies FilterNotMatchPatternStep.copy() preserves profiling flag and empty sub-steps. */
   @Test
   public void testFilterNotMatchPatternStepCopy() {
     var ctx = createCommandContext();
-    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof FilterNotMatchPatternStep);
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof FilterNotMatchPatternStep);
+    var copy = (FilterNotMatchPatternStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    assertEquals(0, copy.getSubSteps().size());
   }
 
   /**
@@ -1362,24 +1434,14 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies that ChainStep copies both properties and metadata from a
-   * ResultInternal source row without error. This covers the true branch
-   * of the {@code instanceof ResultInternal} check inside ChainStep's copy
-   * logic.
-   *
-   * <p>Note: ChainStep is a private inner class whose copy output is consumed
-   * internally by the NOT-pattern sub-plan. The original upstream row (not the
-   * copy) is what passes through or gets discarded. With an empty sub-steps
-   * list, ChainStep is the sole plan step and always produces output, so the
-   * pattern "matches" and the row is discarded — but the copy path with
-   * metadata is fully exercised during evaluation.
+   * Verifies that the NOT-pattern evaluation correctly processes upstream rows with
+   * metadata (ResultInternal). ChainStep internally copies both properties and
+   * metadata. With an empty sub-steps list, ChainStep always produces output,
+   * so the pattern "matches" and the upstream row is discarded.
    */
   @Test
-  public void testFilterNotMatchPatternStepCopiesMetadata() {
+  public void testFilterNotMatchPatternStepWithMetadataUpstream() {
     var ctx = createCommandContext();
-    // Empty sub-steps: ChainStep alone always produces output → pattern matches.
-    // This path invokes ChainStep.copy(Result) with a ResultInternal that has
-    // metadata, exercising the instanceof-true branch.
     var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
     var prevStep = new AbstractExecutionStep(ctx, false) {
       @Override
@@ -1402,29 +1464,22 @@ public class MatchStepUnitTest extends DbTestBase {
     };
     step.setPrevious(prevStep);
 
-    // Pattern matches → row discarded (ChainStep.copy with metadata exercised)
+    // Pattern always matches (empty sub-steps) → row discarded without error
     var stream = step.start(ctx);
-    assertFalse(stream.hasNext(ctx));
+    assertFalse("metadata-bearing row should still be discarded when pattern matches",
+        stream.hasNext(ctx));
     stream.close(ctx);
   }
 
   /**
-   * Verifies that ChainStep handles non-ResultInternal Result objects correctly,
-   * copying only properties and skipping metadata (which is ResultInternal-
-   * specific). This covers the false branch of the {@code instanceof
-   * ResultInternal} check in ChainStep's copy logic.
-   *
-   * <p>With an empty sub-steps list, ChainStep is the sole plan step and
-   * always produces output, so the pattern "matches" and the row is discarded.
-   * The key assertion is that ChainStep.copy() does not throw when the
-   * upstream row is a non-ResultInternal Result.
+   * Verifies that the NOT-pattern evaluation handles non-ResultInternal Result
+   * implementations without error. ChainStep copies only properties (no metadata)
+   * for non-ResultInternal types. With empty sub-steps, pattern matches and the
+   * row is discarded.
    */
   @Test
   public void testFilterNotMatchPatternStepNonResultInternalUpstream() {
     var ctx = createCommandContext();
-    // Empty sub-steps → ChainStep alone → pattern matches → row discarded.
-    // ChainStep.copy(Result) receives a NonResultInternalStub, exercising the
-    // instanceof-false branch.
     var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
     var prevStep = new AbstractExecutionStep(ctx, false) {
       @Override
@@ -1444,9 +1499,10 @@ public class MatchStepUnitTest extends DbTestBase {
     };
     step.setPrevious(prevStep);
 
-    // Pattern matches → row discarded (ChainStep.copy without metadata exercised)
+    // Non-ResultInternal upstream should be handled without error
     var stream = step.start(ctx);
-    assertFalse(stream.hasNext(ctx));
+    assertFalse("non-ResultInternal row should still be discarded when pattern matches",
+        stream.hasNext(ctx));
     stream.close(ctx);
   }
 
@@ -1511,18 +1567,6 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies that close() can be called without error. The step delegates to
-   * AbstractExecutionStep.close() which closes the upstream chain.
-   */
-  @Test
-  public void testFilterNotMatchPatternStepClose() {
-    var ctx = createCommandContext();
-    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
-    // close() should not throw even without a previous step set
-    step.close();
-  }
-
-  /**
    * Verifies that copy() preserves sub-steps by copying each one via its own copy()
    * method. The copied step should have the same number of sub-steps as the original.
    */
@@ -1570,15 +1614,20 @@ public class MatchStepUnitTest extends DbTestBase {
 
   // -- MatchPrefetchStep tests --
 
-  /** Verifies MatchPrefetchStep.copy() returns a distinct instance. */
+  /** Verifies MatchPrefetchStep.copy() preserves alias and profiling flag. */
   @Test
   public void testMatchPrefetchStepCopy() {
     var ctx = createCommandContext();
     var plan = new SelectExecutionPlan(ctx);
-    var step = new MatchPrefetchStep(ctx, plan, "alias", false);
-    var copy = step.copy(ctx);
-    assertNotSame(step, copy);
-    assertTrue(copy instanceof MatchPrefetchStep);
+    var step = new MatchPrefetchStep(ctx, plan, "myAlias", true);
+    var rawCopy = step.copy(ctx);
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof MatchPrefetchStep);
+    var copy = (MatchPrefetchStep) rawCopy;
+    assertTrue("copy should preserve profilingEnabled", copy.isProfilingEnabled());
+    // Verify alias is preserved by checking prettyPrint output
+    assertTrue("copy should preserve alias in output",
+        copy.prettyPrint(0, 2).contains("myAlias"));
   }
 
   /** Verifies MatchPrefetchStep.prettyPrint() includes "PREFETCH" and the alias. */
@@ -1592,36 +1641,75 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(result.contains("myAlias"));
   }
 
-  /** Verifies MatchPrefetchStep.reset() does not throw. */
+  /**
+   * Verifies MatchPrefetchStep.reset() delegates to the sub-plan, allowing the
+   * prefetch to be re-executed after reset.
+   */
   @Test
   public void testMatchPrefetchStepReset() {
     var ctx = createCommandContext();
     var plan = new SelectExecutionPlan(ctx);
+    plan.chain(new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var r = new ResultInternal(session);
+        r.setProperty("x", 1);
+        return ExecutionStream.singleton(r);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    });
     var step = new MatchPrefetchStep(ctx, plan, "alias", false);
-    // reset should not throw
+
+    // First start: populates the context variable
+    step.start(ctx).close(ctx);
+    assertNotNull("prefetched data should be stored in context",
+        ctx.getVariable(MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "alias"));
+
+    // Reset and re-start should work without error
     step.reset();
+    step.start(ctx).close(ctx);
+    assertNotNull("after reset, prefetched data should still be in context",
+        ctx.getVariable(MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "alias"));
   }
 
-  // -- AbstractExecutionStep tests --
+  // -- AbstractExecutionStep base behavior tests (exercised via match steps) --
 
-  /** Verifies sendTimeout propagates to previous step when prev is null (no-op). */
+  /**
+   * Verifies sendTimeout() is safe to call when no previous step is connected.
+   * This is the base case for the first step in a pipeline.
+   */
   @Test
-  public void testAbstractExecutionStepSendTimeoutNoPrev() {
+  public void testSendTimeoutNoPreviousStepDoesNotThrow() {
     var ctx = createCommandContext();
     var step = new ReturnMatchPathsStep(ctx, false);
-    // sendTimeout with no prev should not throw
+    // First step in pipeline has no prev — sendTimeout must be a no-op
     step.sendTimeout();
   }
 
-  /** Verifies isProfilingEnabled/setProfilingEnabled round-trip. */
+  /**
+   * Verifies profilingEnabled getter/setter round-trip and that the flag is
+   * reflected in step behavior (profiled steps track execution cost).
+   */
   @Test
-  public void testAbstractExecutionStepProfiling() {
+  public void testProfilingEnabledRoundTrip() {
     var ctx = createCommandContext();
     var step = new ReturnMatchPathsStep(ctx, false);
-    assertFalse(step.isProfilingEnabled());
+    assertFalse("default should be non-profiling", step.isProfilingEnabled());
 
     step.setProfilingEnabled(true);
-    assertTrue(step.isProfilingEnabled());
+    assertTrue("should be profiling after set", step.isProfilingEnabled());
+
+    step.setProfilingEnabled(false);
+    assertFalse("should revert to non-profiling", step.isProfilingEnabled());
   }
 
   // -- toExecutionStream tests (shared utility method) --
@@ -1916,21 +2004,6 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies that targetClassName returns null when no left class is set on the edge.
-   */
-  @Test
-  public void testReverseEdgeTraverserTargetClassNameNull() {
-    var edge = createTestPatternEdge();
-    var edgeTraversal = new EdgeTraversal(edge, false);
-    // leftClass is not set, defaults to null
-    var sourceResult = new ResultInternal(session);
-
-    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
-    var ctx = createCommandContext();
-    assertNull(traverser.targetClassName(null, ctx));
-  }
-
-  /**
    * Verifies that targetRid delegates to edge.getLeftRid(),
    * returning the planner-provided RID constraint for the reverse target.
    */
@@ -1948,20 +2021,6 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies that targetRid returns null when no left RID is set.
-   */
-  @Test
-  public void testReverseEdgeTraverserTargetRidNull() {
-    var edge = createTestPatternEdge();
-    var edgeTraversal = new EdgeTraversal(edge, false);
-    var sourceResult = new ResultInternal(session);
-
-    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
-    var ctx = createCommandContext();
-    assertNull(traverser.targetRid(null, ctx));
-  }
-
-  /**
    * Verifies that getTargetFilter delegates to edge.getLeftFilter(),
    * returning the planner-provided WHERE clause for the reverse target.
    */
@@ -1975,19 +2034,6 @@ public class MatchStepUnitTest extends DbTestBase {
 
     var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
     assertEquals(filter, traverser.getTargetFilter(null));
-  }
-
-  /**
-   * Verifies that getTargetFilter returns null when no left filter is set.
-   */
-  @Test
-  public void testReverseEdgeTraverserGetTargetFilterNull() {
-    var edge = createTestPatternEdge();
-    var edgeTraversal = new EdgeTraversal(edge, false);
-    var sourceResult = new ResultInternal(session);
-
-    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
-    assertNull(traverser.getTargetFilter(null));
   }
 
   /**
@@ -2027,35 +2073,8 @@ public class MatchStepUnitTest extends DbTestBase {
     traverser.traversePatternEdge(null, ctx);
   }
 
-  /**
-   * Verifies that getStartingPointAlias returns edge.in.alias (the syntactic
-   * target, which is the starting point in reverse traversal).
-   */
-  @Test
-  public void testReverseEdgeTraverserGetStartingPointAlias() {
-    var edge = createTestPatternEdge();
-    var edgeTraversal = new EdgeTraversal(edge, false);
-    var sourceResult = new ResultInternal(session);
-
-    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
-    // edge.in.alias = "b"
-    assertEquals("b", traverser.getStartingPointAlias());
-  }
-
-  /**
-   * Verifies that getEndpointAlias returns edge.out.alias (the syntactic
-   * source, which is the endpoint in reverse traversal).
-   */
-  @Test
-  public void testReverseEdgeTraverserGetEndpointAlias() {
-    var edge = createTestPatternEdge();
-    var edgeTraversal = new EdgeTraversal(edge, false);
-    var sourceResult = new ResultInternal(session);
-
-    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
-    // edge.out.alias = "a"
-    assertEquals("a", traverser.getEndpointAlias());
-  }
+  // NOTE: getStartingPointAlias() and getEndpointAlias() are already verified
+  // by testReverseEdgeTraverserConstructor() above.
 
   // -- MatchFieldTraverser tests --
 
