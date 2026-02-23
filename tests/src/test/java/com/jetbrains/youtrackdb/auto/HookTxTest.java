@@ -48,9 +48,9 @@ public class HookTxTest extends BaseDBTest {
     @Override
     @Test(enabled = false)
     public void onRecordRead(DBRecord record) {
-      if (record instanceof EntityImpl
-          && ((EntityImpl) record).getSchemaClassName() != null
-          && ((EntityImpl) record).getSchemaClassName().equals("Profile")) {
+      if (record instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         readCount++;
         callbackCount++;
       }
@@ -59,9 +59,9 @@ public class HookTxTest extends BaseDBTest {
     @Override
     @Test(enabled = false)
     public void onBeforeRecordCreate(DBRecord record) {
-      if (record instanceof EntityImpl
-          && ((EntityImpl) record).getSchemaClassName() != null
-          && ((EntityImpl) record).getSchemaClassName().equals("Profile")) {
+      if (record instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         beforeCreateCount++;
         callbackCount++;
       }
@@ -70,9 +70,9 @@ public class HookTxTest extends BaseDBTest {
     @Override
     @Test(enabled = false)
     public void onAfterRecordCreate(DBRecord record) {
-      if (record instanceof EntityImpl
-          && ((EntityImpl) record).getSchemaClassName() != null
-          && ((EntityImpl) record).getSchemaClassName().equals("Profile")) {
+      if (record instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         afterCreateCount++;
         callbackCount++;
       }
@@ -81,9 +81,9 @@ public class HookTxTest extends BaseDBTest {
     @Override
     @Test(enabled = false)
     public void onBeforeRecordUpdate(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
+      if (iRecord instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         beforeUpdateCount++;
         callbackCount++;
       }
@@ -91,9 +91,9 @@ public class HookTxTest extends BaseDBTest {
 
     @Override
     public void onAfterRecordUpdate(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
+      if (iRecord instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         afterUpdateCount++;
         callbackCount++;
       }
@@ -102,9 +102,9 @@ public class HookTxTest extends BaseDBTest {
     @Override
     @Test(enabled = false)
     public void onBeforeRecordDelete(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
+      if (iRecord instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         beforeDeleteCount++;
         callbackCount++;
       }
@@ -112,9 +112,9 @@ public class HookTxTest extends BaseDBTest {
 
     @Override
     public void onAfterRecordDelete(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
+      if (iRecord instanceof EntityImpl entity
+          && entity.getSchemaClassName() != null
+          && entity.getSchemaClassName().equals("Profile")) {
         afterDeleteCount++;
         callbackCount++;
       }

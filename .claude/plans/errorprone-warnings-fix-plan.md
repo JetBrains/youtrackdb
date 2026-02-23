@@ -24,7 +24,7 @@ Only `NullAway` is explicitly set to ERROR. All other checks use default severit
 | 4 | `PatternMatchingInstanceof` | 227 | done | f9958b82ec |
 | 5 | `UnusedVariable` | 71 | done | 835ccc7e66 |
 | 6 | `UnnecessaryParentheses` | 139 | done | c0caeec5a5 |
-| 7 | `MixedMutabilityReturnType` | 1 | pending | - |
+| 7 | `MixedMutabilityReturnType` | 7 | done | 4c9ff23257 |
 
 ## Per-Step Workflow
 
@@ -88,10 +88,16 @@ Each step follows the same pattern:
 - **Fix**: Ensure method returns consistent mutability (wrap in `Collections.unmodifiableMap()` or always return mutable)
 - **Test**: `./mvnw -pl server clean test`
 
-### Step 8: Final verification
-1. Run full build: `./mvnw clean compile` — expect zero ErrorProne warnings
-2. Run full test suite: `./mvnw clean package`
-3. Update this file to mark all complete
+### Step 8: Final verification — DONE
+1. Run full build: `./mvnw clean compile` — zero ErrorProne warnings ✓
+2. Run full test suite: `./mvnw clean package` — all tests pass ✓
+3. Fixed additional ErrorProne warnings in test sources (tests module + docker-tests module) that were exposed when checks were elevated to ERROR:
+   - 20 MissingSummary warnings in tests module
+   - ~25 UnnecessaryParentheses warnings in tests module
+   - 7 PatternMatchingInstanceof warnings in tests module
+   - 1 MixedMutabilityReturnType warning in tests module
+   - 1 StringCaseLocaleUsage warning in docker-tests module
+   - 2 UnnecessaryParentheses (`@Test()` → `@Test`) in tests module
 
 ## POM Change Pattern
 

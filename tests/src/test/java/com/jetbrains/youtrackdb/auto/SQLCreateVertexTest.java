@@ -9,6 +9,8 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for SQL CREATE VERTEX command.
+ *
  * @since 3/24/14
  */
 @Test

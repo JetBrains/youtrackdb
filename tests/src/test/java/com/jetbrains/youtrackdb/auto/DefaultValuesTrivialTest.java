@@ -18,6 +18,8 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for schema property default values.
+ *
  * @since 3/3/2015
  */
 public class DefaultValuesTrivialTest extends BaseDBTest {
@@ -59,7 +61,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
         //
         var dt = doc.getDateTime("join_date");
 
-        var isInRange = (!dt.before(dtStart)) && (!dt.after(dtAfter));
+        var isInRange = !dt.before(dtStart) && !dt.after(dtAfter);
         Assert.assertTrue(isInRange);
 
         //

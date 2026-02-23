@@ -102,8 +102,8 @@ public class ComplexTypesTest extends BaseDBTest {
       EntityImpl loadedDoc = session.load(rid);
       Assert.assertTrue(loadedDoc.hasProperty("linkList"));
       Assert.assertTrue(loadedDoc.getProperty("linkList") instanceof List<?>);
-      final var id1 = (loadedDoc.getLinkList("linkList")).getFirst();
-      final var id2 = (loadedDoc.getLinkList("linkList")).get(1);
+      final var id1 = loadedDoc.getLinkList("linkList").getFirst();
+      final var id2 = loadedDoc.getLinkList("linkList").get(1);
       Assert.assertTrue(id1 instanceof RID);
       Assert.assertTrue(id2 instanceof RID);
 
@@ -179,7 +179,7 @@ public class ComplexTypesTest extends BaseDBTest {
     Assert.assertTrue(loadedDoc.hasProperty("linkSet"));
     Assert.assertNotNull(loadedDoc.getLinkSet("linkSet"));
 
-    final var it = (loadedDoc.getLinkSet("linkSet")).iterator();
+    final var it = loadedDoc.getLinkSet("linkSet").iterator();
 
     var tot = 0;
     while (it.hasNext()) {

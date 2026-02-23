@@ -26,6 +26,9 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+/**
+ * Tests for concurrent operations across multiple database instances.
+ */
 public class MultipleDBTest extends BaseDBTest {
 
   int oldCollectionCount = 8;

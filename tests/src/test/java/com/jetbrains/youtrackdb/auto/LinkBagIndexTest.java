@@ -15,6 +15,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for link bag index operations.
+ *
  * @since 1/30/14
  */
 @Test

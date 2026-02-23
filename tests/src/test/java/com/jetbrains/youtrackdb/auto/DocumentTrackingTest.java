@@ -686,10 +686,10 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.rollback();
   }
 
-  @Test()
+  @Test
   public void testDocumentEmbeddedListTrackingAfterConversion() {
     session.begin();
-    var document = ((EntityImpl) session.newEntity());
+    var document = (EntityImpl) session.newEntity();
 
     final Set<String> set = session.newEmbeddedSet();
     set.add("value1");
@@ -714,10 +714,10 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.rollback();
   }
 
-  @Test()
+  @Test
   public void testDocumentEmbeddedSetTrackingFailAfterConversion() {
     session.begin();
-    var document = ((EntityImpl) session.newEntity());
+    var document = (EntityImpl) session.newEntity();
 
     final List<String> set = session.newEmbeddedList();
     set.add("value1");

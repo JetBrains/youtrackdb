@@ -9,6 +9,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for byte array index keys.
+ *
  * @since 03.07.12
  */
 @Test

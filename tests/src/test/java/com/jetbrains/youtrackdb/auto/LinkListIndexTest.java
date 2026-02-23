@@ -14,6 +14,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for link list index operations.
+ *
  * @since 21.03.12
  */
 @Test

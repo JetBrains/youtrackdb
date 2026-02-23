@@ -686,7 +686,7 @@ public class JSONTest extends BaseDBTest {
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
       final var map = c.getFirst();
-      Assert.assertEquals((map.get("datavalue")).get("value"), "\"\"");
+      Assert.assertEquals(map.get("datavalue").get("value"), "\"\"");
     });
   }
 
@@ -719,7 +719,7 @@ public class JSONTest extends BaseDBTest {
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
       final var map = c.getFirst();
-      Assert.assertEquals((map.get("datavalue")).get("value"), "\"");
+      Assert.assertEquals(map.get("datavalue").get("value"), "\"");
     });
   }
 
@@ -748,7 +748,7 @@ public class JSONTest extends BaseDBTest {
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
       final var map = c.getFirst();
-      Assert.assertEquals((map.get("datavalue")).get("value"), "\"");
+      Assert.assertEquals(map.get("datavalue").get("value"), "\"");
     });
   }
 

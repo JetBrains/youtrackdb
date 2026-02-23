@@ -140,7 +140,7 @@ public class DateIndexTest extends BaseDBTest {
     try (var stream =
         dateIndexTestValueDateIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
-      Assert.assertEquals((stream.findAny().orElse(null)), dateDoc.getIdentity());
+      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
         dateIndexTestValueDateIndex

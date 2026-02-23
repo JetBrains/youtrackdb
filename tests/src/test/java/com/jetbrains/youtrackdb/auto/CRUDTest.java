@@ -619,9 +619,9 @@ public class CRUDTest extends BaseDBTest {
   @Test(dependsOnMethods = "readAndBrowseDescendingAndCheckHoleUtilization")
   public void mapEnumAndInternalObjects() {
     session.executeInTxBatches(session.browseClass("OUser"),
-        ((session, document) -> {
+        (session, document) -> {
 
-        }));
+        });
 
   }
 
@@ -2604,10 +2604,10 @@ public class CRUDTest extends BaseDBTest {
 
     // DELETE ALL THE RECORD IN THE CLASS
     session.forEachInTx(session.browseClass("Account"),
-        ((session, document) -> {
+        (session, document) -> {
           session.delete(document);
           return false;
-        }));
+        });
 
     session.begin();
     Assert.assertEquals(session.countClass("Account"), startRecordNumber - 1);

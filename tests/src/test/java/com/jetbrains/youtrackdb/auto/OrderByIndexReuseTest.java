@@ -8,6 +8,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for ORDER BY clause optimization via index reuse.
+ *
  * @since 2/11/14
  */
 @Test
