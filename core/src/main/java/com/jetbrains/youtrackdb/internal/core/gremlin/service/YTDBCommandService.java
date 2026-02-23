@@ -116,7 +116,7 @@ public class YTDBCommandService implements Service<Object, Object> {
   @Override
   public CloseableIterator<Object> execute(ServiceCallContext ctx, Map params) {
     if (command.isEmpty()) {
-      return CloseableIterator.of(IteratorUtils.of(Boolean.TRUE));
+      return CloseableIterator.of(IteratorUtils.of(true));
     }
 
     final var graph = (((Admin<?, ?>) ctx.getTraversal()))
@@ -126,7 +126,7 @@ public class YTDBCommandService implements Service<Object, Object> {
     (((YTDBGraphInternal) graph)).executeCommand(command, commandParams);
 
     // Emit a single placeholder so chaining works (Streaming needs an input traverser).
-    return CloseableIterator.of(IteratorUtils.of(Boolean.TRUE));
+    return CloseableIterator.of(IteratorUtils.of(true));
   }
 
   @Override

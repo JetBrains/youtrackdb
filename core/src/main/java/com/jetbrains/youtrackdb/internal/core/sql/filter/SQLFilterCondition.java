@@ -195,7 +195,7 @@ public class SQLFilterCondition {
         LogManager.instance()
             .debug(this, "Error on evaluating expression (%s)", logger, e, toString());
       }
-      result = Boolean.FALSE;
+      result = false;
     }
 
     return result;

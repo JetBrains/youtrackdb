@@ -60,8 +60,8 @@ public class WOWCacheTestIT {
 
   @BeforeClass
   public static void beforeClass() {
-    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(Boolean.FALSE);
-    GlobalConfiguration.FILE_LOCK.setValue(Boolean.FALSE);
+    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
+    GlobalConfiguration.FILE_LOCK.setValue(false);
     var buildDirectory = System.getProperty("buildDirectory", ".");
 
     fileName = "wowCacheTest.tst";
@@ -120,8 +120,8 @@ public class WOWCacheTestIT {
     Files.deleteIfExists(storagePath);
     bufferPool.clear();
 
-    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(Boolean.TRUE);
-    GlobalConfiguration.FILE_LOCK.setValue(Boolean.TRUE);
+    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(true);
+    GlobalConfiguration.FILE_LOCK.setValue(true);
   }
 
   private void initBuffer() throws IOException, InterruptedException {
