@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -116,7 +117,7 @@ public class IndexMetadata {
   }
 
   public boolean isMultivalue() {
-    var t = type.toUpperCase();
+    var t = type.toUpperCase(Locale.ROOT);
     return SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(t);
   }
 

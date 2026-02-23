@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import java.util.Locale;
 
 /**
  * SQL method that converts a string value to lowercase.
@@ -37,7 +38,7 @@ public class SQLMethodToLowerCase extends AbstractSQLMethod {
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    ioResult = ioResult != null ? ioResult.toString().toLowerCase() : null;
+    ioResult = ioResult != null ? ioResult.toString().toLowerCase(Locale.ENGLISH) : null;
     return ioResult;
   }
 }

@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -316,7 +317,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
           "Invalid index name '" + iName + "'. Character '" + c + "' is invalid");
     }
 
-    type = type.toUpperCase();
+    type = type.toUpperCase(Locale.ROOT);
     if (algorithm == null) {
       algorithm = Indexes.chooseDefaultIndexAlgorithm(type);
     }
@@ -569,7 +570,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
 
     var map =
-        classPropertyIndex.get(indexDefinition.getClassName().toLowerCase());
+        classPropertyIndex.get(indexDefinition.getClassName().toLowerCase(Locale.ROOT));
 
     if (map == null) {
       return;
@@ -599,9 +600,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
 
     if (map.isEmpty()) {
-      classPropertyIndex.remove(indexDefinition.getClassName().toLowerCase());
+      classPropertyIndex.remove(indexDefinition.getClassName().toLowerCase(Locale.ROOT));
     } else {
-      classPropertyIndex.put(indexDefinition.getClassName().toLowerCase(),
+      classPropertyIndex.put(indexDefinition.getClassName().toLowerCase(Locale.ROOT),
           copyPropertyMap(map));
     }
   }

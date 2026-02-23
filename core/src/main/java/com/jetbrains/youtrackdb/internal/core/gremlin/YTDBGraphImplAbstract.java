@@ -27,6 +27,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -234,7 +235,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       throw new IllegalArgumentException("Command cannot be null or empty");
     }
 
-    var normalized = command.trim().toUpperCase();
+    var normalized = command.trim().toUpperCase(Locale.ROOT);
     var tx = tx();
 
     switch (normalized) {

@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.collate;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -51,10 +52,10 @@ public class DefaultCollateFactory implements CollateFactory {
    */
   @Override
   public Collate getCollate(final String name) {
-    return COLLATES.get(name.toLowerCase());
+    return COLLATES.get(name.toLowerCase(Locale.ROOT));
   }
 
   private static void register(final Collate iCollate) {
-    COLLATES.put(iCollate.getName().toLowerCase(), iCollate);
+    COLLATES.put(iCollate.getName().toLowerCase(Locale.ROOT), iCollate);
   }
 }

@@ -42,6 +42,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -472,7 +473,7 @@ public class MatchExecutionPlanner {
     if (filter.refersToParent()) {
       return true;
     }
-    return filter.toString().toLowerCase().contains("$matched.");
+    return filter.toString().toLowerCase(Locale.ROOT).contains("$matched.");
   }
 
   private boolean isOptional(String key) {

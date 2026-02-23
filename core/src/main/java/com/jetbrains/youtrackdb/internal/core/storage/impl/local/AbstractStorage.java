@@ -858,7 +858,7 @@ public abstract class AbstractStorage
                       + "'.",
                   e);
 
-          collectionMap.remove(configurationCollections.get(i).name().toLowerCase());
+          collectionMap.remove(configurationCollections.get(i).name().toLowerCase(Locale.ROOT));
 
           setCollection(i, null);
         }
@@ -1711,7 +1711,7 @@ public abstract class AbstractStorage
 
         // SEARCH IT BETWEEN PHYSICAL COLLECTIONS
 
-        final var segment = collectionMap.get(collectionName.toLowerCase());
+        final var segment = collectionMap.get(collectionName.toLowerCase(Locale.ROOT));
         if (segment != null) {
           return segment.getId();
         }
@@ -4085,7 +4085,7 @@ public abstract class AbstractStorage
   private int createCollectionFromConfig(final StorageCollectionConfiguration config,
       AtomicOperation atomicOperation)
       throws IOException {
-    var collection = collectionMap.get(config.name().toLowerCase());
+    var collection = collectionMap.get(config.name().toLowerCase(Locale.ROOT));
 
     if (collection != null) {
       collection.configure(this, config);
@@ -4126,7 +4126,7 @@ public abstract class AbstractStorage
 
     if (collection != null) {
       // CHECK FOR DUPLICATION OF NAMES
-      if (collectionMap.containsKey(collection.getName().toLowerCase())) {
+      if (collectionMap.containsKey(collection.getName().toLowerCase(Locale.ROOT))) {
         throw new ConfigurationException(name,
             "Cannot add collection '"
                 + collection.getName()
@@ -4135,7 +4135,7 @@ public abstract class AbstractStorage
                 + "'");
       }
       // CREATE AND ADD THE NEW REF SEGMENT
-      collectionMap.put(collection.getName().toLowerCase(), collection);
+      collectionMap.put(collection.getName().toLowerCase(Locale.ROOT), collection);
       id = collection.getId();
     } else {
       id = collections.size();
@@ -4165,7 +4165,7 @@ public abstract class AbstractStorage
       throws IOException {
     final PaginatedCollection collection;
     if (collectionName != null) {
-      collectionName = collectionName.toLowerCase();
+      collectionName = collectionName.toLowerCase(Locale.ROOT);
 
       collection =
           StorageCollectionFactory.createCollection(
@@ -4239,8 +4239,8 @@ public abstract class AbstractStorage
 
         final var oldName = collection.getName();
         collection.setCollectionName(stringValue);
-        collectionMap.remove(oldName.toLowerCase());
-        collectionMap.put(stringValue.toLowerCase(), collection);
+        collectionMap.remove(oldName.toLowerCase(Locale.ROOT));
+        collectionMap.put(stringValue.toLowerCase(Locale.ROOT), collection);
         break;
       case CONFLICTSTRATEGY:
         collection.setRecordConflictStrategy(stringValue);
@@ -4266,7 +4266,7 @@ public abstract class AbstractStorage
 
     collection.delete(atomicOperation);
 
-    collectionMap.remove(collection.getName().toLowerCase());
+    collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
     collections.set(collectionId, null);
 
     return false;
@@ -5381,7 +5381,7 @@ public abstract class AbstractStorage
           }
 
           // SEARCH IT BETWEEN PHYSICAL COLLECTIONS
-          final var segment = collectionMap.get(collectionName.toLowerCase());
+          final var segment = collectionMap.get(collectionName.toLowerCase(Locale.ROOT));
           if (segment != null) {
             result[i] = segment.getId();
           } else {
