@@ -357,6 +357,150 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(copy instanceof ReturnMatchPatternsStep);
   }
 
+  /** Verifies prettyPrint() returns the expected "RETURN $patterns" string. */
+  @Test
+  public void testReturnMatchPatternsStepPrettyPrint() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    var result = step.prettyPrint(0, 2);
+    assertNotNull(result);
+    assertEquals("+ RETURN $patterns", result);
+  }
+
+  /** Verifies prettyPrint() applies indentation when depth > 0. */
+  @Test
+  public void testReturnMatchPatternsStepPrettyPrintWithDepth() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    var result = step.prettyPrint(1, 3);
+    assertEquals("   + RETURN $patterns", result); // 1 * 3 = 3 spaces
+  }
+
+  /** Verifies prettyPrint() asserts when depth is negative. */
+  @Test(expected = AssertionError.class)
+  public void testReturnMatchPatternsStepPrettyPrintNegativeDepth() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    step.prettyPrint(-1, 2);
+  }
+
+  /** Verifies prettyPrint() asserts when indent is negative. */
+  @Test(expected = AssertionError.class)
+  public void testReturnMatchPatternsStepPrettyPrintNegativeIndent() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    step.prettyPrint(0, -1);
+  }
+
+  /**
+   * Verifies internalStart() strips properties with the auto-generated alias prefix
+   * while keeping user-defined aliases. Covers the true branch of the startsWith check.
+   */
+  @Test
+  public void testReturnMatchPatternsStepStripsDefaultAliases() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("userAlias", "value1");
+        result.setProperty(
+            MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX + "0", "value2");
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // User-defined alias must be preserved
+    assertTrue(result.getPropertyNames().contains("userAlias"));
+    // Auto-generated alias must be stripped
+    assertFalse(result.getPropertyNames().contains(
+        MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX + "0"));
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies internalStart() keeps all properties when none have the default alias
+   * prefix. Covers the false branch of the startsWith check.
+   */
+  @Test
+  public void testReturnMatchPatternsStepKeepsUserAliases() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("alias1", "v1");
+        result.setProperty("alias2", "v2");
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertTrue(result.getPropertyNames().contains("alias1"));
+    assertTrue(result.getPropertyNames().contains("alias2"));
+    assertEquals(2, result.getPropertyNames().size());
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies internalStart() handles an empty upstream stream correctly.
+   */
+  @Test
+  public void testReturnMatchPatternsStepEmptyStream() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPatternsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertNotNull(stream);
+    assertFalse(stream.hasNext(ctx));
+  }
+
   // -- ReturnMatchElementsStep tests --
 
   /** Verifies ReturnMatchElementsStep.copy() returns a distinct instance. */

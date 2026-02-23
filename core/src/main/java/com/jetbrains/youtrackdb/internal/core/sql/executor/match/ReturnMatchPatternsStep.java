@@ -46,14 +46,19 @@ public class ReturnMatchPatternsStep extends AbstractExecutionStep {
    * only user-defined aliases in the result row.
    */
   private static Result mapResult(Result next, CommandContext ctx) {
-    next.getPropertyNames().stream()
-        .filter(s -> s.startsWith(MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX))
-        .forEach(((ResultInternal) next)::removeProperty);
+    var resultInternal = (ResultInternal) next;
+    for (var name : next.getPropertyNames()) {
+      if (name.startsWith(MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX)) {
+        resultInternal.removeProperty(name);
+      }
+    }
     return next;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
+    assert depth >= 0 : "depth must be non-negative";
+    assert indent >= 0 : "indent must be non-negative";
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ RETURN $patterns";
   }
