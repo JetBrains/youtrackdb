@@ -232,8 +232,7 @@ public class YTDBCommandService implements Service<Object, Object> {
       case Entity entity -> {
         if (entity.isVertex()) {
           yield new YTDBVertexImpl(graph, entity.asVertex());
-        }
-        if (entity.isStatefulEdge()) {
+        } else if (entity.isStatefulEdge()) {
           yield new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
         }
         yield entity;
@@ -264,10 +263,10 @@ public class YTDBCommandService implements Service<Object, Object> {
       var entity = result.asEntity();
       if (entity.isVertex()) {
         return new YTDBVertexImpl(graph, entity.asVertex());
-      }
-      if (entity.isStatefulEdge()) {
+      } else if (entity.isStatefulEdge()) {
         return new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
       }
+      return entity;
     }
 
     if (result.isIdentifiable()) {
@@ -299,7 +298,8 @@ public class YTDBCommandService implements Service<Object, Object> {
     var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     var cls = immutableSchema.getClassByCollectionId(rid.getCollectionId());
     if (cls == null) {
-      return rid;
+      throw new IllegalStateException(
+          "Unsupported schema class for collection " + rid.getCollectionId());
     }
     if (cls.isVertexType()) {
       return new YTDBVertexImpl(graph, rid);
@@ -307,6 +307,6 @@ public class YTDBCommandService implements Service<Object, Object> {
     if (cls.isEdgeType()) {
       return new YTDBStatefulEdgeImpl(graph, rid);
     }
-    return rid;
+    throw new IllegalStateException("Unsupported schema class " + cls.getName());
   }
 }
