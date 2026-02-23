@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- *
+ * Tests resource-derived security policies for controlling access to database records.
  */
 public class ResourceDerivedTest {
 

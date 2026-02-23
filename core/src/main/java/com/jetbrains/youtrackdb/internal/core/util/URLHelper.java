@@ -7,7 +7,7 @@ import java.io.File;
 import java.util.Optional;
 
 /**
- *
+ * Utility for parsing database connection URL strings into {@link DatabaseURLConnection} objects.
  */
 public class URLHelper {
 

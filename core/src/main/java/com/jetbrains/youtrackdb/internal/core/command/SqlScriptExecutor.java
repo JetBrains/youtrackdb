@@ -31,7 +31,7 @@ import javax.script.ScriptContext;
 import javax.script.ScriptException;
 
 /**
- *
+ * Script executor that parses and executes SQL script blocks containing multiple statements.
  */
 public class SqlScriptExecutor extends AbstractScriptExecutor {
 

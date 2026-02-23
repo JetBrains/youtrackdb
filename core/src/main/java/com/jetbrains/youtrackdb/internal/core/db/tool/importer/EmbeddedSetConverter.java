@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Set;
 
 /**
- *
+ * Converts embedded set values by rewriting broken links during database import.
  */
 public final class EmbeddedSetConverter extends AbstractCollectionConverter<Set<Object>> {
 

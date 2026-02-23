@@ -9,7 +9,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests graph operations including edge unique constraints and vertex/edge CRUD.
  */
 public class TestGraphOperations extends DbTestBase {
 

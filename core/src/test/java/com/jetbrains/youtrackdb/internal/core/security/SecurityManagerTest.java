@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.Test;
 
 /**
- *
+ * Tests password hashing and verification using supported hash algorithms.
  */
 public class SecurityManagerTest {
 

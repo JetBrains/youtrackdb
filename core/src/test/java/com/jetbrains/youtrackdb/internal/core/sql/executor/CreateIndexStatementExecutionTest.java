@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of CREATE INDEX SQL statements.
  */
 public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabase {
 

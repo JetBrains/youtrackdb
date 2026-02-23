@@ -16,9 +16,7 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL TRUNCATE CLASS statement execution including index and polymorphic cases. */
 public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatabase {
 
   @SuppressWarnings("unchecked")

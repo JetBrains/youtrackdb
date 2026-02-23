@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
+ * Builder for composing concurrent test runs from multiple worker factories.
+ *
  * @param <T> see {@link TestFactory}
  */
 public class TestBuilder<T> {

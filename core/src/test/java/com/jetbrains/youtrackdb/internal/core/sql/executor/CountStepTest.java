@@ -12,9 +12,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CountStep query execution step. */
 public class CountStepTest extends DbTestBase {
 
   private static final String PROPERTY_NAME = "testPropertyName";

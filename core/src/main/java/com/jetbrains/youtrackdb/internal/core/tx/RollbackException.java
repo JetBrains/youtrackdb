@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 
 /**
+ * Exception thrown when a transaction is rolled back.
+ *
  * @since 3/11/14
  */
 public class RollbackException extends TransactionException {

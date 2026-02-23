@@ -34,6 +34,8 @@ import java.util.Objects;
 import javax.annotation.Nullable;
 
 /**
+ * A durable page that stores record entries within a paginated collection.
+ *
  * @since 19.03.13
  */
 public final class CollectionPage extends DurablePage {

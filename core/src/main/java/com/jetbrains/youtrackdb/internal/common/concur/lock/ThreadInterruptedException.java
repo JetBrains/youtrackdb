@@ -22,6 +22,8 @@ package com.jetbrains.youtrackdb.internal.common.concur.lock;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 
 /**
+ * Exception thrown when a thread is interrupted while waiting for a lock or resource.
+ *
  * @since 3/6/14
  */
 public class ThreadInterruptedException extends SystemException {

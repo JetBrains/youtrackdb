@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.text.Normalizer;
 
 /**
- *
+ * SQL method that applies Unicode normalization to a string.
  */
 public class SQLMethodNormalize extends AbstractSQLMethod {
 

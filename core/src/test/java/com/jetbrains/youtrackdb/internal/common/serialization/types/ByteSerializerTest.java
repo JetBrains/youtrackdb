@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link ByteSerializer} serialization and deserialization of byte values.
+ *
  * @since 18.01.12
  */
 public class ByteSerializerTest {

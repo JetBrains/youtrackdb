@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL method that returns the values of a map or the field values of a document.
  */
 public class SQLMethodValues extends AbstractSQLMethod {
 

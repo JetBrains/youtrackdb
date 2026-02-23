@@ -14,6 +14,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
+ * Runs multiple test workers concurrently and collects their results.
+ *
  * @param <T> see {@link TestFactory}
  */
 public class ConcurrentTestHelper<T> {

@@ -15,9 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that runs a sub-query and assigns its result set to a global context variable. */
 public class GlobalLetQueryStep extends AbstractExecutionStep {
 
   private final SQLIdentifier varName;

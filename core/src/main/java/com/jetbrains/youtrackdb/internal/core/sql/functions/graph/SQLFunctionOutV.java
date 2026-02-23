@@ -11,7 +11,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL function that returns the outgoing vertex from an edge.
  */
 public class SQLFunctionOutV extends SQLFunctionMove implements SQLGraphNavigationFunction {
   public static final String NAME = "outV";

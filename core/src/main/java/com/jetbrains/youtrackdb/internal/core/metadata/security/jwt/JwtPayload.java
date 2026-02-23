@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security.jwt;
 
 /**
- *
+ * Payload of a JSON Web Token containing standard JWT claims.
  */
 public interface JwtPayload extends TokenPayload {
 

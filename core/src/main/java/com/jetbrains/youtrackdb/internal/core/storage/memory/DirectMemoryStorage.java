@@ -45,6 +45,8 @@ import java.util.zip.ZipOutputStream;
 import javax.annotation.Nullable;
 
 /**
+ * Storage implementation that keeps all data in direct memory without disk persistence.
+ *
  * @since 7/9/14
  */
 public class DirectMemoryStorage extends AbstractStorage {

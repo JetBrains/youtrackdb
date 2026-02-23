@@ -19,6 +19,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
+ * Abstract WAL record that belongs to an atomic operation unit identified by a unit ID.
+ *
  * @since 30.05.13
  */
 public abstract class OperationUnitRecord extends AbstractWALRecord {

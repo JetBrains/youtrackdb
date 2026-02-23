@@ -96,6 +96,8 @@ public class ContextConfiguration implements Serializable {
   }
 
   /**
+   * Returns the value of the given configuration parameter as an enumeration.
+   *
    * @param config Global configuration parameter.
    * @return Value of configuration parameter stored in this context as enumeration if such one
    * exists, otherwise value stored in passed in {@link GlobalConfiguration} instance.

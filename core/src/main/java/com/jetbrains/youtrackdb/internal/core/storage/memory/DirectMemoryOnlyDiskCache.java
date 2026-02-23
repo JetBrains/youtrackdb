@@ -46,6 +46,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 /**
+ * Read and write cache implementation that stores all pages in direct memory only.
+ *
  * @since 6/24/14
  */
 public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache

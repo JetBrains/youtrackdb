@@ -8,7 +8,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DROP INDEX SQL statements.
  */
 public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase {
 

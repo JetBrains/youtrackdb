@@ -23,9 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL CREATE CLASS command executor. */
 public class CommandExecutorSQLCreateClassTest extends DbTestBase {
 
   public void beforeTest() throws Exception {

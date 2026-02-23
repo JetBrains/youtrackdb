@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link FloatSerializer} serialization and deserialization of float values.
+ *
  * @since 18.01.12
  */
 public class FloatSerializerTest {

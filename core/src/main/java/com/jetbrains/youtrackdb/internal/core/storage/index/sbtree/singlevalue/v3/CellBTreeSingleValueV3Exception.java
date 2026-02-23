@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 import com.jetbrains.youtrackdb.internal.core.exception.DurableComponentException;
 
 /**
+ * Exception thrown by the v3 single-value cell B-tree during durable component operations.
+ *
  * @since 8/30/13
  */
 public final class CellBTreeSingleValueV3Exception extends DurableComponentException {

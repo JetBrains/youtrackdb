@@ -27,7 +27,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- *
+ * Database tool that validates index integrity by cross-checking index entries against records.
  */
 public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
 

@@ -40,12 +40,16 @@ import javax.annotation.Nullable;
 public interface IndexDefinition extends IndexCallback {
 
   /**
+   * Returns the names of fields used to calculate the index key value.
+   *
    * @return Names of fields which given index is used to calculate key value. Order of fields is
    * important.
    */
   List<String> getProperties();
 
   /**
+   * Returns the names of fields and their index modifiers used to calculate the key value.
+   *
    * @return Names of fields and their index modifiers (like "by value" for fields that hold <code>
    * Map</code> values) which given index is used to calculate key value. Order of fields is
    * important.
@@ -53,6 +57,8 @@ public interface IndexDefinition extends IndexCallback {
   List<String> getFieldsToIndex();
 
   /**
+   * Returns the name of the class to which this index belongs.
+   *
    * @return Name of the class which this index belongs to.
    */
   String getClassName();

@@ -20,9 +20,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for querying index changes within transactions. */
 public class IndexChangesQueryTest {
 
   public static final String CLASS_NAME = "idxTxAwareMultiValueGetEntriesTest";

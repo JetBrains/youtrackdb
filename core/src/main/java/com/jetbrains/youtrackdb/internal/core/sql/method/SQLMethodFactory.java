@@ -19,13 +19,15 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import java.util.Set;
 
 /**
- *
+ * Factory interface for creating and registering SQL methods.
  */
 public interface SQLMethodFactory {
 
   boolean hasMethod(String iName);
 
   /**
+   * Returns the set of supported method names of this factory.
+   *
    * @return Set of supported method names of this factory
    */
   Set<String> getMethodNames();

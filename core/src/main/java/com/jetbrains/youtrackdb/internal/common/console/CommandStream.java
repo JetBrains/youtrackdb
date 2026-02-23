@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.common.console;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.CloseableInStorage;
 
 /**
- *
+ * A stream of console commands that can be iterated over sequentially.
  */
 public interface CommandStream extends CloseableInStorage {
 

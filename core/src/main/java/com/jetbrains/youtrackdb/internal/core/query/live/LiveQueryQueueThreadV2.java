@@ -26,9 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQue
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- *
- */
+/** Version 2 background thread that processes queued operations and dispatches them to live query listeners. */
 public class LiveQueryQueueThreadV2 extends Thread {
 
   private static final LogManager logger = LogManager.instance();

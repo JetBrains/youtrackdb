@@ -8,9 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CREATE EDGE SQL statement execution. */
 public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test

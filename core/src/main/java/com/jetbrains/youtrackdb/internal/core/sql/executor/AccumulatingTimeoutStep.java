@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.TimeoutResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 
-/**
- *
- */
+/** Execution step that enforces an accumulating timeout on upstream result consumption. */
 public class AccumulatingTimeoutStep extends AbstractExecutionStep {
 
   private final SQLTimeout timeout;

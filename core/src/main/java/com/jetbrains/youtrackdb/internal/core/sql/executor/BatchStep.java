@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBatch;
 
-/**
- *
- */
+/** Execution step that commits intermediate transactions after processing each batch of results. */
 public class BatchStep extends AbstractExecutionStep {
 
   private final Integer batchSize;

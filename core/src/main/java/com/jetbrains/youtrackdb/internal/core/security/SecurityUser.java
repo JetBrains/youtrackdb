@@ -9,6 +9,8 @@ import java.io.Serializable;
 import java.util.Set;
 
 /**
+ * Defines a database security user with authentication credentials and role assignments.
+ *
  * @since 03/11/14
  */
 public interface SecurityUser extends Serializable {

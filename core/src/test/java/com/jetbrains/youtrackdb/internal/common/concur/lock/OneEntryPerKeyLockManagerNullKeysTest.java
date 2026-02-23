@@ -27,9 +27,7 @@ import java.util.concurrent.locks.Lock;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests {@link OneEntryPerKeyLockManager} behavior when lock keys are null. */
 public class OneEntryPerKeyLockManagerNullKeysTest {
 
   private OneEntryPerKeyLockManager<String> manager;

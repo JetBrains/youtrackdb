@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the BEGIN SQL statement execution. */
 public class BeginStatementExecutionTest extends DbTestBase {
 
   @Test

@@ -28,6 +28,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
+ * Binary serializer for {@link Character} values.
+ *
  * @since 18.01.12
  */
 public class CharSerializer implements BinarySerializer<Character> {

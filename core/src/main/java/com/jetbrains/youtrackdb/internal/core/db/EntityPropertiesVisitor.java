@@ -71,6 +71,8 @@ public interface EntityPropertiesVisitor {
   boolean goDeeper(PropertyTypeInternal type, PropertyTypeInternal linkedType, Object value);
 
   /**
+   * Returns whether visited field values should be written back to the document.
+   *
    * @return If false value returned by method
    * {@link #visitField(DatabaseSessionEmbedded, PropertyTypeInternal, PropertyTypeInternal, Object)} will not be
    * taken in account and field value will not be updated.

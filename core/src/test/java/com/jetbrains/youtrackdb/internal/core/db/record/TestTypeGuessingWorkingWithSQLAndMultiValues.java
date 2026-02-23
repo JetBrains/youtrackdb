@@ -9,7 +9,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- *
+ * Tests property type guessing when working with SQL queries and multi-value fields.
  */
 public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
 

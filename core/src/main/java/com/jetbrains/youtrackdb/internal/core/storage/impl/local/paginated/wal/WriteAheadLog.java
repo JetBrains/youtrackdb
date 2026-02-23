@@ -27,6 +27,8 @@ import java.io.IOException;
 import java.util.List;
 
 /**
+ * Interface for the write-ahead log used to ensure crash recovery and data durability.
+ *
  * @since 6/25/14
  */
 public interface WriteAheadLog extends AutoCloseable {

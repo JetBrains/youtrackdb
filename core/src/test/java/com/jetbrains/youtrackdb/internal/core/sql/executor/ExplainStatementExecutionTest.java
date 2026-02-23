@@ -5,7 +5,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of EXPLAIN SQL statements.
  */
 public class ExplainStatementExecutionTest extends DbTestBase {
 

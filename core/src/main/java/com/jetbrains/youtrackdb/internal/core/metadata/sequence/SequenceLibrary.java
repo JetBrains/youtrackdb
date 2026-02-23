@@ -24,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence.SEQUE
 import java.util.Set;
 
 /**
+ * Interface for managing database sequences within a schema.
+ *
  * @since 3/2/2015
  */
 public interface SequenceLibrary {

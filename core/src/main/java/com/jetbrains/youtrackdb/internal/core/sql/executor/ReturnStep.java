@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSimpleExecStatement;
 
-/**
- *
- */
+/** Execution step that evaluates and returns the result of a RETURN statement. */
 public class ReturnStep extends AbstractExecutionStep {
 
   private final SQLSimpleExecStatement statement;

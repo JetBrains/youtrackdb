@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- *
- */
+/** Planner that builds an execution plan for CREATE VERTEX statements. */
 public class CreateVertexExecutionPlanner extends InsertExecutionPlanner {
 
   public CreateVertexExecutionPlanner(SQLCreateVertexStatement statement) {

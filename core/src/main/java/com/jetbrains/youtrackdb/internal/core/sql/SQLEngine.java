@@ -156,6 +156,8 @@ public class SQLEngine {
   }
 
   /**
+   * Returns an iterator over all registered SQL function factories.
+   *
    * @return Iterator of all function factories
    */
   public static Iterator<SQLFunctionFactory> getFunctionFactories(
@@ -212,6 +214,8 @@ public class SQLEngine {
   }
 
   /**
+   * Returns an iterator over all registered collate factories.
+   *
    * @return Iterator of all function factories
    */
   public static Iterator<CollateFactory> getCollateFactories() {
@@ -237,6 +241,8 @@ public class SQLEngine {
   }
 
   /**
+   * Returns an iterator over all registered query operator factories.
+   *
    * @return Iterator of all operator factories
    */
   public static Iterator<QueryOperatorFactory> getOperatorFactories() {
@@ -263,6 +269,8 @@ public class SQLEngine {
   }
 
   /**
+   * Returns an iterator over all registered command executor factories.
+   *
    * @return Iterator of all command factories
    */
   public static Iterator<CommandExecutorSQLFactory> getCommandFactories() {

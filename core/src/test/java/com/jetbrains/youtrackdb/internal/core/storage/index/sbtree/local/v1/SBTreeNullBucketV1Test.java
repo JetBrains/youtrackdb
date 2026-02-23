@@ -11,6 +11,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
+ * Tests for SB-tree v1 null bucket operations for handling null key entries.
+ *
  * @since 4/15/14
  */
 public class SBTreeNullBucketV1Test {

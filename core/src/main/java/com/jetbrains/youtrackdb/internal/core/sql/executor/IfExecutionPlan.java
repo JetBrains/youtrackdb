@@ -1,9 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-/**
- *
- */
-
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -14,9 +10,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan for SQL IF/ELSE conditional statements. */
 public class IfExecutionPlan implements InternalExecutionPlan {
 
   private String location;

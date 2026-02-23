@@ -19,6 +19,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
+ * Abstract base for testing {@link PropertyLinkBagIndexDefinition} key extraction and change processing.
+ *
  * @since 1/30/14
  */
 public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTestBase {

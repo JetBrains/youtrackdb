@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import java.util.Set;
 
 /**
- *
+ * Factory interface for creating and registering SQL functions.
  */
 public interface SQLFunctionFactory {
 
@@ -29,6 +29,8 @@ public interface SQLFunctionFactory {
   boolean hasFunction(String iName, DatabaseSessionEmbedded session);
 
   /**
+   * Returns the set of supported function names of this factory.
+   *
    * @return Set of supported function names of this factory
    */
   Set<String> getFunctionNames(DatabaseSessionEmbedded session);

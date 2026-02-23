@@ -13,7 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 
 /**
- *
+ * Schema property implementation for embedded database sessions.
  */
 public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 

@@ -10,6 +10,9 @@ import java.io.IOException;
 import org.junit.Assert;
 import org.junit.Test;
 
+/**
+ * Tests database export and import operations including schema-only transfers.
+ */
 public class DatabaseImportTest {
 
   @Test

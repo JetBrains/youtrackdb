@@ -181,6 +181,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * Base implementation for paginated storage engines, providing common storage operations.
+ *
  * @since 28.03.13
  */
 public abstract class AbstractStorage

@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 /**
+ * A cursor for iterating over index keys.
+ *
  * @since 4/22/14
  */
 public interface IndexKeyCursor {

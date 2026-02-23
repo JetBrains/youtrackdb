@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
 
 /**
- *
+ * Utility methods for printing SQL execution plans in tests.
  */
 public class ExecutionPlanPrintUtils {
 

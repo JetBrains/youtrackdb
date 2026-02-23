@@ -27,6 +27,8 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 
 /**
+ * File utility methods using Java NIO.2 APIs for file operations.
+ *
  * @since 7/22/14
  */
 public class FileUtilsJava7 {

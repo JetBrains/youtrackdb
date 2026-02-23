@@ -18,8 +18,8 @@ Only `NullAway` is explicitly set to ERROR. All other checks use default severit
 
 | # | Check | Instances | Status | Commit |
 |---|-------|-----------|--------|--------|
-| 1 | `BooleanLiteral` | 13 | done | PENDING_COMMIT |
-| 2 | `MissingSummary` | 6 | pending | - |
+| 1 | `BooleanLiteral` | 13 | done | 70baa040ae |
+| 2 | `MissingSummary` | 356 | done | TBD |
 | 3 | `StringCaseLocaleUsage` | 5 | pending | - |
 | 4 | `PatternMatchingInstanceof` | 5 | pending | - |
 | 5 | `UnusedVariable` | 2 | pending | - |

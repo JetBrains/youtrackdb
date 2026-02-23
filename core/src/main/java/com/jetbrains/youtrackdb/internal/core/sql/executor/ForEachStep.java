@@ -15,9 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import java.util.Iterator;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that iterates over a source collection, binding each element to a loop variable. */
 public class ForEachStep extends AbstractExecutionStep {
 
   private final SQLIdentifier loopVariable;

@@ -10,6 +10,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
+ * Benchmark for {@link ReadersWriterSpinLock} throughput under concurrent read/write load.
+ *
  * @since 8/19/14
  */
 public class ReadersWriterSpinLockBenchmark {

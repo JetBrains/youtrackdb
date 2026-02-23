@@ -6,6 +6,8 @@ import org.apache.commons.configuration2.Configuration;
 import org.junit.Assert;
 
 /**
+ * Tests index definitions for embedded LinkBag properties with high embedding thresholds.
+ *
  * @since 1/30/14
  */
 public class SchemaPropertyEmbeddedLinkBagIndexDefinitionTest extends

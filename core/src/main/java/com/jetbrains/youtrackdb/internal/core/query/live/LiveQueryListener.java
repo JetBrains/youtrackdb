@@ -21,9 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.query.live;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 
-/**
- *
- */
+/** Listener that receives record operation events from a live query subscription. */
 public interface LiveQueryListener {
 
   void onLiveResult(RecordOperation iRecord);

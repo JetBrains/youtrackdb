@@ -7,7 +7,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of GRANT SQL statements for security permissions.
  */
 public class GrantStatementExecutionTest extends DbTestBase {
 

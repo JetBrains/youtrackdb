@@ -7,9 +7,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.WhileStep;
 
-/**
- *
- */
+/** Execution plan that retries its steps on transient failures. */
 public class RetryExecutionPlan extends UpdateExecutionPlan {
 
   public RetryExecutionPlan(CommandContext ctx) {

@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL WHILE block execution in scripts. */
 public class WhileBlockExecutionTest extends DbTestBase {
 
   @Test

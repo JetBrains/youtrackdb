@@ -32,7 +32,7 @@ import java.util.Iterator;
 import javax.annotation.Nonnull;
 
 /**
- *
+ * Iterator over edges connected to a vertex, with optional label filtering.
  */
 public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal> {
 

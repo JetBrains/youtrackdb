@@ -24,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializ
 import java.nio.ByteBuffer;
 
 /**
+ * WAL record that marks the beginning of an atomic unit of work.
+ *
  * @since 24.05.13
  */
 public class AtomicUnitStartRecord extends OperationUnitRecord {

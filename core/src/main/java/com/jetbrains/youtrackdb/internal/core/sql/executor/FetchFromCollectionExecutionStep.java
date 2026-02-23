@@ -10,9 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
+/** Execution step that fetches all records from a specified collection (cluster). */
 public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
 
   public static final Object ORDER_ASC = "ASC";

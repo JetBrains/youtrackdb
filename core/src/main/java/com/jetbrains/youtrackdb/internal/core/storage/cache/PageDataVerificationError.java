@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 /**
+ * Describes a page data integrity verification failure, such as a bad magic number or checksum.
+ *
  * @since 25.04.13
  */
 public class PageDataVerificationError {

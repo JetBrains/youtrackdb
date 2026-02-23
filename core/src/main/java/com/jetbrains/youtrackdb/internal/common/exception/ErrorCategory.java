@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.exception;
 
 /**
- *
+ * Categorizes errors by their origin or nature for structured error reporting.
  */
 public enum ErrorCategory {
   GENERIC(1),

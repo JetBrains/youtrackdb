@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
 /**
- *
+ * Tests saving entities with recursive (circular) link references within transactions.
  */
 public class RecursiveLinkedSaveTest extends DbTestBase {
 

@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL queries involving null field values. */
 public class TestNullFieldQuery extends DbTestBase {
 
   @Test

@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenHeader;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 
 /**
- *
+ * Represents an authentication token used for security verification.
  */
 public interface Token {
 

@@ -123,6 +123,8 @@ public interface DBRecord extends Identifiable, Element {
   boolean exists();
 
   /**
+   * Returns the session to which this record is bound.
+   *
    * @return Returns session to which given record is bound or <code>null</code> if record is
    * unloaded.
    */

@@ -27,7 +27,7 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL method that returns the keys of a map or the field names of a document.
  */
 public class SQLMethodKeys extends AbstractSQLMethod {
 

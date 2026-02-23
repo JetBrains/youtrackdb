@@ -20,7 +20,7 @@ import javax.script.ScriptContext;
 import javax.script.ScriptException;
 
 /**
- *
+ * Script executor that delegates to JSR-223 compliant scripting engines.
  */
 public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
 

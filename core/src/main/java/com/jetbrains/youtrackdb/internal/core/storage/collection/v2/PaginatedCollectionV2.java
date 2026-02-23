@@ -59,6 +59,11 @@ import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+/**
+ * Version 2 implementation of a paginated collection that stores records across multiple pages.
+ *
+ * @since 10/7/13
+ */
 public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   // max chunk size - next page pointer - first record flag

@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL ROLLBACK statement execution. */
 public class RollbackStatementExecutionTest extends DbTestBase {
 
   @Test

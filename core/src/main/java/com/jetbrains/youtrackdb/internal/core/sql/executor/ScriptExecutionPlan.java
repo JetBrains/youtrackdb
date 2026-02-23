@@ -1,6 +1,3 @@
-/**
- *
- */
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -14,9 +11,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan for SQL script blocks containing multiple statements. */
 public class ScriptExecutionPlan implements InternalExecutionPlan {
 
   private String location;

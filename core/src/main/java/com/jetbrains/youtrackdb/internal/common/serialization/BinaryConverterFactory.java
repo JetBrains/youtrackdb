@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.common.serialization;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 
 /**
+ * Factory that provides the appropriate {@link BinaryConverter} implementation for the platform.
+ *
  * @since 26.07.12
  */
 public class BinaryConverterFactory {

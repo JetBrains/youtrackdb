@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link DoubleSerializer} serialization and deserialization of double values.
+ *
  * @since 18.01.12
  */
 public class DoubleSerializerTest {

@@ -18,6 +18,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
+ * Tests for SB-tree v1 non-leaf bucket operations including initialization and entry management.
+ *
  * @since 12.08.13
  */
 public class SBTreeNonLeafBucketV1Test {

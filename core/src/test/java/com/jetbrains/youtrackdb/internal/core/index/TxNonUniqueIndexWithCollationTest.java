@@ -30,7 +30,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- *
+ * Tests non-unique index behavior with case-insensitive collation within transactions.
  */
 public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
 

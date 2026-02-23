@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Transforms script execution output values into result sets and results.
  */
 public interface ScriptTransformer {
 

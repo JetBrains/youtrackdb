@@ -14,9 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution step that evaluates an IF/ELSE condition and delegates to the appropriate branch. */
 public class IfStep extends AbstractExecutionStep {
 
   protected SQLBooleanExpression condition;

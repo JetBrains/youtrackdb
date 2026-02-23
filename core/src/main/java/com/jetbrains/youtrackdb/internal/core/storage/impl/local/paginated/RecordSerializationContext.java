@@ -25,6 +25,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import java.util.ArrayDeque;
 import java.util.Deque;
 /**
+ * Accumulates record serialization operations and executes them within an atomic operation.
+ *
  * @since 11/26/13
  */
 public class RecordSerializationContext {

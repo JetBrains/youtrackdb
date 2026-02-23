@@ -16,7 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
 /**
- *
+ * Defines the ordering direction for a database sequence (positive or negative).
  */
 public enum SequenceOrderType {
   ORDER_POSITIVE((byte) 1),

@@ -84,7 +84,7 @@ public class CompositeKey
   }
 
   /**
-   *
+   * Returns an unmodifiable view of the key values in this composite key.
    */
   public List<Object> getKeys() {
     return Collections.unmodifiableList(keys);

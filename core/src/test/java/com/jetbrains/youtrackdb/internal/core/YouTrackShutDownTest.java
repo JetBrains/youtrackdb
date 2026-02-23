@@ -8,7 +8,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- *
+ * Tests the YouTrackDB engine shutdown handler mechanism.
  */
 public class YouTrackShutDownTest {
 

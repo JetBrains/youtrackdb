@@ -15,6 +15,8 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
+ * An immutable snapshot of a security user and its associated roles.
+ *
  * @since 03/11/14
  */
 public class ImmutableUser implements SecurityUser {

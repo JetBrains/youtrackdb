@@ -25,6 +25,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence.SEQUE
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
+ * Factory utility for creating database sequence instances based on the requested type.
+ *
  * @since 3/1/2015
  */
 public class SequenceHelper {

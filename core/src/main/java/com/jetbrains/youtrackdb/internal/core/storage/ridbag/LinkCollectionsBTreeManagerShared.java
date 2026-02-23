@@ -37,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- *
+ * Shared manager for B-tree-backed link collections (RID bags) within the storage engine.
  */
 public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsBTreeManager {
 

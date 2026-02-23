@@ -13,9 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- *
- */
+/** Execution step that computes aggregate projection results grouped by a GROUP BY clause. */
 public class AggregateProjectionCalculationStep extends ProjectionCalculationStep {
 
   private final SQLGroupBy groupBy;

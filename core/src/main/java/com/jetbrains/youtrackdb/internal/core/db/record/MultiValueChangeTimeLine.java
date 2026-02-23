@@ -36,6 +36,9 @@ public class MultiValueChangeTimeLine<K, V> {
       new ArrayList<MultiValueChangeEvent<K, V>>();
 
   /**
+   * Returns all operations that were performed on the collection since it was loaded from the
+   * database.
+   *
    * @return <code>List</code> of all operations that were performed on collection starting from the
    * time when it was loaded from DB.
    */

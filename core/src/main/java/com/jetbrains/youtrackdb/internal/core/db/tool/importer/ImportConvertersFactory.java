@@ -13,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Factory that creates the appropriate {@link ValuesConverter} for a given field value type.
  */
 public final class ImportConvertersFactory {
   public static final RID BROKEN_LINK = new RecordId(-1, -42);

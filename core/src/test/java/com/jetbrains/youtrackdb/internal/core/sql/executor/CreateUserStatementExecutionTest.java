@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of CREATE USER SQL statements.
  */
 public class CreateUserStatementExecutionTest extends DbTestBase {
 

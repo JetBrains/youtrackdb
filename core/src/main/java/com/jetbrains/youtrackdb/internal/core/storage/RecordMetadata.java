@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 
 /**
+ * Holds metadata for a database record, including its record ID and version.
+ *
  * @since 18.12.12
  */
 @SuppressWarnings("unused")

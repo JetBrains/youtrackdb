@@ -29,6 +29,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
 
 /**
+ * Reference-counted pointer to a cached page in the disk cache.
+ *
  * @since 05.08.13
  */
 public final class CachePointer {

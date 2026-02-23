@@ -46,6 +46,8 @@ public interface ShutdownHandler {
   int SHUTDOWN_CALL_LISTENERS = 1400;
 
   /**
+   * Returns the priority of this shutdown handler.
+   *
    * @return Handlers priority.
    */
   int getPriority();

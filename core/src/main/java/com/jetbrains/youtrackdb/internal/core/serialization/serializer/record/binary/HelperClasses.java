@@ -42,7 +42,7 @@ import java.util.TimeZone;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Utility constants and helper classes for binary record serialization.
  */
 public class HelperClasses {
 

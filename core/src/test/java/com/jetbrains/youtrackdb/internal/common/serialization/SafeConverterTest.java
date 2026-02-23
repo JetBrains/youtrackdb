@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.common.serialization;
 import org.junit.Before;
 
 /**
+ * Tests for {@link SafeBinaryConverter} byte-order conversion correctness.
+ *
  * @since 21.05.13
  */
 public class SafeConverterTest extends AbstractConverterTest {

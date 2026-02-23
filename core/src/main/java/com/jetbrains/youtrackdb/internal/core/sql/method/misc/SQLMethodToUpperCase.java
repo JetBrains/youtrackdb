@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Locale;
 
 /**
- *
+ * SQL method that converts a string value to uppercase.
  */
 public class SQLMethodToUpperCase extends AbstractSQLMethod {
 

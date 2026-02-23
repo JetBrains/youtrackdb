@@ -9,7 +9,7 @@ import java.util.Collection;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL function that returns outgoing edges of a vertex.
  */
 public class SQLFunctionOutE extends SQLFunctionMove implements SQLGraphNavigationFunction {
 

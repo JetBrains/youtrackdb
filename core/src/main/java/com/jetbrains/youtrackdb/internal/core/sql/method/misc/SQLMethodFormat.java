@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.TimeZone;
 
 /**
- *
+ * SQL method that formats a value (date or number) using a specified format pattern.
  */
 public class SQLMethodFormat extends AbstractSQLMethod {
 

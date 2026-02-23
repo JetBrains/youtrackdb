@@ -27,6 +27,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import java.io.Closeable;
 
 /**
+ * Represents an entry in the disk cache, providing access to a cached page and its metadata.
+ *
  * @since 7/23/13
  */
 public interface CacheEntry extends Closeable {

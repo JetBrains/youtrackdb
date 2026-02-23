@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link LongSerializer} serialization and deserialization of long values.
+ *
  * @since 18.01.12
  */
 public class LongSerializerTest {

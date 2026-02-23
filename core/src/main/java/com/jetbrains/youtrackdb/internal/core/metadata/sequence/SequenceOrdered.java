@@ -25,10 +25,12 @@ import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedExce
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
+ * A sequence with sequential guarantees that produces no holes even on transaction rollback.
+ *
+ * <p>This is slower than {@link SequenceCached} because each value is allocated individually.
+ *
  * @see SequenceCached
  * @since 2/28/2015
- * <p>A sequence with sequential guarantees. Even when a transaction is rolled back, there will
- * still be no holes. However, as a result, it is slower.
  */
 public class SequenceOrdered extends DBSequence {
 

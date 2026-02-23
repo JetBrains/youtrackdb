@@ -5,9 +5,7 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL TRAVERSE statement execution on graph structures. */
 public class TraverseStatementExecutionTest extends DbTestBase {
 
   @Test

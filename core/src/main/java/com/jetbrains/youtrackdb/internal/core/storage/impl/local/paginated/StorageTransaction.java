@@ -16,6 +16,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 
 /**
+ * Wraps a frontend transaction for use within the storage layer.
+ *
  * @since 12.06.13
  */
 public record StorageTransaction(FrontendTransaction clientTx) {

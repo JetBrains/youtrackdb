@@ -10,9 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-/**
- *
- */
+/** Execution step that computes the Cartesian product of results from multiple sub-plans. */
 public class CartesianProductStep extends AbstractExecutionStep {
 
   private final List<InternalExecutionPlan> subPlans = new ArrayList<>();

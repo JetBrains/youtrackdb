@@ -29,6 +29,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests binary serialization and deserialization of record link (RID) values.
+ *
  * @since 07.02.12
  */
 public class LinkSerializerTest {

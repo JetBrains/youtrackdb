@@ -521,6 +521,8 @@ public class FrontendTransactionIndexChangesPerKey {
   }
 
   /**
+   * Returns an unmodifiable copy of the entries in this object.
+   *
    * @return a copy of the entries of this object
    */
   public List<TransactionIndexEntry> getEntriesAsList() {

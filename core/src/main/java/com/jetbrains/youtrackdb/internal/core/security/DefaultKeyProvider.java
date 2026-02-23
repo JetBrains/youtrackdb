@@ -6,7 +6,7 @@ import java.security.Key;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- *
+ * Default key provider that uses an HMAC-SHA256 secret key for token operations.
  */
 public class DefaultKeyProvider implements KeyProvider {
 

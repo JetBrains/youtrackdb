@@ -7,9 +7,7 @@ import java.math.BigDecimal;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL script execution including multi-statement scripts and error handling. */
 public class ScriptExecutionTest extends DbTestBase {
 
   @Test

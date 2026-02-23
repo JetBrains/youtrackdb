@@ -9,7 +9,7 @@ import java.util.Iterator;
 import javax.annotation.Nonnull;
 
 /**
- *
+ * Iterable that resolves bidirectional relation links in a given direction.
  */
 public class BidirectionalLinksIterable<T extends Entity> implements Iterable<T>, Sizeable {
 

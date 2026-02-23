@@ -4,6 +4,8 @@ import com.jetbrains.youtrackdb.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 
 /**
+ * Base exception for all core database engine errors.
+ *
  * @since 9/28/2015
  */
 public abstract class CoreException extends BaseException {

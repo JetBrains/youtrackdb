@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.common.hash;
 
 /**
+ * Implementation of the MurmurHash3 128-bit hash function.
+ *
  * @since 13.08.12
  */
 public class MurmurHash3 {

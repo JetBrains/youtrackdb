@@ -5,9 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CONSOLE SQL statement execution. */
 public class ConsoleStatementExecutionTest extends DbTestBase {
 
   @Test

@@ -86,6 +86,8 @@ public final class Indexes {
   }
 
   /**
+   * Returns an iterator over all registered index factories.
+   *
    * @return Iterator of all index factories
    */
   public static Iterator<IndexFactory> getAllFactories() {

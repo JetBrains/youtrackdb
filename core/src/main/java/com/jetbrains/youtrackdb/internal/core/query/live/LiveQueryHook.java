@@ -32,9 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- *
- */
+/** Hook that intercepts record operations and dispatches them to registered live query listeners. */
 public class LiveQueryHook {
 
   public static class LiveQueryOps implements CloseableInStorage {

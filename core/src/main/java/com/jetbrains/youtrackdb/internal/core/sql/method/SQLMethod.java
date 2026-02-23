@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 public interface SQLMethod extends Comparable<SQLMethod> {
 
   /**
+   * Returns the name of this SQL method.
+   *
    * @return method name
    */
   String getName();
@@ -46,16 +48,22 @@ public interface SQLMethod extends Comparable<SQLMethod> {
   String getSyntax();
 
   /**
+   * Returns the minimum number of arguments required by this method.
+   *
    * @return minimum number of arguments requiered by this method
    */
   int getMinParams();
 
   /**
+   * Returns the maximum number of arguments required by this method.
+   *
    * @return maximum number of arguments requiered by this method
    */
   int getMaxParams(DatabaseSessionEmbedded session);
 
   /**
+   * Executes this SQL method on the given value with the specified parameters.
+   *
    * @param iCurrentRecord : current record
    * @param iContext       execution context
    * @param ioResult       : field value

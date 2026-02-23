@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import javax.annotation.Nullable;
 
 /**
- *
+ * Visitor that rewrites entity link properties to fix broken references during database import.
  */
 public final class LinksRewriter implements EntityPropertiesVisitor {
 

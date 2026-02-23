@@ -19,9 +19,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler;
 
-/**
- *
- */
+/** Provides access to database metadata including schema and scheduler. */
 public interface Metadata {
 
   SchemaInternal getSchema();

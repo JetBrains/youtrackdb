@@ -11,9 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 
-/**
- *
- */
+/** Execution step that creates a record if no match is found for an UPSERT operation. */
 public class UpsertStep extends AbstractExecutionStep {
   private final SQLFromClause commandTarget;
   private final SQLWhereClause initialFilter;

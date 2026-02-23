@@ -34,6 +34,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 /**
+ * Multi-threaded state consistency tests for storage backup operations.
+ *
  * @since 10/6/2015
  */
 public class StorageBackupMTStateTest {

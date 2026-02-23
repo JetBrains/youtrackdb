@@ -6,7 +6,7 @@ import java.io.OutputStream;
 import javax.annotation.Nonnull;
 
 /**
- *
+ * Represents a binary large object (BLOB) record stored in the database.
  */
 public interface Blob extends DBRecord {
 

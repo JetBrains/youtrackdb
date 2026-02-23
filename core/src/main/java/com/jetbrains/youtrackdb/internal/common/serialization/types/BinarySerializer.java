@@ -79,16 +79,22 @@ public interface BinarySerializer<T> {
   T deserialize(BinarySerializerFactory serializerFactory, byte[] stream, int startPosition);
 
   /**
+   * Returns the identifier of this serializer.
+   *
    * @return Identifier of given serializer.
    */
   byte getId();
 
   /**
+   * Indicates whether the serialized form always has a fixed length.
+   *
    * @return <code>true</code> if binary presentation of object always has the same length.
    */
   boolean isFixedLength();
 
   /**
+   * Returns the fixed length of the serialized form when applicable.
+   *
    * @return Length of serialized data if {@link #isFixedLength()} method returns <code>true</code>.
    * If {@link #isFixedLength()} method return <code>false</code> returned value is undefined.
    */

@@ -17,7 +17,7 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 /**
- *
+ * Exception thrown when a record fetch operation fails.
  */
 public class FetchException extends CoreException {
   public FetchException(FetchException exception) {

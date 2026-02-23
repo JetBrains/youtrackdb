@@ -8,9 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 
-/**
- *
- */
+/** Execution step that evaluates an expression and assigns the result to a global context variable. */
 public class GlobalLetExpressionStep extends AbstractExecutionStep {
 
   private final SQLIdentifier varname;

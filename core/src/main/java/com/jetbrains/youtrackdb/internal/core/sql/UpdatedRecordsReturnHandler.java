@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
- *
+ * Return handler that processes records updated by SQL commands.
  */
 public class UpdatedRecordsReturnHandler extends RecordsReturnHandler {
 

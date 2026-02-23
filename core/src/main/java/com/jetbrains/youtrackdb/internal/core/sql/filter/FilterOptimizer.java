@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Optimizes SQL filter conditions by removing clauses already covered by an index match.
  */
 public class FilterOptimizer {
 

@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import java.util.List;
 
 /**
- *
+ * Listener interface for storage operation events such as commit and rollback.
  */
 public interface EnterpriseStorageOperationListener {
 

@@ -28,6 +28,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link DecimalSerializer} serialization and deserialization of BigDecimal values.
+ *
  * @since 04.04.12
  */
 public class DecimalSerializerTest {

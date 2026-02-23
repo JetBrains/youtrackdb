@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DROP USER SQL statements.
  */
 public class DropUserStatementExecutionTest extends DbTestBase {
 

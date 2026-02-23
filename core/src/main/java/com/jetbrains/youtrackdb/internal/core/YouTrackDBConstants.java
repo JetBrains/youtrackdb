@@ -24,6 +24,8 @@ public class YouTrackDBConstants {
   }
 
   /**
+   * Returns the major part of the YouTrackDB version.
+   *
    * @return Major part of YouTrackDB version
    */
   public static int getVersionMajor() {
@@ -47,6 +49,8 @@ public class YouTrackDBConstants {
   }
 
   /**
+   * Returns the minor part of the YouTrackDB version.
+   *
    * @return Minor part of YouTrackDB version
    */
   public static int getVersionMinor() {
@@ -71,6 +75,8 @@ public class YouTrackDBConstants {
   }
 
   /**
+   * Returns the hotfix part of the YouTrackDB version.
+   *
    * @return Hotfix part of YouTrackDB version
    */
   @SuppressWarnings("unused")
@@ -99,6 +105,8 @@ public class YouTrackDBConstants {
   }
 
   /**
+   * Returns only the current version string without build number or other metadata.
+   *
    * @return Returns only current version without build number and etc.
    */
   public static String getRawVersion() {
@@ -125,6 +133,8 @@ public class YouTrackDBConstants {
   }
 
   /**
+   * Returns the build number (revision) of this YouTrackDB build, if available.
+   *
    * @return the build number if any.
    */
   public static String getBuildNumber() {

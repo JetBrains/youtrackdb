@@ -28,6 +28,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link DateSerializer} serialization and deserialization of date values.
+ *
  * @since 20.01.12
  */
 @SuppressWarnings("UndefinedEquals") // All comparisons are java.util.Date vs java.util.Date

@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 
 /**
- *
+ * Converts link values by replacing broken record IDs with a sentinel during database import.
  */
 public final class LinkConverter implements ValuesConverter<Identifiable> {
 

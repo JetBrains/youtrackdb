@@ -7,6 +7,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
+ * Tests for {@link DefaultComparator} ordering behavior with various key types.
+ *
  * @since 11.07.12
  */
 public class DefaultComparatorTest {

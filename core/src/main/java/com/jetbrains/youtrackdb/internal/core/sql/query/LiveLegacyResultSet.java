@@ -13,7 +13,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import javax.annotation.Nullable;
 
 /**
- *
+ * A concurrent result set for live query results backed by a blocking queue.
  */
 public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
 

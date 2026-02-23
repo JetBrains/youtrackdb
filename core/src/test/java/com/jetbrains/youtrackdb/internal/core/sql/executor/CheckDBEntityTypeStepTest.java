@@ -12,9 +12,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CheckDBEntityTypeStep query execution step. */
 public class CheckDBEntityTypeStepTest extends TestUtilsFixture {
 
   @Test

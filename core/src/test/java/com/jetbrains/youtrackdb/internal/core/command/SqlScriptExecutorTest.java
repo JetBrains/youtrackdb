@@ -8,7 +8,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests SQL script execution including plain scripts and parameterized scripts.
  */
 public class SqlScriptExecutorTest extends DbTestBase {
 

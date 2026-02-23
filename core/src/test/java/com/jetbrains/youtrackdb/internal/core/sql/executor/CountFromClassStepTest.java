@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CountFromClassStep query execution step. */
 public class CountFromClassStepTest extends TestUtilsFixture {
 
   private static final String ALIAS = "size";

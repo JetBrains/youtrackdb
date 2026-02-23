@@ -10,7 +10,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests class-based record iteration including polymorphic traversal across subclasses.
  */
 public class ClassIteratorTest extends DbTestBase {
 

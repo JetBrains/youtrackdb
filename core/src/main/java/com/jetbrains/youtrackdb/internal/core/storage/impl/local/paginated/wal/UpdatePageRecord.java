@@ -24,6 +24,8 @@ import java.nio.ByteBuffer;
 import java.util.Objects;
 
 /**
+ * WAL record that captures changes applied to a storage page.
+ *
  * @since 26.04.13
  */
 public class UpdatePageRecord extends AbstractPageWALRecord {

@@ -36,6 +36,8 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
+ * Bucket (page) implementation for the v1 SBTree index structure.
+ *
  * @since 8/7/13
  */
 public final class SBTreeBucketV1<K, V> extends DurablePage {

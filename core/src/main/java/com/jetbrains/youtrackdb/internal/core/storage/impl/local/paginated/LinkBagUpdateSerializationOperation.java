@@ -35,6 +35,9 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
 /**
+ * A serialization operation that applies pending changes to a link bag during record
+ * serialization.
+ *
  * @since 11/26/13
  */
 public class LinkBagUpdateSerializationOperation implements RecordSerializationOperation {

@@ -39,6 +39,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Integration tests for restoring local paginated storage from write-ahead log.
+ *
  * @since 29.05.13
  */
 public class LocalPaginatedStorageRestoreFromWALIT {

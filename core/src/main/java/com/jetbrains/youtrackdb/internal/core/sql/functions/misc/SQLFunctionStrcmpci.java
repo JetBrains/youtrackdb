@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 
 /**
- *
+ * SQL function that performs a case-insensitive string comparison.
  */
 public class SQLFunctionStrcmpci extends SQLFunctionAbstract {
 

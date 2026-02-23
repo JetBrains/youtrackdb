@@ -40,6 +40,9 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 /**
+ * Implementation of the sequence library that manages creation, retrieval, and deletion of
+ * database sequences.
+ *
  * @since 3/2/2015
  */
 public class SequenceLibraryImpl {

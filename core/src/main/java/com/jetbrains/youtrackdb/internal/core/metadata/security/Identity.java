@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.type.IdentityWrapper;
 
 /**
- *
+ * Abstract base class for security identity entities such as users and roles.
  */
 public abstract class Identity extends IdentityWrapper {
 

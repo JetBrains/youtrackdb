@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExecutionStream;
 
-/**
- *
- */
+/** Execution step that generates a specified number of empty result records. */
 public class EmptyDataGeneratorStep extends AbstractExecutionStep {
 
   private final int size;

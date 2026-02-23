@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link IntegerSerializer} serialization and deserialization of integer values.
+ *
  * @since 17.01.12
  */
 public class IntegerSerializerTest {

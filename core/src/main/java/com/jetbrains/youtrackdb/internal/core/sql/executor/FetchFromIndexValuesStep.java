@@ -2,9 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 
-/**
- *
- */
+/** Execution step that fetches all values from an index in ascending or descending order. */
 public class FetchFromIndexValuesStep extends FetchFromIndexStep {
 
   public FetchFromIndexValuesStep(

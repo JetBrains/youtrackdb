@@ -38,7 +38,10 @@ public class CurrentStorageComponentsFactory {
   }
 
   /**
-   * @return Whether class of is detected by collection id or it is taken from documents serialized
+   * Checks whether the class is detected by collection id or taken from the document's serialized
+   * content.
+   *
+   * @return Whether class is detected by collection id or it is taken from documents serialized
    * content.
    * @since 1.7
    */

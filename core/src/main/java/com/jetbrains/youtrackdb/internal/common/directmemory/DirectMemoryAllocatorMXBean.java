@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.common.directmemory;
 public interface DirectMemoryAllocatorMXBean {
 
   /**
+   * Returns the total amount of direct memory currently allocated by this allocator.
+   *
    * @return Amount of direct memory allocated using this allocator
    */
   long getMemoryConsumption();

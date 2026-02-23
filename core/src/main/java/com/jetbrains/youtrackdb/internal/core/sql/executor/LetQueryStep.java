@@ -13,9 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that runs a sub-query and assigns its result to a per-record LET variable. */
 public class LetQueryStep extends AbstractExecutionStep {
 
   private final SQLIdentifier varName;

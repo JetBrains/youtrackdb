@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 /**
- *
+ * Transforms a {@link Map} into a {@link Result} by converting each entry into a property.
  */
 public class MapTransformer implements ResultTransformer<Map<Object, Object>> {
 

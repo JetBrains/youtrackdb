@@ -12,7 +12,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- *
+ * A {@link ResultSet} implementation backed by an {@link Iterator}.
  */
 public class IteratorResultSet implements ResultSet {
 

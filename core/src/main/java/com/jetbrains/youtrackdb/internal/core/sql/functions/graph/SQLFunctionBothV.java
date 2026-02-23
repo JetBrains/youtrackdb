@@ -11,7 +11,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL function that returns vertices connected by both incoming and outgoing edges.
  */
 public class SQLFunctionBothV extends SQLFunctionMove implements SQLGraphNavigationFunction {
 

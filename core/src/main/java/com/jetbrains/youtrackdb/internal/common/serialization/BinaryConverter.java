@@ -22,6 +22,8 @@ package com.jetbrains.youtrackdb.internal.common.serialization;
 import java.nio.ByteOrder;
 
 /**
+ * Interface for converting primitive values to and from byte arrays with specified byte order.
+ *
  * @since 26.07.12
  */
 public interface BinaryConverter {

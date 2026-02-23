@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
- *
+ * Handler interface for collecting and returning SQL command results.
  */
 public interface ReturnHandler {
 
@@ -34,6 +34,8 @@ public interface ReturnHandler {
   void afterUpdate(EntityImpl result);
 
   /**
+   * Returns the collected result.
+   *
    * @return collected result
    */
   Object ret();

@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 
 /**
- *
+ * SQL function interface that supports filtering records during execution.
  */
 public interface SQLFunctionFiltered extends SQLFunction {
 

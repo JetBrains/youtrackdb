@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.common.directmemory;
 public interface ByteBufferPoolMXBean {
 
   /**
+   * Returns the current number of buffers held in the pool.
+   *
    * @return Current size of the memory pool
    */
   int getPoolSize();

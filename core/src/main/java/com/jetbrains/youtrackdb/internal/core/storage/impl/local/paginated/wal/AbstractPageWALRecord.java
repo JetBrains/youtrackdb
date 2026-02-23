@@ -24,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import java.nio.ByteBuffer;
 
 /**
+ * Abstract base class for WAL records that capture changes to a specific page.
+ *
  * @since 29.04.13
  */
 public abstract class AbstractPageWALRecord extends OperationUnitBodyRecord {

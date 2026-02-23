@@ -10,9 +10,7 @@ import java.math.BigDecimal;
 import java.util.Date;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL CONVERT() type conversion function. */
 public class SQLFunctionConvertTest extends DbTestBase {
 
   @Test

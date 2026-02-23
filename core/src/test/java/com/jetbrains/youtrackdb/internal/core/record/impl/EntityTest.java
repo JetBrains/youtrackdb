@@ -5,7 +5,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests entity property get/set operations including dotted property names.
  */
 public class EntityTest extends DbTestBase {
 

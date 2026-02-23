@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
+ * Defines a security role with associated access rules and policies.
+ *
  * @since 03/11/14
  */
 public interface SecurityRole extends Serializable {

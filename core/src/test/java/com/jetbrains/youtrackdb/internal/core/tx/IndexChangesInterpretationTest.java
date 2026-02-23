@@ -31,9 +31,7 @@ import java.util.regex.Pattern;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for interpretation of transactional index change sequences. */
 public class IndexChangesInterpretationTest {
 
   // @formatter:off

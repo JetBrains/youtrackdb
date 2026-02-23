@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCol
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 
 /**
+ * Factory for creating paginated storage collection instances.
+ *
  * @since 10/8/13
  */
 public final class StorageCollectionFactory {

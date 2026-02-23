@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExpireResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 
-/**
- *
- */
+/** Execution step that enforces a timeout on query execution. */
 public class TimeoutStep extends AbstractExecutionStep {
 
   private final SQLTimeout timeout;

@@ -22,6 +22,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
+ * Tests for collection page record storage operations including add, get, update, and delete.
+ *
  * @since 20.03.13
  */
 public class CollectionPageTest {

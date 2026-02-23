@@ -10,9 +10,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan for SQL INSERT statements. */
 public class InsertExecutionPlan extends SelectExecutionPlan {
 
   private final List<Result> result = new ArrayList<>();

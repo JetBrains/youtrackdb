@@ -24,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 
 /**
+ * Represents a deferred operation to be executed during record serialization.
+ *
  * @since 11/26/13
  */
 public interface RecordSerializationOperation {

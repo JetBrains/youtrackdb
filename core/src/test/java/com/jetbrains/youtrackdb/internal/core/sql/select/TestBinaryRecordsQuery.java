@@ -10,9 +10,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for querying and managing binary blob records. */
 public class TestBinaryRecordsQuery extends DbTestBase {
 
   @Override

@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL method that returns the index of the first occurrence of a substring within a string.
  */
 public class SQLMethodIndexOf extends AbstractSQLMethod {
 

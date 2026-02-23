@@ -5,9 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
+/** Execution step that produces an empty result stream. */
 public class EmptyStep extends AbstractExecutionStep {
 
   public EmptyStep(CommandContext ctx, boolean profilingEnabled) {

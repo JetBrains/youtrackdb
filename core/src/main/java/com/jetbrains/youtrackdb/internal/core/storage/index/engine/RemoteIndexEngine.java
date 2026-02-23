@@ -35,6 +35,8 @@ import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
+ * Index engine stub used for remote database connections.
+ *
  * @since 18.07.13
  */
 public class RemoteIndexEngine implements IndexEngine {

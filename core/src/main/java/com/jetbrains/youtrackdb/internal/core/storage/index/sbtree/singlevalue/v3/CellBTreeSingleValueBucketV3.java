@@ -36,6 +36,8 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
+ * A durable page bucket for the v3 cell-based B-tree that maps single keys to single RID values.
+ *
  * @since 8/7/13
  */
 public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {

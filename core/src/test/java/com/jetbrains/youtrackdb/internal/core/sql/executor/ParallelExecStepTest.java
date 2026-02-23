@@ -9,7 +9,7 @@ import java.util.List;
 import org.junit.Test;
 
 /**
- *
+ * Tests the {@link ParallelExecStep} for parallel execution of sub-plans.
  */
 public class ParallelExecStepTest {
 

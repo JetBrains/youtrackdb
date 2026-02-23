@@ -41,11 +41,15 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
   long getFileId();
 
   /**
+   * Returns the pointer to the root bucket in this tree.
+   *
    * @return the pointer to the root bucket in tree.
    */
   LinkBagBucketPointer getRootBucketPointer();
 
   /**
+   * Returns the pointer to the collection associated with this B-tree.
+   *
    * @return pointer to a collection.
    */
   LinkBagPointer getCollectionPointer();

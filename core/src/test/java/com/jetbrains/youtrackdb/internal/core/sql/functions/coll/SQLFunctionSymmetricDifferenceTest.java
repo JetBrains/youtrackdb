@@ -26,6 +26,8 @@ import java.util.Set;
 import org.junit.Test;
 
 /**
+ * Tests for the SQL SYMMETRICDIFFERENCE() collection function.
+ *
  * @since 11.10.12 14:40
  */
 public class SQLFunctionSymmetricDifferenceTest {
