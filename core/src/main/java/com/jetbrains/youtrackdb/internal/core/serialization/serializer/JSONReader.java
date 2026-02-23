@@ -453,7 +453,7 @@ public class JSONReader {
     }
 
     value = buffer.toString();
-    return result;
+    return Collections.unmodifiableMap(result);
   }
 
   private boolean stringToRidbag(

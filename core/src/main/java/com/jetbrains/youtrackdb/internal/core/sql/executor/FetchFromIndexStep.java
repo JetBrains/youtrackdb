@@ -472,7 +472,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         tail.getExpressions().removeFirst();
         result.addAll(cartesianProduct(newHead, tail, ctx));
       }
-      return result;
+      return Collections.unmodifiableList(result);
     } else {
       var newHead = new SQLCollection(-1);
       for (var exp : head.getExpressions()) {

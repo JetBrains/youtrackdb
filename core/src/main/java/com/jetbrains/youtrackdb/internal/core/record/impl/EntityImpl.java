@@ -318,7 +318,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForProperties();
 
     if (properties == null || properties.isEmpty()) {
-      return Collections.emptyList();
+      return new ArrayList<>();
     }
 
     var properties = new ArrayList<String>();
@@ -2727,7 +2727,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
-    return dirtyFields;
+    return Collections.unmodifiableList(dirtyFields);
   }
 
   @Nonnull
@@ -2757,7 +2757,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
-    return dirtyFields;
+    return Collections.unmodifiableList(dirtyFields);
   }
 
   /**
