@@ -37,7 +37,7 @@ public enum GlobalConfiguration {
       "youtrackdb.environment.dumpCfgAtStartup",
       "Dumps the configuration during application startup",
       Boolean.class,
-      Boolean.FALSE),
+      false),
 
   ENVIRONMENT_LOCK_MANAGER_CONCURRENCY_LEVEL(
       "youtrackdb.environment.lock.concurrency.level",
@@ -443,7 +443,7 @@ public enum GlobalConfiguration {
       "youtrackdb.index.auto.synchronousAutoRebuild",
       "Synchronous execution of auto rebuilding of indexes, in case of a DB crash",
       Boolean.class,
-      Boolean.TRUE),
+      true),
 
   INDEX_IGNORE_NULL_VALUES_DEFAULT(
       "youtrackdb.index.ignoreNullValuesDefault",
@@ -587,7 +587,7 @@ public enum GlobalConfiguration {
       "youtrackdb.network.binary.loadBalancing.enabled",
       "Asks for DNS TXT record, to determine if load balancing is supported",
       Boolean.class,
-      Boolean.FALSE,
+      false,
       true),
 
   NETWORK_BINARY_DNS_LOADBALANCING_TIMEOUT(
@@ -625,7 +625,7 @@ public enum GlobalConfiguration {
       "Backward compatibility option to allow binary connections without tokens (STRONGLY"
           + " DISCOURAGED, FOR SECURITY REASONS)",
       Boolean.class,
-      Boolean.FALSE,
+      false,
       true),
 
   // HTTP
@@ -633,7 +633,7 @@ public enum GlobalConfiguration {
       "youtrackdb.network.http.installDefaultCommands",
       "Installs the default HTTP commands",
       Boolean.class,
-      Boolean.TRUE,
+      true,
       true),
 
   NETWORK_HTTP_SERVER_INFO(
@@ -935,7 +935,7 @@ public enum GlobalConfiguration {
       "youtrackdb.server.log.dumpClientExceptionFullStackTrace",
       "Dumps the full stack trace of the exception sent to the client",
       Boolean.class,
-      Boolean.FALSE,
+      false,
       true),
 
   CLIENT_KRB5_CONFIG(

@@ -293,11 +293,11 @@ public class SQLHelper {
       } else if (iValue.equalsIgnoreCase("true"))
       // BOOLEAN, TRUE
       {
-        fieldValue = Boolean.TRUE;
+        fieldValue = true;
       } else if (iValue.equalsIgnoreCase("false"))
       // BOOLEAN, FALSE
       {
-        fieldValue = Boolean.FALSE;
+        fieldValue = false;
       } else if (iValue.startsWith("date(")) {
         final var func = SQLHelper.getFunction(context.getDatabaseSession(), null,
             iValue);

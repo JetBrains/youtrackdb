@@ -895,9 +895,9 @@ public class EntityHelper {
       } else if (currentValue instanceof Number) {
         final var bValue = ((Number) currentValue).intValue();
         if (bValue == 0) {
-          result = Boolean.FALSE;
+          result = false;
         } else if (bValue == 1) {
-          result = Boolean.TRUE;
+          result = true;
         }
       }
     } else if (function.startsWith("ASDATE(")) {
