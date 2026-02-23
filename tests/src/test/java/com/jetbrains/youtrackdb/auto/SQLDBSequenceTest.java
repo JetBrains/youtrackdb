@@ -10,6 +10,8 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for database sequence operations via SQL commands.
+ *
  * @since 3/5/2015
  */
 @Test

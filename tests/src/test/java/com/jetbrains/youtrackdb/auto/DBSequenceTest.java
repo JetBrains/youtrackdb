@@ -9,6 +9,8 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for database sequence creation and operations.
+ *
  * @since 3/2/2015
  */
 public class DBSequenceTest extends BaseDBTest {

@@ -9,6 +9,8 @@ import java.util.Map;
 import org.testng.Assert;
 
 /**
+ * Tests for composite index behavior with null values.
+ *
  * @since 4/11/14
  */
 public class CompositeIndexWithNullTest extends BaseDBTest {

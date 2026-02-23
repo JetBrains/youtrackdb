@@ -63,7 +63,7 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
     final var directory = ((DiskStorage) session.getStorage()).getStoragePath().toString();
     final var wowCache =
-        (WOWCache) (session.getStorage()).getWriteCache();
+        (WOWCache) ((DiskStorage) session.getStorage()).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(

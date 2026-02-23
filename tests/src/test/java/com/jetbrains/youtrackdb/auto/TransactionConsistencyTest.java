@@ -653,12 +653,12 @@ public class TransactionConsistencyTest extends BaseDBTest {
       person.getOrCreateLinkSet("out");
 
       if (i >= 1) {
-        var edge = ((EntityImpl) session.newEntity("TREdge"));
+        var edge = (EntityImpl) session.newEntity("TREdge");
         edge.setProperty("in", person.getIdentity());
         edge.setProperty("out", inserted.get(i - 1));
-        (person.<Set<EntityImpl>>getProperty("out")).add(edge);
+        person.<Set<EntityImpl>>getProperty("out").add(edge);
         var activeTx = session.getActiveTransaction();
-        (activeTx.<Entity>load(inserted.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(
+        activeTx.<Entity>load(inserted.get(i - 1)).<Set<EntityImpl>>getProperty("in").add(
             edge);
 
       }
@@ -686,11 +686,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
               person.getOrCreateLinkSet("out");
 
               if (i >= 1) {
-                var edge = ((EntityImpl) session.newEntity("TREdge"));
+                var edge = (EntityImpl) session.newEntity("TREdge");
                 edge.setProperty("in", person.getIdentity());
                 edge.setProperty("out", inserted2.get(i - 1));
-                (person.<Set<EntityImpl>>getProperty("out")).add(edge);
-                ((inserted2.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(edge);
+                person.<Set<EntityImpl>>getProperty("out").add(edge);
+                inserted2.get(i - 1).<Set<EntityImpl>>getProperty("in").add(edge);
 
               }
 

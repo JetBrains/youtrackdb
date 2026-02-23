@@ -12,6 +12,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for BETWEEN query conversion and optimization.
+ *
  * @since 9/12/14
  */
 @Test

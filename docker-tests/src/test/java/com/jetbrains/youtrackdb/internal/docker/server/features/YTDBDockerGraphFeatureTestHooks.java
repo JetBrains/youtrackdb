@@ -121,7 +121,7 @@ public class YTDBDockerGraphFeatureTestHooks {
 
   private static DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
+        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;
     }

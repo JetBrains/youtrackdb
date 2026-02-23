@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -2928,17 +2927,17 @@ public class ClassIndexManagerTest extends BaseDBTest {
   private static List<CompositeKey> createCompositeKeysFromEntity(Entity entity) {
     var firstList = entity.getEmbeddedList(PROP_1);
     if (firstList == null) {
-      return Collections.emptyList();
+      return new ArrayList<>();
     }
 
     var secondList = entity.getEmbeddedList(PROP_2);
     if (secondList == null) {
-      return Collections.emptyList();
+      return new ArrayList<>();
     }
 
     var intVal = entity.getInt(PROP_3);
     if (intVal == null) {
-      return Collections.emptyList();
+      return new ArrayList<>();
     }
 
     var stream = firstList.stream().

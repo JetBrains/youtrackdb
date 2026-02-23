@@ -57,7 +57,7 @@ public class CollateTest extends BaseDBTest {
       Assert.assertEquals(result.size(), 10);
 
       for (var document : result) {
-        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+        Assert.assertEquals(document.<String>getProperty("cip").toUpperCase(Locale.ENGLISH),
             "VAL");
       }
     });
@@ -132,7 +132,7 @@ public class CollateTest extends BaseDBTest {
       Assert.assertEquals(result.size(), 10);
 
       for (var document : result) {
-        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+        Assert.assertEquals(document.<String>getProperty("cip").toUpperCase(Locale.ENGLISH),
             "VAL");
       }
     });
@@ -178,7 +178,7 @@ public class CollateTest extends BaseDBTest {
       Assert.assertEquals(result.size(), 10);
 
       for (var document : result) {
-        Assert.assertEquals((document.<String>getProperty("cp")).toUpperCase(Locale.ENGLISH),
+        Assert.assertEquals(document.<String>getProperty("cp").toUpperCase(Locale.ENGLISH),
             "VAL");
       }
     });
@@ -230,7 +230,7 @@ public class CollateTest extends BaseDBTest {
 
       for (var document : result) {
         Assert.assertEquals(document.getProperty("csp"), "VAL");
-        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+        Assert.assertEquals(document.<String>getProperty("cip").toUpperCase(Locale.ENGLISH),
             "VAL");
       }
     });
@@ -249,7 +249,7 @@ public class CollateTest extends BaseDBTest {
           var transaction = session.getActiveTransaction();
           final EntityImpl record = transaction.load(identifiable);
           Assert.assertEquals(record.getProperty("csp"), "VAL");
-          Assert.assertEquals((record.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+          Assert.assertEquals(record.<String>getProperty("cip").toUpperCase(Locale.ENGLISH),
               "VAL");
         }
       });
@@ -348,7 +348,7 @@ public class CollateTest extends BaseDBTest {
       Assert.assertEquals(result.size(), 10);
 
       for (var document : result) {
-        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+        Assert.assertEquals(document.<String>getProperty("cip").toUpperCase(Locale.ENGLISH),
             "VAL");
       }
     });

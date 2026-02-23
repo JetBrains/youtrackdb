@@ -14,7 +14,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 /**
- *
+ * Tests for index behavior within transactions.
  */
 public class IndexTxTest extends BaseDBTest {
   @Override

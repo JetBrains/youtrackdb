@@ -25,6 +25,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Base test class for database tests with common schema setup and utility methods.
+ *
  * @since 7/3/14
  */
 @Test

@@ -12,6 +12,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
+ * Tests for map property index operations.
+ *
  * @since 21.12.11
  */
 @Test

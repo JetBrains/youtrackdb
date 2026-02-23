@@ -86,7 +86,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     final var directory = ((DiskStorage) session.getStorage()).getStoragePath().toString();
 
     final var wowCache =
-        (WOWCache) (session.getStorage()).getWriteCache();
+        (WOWCache) ((DiskStorage) session.getStorage()).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(
@@ -296,6 +296,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
 
   @Override
   protected void assertEmbedded(boolean isEmbedded) {
-    Assert.assertTrue((!isEmbedded));
+    Assert.assertTrue(!isEmbedded);
   }
 }

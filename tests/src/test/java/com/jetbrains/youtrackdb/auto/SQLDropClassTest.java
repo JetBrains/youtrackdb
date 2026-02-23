@@ -4,7 +4,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 /**
- *
+ * Tests for SQL DROP CLASS command.
  */
 public class SQLDropClassTest extends BaseDBTest {
   @Test

@@ -26,7 +26,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 /**
- *
+ * Tests for polymorphic queries across class hierarchies with indexes.
  */
 public class PolymorphicQueryTest extends BaseDBTest {
   @Override

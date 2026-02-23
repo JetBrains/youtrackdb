@@ -15,6 +15,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 
 /**
+ * Tests for link set index operations.
+ *
  * @since 3/28/14
  */
 public class LinkSetIndexTest extends BaseDBTest {
