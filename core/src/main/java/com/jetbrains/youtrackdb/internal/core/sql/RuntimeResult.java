@@ -36,7 +36,6 @@ public class RuntimeResult {
   private final Object fieldValue;
   private final Map<String, Object> projections;
   private final ResultInternal value;
-  private final CommandContext context;
 
   public RuntimeResult(
       final Object iFieldValue,
@@ -45,7 +44,6 @@ public class RuntimeResult {
       final CommandContext iContext) {
     fieldValue = iFieldValue;
     projections = iProjections;
-    context = iContext;
     value = new ResultInternal(iContext.getDatabaseSession());
   }
 

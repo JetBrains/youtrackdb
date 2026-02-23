@@ -1397,7 +1397,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     preprocessRemovedValue(oldValue);
-    value = preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(value, propertyType);
 
     if (oldType != propertyType) {
       entry.type = propertyType;
@@ -1447,7 +1447,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     propertiesCount++;
     properties.put(name, entry);
 
-    value = preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(value, propertyType);
 
     if (propertyType == null) {
       assert value == null;
@@ -1461,7 +1461,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private Object preprocessAssignedValue(String name, Object value,
+  private Object preprocessAssignedValue(Object value,
       PropertyTypeInternal propertyType) {
     switch (value) {
       case EntityImpl entity -> {

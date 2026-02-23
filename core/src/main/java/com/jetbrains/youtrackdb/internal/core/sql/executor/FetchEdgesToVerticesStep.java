@@ -119,7 +119,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     return false;
   }
 
-  private boolean matchesClass(DatabaseSessionEmbedded db, Edge edge) {
+  private boolean matchesClass(DatabaseSessionEmbedded unusedDb, Edge edge) {
     if (targetClass == null) {
       return true;
     }

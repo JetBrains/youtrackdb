@@ -22,7 +22,7 @@ Only `NullAway` is explicitly set to ERROR. All other checks use default severit
 | 2 | `MissingSummary` | 356 | done | beb19dc9e6 |
 | 3 | `StringCaseLocaleUsage` | 30 | done | 9e5b7379a8 |
 | 4 | `PatternMatchingInstanceof` | 227 | done | f9958b82ec |
-| 5 | `UnusedVariable` | 2 | pending | - |
+| 5 | `UnusedVariable` | 71 | done | 835ccc7e66 |
 | 6 | `UnnecessaryParentheses` | 2 | pending | - |
 | 7 | `MixedMutabilityReturnType` | 1 | pending | - |
 

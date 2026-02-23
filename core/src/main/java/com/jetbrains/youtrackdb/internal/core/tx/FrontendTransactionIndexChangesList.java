@@ -359,7 +359,6 @@ public class FrontendTransactionIndexChangesList
 
       Node nextItem = first;
       int nextIndex = 0;
-      Node lastReturned = null;
 
       @Override
       public boolean hasNext() {
@@ -371,7 +370,6 @@ public class FrontendTransactionIndexChangesList
         if (nextItem == null) {
           throw new IllegalStateException();
         }
-        lastReturned = nextItem;
         var result = nextItem.entry;
         nextItem = nextItem.next;
         nextIndex++;

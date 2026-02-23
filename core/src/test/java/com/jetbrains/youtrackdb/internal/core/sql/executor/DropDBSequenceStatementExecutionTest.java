@@ -42,7 +42,7 @@ public class DropDBSequenceStatementExecutionTest extends DbTestBase {
     var lib = session.getMetadata().getSequenceLibrary();
     Assert.assertNull(lib.getSequence(name));
     try {
-      var result = session.execute("drop sequence " + name);
+      session.execute("drop sequence " + name).close();
       Assert.fail();
     } catch (CommandExecutionException ex1) {
 

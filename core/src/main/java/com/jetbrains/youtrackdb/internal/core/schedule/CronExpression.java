@@ -1111,7 +1111,7 @@ public final class CronExpression implements Serializable, Cloneable {
       }
 
       IntSortedSet st;
-      var t = 0;
+      int t;
 
       var sec = cl.get(Calendar.SECOND);
       var min = cl.get(Calendar.MINUTE);

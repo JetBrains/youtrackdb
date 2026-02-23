@@ -1590,7 +1590,7 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     for (var i = 5; i < 10; i++) {
       var transaction = session.getActiveTransaction();
-      EntityImpl docToAdd = transaction.load(docsToAdd.get(i));
+      transaction.load(docsToAdd.get(i));
 
     }
 

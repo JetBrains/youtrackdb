@@ -103,7 +103,6 @@ public class VarIntSerializer {
    * @return the number of bytes written
    */
   public static void writeUnsignedVarLong(long value, final DataOutput bos) throws IOException {
-    int pos;
     while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
       // out.writeByte(((int) value & 0x7F) | 0x80);
       bos.writeByte((byte) (value & 0x7F | 0x80));

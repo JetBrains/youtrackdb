@@ -106,10 +106,9 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         if (o instanceof TraverseRecordProcess trp) {
           final var record = trp.getTarget();
 
-          SchemaImmutableClass result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
-          result1 = entity.getImmutableSchemaClass(session);
+          SchemaImmutableClass result1 = entity.getImmutableSchemaClass(session);
           if (iClassName == null
               || result1
               .isSubClassOf(iClassName)) {
@@ -127,9 +126,9 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
         } else if (o instanceof Identifiable record) {
 
-          SchemaImmutableClass result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
+          SchemaImmutableClass result1 = null;
           if (entity != null) {
             result1 = entity.getImmutableSchemaClass(session);
           }
@@ -158,9 +157,9 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         if (o instanceof TraverseRecordProcess trp) {
           final var record = trp.getTarget();
 
-          SchemaImmutableClass result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
+          SchemaImmutableClass result1 = null;
           if (entity != null) {
             result1 = entity.getImmutableSchemaClass(session);
           }
@@ -181,9 +180,9 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
         } else if (o instanceof Identifiable record) {
 
-          SchemaImmutableClass result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
+          SchemaImmutableClass result1 = null;
           if (entity != null) {
             result1 = entity.getImmutableSchemaClass(session);
           }

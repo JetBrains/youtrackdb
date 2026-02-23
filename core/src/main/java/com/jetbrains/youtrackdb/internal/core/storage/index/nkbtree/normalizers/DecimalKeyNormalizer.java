@@ -13,8 +13,6 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
   private static final BigInteger BIG_INT_ONE = new BigInteger("1");
   private static final BigInteger BIG_INT_ZERO = new BigInteger("0");
 
-  private static final BigInteger TWO_COMPL_REF = BigInteger.ONE.shiftLeft(64);
-
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
     final var matKey = (BigDecimal) key;

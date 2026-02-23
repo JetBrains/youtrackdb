@@ -87,7 +87,6 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
     if (userMap.containsKey("username") && userMap.containsKey("resources")) {
       final var user = userMap.get("username").toString();
-      final var resources = userMap.get("resources").toString();
       var password = (String) userMap.get("password");
 
       if (password == null) {

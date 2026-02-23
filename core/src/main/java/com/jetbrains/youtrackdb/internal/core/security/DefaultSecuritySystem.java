@@ -667,9 +667,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // Returns the package plus type name of Class.
   private static String getFullTypeName(Class<?> type) {
-    String typeName = null;
-
-    typeName = type.getSimpleName();
+    var typeName = type.getSimpleName();
 
     var pack = type.getPackage();
 

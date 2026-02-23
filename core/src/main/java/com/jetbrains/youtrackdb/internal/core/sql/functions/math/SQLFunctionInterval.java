@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLPredicate;
 import javax.annotation.Nullable;
 
 /**
@@ -18,8 +17,6 @@ import javax.annotation.Nullable;
 public class SQLFunctionInterval extends SQLFunctionMathAbstract {
 
   public static final String NAME = "interval";
-
-  private SQLPredicate predicate;
 
   public SQLFunctionInterval() {
     super(NAME, 2, 0);

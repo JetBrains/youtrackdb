@@ -1568,7 +1568,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
     session.getMetadata().getSchema().createClass("FamousPlace", 1, placeClass);
 
-    var firstPlace = ((EntityImpl) session.newEntity("Place"));
+    session.newEntity("Place");
 
     session.begin();
     var secondPlace = ((EntityImpl) session.newEntity("Place"));
@@ -1648,7 +1648,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testMultipleCollectionsWithPagination() throws Exception {
-    final var cls = session.getMetadata().getSchema()
+    session.getMetadata().getSchema()
         .createClass("PersonMultipleCollections");
     try {
       Set<String> names =
@@ -1802,9 +1802,9 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var e = schema.getClass("E");
-    final var v1 = schema.createClass("TestPolymorphicEdges_V", v);
+    schema.createClass("TestPolymorphicEdges_V", v);
     final var e1 = schema.createClass("TestPolymorphicEdges_E1", e);
-    final var e2 = schema.createClass("TestPolymorphicEdges_E2", e1);
+    schema.createClass("TestPolymorphicEdges_E2", e1);
 
     session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '1'").close();
     session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '2'").close();
@@ -1842,7 +1842,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void testSizeOfLink() {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
-    final var cls = schema.createClass("TestSizeOfLink", v);
+    schema.createClass("TestSizeOfLink", v);
     session.execute("CREATE VERTEX TestSizeOfLink set name = '1'").close();
     session.execute("CREATE VERTEX TestSizeOfLink set name = '2'").close();
     session.execute("CREATE VERTEX TestSizeOfLink set name = '3'").close();
@@ -1865,7 +1865,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void testEmbeddedMapAndDotNotation() {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
-    final var cls = schema.createClass("EmbeddedMapAndDotNotation", v);
+    schema.createClass("EmbeddedMapAndDotNotation", v);
     session.execute("CREATE VERTEX EmbeddedMapAndDotNotation set name = 'foo'").close();
     session
         .execute(
@@ -1898,7 +1898,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void testLetWithQuotedValue() {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
-    final var cls = schema.createClass("LetWithQuotedValue", v);
+    schema.createClass("LetWithQuotedValue", v);
     session.execute("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();
 
     var result =

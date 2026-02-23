@@ -27,9 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.replication.AsyncReplicationError;
 import com.jetbrains.youtrackdb.internal.core.replication.AsyncReplicationOk;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Text based Command Request abstract class.
@@ -50,7 +48,6 @@ public abstract class CommandRequestAbstract
   protected AsyncReplicationOk onAsyncReplicationOk;
   protected AsyncReplicationError onAsyncReplicationError;
 
-  private final Set<String> nodesToExclude = new HashSet<String>();
   private boolean recordResultSet = true;
 
   protected CommandRequestAbstract() {

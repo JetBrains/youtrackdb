@@ -9,13 +9,11 @@ import com.jetbrains.youtrackdb.internal.server.config.ServerConfigurationManage
 public class ServerSecurityConfig implements SecurityConfig {
 
   private final YouTrackDBServer server;
-  private final ServerConfigurationManager serverCfg;
   private Syslog sysLog;
 
   public ServerSecurityConfig(YouTrackDBServer server, ServerConfigurationManager serverCfg) {
     super();
     this.server = server;
-    this.serverCfg = serverCfg;
   }
 
   @Override

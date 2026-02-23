@@ -286,7 +286,7 @@ public class SpeedTestData {
       cyclesElapsed = 0;
 
       long previousLapTimerElapsed = 0;
-      long lapTimerElapsed = 0;
+      long lapTimerElapsed;
       int delta;
       lapTimerElapsed = System.nanoTime();
 

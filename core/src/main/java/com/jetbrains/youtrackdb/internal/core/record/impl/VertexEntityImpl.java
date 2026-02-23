@@ -295,7 +295,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
       String[] labels) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    labels = resolveAliases(session, schema, labels);
+    labels = resolveAliases(schema, labels);
 
     Collection<String> propertyNames = null;
     if (labels != null && labels.length > 0) {
@@ -602,21 +602,20 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Nullable
-  private static String[] resolveAliases(DatabaseSessionEmbedded db, Schema schema,
-      String[] labels) {
+  private static String[] resolveAliases(Schema schema, String[] labels) {
     if (labels == null) {
       return null;
     }
     var result = new String[labels.length];
 
     for (var i = 0; i < labels.length; i++) {
-      result[i] = resolveAlias(db, labels[i], schema);
+      result[i] = resolveAlias(labels[i], schema);
     }
 
     return result;
   }
 
-  private static String resolveAlias(DatabaseSessionEmbedded db, String label, Schema schema) {
+  private static String resolveAlias(String label, Schema schema) {
     var clazz = schema.getClass(label);
     if (clazz != null) {
       return clazz.getName();
@@ -731,7 +730,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
-  private static void removeLinkFromEdge(DatabaseSessionEmbedded db, EntityImpl vertex, Edge edge,
+  private static void removeLinkFromEdge(EntityImpl vertex, Edge edge,
       Direction direction) {
     var className = edge.getSchemaClassName();
     Identifiable edgeId;
@@ -790,11 +789,11 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   static void removeIncomingEdge(DatabaseSessionEmbedded db, Vertex vertex, Edge edge) {
-    removeLinkFromEdge(db, (EntityImpl) vertex, edge, Direction.IN);
+    removeLinkFromEdge((EntityImpl) vertex, edge, Direction.IN);
   }
 
   static void removeOutgoingEdge(DatabaseSessionEmbedded db, Vertex vertex, Edge edge) {
-    removeLinkFromEdge(db, (EntityImpl) vertex, edge, Direction.OUT);
+    removeLinkFromEdge((EntityImpl) vertex, edge, Direction.OUT);
   }
 
   public enum EdgeType {

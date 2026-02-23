@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.nkbtree.normalizers.
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteOrder;
 import java.text.Collator;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -59,8 +58,6 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 @Fork(0)
 public class KeyNormalizerVsSerializerBenchmark {
 
-  private KeyNormalizer keyNormalizer;
-  private ByteOrder byteOrder;
   private final BinarySerializerFactory serializerFactory = BinarySerializerFactory.create(
       BinarySerializerFactory.currentBinaryFormatVersion());
 
@@ -164,8 +161,6 @@ public class KeyNormalizerVsSerializerBenchmark {
 
   @Setup(Level.Iteration)
   public void setup() {
-    keyNormalizer = new KeyNormalizer();
-    byteOrder = ByteOrder.nativeOrder();
   }
 
   @Benchmark

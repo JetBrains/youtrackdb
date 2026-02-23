@@ -38,7 +38,6 @@ public class InsertExecutionPlanner {
   public InsertExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var result = new InsertExecutionPlan(ctx);
 
-    var session = ctx.getDatabaseSession();
     if (targetIndex != null) {
       throw new UnsupportedOperationException("Manual indexes are not supported");
     } else {

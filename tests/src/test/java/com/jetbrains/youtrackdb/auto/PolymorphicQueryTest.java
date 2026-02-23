@@ -205,8 +205,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void testSubclassesIndexesFailed() throws Exception {
     session.begin();
 
-    var profiler = ProfilerStub.INSTANCE;
-
     for (var i = 0; i < 10000; i++) {
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1Fail"));

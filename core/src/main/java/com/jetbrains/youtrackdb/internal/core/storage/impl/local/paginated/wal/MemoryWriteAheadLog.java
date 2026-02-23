@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
 
   private final AtomicInteger nextPosition = new AtomicInteger();
-  private final AtomicInteger nextOperationId = new AtomicInteger();
 
   @Override
   public LogSequenceNumber begin() {

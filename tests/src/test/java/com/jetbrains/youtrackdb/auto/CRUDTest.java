@@ -772,7 +772,7 @@ public class CRUDTest extends BaseDBTest {
     var agendas = executeQuery("SELECT FROM " + rid);
     var agenda = agendas.getFirst().asEntityOrNull();
     //noinspection unused,StatementWithEmptyBody
-    for (var e : agenda.<List<?>>getProperty("events")) {
+    for (var unusedE : agenda.<List<?>>getProperty("events")) {
       // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
     }
 
@@ -2410,7 +2410,7 @@ public class CRUDTest extends BaseDBTest {
     session.executeInTxBatches(session.browseClass("Account"),
         (session, a) -> {
           if (i[0] % 2 == 0) {
-            var addresses = a.<List<Identifiable>>getProperty("addresses");
+            a.<List<Identifiable>>getProperty("addresses");
             var newAddress = this.session.newEntity("Address");
 
             newAddress.setProperty("street", "Plaza central");

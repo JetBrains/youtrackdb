@@ -52,6 +52,7 @@ public final class CachePointer {
 
   private volatile int referrersCount;
 
+  @SuppressWarnings("UnusedVariable")
   private volatile long readersWritersReferrer;
 
   private volatile WritersListener writersListener;

@@ -136,9 +136,8 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     final var v = stringValue == null ? iRecord.getProperty(name) : stringValue;
     if (!collatePreset && iRecord.isEntity()) {
       var entity = (EntityImpl) iRecord.asEntity();
-      SchemaImmutableClass result = null;
-      result = entity.getImmutableSchemaClass(session);
-      SchemaClass schemaClass = result;
+      SchemaImmutableClass schemaClassResult = entity.getImmutableSchemaClass(session);
+      SchemaClass schemaClass = schemaClassResult;
       if (schemaClass != null) {
         collate = getCollateForField(session, schemaClass, name);
       }

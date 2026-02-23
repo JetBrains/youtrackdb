@@ -155,9 +155,6 @@ final class Bucket extends DurablePage {
     final var entrySize = key.length + 2 * IntegerSerializer.INT_SIZE;
     var size = getSize();
 
-    final var leftChild = getIntValue(entryPosition);
-    final var rightChild = getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
-
     var pointers = getPointers();
     var endSize = size - 1;
     if (entryIndex < size - 1) {

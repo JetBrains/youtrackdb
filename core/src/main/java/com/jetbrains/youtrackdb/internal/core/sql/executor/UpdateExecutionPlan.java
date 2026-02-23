@@ -13,8 +13,6 @@ import javax.annotation.Nullable;
 /** Execution plan for SQL UPDATE statements. */
 public class UpdateExecutionPlan extends SelectExecutionPlan {
   private final List<Result> result = new ArrayList<>();
-  private int next = 0;
-
 
   public UpdateExecutionPlan(CommandContext ctx) {
     super(ctx);
@@ -28,7 +26,6 @@ public class UpdateExecutionPlan extends SelectExecutionPlan {
   @Override
   public void reset(CommandContext ctx) {
     result.clear();
-    next = 0;
     super.reset(ctx);
     executeInternal();
   }

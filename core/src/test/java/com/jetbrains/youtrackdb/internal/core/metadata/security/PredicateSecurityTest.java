@@ -277,7 +277,6 @@ public class PredicateSecurityTest {
       var activeTx = session.getActiveTransaction();
       elem = activeTx.load(elem);
       elem.setProperty("name", "baz");
-      var elemToSave = elem;
       session.commit();
       Assert.fail();
     } catch (SecurityException ex) {

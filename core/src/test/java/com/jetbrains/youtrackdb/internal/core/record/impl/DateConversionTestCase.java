@@ -66,7 +66,6 @@ public class DateConversionTestCase extends DbTestBase {
     assertEquals("date", fields[0]);
 
     Date old = document.getProperty("date");
-    Date newDate = extr.getProperty("date");
     var cal = Calendar.getInstance();
     cal.setTime(old);
     var cal1 = Calendar.getInstance();

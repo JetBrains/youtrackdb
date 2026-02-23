@@ -66,7 +66,6 @@ public class ZIPCompressionUtil {
       final InputStream in, final String out, final CommandOutputListener iListener)
       throws IOException {
     final var outdir = Paths.get(out).toAbsolutePath().normalize();
-    final var targetDirPath = outdir.toString() + File.separator;
 
     try (var zin = new ZipInputStream(in)) {
       ZipEntry entry;

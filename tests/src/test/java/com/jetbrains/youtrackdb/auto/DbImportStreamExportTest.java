@@ -64,8 +64,6 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
 
   @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
-    final var importDir = new File(testPath + "/" + NEW_DB_PATH);
-
     try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(testPath)) {
       if (youTrackDb.exists(DbImportStreamExportTest.class.getSimpleName() + "Import")) {
         youTrackDb.drop(DbImportStreamExportTest.class.getSimpleName() + "Import");

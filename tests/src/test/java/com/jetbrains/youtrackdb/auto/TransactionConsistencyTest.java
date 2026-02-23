@@ -370,7 +370,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     var kim = ((EntityImpl) session.newEntity("MyProfile"))
         .setPropertyInChain("name", "Kim")
         .setPropertyInChain("surname", "Bauer");
-    var teri = ((EntityImpl) session.newEntity("MyProfile"))
+    ((EntityImpl) session.newEntity("MyProfile"))
         .setPropertyInChain("name", "Teri")
         .setPropertyInChain("surname", "Bauer");
     var jack = ((EntityImpl) session.newEntity("MyProfile"))
@@ -605,7 +605,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     foo = activeTx2.load(foo);
     var activeTx1 = session.getActiveTransaction();
     bar = activeTx1.load(bar);
-    var sees = session.newStatefulEdge(foo, bar, "Sees");
+    session.newStatefulEdge(foo, bar, "Sees");
     session.commit();
 
     session.begin();

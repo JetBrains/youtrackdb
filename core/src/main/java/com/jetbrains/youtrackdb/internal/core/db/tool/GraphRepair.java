@@ -536,8 +536,7 @@ public class GraphRepair {
       {
         broken = true;
       } else {
-        SchemaImmutableClass immutableClass = null;
-        immutableClass = record.getImmutableSchemaClass(session);
+        SchemaImmutableClass immutableClass = record.getImmutableSchemaClass(session);
         if (immutableClass == null
             || (!immutableClass.isVertexType() && !immutableClass.isEdgeType()))
         // INVALID RECORD TYPE: NULL OR NOT GRAPH TYPE

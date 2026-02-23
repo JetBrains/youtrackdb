@@ -1658,7 +1658,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testOrderByRidDescMultiCollection() {
     // issue #6694
-    var clazz = session.getMetadata().getSchema().createClass("TestOrderByRidDescMultiCollection");
+    session.getMetadata().getSchema().createClass("TestOrderByRidDescMultiCollection");
 
     for (var i = 0; i < 100; i++) {
       session.begin();

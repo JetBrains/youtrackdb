@@ -188,9 +188,8 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public SecurityUser securityAuthenticate(
       DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
-    SecurityUser user = null;
     final var dbName = session.getDatabaseName();
-    user = security.authenticate(session, authenticationInfo);
+    SecurityUser user = security.authenticate(session, authenticationInfo);
 
     if (user != null) {
       if (user.getAccountStatus(session) != SecurityUser.STATUSES.ACTIVE) {
@@ -340,8 +339,7 @@ public class SecurityShared implements SecurityInternal {
     try {
       var transaction = session.getActiveTransaction();
       final EntityImpl entity = transaction.load(iRole);
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(session);
+      SchemaImmutableClass clazz = entity.getImmutableSchemaClass(session);
 
       if (clazz != null && clazz.isRole()) {
         return new Role(session, entity);
@@ -456,7 +454,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public SecurityPolicy getSecurityPolicy(
       DatabaseSessionEmbedded session, SecurityRole role, String resource) {
-    resource = normalizeSecurityResource(session, resource);
+    resource = normalizeSecurityResource(resource);
     return role.getPolicy(session, resource);
   }
 
@@ -487,7 +485,7 @@ public class SecurityShared implements SecurityInternal {
       DatabaseSessionEmbedded session, SecurityRole securityRole, String resource,
       SecurityPolicyImpl policy) {
     if (securityRole instanceof Role role) {
-      var currentResource = normalizeSecurityResource(session, resource);
+      var currentResource = normalizeSecurityResource(resource);
 
       validatePolicyWithIndexes(session, currentResource);
       role.getPolicies(session).put(currentResource, policy);
@@ -586,7 +584,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void removeSecurityPolicy(DatabaseSessionEmbedded session, Role role, String resource) {
-    var calculatedResource = normalizeSecurityResource(session, resource);
+    var calculatedResource = normalizeSecurityResource(resource);
     role.getPolicies(session).remove(calculatedResource);
     role.save(session);
 
@@ -594,8 +592,7 @@ public class SecurityShared implements SecurityInternal {
     initPredicateSecurityOptimizations(session);
   }
 
-  private static String normalizeSecurityResource(DatabaseSessionEmbedded session,
-      String resource) {
+  private static String normalizeSecurityResource(String resource) {
     return resource; // TODO
   }
 
@@ -1273,7 +1270,7 @@ public class SecurityShared implements SecurityInternal {
                 Entity policy = transaction1.load(policyEntry.getValue());
 
                 for (var clazz : allClasses) {
-                  if (isClassInvolved(session, clazz, res)
+                  if (isClassInvolved(clazz, res)
                       && !isAllAllowed(
                       session,
                       new ImmutableSecurityPolicy(
@@ -1308,8 +1305,7 @@ public class SecurityShared implements SecurityInternal {
     return true;
   }
 
-  private static boolean isClassInvolved(DatabaseSessionEmbedded db, SchemaClass clazz,
-      SecurityResource res) {
+  private static boolean isClassInvolved(SchemaClass clazz, SecurityResource res) {
     if (res instanceof SecurityResourceAll
         || res.equals(SecurityResourceClass.ALL_CLASSES)
         || res.equals(SecurityResourceProperty.ALL_PROPERTIES)) {
@@ -1382,7 +1378,6 @@ public class SecurityShared implements SecurityInternal {
     }
 
     String className;
-    SchemaClass clazz;
     className = entity.getSchemaClassName();
 
     if (className == null) {

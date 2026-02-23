@@ -52,8 +52,6 @@ public class SQLInsertTest extends BaseDBTest {
       session.getMetadata().getSchema().createClass("Account");
     }
 
-    final var profileClass = session.getMetadata().getSchema().getClass("Account");
-
     if (!session.getMetadata().getSchema().existsClass("Address")) {
       session.getMetadata().getSchema().createClass("Address");
     }
@@ -119,8 +117,6 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void insertWithWildcards() {
-    var addressId = session.getMetadata().getSchema().getClass("Address").getCollectionIds()[0];
-
     var links = getValidLinks("Address");
 
     session.begin();
@@ -715,7 +711,7 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testEmbeddedDates() {
-    var c = session.getMetadata().getSchema().getOrCreateClass("TestEmbeddedDates");
+    session.getMetadata().getSchema().getOrCreateClass("TestEmbeddedDates");
 
     session.begin();
     session
@@ -855,7 +851,7 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testInsertWithCollectionAsFieldName() {
-    var c = session.getMetadata().getSchema()
+    session.getMetadata().getSchema()
         .getOrCreateClass("InsertWithCollectionAsFieldName");
 
     session.begin();

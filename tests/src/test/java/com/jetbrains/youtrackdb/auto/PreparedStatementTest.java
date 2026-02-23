@@ -278,9 +278,8 @@ public class PreparedStatementTest extends BaseDBTest {
   public void testSqlInjectionOnTarget() {
 
     try {
-      var result =
-          session
-              .query("select from ?", "PreparedStatementTest1 where name = 'foo'").toList();
+      session
+          .query("select from ?", "PreparedStatementTest1 where name = 'foo'").close();
       Assert.fail();
     } catch (Exception e) {
 

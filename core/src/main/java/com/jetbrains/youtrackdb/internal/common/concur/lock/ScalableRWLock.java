@@ -78,9 +78,6 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
 
   private static final long serialVersionUID = -7552055681918630764L;
 
-  // Definition of an invalid thread-id (must be negative)
-  private static final int SRWL_STATE_NOT_WRITING = 0;
-  private static final int SRWL_STATE_WRITING = 1;
   private static final int SRWL_STATE_NOT_READING = 0;
   private static final int SRWL_STATE_READING = 1;
   private static final AtomicInteger[] dummyArray = new AtomicInteger[0];

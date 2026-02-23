@@ -517,8 +517,6 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
           .statusMessage("User is not authenticated").create());
     }
 
-    final var message = context.getRequestMessage();
-
     return youTrackDB.openTraversalNoAuthenticate(dbName, user.getName());
   }
 

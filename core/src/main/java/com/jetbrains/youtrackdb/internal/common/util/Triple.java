@@ -57,7 +57,6 @@ public class Triple<K extends Comparable<K>, V extends Comparable<V>, SV>
   }
 
   public void setSubValue(final SV iSubValue) {
-    final var oldValue = value;
     value.setValue(iSubValue);
   }
 

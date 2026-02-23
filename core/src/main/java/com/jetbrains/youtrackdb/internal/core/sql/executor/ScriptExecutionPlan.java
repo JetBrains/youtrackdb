@@ -14,7 +14,6 @@ import javax.annotation.Nullable;
 /** Execution plan for SQL script blocks containing multiple statements. */
 public class ScriptExecutionPlan implements InternalExecutionPlan {
 
-  private String location;
   private final CommandContext ctx;
   private boolean executed = false;
   protected List<ScriptLineStep> steps = new ArrayList<>();
