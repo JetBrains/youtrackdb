@@ -255,6 +255,185 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(result.contains("AS"));
   }
 
+  /**
+   * Verifies MatchFirstStep.reset() delegates to the execution plan when a non-null
+   * plan is present, without throwing an exception.
+   */
+  @Test
+  public void testMatchFirstStepResetWithPlan() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(createEmptySubStep(ctx));
+    var step = new MatchFirstStep(ctx, node, plan, false);
+
+    // reset() should delegate to executionPlan.reset() without throwing
+    step.reset();
+  }
+
+  /**
+   * Verifies internalStart() uses prefetched data from the context variable when
+   * available, wrapping each result into a new row keyed by the node alias.
+   */
+  @Test
+  public void testMatchFirstStepInternalStartWithPrefetchedData() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "person";
+
+    // Simulate MatchPrefetchStep having stored results in the context
+    var prefetchedResult = new ResultInternal(session);
+    prefetchedResult.setProperty("name", "Alice");
+    List<Result> prefetched = List.of(prefetchedResult);
+    ctx.setVariable(
+        MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "person", prefetched);
+
+    // No sub-plan needed since prefetched data is available
+    var step = new MatchFirstStep(ctx, node, false);
+    var stream = step.start(ctx);
+
+    assertTrue(stream.hasNext(ctx));
+    var row = stream.next(ctx);
+    // The output row must wrap the exact prefetched result under the alias key
+    Result wrapped = row.getProperty("person");
+    assertSame(prefetchedResult, wrapped);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies internalStart() falls back to the execution plan when no prefetched
+   * data is present in the context, and correctly wraps results under the alias.
+   */
+  @Test
+  public void testMatchFirstStepInternalStartWithExecutionPlan() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "city";
+
+    // Build a sub-plan that returns a single result
+    var plan = new SelectExecutionPlan(ctx);
+    var subResult = new ResultInternal(session);
+    subResult.setProperty("title", "Berlin");
+    plan.chain(new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.singleton(subResult);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    });
+
+    var step = new MatchFirstStep(ctx, node, plan, false);
+    var stream = step.start(ctx);
+
+    assertTrue(stream.hasNext(ctx));
+    var row = stream.next(ctx);
+    // The output row must wrap the exact sub-plan result under the "city" alias
+    Result wrapped = row.getProperty("city");
+    assertSame(subResult, wrapped);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that internalStart() sets the "$matched" context variable to the
+   * current row, enabling downstream WHERE clauses to reference matched aliases.
+   */
+  @Test
+  public void testMatchFirstStepSetsMatchedContextVariable() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "x";
+
+    var prefetchedResult = new ResultInternal(session);
+    prefetchedResult.setProperty("id", 42);
+    ctx.setVariable(
+        MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "x",
+        List.of(prefetchedResult));
+
+    var step = new MatchFirstStep(ctx, node, false);
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var row = stream.next(ctx);
+    stream.close(ctx);
+
+    // The "$matched" context variable must point to the produced row
+    var matched = ctx.getVariable("$matched");
+    assertNotNull(matched);
+    assertSame(row, matched);
+  }
+
+  /**
+   * Verifies internalStart() drains the previous step (if set) before producing
+   * its own data. The drain counter on the prev step confirms this.
+   */
+  @Test
+  public void testMatchFirstStepDrainsPreviousStep() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "v";
+
+    // Track whether the previous step was drained
+    var drained = new boolean[]{false};
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        drained[0] = true;
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+
+    // Use prefetched data so we don't need a sub-plan
+    ctx.setVariable(
+        MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "v",
+        List.of(new ResultInternal(session)));
+
+    var step = new MatchFirstStep(ctx, node, false);
+    step.setPrevious(prevStep);
+    var stream = step.start(ctx);
+
+    // The previous step must have been drained
+    assertTrue(drained[0]);
+    // The stream should still produce data from prefetched results
+    assertTrue(stream.hasNext(ctx));
+    stream.next(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /** Verifies MatchFirstStep.prettyPrint() without a sub-plan omits the "AS" block. */
+  @Test
+  public void testMatchFirstStepPrettyPrintNoPlan() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    var step = new MatchFirstStep(ctx, node, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue(result.contains("SET"));
+    assertTrue(result.contains("a"));
+    assertFalse(result.contains("AS"));
+  }
+
   // -- OptionalMatchStep tests --
 
   /** Verifies OptionalMatchStep.prettyPrint() for reverse direction shows "<----". */
