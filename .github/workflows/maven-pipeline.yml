@@ -261,7 +261,7 @@ jobs:
   # ------------------------------------------------------------------
   # JOB 3: COVERAGE GATE
   # Enforces line & branch coverage thresholds on new/changed code
-  # Threshold: 85% if any commit is co-authored with Claude Code, 70% otherwise
+  # Thresholds: 85% line coverage, 70% branch coverage (all PRs)
   # ------------------------------------------------------------------
   coverage-gate:
     name: Coverage Gate (New Code)
@@ -289,23 +289,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Determine Coverage Threshold
-        id: threshold
-        run: |
-          if git log --format='%b' "origin/${{ github.event.pull_request.base.ref }}..HEAD" | grep -qi "Co-Authored-By:.*Claude"; then
-            echo "value=85" >> "$GITHUB_OUTPUT"
-            echo "Coverage threshold: 85% (Claude Code co-authored commits detected)"
-          else
-            echo "value=70" >> "$GITHUB_OUTPUT"
-            echo "Coverage threshold: 70% (no Claude Code co-authored commits)"
-          fi
-
       - name: Run Coverage Gate
         id: gate
         continue-on-error: true
         run: |
           python3 .github/scripts/coverage-gate.py \
-            --threshold ${{ steps.threshold.outputs.value }} \
+            --line-threshold 85 \
+            --branch-threshold 70 \
             --compare-branch "origin/${{ github.event.pull_request.base.ref }}" \
             --coverage-dir .coverage/reports \
             --output-md /tmp/coverage-gate.md
