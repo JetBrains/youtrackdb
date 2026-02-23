@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
@@ -2054,6 +2055,84 @@ public class MatchStepUnitTest extends DbTestBase {
     var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
     // edge.out.alias = "a"
     assertEquals("a", traverser.getEndpointAlias());
+  }
+
+  // -- MatchFieldTraverser tests --
+
+  /**
+   * Verifies that MatchFieldTraverser constructed with a raw SQLFieldMatchPathItem
+   * (sub-traversal mode) correctly evaluates the field expression on the starting
+   * point record. When the field resolves to a ResultInternal, the traverser should
+   * produce a singleton stream containing that result.
+   */
+  @Test
+  public void testFieldTraverserSubTraversalResolvesFieldToResult() {
+    var ctx = createCommandContext();
+
+    // Build a SQLFieldMatchPathItem that resolves property "address"
+    var fieldItem = new SQLFieldMatchPathItem(-1);
+    fieldItem.getExp().setIdentifier(new SQLIdentifier("address"));
+
+    // Create a starting point with property "address" pointing to a result record
+    var linkedRecord = new ResultInternal(session);
+    linkedRecord.setProperty("city", "Berlin");
+    var startingPoint = new ResultInternal(session);
+    startingPoint.setProperty("address", linkedRecord);
+
+    // Construct via (Result, SQLMatchPathItem) — the sub-traversal constructor
+    var traverser = new MatchFieldTraverser(startingPoint, fieldItem);
+
+    // traversePatternEdge should resolve "address" → linkedRecord → singleton stream
+    var stream = traverser.traversePatternEdge(startingPoint, ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Berlin", result.<String>getProperty("city"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that MatchFieldTraverser constructed with a raw SQLFieldMatchPathItem
+   * returns an empty stream when the field resolves to null (property not present).
+   * This is the expected behavior for traversing a missing/null link.
+   */
+  @Test
+  public void testFieldTraverserSubTraversalNullFieldYieldsEmptyStream() {
+    var ctx = createCommandContext();
+
+    var fieldItem = new SQLFieldMatchPathItem(-1);
+    fieldItem.getExp().setIdentifier(new SQLIdentifier("missingField"));
+
+    var startingPoint = new ResultInternal(session);
+    // "missingField" not set → getExp().execute() returns null → empty stream
+
+    var traverser = new MatchFieldTraverser(startingPoint, fieldItem);
+    var stream = traverser.traversePatternEdge(startingPoint, ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that MatchFieldTraverser's traversePatternEdge correctly saves and
+   * restores the $current context variable, even when constructed via the
+   * sub-traversal constructor.
+   */
+  @Test
+  public void testFieldTraverserSubTraversalRestoresCurrentVariable() {
+    var ctx = createCommandContext();
+    var sentinel = "previousCurrentValue";
+    ctx.setVariable("$current", sentinel);
+
+    var fieldItem = new SQLFieldMatchPathItem(-1);
+    fieldItem.getExp().setIdentifier(new SQLIdentifier("someField"));
+
+    var startingPoint = new ResultInternal(session);
+    var traverser = new MatchFieldTraverser(startingPoint, fieldItem);
+    var stream = traverser.traversePatternEdge(startingPoint, ctx);
+    stream.close(ctx);
+
+    // $current must be restored to the sentinel after traversal
+    assertEquals(sentinel, ctx.getVariable("$current"));
   }
 
   // -- MatchMultiEdgeTraverser.toOResultInternal tests --
