@@ -59,7 +59,7 @@ public class ConvertToUpdatableResultStepTest extends TestUtilsFixture {
     var counter = 0;
     while (result.hasNext(context)) {
       var currentItem = result.next(context);
-      if (!(currentItem.getClass().equals(UpdatableResult.class))) {
+      if (!currentItem.getClass().equals(UpdatableResult.class)) {
         Assert.fail("There is an item in result set that is not an instance of UpdatableResult");
       }
       if (!currentItem

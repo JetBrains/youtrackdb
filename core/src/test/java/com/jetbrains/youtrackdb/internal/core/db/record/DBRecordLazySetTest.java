@@ -40,7 +40,7 @@ public class DBRecordLazySetTest extends DbTestBase {
     session.rollback();
   }
 
-  @Test()
+  @Test
   public void testSetAddRemove() {
     session.begin();
     var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());

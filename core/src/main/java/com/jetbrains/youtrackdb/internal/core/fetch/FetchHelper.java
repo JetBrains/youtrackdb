@@ -159,10 +159,10 @@ public class FetchHelper {
           && (!(fieldValue instanceof Collection<?>)
           || ((Collection<?>) fieldValue).isEmpty()
           || !(((Collection<?>) fieldValue).iterator().next() instanceof Identifiable))
-          && (!(fieldValue.getClass().isArray())
+          && (!fieldValue.getClass().isArray()
           || Array.getLength(fieldValue) == 0
           || !(Array.get(fieldValue, 0) instanceof Identifiable))
-          && (!(fieldValue instanceof MultiCollectionIterator<?>))
+          && !(fieldValue instanceof MultiCollectionIterator<?>)
           && (!(fieldValue instanceof Map<?, ?>)
           || ((Map<?, ?>) fieldValue).isEmpty()
           || !(((Map<?, ?>) fieldValue).values().iterator().next()
@@ -339,7 +339,7 @@ public class FetchHelper {
       final String iFieldPathFromRoot,
       final FetchContext iContext) {
     final var linked = (Map<String, EntityImpl>) fieldValue;
-    for (var d : (linked).values())
+    for (var d : linked.values())
     // GO RECURSIVELY
     {
       updateRidMap(db,
@@ -505,7 +505,7 @@ public class FetchHelper {
         || fieldValue == null
         || (!fetch && fieldValue instanceof Identifiable)
         || !(fieldValue instanceof Identifiable)
-        && (!(fieldValue.getClass().isArray())
+        && (!fieldValue.getClass().isArray()
         || Array.getLength(fieldValue) == 0
         || !(Array.get(fieldValue, 0) instanceof Identifiable))
         && !containsIdentifiers(fieldValue)) {
@@ -569,7 +569,7 @@ public class FetchHelper {
         && (!(fieldValue instanceof Iterable<?>)
         || !((Iterable<?>) fieldValue).iterator().hasNext()
         || !(((Iterable<?>) fieldValue).iterator().next() instanceof Identifiable))
-        && (!(fieldValue.getClass().isArray())
+        && (!fieldValue.getClass().isArray()
         || Array.getLength(fieldValue) == 0
         || !(Array.get(fieldValue, 0) instanceof Identifiable))
         && !containsIdentifiers(fieldValue)) {

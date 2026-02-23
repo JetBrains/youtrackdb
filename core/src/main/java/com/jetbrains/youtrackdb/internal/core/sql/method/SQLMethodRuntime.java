@@ -136,7 +136,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
               "Syntax error: function '"
                   + method.getName()
                   + "' needs "
-                  + (params)
+                  + params
                   + " argument(s) while has been received "
                   + runtimeParameters.length);
         }

@@ -1080,7 +1080,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         DecimalSerializer.staticSerialize(decimalValue, bytes.bytes, pointer);
         break;
       case BINARY:
-        pointer = writeBinary(bytes, (byte[]) (value));
+        pointer = writeBinary(bytes, (byte[]) value);
         break;
       case LINKSET:
         pointer = writeLinkSet(session, bytes, (EntityLinkSetImpl) value);

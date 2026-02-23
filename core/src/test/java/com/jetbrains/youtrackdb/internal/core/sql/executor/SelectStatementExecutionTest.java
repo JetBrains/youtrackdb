@@ -1292,7 +1292,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(next);
       Assert.assertTrue(
           "name2".equals(next.getProperty("name"))
-              || ("surname3".equals(next.getProperty("surname"))));
+              || "surname3".equals(next.getProperty("surname")));
     }
 
     Assert.assertFalse(result.hasNext());
@@ -1372,7 +1372,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(next);
       Assert.assertTrue(
           "name2".equals(next.getProperty("name"))
-              || ("surname3".equals(next.getProperty("surname"))));
+              || "surname3".equals(next.getProperty("surname")));
     }
 
     Assert.assertFalse(result.hasNext());
@@ -1414,7 +1414,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(next);
       Assert.assertTrue(
           "name2".equals(next.getProperty("name"))
-              || ("surname3".equals(next.getProperty("surname"))));
+              || "surname3".equals(next.getProperty("surname")));
     }
 
     Assert.assertFalse(result.hasNext());
@@ -3494,7 +3494,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       if (names == null) {
         Assert.fail();
       }
-      Assert.assertEquals(3, (names).size());
+      Assert.assertEquals(3, names.size());
       var iter = names.iterator();
       Assert.assertEquals("a", iter.next());
       Assert.assertEquals("b", iter.next());

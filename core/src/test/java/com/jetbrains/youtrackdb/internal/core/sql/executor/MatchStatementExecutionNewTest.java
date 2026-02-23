@@ -1656,7 +1656,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
     var foo = doc.getLinkList("foo");
     Assert.assertNotNull(foo);
-    Assert.assertEquals(1, (foo).size());
+    Assert.assertEquals(1, foo.size());
     Identifiable identifiable = foo.getFirst();
     var transaction = session.getActiveTransaction();
     var resultVertex = transaction.loadVertex(identifiable);

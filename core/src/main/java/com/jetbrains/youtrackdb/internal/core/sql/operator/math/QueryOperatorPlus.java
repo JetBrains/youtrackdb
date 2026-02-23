@@ -82,7 +82,7 @@ public class QueryOperatorPlus extends QueryOperator {
       } else if (Double.class.equals(maxPrecisionClass)) {
         return l.doubleValue() + r.doubleValue();
       } else if (BigDecimal.class.equals(maxPrecisionClass)) {
-        return (QueryOperatorMultiply.toBigDecimal(l)).add(QueryOperatorMultiply.toBigDecimal(r));
+        return QueryOperatorMultiply.toBigDecimal(l).add(QueryOperatorMultiply.toBigDecimal(r));
       }
     }
 

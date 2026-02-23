@@ -75,7 +75,7 @@ public class QueryOperatorMultiply extends QueryOperator {
       } else if (Double.class.equals(maxPrecisionClass)) {
         return l.doubleValue() * r.doubleValue();
       } else if (BigDecimal.class.equals(maxPrecisionClass)) {
-        return (toBigDecimal(l)).multiply(toBigDecimal(r));
+        return toBigDecimal(l).multiply(toBigDecimal(r));
       }
     }
 

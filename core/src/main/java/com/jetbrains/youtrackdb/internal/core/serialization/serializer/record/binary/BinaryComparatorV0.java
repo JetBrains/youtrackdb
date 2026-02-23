@@ -436,7 +436,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
               return value1 == value2;
             }
             case STRING: {
-              final var value2 = Byte.parseByte((readString(fieldValue2)));
+              final var value2 = Byte.parseByte(readString(fieldValue2));
               return value1 == value2;
             }
             case DECIMAL: {

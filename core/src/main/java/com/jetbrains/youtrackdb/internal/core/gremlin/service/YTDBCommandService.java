@@ -119,11 +119,11 @@ public class YTDBCommandService implements Service<Object, Object> {
       return CloseableIterator.of(IteratorUtils.of(true));
     }
 
-    final var graph = (((Admin<?, ?>) ctx.getTraversal()))
+    final var graph = ((Admin<?, ?>) ctx.getTraversal())
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    (((YTDBGraphInternal) graph)).executeCommand(command, commandParams);
+    ((YTDBGraphInternal) graph).executeCommand(command, commandParams);
 
     // Emit a single placeholder so chaining works (Streaming needs an input traverser).
     return CloseableIterator.of(IteratorUtils.of(true));
@@ -137,11 +137,11 @@ public class YTDBCommandService implements Service<Object, Object> {
       return CloseableIterator.of(IteratorUtils.of(in.get()));
     }
 
-    final var graph = (((Admin<?, ?>) ctx.getTraversal()))
+    final var graph = ((Admin<?, ?>) ctx.getTraversal())
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    (((YTDBGraphInternal) graph)).executeCommand(command, commandParams);
+    ((YTDBGraphInternal) graph).executeCommand(command, commandParams);
 
     // Pass through the input traverser for Streaming mode
     return CloseableIterator.of(IteratorUtils.of(in.get()));

@@ -114,7 +114,7 @@ public class UniqueIndexTest extends DbTestBase {
     session.commit();
   }
 
-  @Test()
+  @Test
   public void testUniqueOnUpdate() {
     final Schema schema = session.getMetadata().getSchema();
     var userClass = schema.createClass("User");

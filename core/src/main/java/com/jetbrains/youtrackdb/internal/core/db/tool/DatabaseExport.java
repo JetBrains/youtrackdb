@@ -450,7 +450,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nExporting schema...");
 
     jsonGenerator.writeObjectFieldStart("schema");
-    final Schema schema = (session.getMetadata()).getImmutableSchemaSnapshot();
+    final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
     jsonGenerator.writeNumberField("version", schema.getVersion());
     jsonGenerator.writeArrayFieldStart("blob-collections");
     for (var collectionId : session.getBlobCollectionIds()) {

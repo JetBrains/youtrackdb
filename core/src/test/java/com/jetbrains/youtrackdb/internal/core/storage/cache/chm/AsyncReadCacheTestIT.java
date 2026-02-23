@@ -606,7 +606,7 @@ public class AsyncReadCacheTestIT {
       var sum = initialsum;
       for (var i = st; i < n; i++) {
 
-        sum += 1 / (Math.pow(i + 1, theta));
+        sum += 1 / Math.pow(i + 1, theta);
       }
       return sum;
     }
@@ -624,7 +624,7 @@ public class AsyncReadCacheTestIT {
           if (itemcount > countforzeta) {
             zetan = zeta(countforzeta, itemcount, theta, zetan);
             eta = (1 - Math.pow(2.0 / items, 1 - theta)) / (1 - zeta2theta / zetan);
-          } else if ((itemcount < countforzeta) && (allowitemcountdecrease)) {
+          } else if (itemcount < countforzeta && allowitemcountdecrease) {
             System.err.println(
                 "WARNING: Recomputing Zipfian distribtion. This is slow and should be avoided."
                     + " (itemcount="
@@ -650,7 +650,7 @@ public class AsyncReadCacheTestIT {
         return base + 1;
       }
 
-      return base + (long) ((itemcount) * Math.pow(eta * u - eta + 1, alpha));
+      return base + (long) (itemcount * Math.pow(eta * u - eta + 1, alpha));
     }
 
     public int nextInt() {

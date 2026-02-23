@@ -237,7 +237,7 @@ public final class WALRecordsFactory {
 
     if (compressedLength + COMPRESSED_METADATA_SIZE < contentSize) {
       compressedContent.limit(compressedLength + COMPRESSED_METADATA_SIZE);
-      compressedContent.putShort(RECORD_ID_OFFSET, (short) (-(recordId + 1)));
+      compressedContent.putShort(RECORD_ID_OFFSET, (short) -(recordId + 1));
       compressedContent.putInt(ORIGINAL_CONTENT_SIZE_OFFSET, contentSize);
 
       return compressedContent;

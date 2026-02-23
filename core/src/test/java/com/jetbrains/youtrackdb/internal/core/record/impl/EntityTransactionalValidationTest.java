@@ -22,7 +22,7 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     session.commit();
   }
 
-  @Test()
+  @Test
   public void simpleConstraintShouldBeCheckedOnCommitTrueTest() {
     var clazz = session.createVertexClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
@@ -37,7 +37,7 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     Assert.assertEquals((Integer) 11, value);
   }
 
-  @Test()
+  @Test
   public void simpleConstraintShouldBeCheckedOnCommitWithTypeConvert() {
     var clazz = session.createVertexClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);

@@ -530,7 +530,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     if (cmd.length() < 3) {
       return false;
     }
-    if (!((StringSerializerHelper.startsWithIgnoreCase(cmd, "if "))
+    if (!(StringSerializerHelper.startsWithIgnoreCase(cmd, "if ")
         || StringSerializerHelper.startsWithIgnoreCase(cmd, "if("))) {
       return false;
     }

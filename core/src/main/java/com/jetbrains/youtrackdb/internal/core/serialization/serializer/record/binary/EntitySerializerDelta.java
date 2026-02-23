@@ -160,7 +160,7 @@ public class EntitySerializerDelta {
     PropertyTypeInternal type;
     Object value;
     var size = VarIntSerializer.readAsInteger(bytes);
-    while ((size--) > 0) {
+    while (size-- > 0) {
       // PARSE FIELD NAME
       fieldName = readString(bytes);
       type = readNullableType(bytes);
@@ -1093,7 +1093,7 @@ public class EntitySerializerDelta {
             bytes.bytes, pointer);
         break;
       case BINARY:
-        writeBinary(bytes, (byte[]) (value));
+        writeBinary(bytes, (byte[]) value);
         break;
       case LINKSET:
         writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
@@ -1357,7 +1357,7 @@ public class EntitySerializerDelta {
       DatabaseSessionEmbedded session, final BytesContainer bytes, final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     var result = new EntityLinkMapIml(owner);
-    while ((size--) > 0) {
+    while (size-- > 0) {
       var keyType = readOType(bytes, false);
       var key = deserializeValue(session, bytes, keyType, result);
       Identifiable value = readOptimizedLink(session, bytes);
@@ -1375,7 +1375,7 @@ public class EntitySerializerDelta {
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     final var result = new EntityEmbeddedMapImpl<>(owner);
-    while ((size--) > 0) {
+    while (size-- > 0) {
       var key = readString(bytes);
       var valType = readNullableType(bytes);
       Object value = null;

@@ -340,8 +340,8 @@ public abstract class SchemaPropertyImpl {
     if (s == null) {
       return "null";
     }
-    return "\"" + (QUOTATION_PATTERN.matcher(DOUBLE_SLASH_PATTERN.matcher(s).replaceAll("\\\\\\\\"))
-        .replaceAll("\\\\\"")) + "\"";
+    return "\"" + QUOTATION_PATTERN.matcher(DOUBLE_SLASH_PATTERN.matcher(s).replaceAll("\\\\\\\\"))
+        .replaceAll("\\\\\"") + "\"";
   }
 
   public String getDefaultValue() {

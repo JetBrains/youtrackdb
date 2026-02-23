@@ -63,7 +63,7 @@ public class URLHelperTest {
     URLHelper.parseNew("/embd/path/test/to");
   }
 
-  @Test()
+  @Test
   public void testRemoteNoDatabase() {
     var parsed = URLHelper.parseNew("remote:localhost");
     assertEquals("remote", parsed.getType());

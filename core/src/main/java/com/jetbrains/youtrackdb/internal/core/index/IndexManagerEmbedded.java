@@ -431,9 +431,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
               "Cannot create index on "
                   + indexClass
                   + "["
-                  + (stream
+                  + stream
                   .map(SecurityResourceProperty::getPropertyName)
-                  .collect(Collectors.joining(", ")))
+                  .collect(Collectors.joining(", "))
                   + " because of existing column security rules");
         }
       }

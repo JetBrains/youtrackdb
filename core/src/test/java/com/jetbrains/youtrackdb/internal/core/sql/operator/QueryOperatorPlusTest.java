@@ -60,7 +60,7 @@ public class QueryOperatorPlusTest {
             Integer.MAX_VALUE,
             null,
             RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        (((long) Integer.MAX_VALUE)) + Integer.MAX_VALUE); // upscale to long
+        (long) Integer.MAX_VALUE + Integer.MAX_VALUE); // upscale to long
     Assert.assertEquals(
         operator.evaluateRecord(
             null,

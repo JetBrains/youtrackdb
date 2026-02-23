@@ -34,7 +34,7 @@ import org.junit.Test;
 public class CharSerializerTest {
 
   private static final int FIELD_SIZE = 2;
-  private static final Character OBJECT = (char) (new Random()).nextInt();
+  private static final Character OBJECT = (char) new Random().nextInt();
   byte[] stream = new byte[FIELD_SIZE];
 
   private static CharSerializer charSerializer;

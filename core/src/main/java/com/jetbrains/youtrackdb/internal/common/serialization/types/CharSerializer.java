@@ -58,7 +58,7 @@ public class CharSerializer implements BinarySerializer<Character> {
 
   public void serializeLiteral(final char value, final byte[] stream, final int startPosition) {
     stream[startPosition] = (byte) (value >>> 8);
-    stream[startPosition + 1] = (byte) (value);
+    stream[startPosition + 1] = (byte) value;
   }
 
   @Override

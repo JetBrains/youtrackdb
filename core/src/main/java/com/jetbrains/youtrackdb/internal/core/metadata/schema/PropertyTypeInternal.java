@@ -723,7 +723,7 @@ public enum PropertyTypeInternal {
                 !(entry.getValue() instanceof Identifiable)
             ) {
               //noinspection unchecked
-              embeddedMap.put((((Entry<String, ?>) entry).getKey()), entry.getValue());
+              embeddedMap.put(((Entry<String, ?>) entry).getKey(), entry.getValue());
             } else {
               throw new DatabaseException(session.getDatabaseName(),
                   conversionErrorMessage(value, this));
@@ -1981,7 +1981,7 @@ public enum PropertyTypeInternal {
         context = context.doubleValue();
       } else if (max instanceof BigDecimal) {
         context = new BigDecimal(context.intValue());
-        var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+        var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
         context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
         max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
       } else if (max instanceof Byte) {
@@ -1998,7 +1998,7 @@ public enum PropertyTypeInternal {
         context = context.doubleValue();
       } else if (max instanceof BigDecimal) {
         context = new BigDecimal(context.intValue());
-        var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+        var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
         context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
         max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
       } else if (max instanceof Short) {
@@ -2015,7 +2015,7 @@ public enum PropertyTypeInternal {
         context = context.doubleValue();
       } else if (max instanceof BigDecimal) {
         context = new BigDecimal(context.longValue());
-        var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+        var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
         context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
         max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
       } else if (max instanceof Integer || max instanceof Byte || max instanceof Short) {
@@ -2028,7 +2028,7 @@ public enum PropertyTypeInternal {
         context = context.doubleValue();
       } else if (max instanceof BigDecimal) {
         context = BigDecimal.valueOf(context.floatValue());
-        var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+        var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
         context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
         max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
       } else if (max instanceof Byte
@@ -2042,7 +2042,7 @@ public enum PropertyTypeInternal {
       // DOUBLE
       if (max instanceof BigDecimal) {
         context = BigDecimal.valueOf(context.doubleValue());
-        var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+        var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
         context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
         max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
       } else if (max instanceof Byte
@@ -2067,7 +2067,7 @@ public enum PropertyTypeInternal {
         max = new BigDecimal((Byte) max);
       }
 
-      var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+      var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
       context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
       max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
     } else if (context instanceof Byte) {
@@ -2083,7 +2083,7 @@ public enum PropertyTypeInternal {
         context = context.doubleValue();
       } else if (max instanceof BigDecimal) {
         context = new BigDecimal(context.intValue());
-        var maxScale = Math.max(((BigDecimal) context).scale(), (((BigDecimal) max).scale()));
+        var maxScale = Math.max(((BigDecimal) context).scale(), ((BigDecimal) max).scale());
         context = ((BigDecimal) context).setScale(maxScale, RoundingMode.DOWN);
         max = ((BigDecimal) max).setScale(maxScale, RoundingMode.DOWN);
       }

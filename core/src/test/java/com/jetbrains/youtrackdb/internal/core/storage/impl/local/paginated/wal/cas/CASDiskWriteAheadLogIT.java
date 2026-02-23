@@ -4053,7 +4053,7 @@ public class CASDiskWriteAheadLogIT {
             Assert.assertTrue(wal.read(record.getLsn(), 1).isEmpty());
           } else {
             Assert.assertArrayEquals(
-                record.data, ((TestRecord) (wal.read(record.getLsn(), 1).getFirst())).data);
+                record.data, ((TestRecord) wal.read(record.getLsn(), 1).getFirst()).data);
           }
         }
 
@@ -4110,7 +4110,7 @@ public class CASDiskWriteAheadLogIT {
           Assert.assertTrue(loadedWAL.read(record.getLsn(), 1).isEmpty());
         } else {
           Assert.assertArrayEquals(
-              record.data, ((TestRecord) (loadedWAL.read(record.getLsn(), 1).getFirst())).data);
+              record.data, ((TestRecord) loadedWAL.read(record.getLsn(), 1).getFirst()).data);
         }
       }
 

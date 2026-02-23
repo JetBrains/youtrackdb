@@ -66,7 +66,7 @@ public class LongSerializer implements BinarySerializer<Long> {
     stream[startPosition + 4] = (byte) ((value >>> 24) & 0xFF);
     stream[startPosition + 5] = (byte) ((value >>> 16) & 0xFF);
     stream[startPosition + 6] = (byte) ((value >>> 8) & 0xFF);
-    stream[startPosition + 7] = (byte) ((value) & 0xFF);
+    stream[startPosition + 7] = (byte) (value & 0xFF);
   }
 
   @Override

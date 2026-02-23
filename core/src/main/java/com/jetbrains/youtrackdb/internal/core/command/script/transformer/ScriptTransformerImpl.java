@@ -65,7 +65,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
           if (hostObject instanceof Identifiable identifiable) {
             array.add(new ResultInternal(db, identifiable));
           } else if (hostObject instanceof EdgeInternal edge) {
-            array.add((new ResultInternal(db, edge)));
+            array.add(new ResultInternal(db, edge));
           } else {
             array.add(toResult(db, hostObject));
           }

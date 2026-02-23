@@ -412,12 +412,12 @@ public class SecurityEngine {
           .getYouTrackDB()
           .executeNoAuthorizationSync(
               session,
-              (db -> db.computeInTx(transaction -> {
+              db -> db.computeInTx(transaction -> {
                 var ctx = new BasicCommandContext();
                 ctx.setDatabaseSession(db);
                 ctx.setDynamicVariable("$currentUser", (inContext) -> transaction.loadOrNull(user));
                 return predicate.evaluate(record, ctx);
-              })));
+              }));
     } catch (Exception e) {
       throw BaseException.wrapException(
           new SecurityException(session.getDatabaseName(), "Cannot execute security predicate"), e,
@@ -445,7 +445,7 @@ public class SecurityEngine {
           .getYouTrackDB()
           .executeNoAuthorizationAsync(
               session.getDatabaseName(),
-              (noAuthSession -> {
+              noAuthSession -> {
                 var ctx = new BasicCommandContext();
                 ctx.setDatabaseSession(noAuthSession);
                 ctx.setDynamicVariable(
@@ -461,7 +461,7 @@ public class SecurityEngine {
 
                   return predicate.evaluate(record, ctx);
                 });
-              }))
+              })
           .get();
     } catch (Exception e) {
       throw new SecurityException(session.getDatabaseName(), "Cannot execute security predicate");

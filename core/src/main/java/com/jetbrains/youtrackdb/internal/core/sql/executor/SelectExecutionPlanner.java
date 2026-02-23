@@ -702,7 +702,7 @@ public class SelectExecutionPlanner {
             exp.setRid(item.getRid().copy());
             newProj.setExpression(exp);
           }
-          var newAlias = new SQLIdentifier("_$$$ORDER_BY_ALIAS$$$_" + (nextAliasCount++));
+          var newAlias = new SQLIdentifier("_$$$ORDER_BY_ALIAS$$$_" + nextAliasCount++);
           newProj.setAlias(newAlias);
           item.setAlias(newAlias.getStringValue());
           item.setModifier(null);
@@ -817,7 +817,7 @@ public class SelectExecutionPlanner {
       if (!found) {
         var newItem = new SQLProjectionItem(-1);
         newItem.setExpression(exp);
-        var groupByAlias = new SQLIdentifier("_$$$GROUP_BY_ALIAS$$$_" + (i++));
+        var groupByAlias = new SQLIdentifier("_$$$GROUP_BY_ALIAS$$$_" + i++);
         newItem.setAlias(groupByAlias);
         if (info.preAggregateProjection == null) {
           info.preAggregateProjection = new SQLProjection(-1);

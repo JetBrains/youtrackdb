@@ -463,7 +463,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       checkEmbedded(session);
 
       if (newName != null
-          && (classes.containsKey(newName.toLowerCase(Locale.ENGLISH)))) {
+          && classes.containsKey(newName.toLowerCase(Locale.ENGLISH))) {
         throw new IllegalArgumentException("Class '" + newName + "' is already present in schema");
       }
 
