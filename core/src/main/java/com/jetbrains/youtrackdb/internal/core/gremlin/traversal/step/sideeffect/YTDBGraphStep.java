@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
@@ -164,10 +165,10 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     } else {
       return 0 == this.ids.length
           ? StringFactory.stepString(
-          this, this.returnClass.getSimpleName().toLowerCase(), this.hasContainers)
+          this, this.returnClass.getSimpleName().toLowerCase(Locale.ROOT), this.hasContainers)
           : StringFactory.stepString(
               this,
-              this.returnClass.getSimpleName().toLowerCase(),
+              this.returnClass.getSimpleName().toLowerCase(Locale.ROOT),
               Arrays.toString(this.ids),
               this.hasContainers);
     }

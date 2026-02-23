@@ -12,6 +12,7 @@ import io.cucumber.java.Scenario;
 import io.cucumber.junit.Cucumber;
 import io.cucumber.junit.CucumberOptions;
 import java.io.File;
+import java.util.Locale;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -124,7 +125,7 @@ public class YTDBGraphFeatureTest {
     private static YTDBGraph initGraph(GraphData graphData) {
       final var configs = new BaseConfiguration();
       final var directory =
-          makeTestDirectory(graphData == null ? "default" : graphData.name().toLowerCase());
+          makeTestDirectory(graphData == null ? "default" : graphData.name().toLowerCase(Locale.ROOT));
 
       try {
         FileUtils.deleteDirectory(new File(directory));

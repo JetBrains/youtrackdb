@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -341,7 +342,7 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
 
   private static DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
+        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;

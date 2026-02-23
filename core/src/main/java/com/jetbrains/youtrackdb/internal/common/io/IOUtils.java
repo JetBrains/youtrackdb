@@ -455,8 +455,8 @@ public class IOUtils {
 
   private static boolean compareStartIgnoreCase(String contaner, String contained) {
     return contaner.startsWith(contained)
-        || contaner.toUpperCase().startsWith(contained.toUpperCase())
-        || contaner.toLowerCase().startsWith(contained.toLowerCase());
+        || contaner.toUpperCase(Locale.ROOT).startsWith(contained.toUpperCase(Locale.ROOT))
+        || contaner.toLowerCase(Locale.ROOT).startsWith(contained.toLowerCase(Locale.ROOT));
   }
 
   public static boolean isOsWindows() {

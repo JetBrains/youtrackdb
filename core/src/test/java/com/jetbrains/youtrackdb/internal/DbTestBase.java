@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.File;
+import java.util.Locale;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -127,7 +128,7 @@ public class DbTestBase {
 
   protected DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
+        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;

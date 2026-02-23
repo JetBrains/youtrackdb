@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.api;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -348,7 +349,7 @@ public interface YouTrackDB extends AutoCloseable {
       @Nonnull PredefinedSystemRole... role) {
     var roles = new String[role.length];
     for (var i = 0; i < role.length; i++) {
-      roles[i] = role[i].name().toLowerCase();
+      roles[i] = role[i].name().toLowerCase(Locale.ROOT);
     }
     createSystemUser(username, password, roles);
   }

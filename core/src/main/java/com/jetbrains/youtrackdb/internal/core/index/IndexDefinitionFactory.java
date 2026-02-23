@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -255,7 +256,7 @@ public class IndexDefinitionFactory {
 
       if ("by".equalsIgnoreCase(fieldNameParts[1])) {
         try {
-          return PropertyMapIndexDefinition.INDEX_BY.valueOf(fieldNameParts[2].toUpperCase());
+          return PropertyMapIndexDefinition.INDEX_BY.valueOf(fieldNameParts[2].toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException iae) {
           throw new IllegalArgumentException(
               "Illegal field name format, should be '<property> [by key|value]' but was '"

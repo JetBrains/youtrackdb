@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
@@ -28,7 +29,7 @@ public class YTDBGraphInitUtil {
 
   private static DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
+        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;

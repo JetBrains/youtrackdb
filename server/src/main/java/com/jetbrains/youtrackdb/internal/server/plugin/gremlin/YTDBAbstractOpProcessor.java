@@ -15,6 +15,7 @@ import io.dropwizard.metrics5.Timer;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -120,8 +121,10 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
         T.label.name(), T.value.name(),
         T.id.getAccessor(), T.key.getAccessor(),
         T.label.getAccessor(), T.value.getAccessor(),
-        T.id.getAccessor().toUpperCase(), T.key.getAccessor().toUpperCase(),
-        T.label.getAccessor().toUpperCase(), T.value.getAccessor().toUpperCase()));
+        T.id.getAccessor().toUpperCase(Locale.ROOT),
+        T.key.getAccessor().toUpperCase(Locale.ROOT),
+        T.label.getAccessor().toUpperCase(Locale.ROOT),
+        T.value.getAccessor().toUpperCase(Locale.ROOT)));
 
     for (var enumItem : Column.values()) {
       INVALID_BINDINGS_KEYS.add(enumItem.name());

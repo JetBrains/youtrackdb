@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -98,7 +99,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
   protected Map<MultiKey, Set<Index>> getIndexOnProperty(final String className) {
-    return classPropertyIndex.get(className.toLowerCase());
+    return classPropertyIndex.get(className.toLowerCase(Locale.ROOT));
   }
 
   public Set<Index> getClassInvolvedIndexes(
@@ -157,13 +158,13 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   @Nullable
   public Index getClassIndex(
       DatabaseSessionEmbedded session, String className, String indexName) {
-    className = className.toLowerCase();
+    className = className.toLowerCase(Locale.ROOT);
 
     final var index = indexes.get(indexName);
     if (index != null
         && index.getDefinition() != null
         && index.getDefinition().getClassName() != null
-        && className.equals(index.getDefinition().getClassName().toLowerCase())) {
+        && className.equals(index.getDefinition().getClassName().toLowerCase(Locale.ROOT))) {
       return index;
     }
     return null;
@@ -257,7 +258,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     }
 
     classPropertyIndex.put(
-        indexDefinition.getClassName().toLowerCase(), copyPropertyMap(propertyIndex));
+        indexDefinition.getClassName().toLowerCase(Locale.ROOT), copyPropertyMap(propertyIndex));
   }
 
   public RID getIdentity() {
