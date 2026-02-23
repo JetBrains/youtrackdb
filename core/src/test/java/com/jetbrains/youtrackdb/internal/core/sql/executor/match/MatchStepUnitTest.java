@@ -1627,6 +1627,28 @@ public class MatchStepUnitTest extends DbTestBase {
     MatchAssertions.validateEdgeTraversalArgs(edge);
   }
 
+  // -- validateAddEdgeArgs tests --
+
+  /** Verifies validateAddEdgeArgs returns true when both arguments are non-null. */
+  @Test
+  public void testValidateAddEdgeArgsPasses() {
+    var item = new SQLMatchPathItem(-1);
+    var node = new PatternNode();
+    assertTrue(MatchAssertions.validateAddEdgeArgs(item, node));
+  }
+
+  /** Verifies validateAddEdgeArgs throws for null path item. */
+  @Test(expected = AssertionError.class)
+  public void testValidateAddEdgeArgsNullItem() {
+    MatchAssertions.validateAddEdgeArgs(null, new PatternNode());
+  }
+
+  /** Verifies validateAddEdgeArgs throws for null target node. */
+  @Test(expected = AssertionError.class)
+  public void testValidateAddEdgeArgsNullNode() {
+    MatchAssertions.validateAddEdgeArgs(new SQLMatchPathItem(-1), null);
+  }
+
   // -- MatchReverseEdgeTraverser tests --
 
   /**
