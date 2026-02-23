@@ -10,9 +10,12 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
@@ -275,6 +278,71 @@ public class MatchStepUnitTest extends DbTestBase {
     var copy = step.copy(ctx);
     assertNotSame(step, copy);
     assertTrue(copy instanceof ReturnMatchPathsStep);
+  }
+
+  /** Verifies prettyPrint() returns the expected "RETURN $paths" string with indentation. */
+  @Test
+  public void testReturnMatchPathsStepPrettyPrint() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    var result = step.prettyPrint(0, 2);
+    assertNotNull(result);
+    assertEquals("+ RETURN $paths", result);
+  }
+
+  /** Verifies prettyPrint() applies indentation when depth > 0. */
+  @Test
+  public void testReturnMatchPathsStepPrettyPrintWithDepth() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    var result = step.prettyPrint(1, 3);
+    assertNotNull(result);
+    assertTrue(result.endsWith("+ RETURN $paths"));
+    assertTrue(result.startsWith("   ")); // 1 * 3 = 3 spaces
+  }
+
+  /** Verifies prettyPrint() asserts when depth is negative. */
+  @Test(expected = AssertionError.class)
+  public void testReturnMatchPathsStepPrettyPrintNegativeDepth() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    step.prettyPrint(-1, 2);
+  }
+
+  /** Verifies prettyPrint() asserts when indent is negative. */
+  @Test(expected = AssertionError.class)
+  public void testReturnMatchPathsStepPrettyPrintNegativeIndent() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    step.prettyPrint(0, -1);
+  }
+
+  /** Verifies internalStart() forwards the upstream stream unchanged. */
+  @Test
+  public void testReturnMatchPathsStepInternalStart() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathsStep(ctx, false);
+    // Create a simple prev step that returns an empty stream
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+    var stream = step.start(ctx);
+    assertNotNull(stream);
+    assertFalse(stream.hasNext(ctx));
   }
 
   // -- ReturnMatchPatternsStep tests --
