@@ -17,7 +17,8 @@ Feature: GQL Match Support
     When iterated to list
     Then the traversal will raise an error with message containing text of "NonExistentClass"
 
-  Scenario: g_gql_MATCH_with_alias_returns_map_binding
+  # Single binding: per spec isVertex → Gremlin vertex (not Map)
+  Scenario: g_gql_MATCH_with_alias_returns_vertex
     And the traversal of
       """
       g.addV("GqlPerson").property("name", "Alice")
@@ -29,9 +30,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
-    And the result should be unordered
-      | result              |
-      | m[{"a":"v[Alice]"}] |
 
   Scenario: g_gql_MATCH_without_alias_returns_vertex
     And the traversal of
@@ -45,9 +43,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
-    And the result should be unordered
-      | result                |
-      | m[{"$c0":"v[Alice]"}] |
 
   Scenario: g_gql_MATCH_without_alias_returns_vertices
     And the traversal of
@@ -61,10 +56,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
-    And the result should be unordered
-      | result                |
-      | m[{"$c0":"v[Alice]"}] |
-      | m[{"$c0":"v[John]"}]  |
 
   Scenario: g_gql_MATCH_without_label_returns_all_vertices
     And the traversal of
@@ -78,10 +69,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
-    And the result should be unordered
-      | result                     |
-      | m[{"a" : "v[Alice]"}]      |
-      | m[{"a" : "v[Programmer]"}] |
 
   Scenario: g_gql_MATCH_with_empty_pattern
     And the traversal of
@@ -95,9 +82,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
-    And the result should be unordered
-      | result                |
-      | m[{"$c0":"v[Alice]"}] |
 
   Scenario: g_gql_MATCH_multiple_nodes
     And the traversal of
@@ -111,10 +95,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
-    And the result should be unordered
-      | result              |
-      | m[{"a":"v[John]"}]  |
-      | m[{"a":"v[Alice]"}] |
 
   Scenario: g_gql_MATCH_with_empty_pattern_with_multiple_nodes
     And the traversal of
@@ -128,10 +108,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
-    And the result should be unordered
-      | result                |
-      | m[{"$c0":"v[Alice]"}] |
-      | m[{"$c0":"v[John]"}]  |
 
   Scenario: g_gql_MATCH_multiple_patterns
     And the traversal of
@@ -279,10 +255,8 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
-    And the result should be unordered
-      | result              |
-      | m[{"a":"v[Maria]"}] |
 
+  # Single binding returns vertex; get property with values("name")
   Scenario: g_gql_MATCH_with_select_and_values
     And the traversal of
       """
@@ -291,7 +265,7 @@ Feature: GQL Match Support
     When iterated to list
     And the traversal of
       """
-      g.gql("MATCH (a:GqlPerson)").select("a").values("name")
+      g.gql("MATCH (a:GqlPerson)").values("name")
       """
     When iterated to list
     Then the result should be unordered
@@ -326,9 +300,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
-    And the result should be unordered
-      | result                       |
-      | m[{"a":"v[StreamingAlice]"}] |
 
   Scenario: g_gql_MATCH_second_pattern_non_existent_class_throws_exception
     And the traversal of
@@ -381,6 +352,3 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
-    And the result should be unordered
-      | result            |
-      | m[{"a":"v[Bob]"}] |

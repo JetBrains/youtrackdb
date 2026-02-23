@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gql.parser;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
-import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlMatchPlanner;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlUnifiedMatchStep;
 import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
@@ -61,8 +61,9 @@ public class GqlMatchStatement implements GqlStatement {
 
     var planningStart = System.nanoTime();
 
-    // Create new execution plan
-    var plan = new GqlMatchPlanner(this).createExecutionPlan();
+    // Use unified YQL MATCH planner and engine
+    var plan = new GqlExecutionPlan();
+    plan.chain(new GqlUnifiedMatchStep(Objects.requireNonNull(patterns)));
 
     // Cache the plan if eligible
     if (useCache

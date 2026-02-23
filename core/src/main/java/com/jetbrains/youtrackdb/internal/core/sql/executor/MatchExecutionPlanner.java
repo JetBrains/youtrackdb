@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -81,12 +82,10 @@ public class MatchExecutionPlanner {
             .collect(Collectors.toList());
     this.returnItems =
         stm.getReturnItems().stream().map(SQLExpression::copy).collect(Collectors.toList());
-    //noinspection ReturnOfNull
     this.returnAliases =
         stm.getReturnAliases().stream()
             .map(x -> x == null ? null : x.copy())
             .collect(Collectors.toList());
-    //noinspection ReturnOfNull
     this.returnNestedProjections =
         stm.getReturnNestedProjections().stream()
             .map(x -> x == null ? null : x.copy())
@@ -102,6 +101,37 @@ public class MatchExecutionPlanner {
     this.groupBy = stm.getGroupBy() == null ? null : stm.getGroupBy().copy();
     this.orderBy = stm.getOrderBy() == null ? null : stm.getOrderBy().copy();
     this.unwind = stm.getUnwind() == null ? null : stm.getUnwind().copy();
+  }
+
+  /**
+   * Constructor that accepts pre-built IR (pattern + alias maps). Used by GQL and other
+   * non-SQL callers so they do not need to build a synthetic SQL statement.
+   * Return is fixed to $matches (returnPatterns).
+   */
+  public MatchExecutionPlanner(
+      Pattern pattern,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids) {
+    this.pattern = Objects.requireNonNull(pattern);
+    this.aliasClasses = aliasClasses != null ? new LinkedHashMap<>(aliasClasses) : new LinkedHashMap<>();
+    this.aliasFilters = aliasFilters != null ? new LinkedHashMap<>(aliasFilters) : new LinkedHashMap<>();
+    this.aliasRids = aliasRids != null ? new LinkedHashMap<>(aliasRids) : new LinkedHashMap<>();
+    this.returnPatterns = true;
+    this.matchExpressions = new ArrayList<>();
+    this.notMatchExpressions = new ArrayList<>();
+    this.returnItems = new ArrayList<>();
+    this.returnAliases = new ArrayList<>();
+    this.returnNestedProjections = new ArrayList<>();
+    this.limit = null;
+    this.skip = null;
+    this.groupBy = null;
+    this.orderBy = null;
+    this.unwind = null;
+    this.returnElements = false;
+    this.returnPaths = false;
+    this.returnPathElements = false;
+    this.returnDistinct = false;
   }
 
   public InternalExecutionPlan createExecutionPlan(

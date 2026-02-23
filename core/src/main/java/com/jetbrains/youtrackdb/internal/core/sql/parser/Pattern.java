@@ -20,6 +20,19 @@ public class Pattern {
   public Map<String, PatternNode> aliasToNode = new LinkedHashMap<String, PatternNode>();
   public int numOfEdges = 0;
 
+  /**
+   * Adds a single node (no edges) to the pattern. Used when building IR from non-SQL sources (e.g. GQL).
+   * Class name for the node is supplied separately (e.g. in planner's aliasClasses map).
+   */
+  public void addNode(String alias) {
+    if (alias == null || get(alias) != null) {
+      return;
+    }
+    var node = new PatternNode();
+    node.alias = alias;
+    aliasToNode.put(alias, node);
+  }
+
   public void addExpression(SQLMatchExpression expression) {
     var originNode = getOrCreateNode(expression.origin);
 
