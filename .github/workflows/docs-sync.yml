@@ -1,0 +1,119 @@
+name: Documentation Sync
+
+on:
+  push:
+    branches: [ "develop" ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-affected-docs:
+    name: Detect Documentation to Update
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    outputs:
+      affected_docs: ${{ steps.detect.outputs.affected_docs }}
+      has_affected: ${{ steps.detect.outputs.has_affected }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Detect affected documentation
+        id: detect
+        run: |
+          # Handle force push / initial push
+          BEFORE="${{ github.event.before }}"
+          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]] || \
+             ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+          else
+            CHANGED_FILES=$(git diff --name-only "$BEFORE" HEAD)
+          fi
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "has_affected=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Match changed files against docs-sync.yml mappings
+          AFFECTED_DOCS=""
+          MAPPING_COUNT=$(yq '.mappings | length' docs/docs-sync.yml)
+          for i in $(seq 0 $(( MAPPING_COUNT - 1 ))); do
+            DOC=$(yq ".mappings[$i].doc" docs/docs-sync.yml)
+            PATTERN_COUNT=$(yq ".mappings[$i].source_patterns | length" docs/docs-sync.yml)
+            MATCHED=false
+            for j in $(seq 0 $(( PATTERN_COUNT - 1 ))); do
+              PATTERN=$(yq ".mappings[$i].source_patterns[$j]" docs/docs-sync.yml)
+              while IFS= read -r changed_file; do
+                [ -z "$changed_file" ] && continue
+                if [[ "$PATTERN" == *"**"* ]]; then
+                  PREFIX="${PATTERN%%\*\**}"
+                  [[ "$changed_file" == ${PREFIX}* ]] && MATCHED=true && break
+                elif [[ "$PATTERN" == *"*"* ]]; then
+                  DIR=$(dirname "$PATTERN")
+                  [[ "$changed_file" == ${DIR}/* ]] && MATCHED=true && break
+                else
+                  [[ "$changed_file" == "$PATTERN" ]] && MATCHED=true && break
+                fi
+              done <<< "$CHANGED_FILES"
+              [ "$MATCHED" = true ] && break
+            done
+            if [ "$MATCHED" = true ]; then
+              [ -n "$AFFECTED_DOCS" ] && AFFECTED_DOCS="${AFFECTED_DOCS},${DOC}" || AFFECTED_DOCS="${DOC}"
+            fi
+          done
+
+          if [ -z "$AFFECTED_DOCS" ]; then
+            echo "has_affected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_affected=true" >> "$GITHUB_OUTPUT"
+            echo "affected_docs=${AFFECTED_DOCS}" >> "$GITHUB_OUTPUT"
+          fi
+
+  update-docs:
+    name: Update Documentation
+    needs: check-affected-docs
+    if: needs.check-affected-docs.outputs.has_affected == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Update project documentation to stay in sync with code changes.
+
+            Affected docs: ${{ needs.check-affected-docs.outputs.affected_docs }}
+            Commit: ${{ github.sha }}
+
+            For each affected doc:
+            1. Read the doc and its YAML frontmatter.
+            2. Read the source files listed in source_files.
+            3. Use `git diff ${{ github.event.before }} HEAD` to see what changed.
+            4. Update the doc to reflect code changes. Keep existing style/tone/structure.
+               Do NOT rewrite sections that are still accurate.
+            5. Update last_synced_commit in frontmatter to the first 10 characters of ${{ github.sha }}.
+
+            If no docs need changes, do not create any commits.
+
+            Branch name: docs-sync-${{ github.sha }}
+            PR title: Sync documentation with ${{ github.sha }}
+          claude_args: "--model claude-sonnet-4-20250514 --max-turns 30"
+          direct_prompt: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,3 +1,13 @@
+---
+source_files:
+  - .github/workflows/maven-mirror/maven-mirror.pkr.hcl
+  - .github/workflows/maven-mirror/setup.sh
+  - .github/workflows/settings.xml
+last_synced_commit: 2d5822220f
+related_docs:
+  - docs/ci-cd-diagram.md
+---
+
 # Maven Mirror (Reposilite) Setup Guide
 
 Self-hosted Maven Central mirror running on Hetzner Cloud using Reposilite, fronted by Caddy for automatic TLS.

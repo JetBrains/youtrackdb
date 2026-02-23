@@ -1,0 +1,88 @@
+# docs/docs-sync.yml
+# Maps source code paths to documentation files.
+# When a file matching source_patterns changes, the listed doc
+# is flagged for review by the docs-sync GitHub Action.
+
+mappings:
+  - doc: docs/ci-cd-diagram.md
+    source_patterns:
+      - ".github/workflows/maven-pipeline.yml"
+      - ".github/workflows/maven-integration-tests-pipeline.yml"
+      - ".github/workflows/maven-main-deploy-pipeline.yml"
+      - ".github/workflows/check-commit-prefix.yml"
+      - ".github/workflows/block-merge-commits.yml"
+      - ".github/workflows/pr-title-prefix.yml"
+      - ".github/workflows/settings.xml"
+      - ".github/scripts/coverage-gate.py"
+      - ".github/scripts/mutation-gate.py"
+
+  - doc: docs/test-quality-requirements.md
+    source_patterns:
+      - ".github/scripts/coverage-gate.py"
+      - ".github/scripts/mutation-gate.py"
+      - ".github/workflows/maven-pipeline.yml"
+      - "pom.xml"
+
+  - doc: docs/testflows-runner-setup.md
+    source_patterns:
+      - ".github/workflows/testflows-orchestrator.pkr.hcl"
+      - ".github/workflows/testflows-orchestrator/**"
+      - ".github/workflows/maven-integration-tests-pipeline.yml"
+
+  - doc: .github/workflows/maven-mirror/maven-mirror-setup.md
+    source_patterns:
+      - ".github/workflows/maven-mirror/maven-mirror.pkr.hcl"
+      - ".github/workflows/maven-mirror/setup.sh"
+      - ".github/workflows/settings.xml"
+
+  - doc: README.md
+    source_patterns:
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/DatabaseType.java"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/**"
+      - "pom.xml"
+      - "examples/src/main/java/**"
+
+  - doc: console/README.md
+    source_patterns:
+      - "console/src/main/java/**"
+      - "console/pom.xml"
+      - "console/src/main/docker/**"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/YTDBDemoGraphFactory.java"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSourceDSL.java"
+
+  - doc: server/README.md
+    source_patterns:
+      - "server/src/main/java/com/jetbrains/youtrackdb/internal/server/**"
+      - "server/src/main/docker/**"
+      - "server/src/main/resources/**"
+      - "server/pom.xml"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java"
+
+  - doc: driver/README.md
+    source_patterns:
+      - "driver/src/main/java/com/jetbrains/youtrackdb/internal/driver/**"
+      - "driver/pom.xml"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java"
+
+  - doc: docker-tests/README.md
+    source_patterns:
+      - "docker-tests/src/**"
+      - "docker-tests/pom.xml"
+
+  - doc: CLAUDE.md
+    source_patterns:
+      - "pom.xml"
+      - ".mvn/**"
+      - "core/src/main/java/com/jetbrains/youtrackdb/api/**"
+      - "core/src/main/java/com/jetbrains/youtrackdb/internal/core/engine/**"
+      - "core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/**"
+      - "core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/**"
+      - ".github/workflows/maven-pipeline.yml"
+      - ".github/workflows/maven-integration-tests-pipeline.yml"
+
+  - doc: docs/README.md
+    source_patterns:
+      - "docs/*.md"

@@ -1,3 +1,20 @@
+---
+source_files:
+  - .github/workflows/maven-pipeline.yml
+  - .github/workflows/maven-integration-tests-pipeline.yml
+  - .github/workflows/maven-main-deploy-pipeline.yml
+  - .github/workflows/check-commit-prefix.yml
+  - .github/workflows/block-merge-commits.yml
+  - .github/workflows/pr-title-prefix.yml
+  - .github/scripts/coverage-gate.py
+  - .github/scripts/mutation-gate.py
+last_synced_commit: 2d5822220f
+related_docs:
+  - docs/test-quality-requirements.md
+  - docs/testflows-runner-setup.md
+  - .github/workflows/maven-mirror/maven-mirror-setup.md
+---
+
 # CI/CD Pipeline Diagram
 
 ```mermaid
