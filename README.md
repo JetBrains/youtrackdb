@@ -1,3 +1,19 @@
+---
+source_files:
+  - core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java
+  - core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java
+  - core/src/main/java/com/jetbrains/youtrackdb/api/DatabaseType.java
+  - core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/**
+  - pom.xml
+  - examples/src/main/java/**
+last_synced_commit: 2d5822220f
+related_docs:
+  - CLAUDE.md
+  - console/README.md
+  - server/README.md
+  - driver/README.md
+---
+
 ## YouTrackDB
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)</br>
