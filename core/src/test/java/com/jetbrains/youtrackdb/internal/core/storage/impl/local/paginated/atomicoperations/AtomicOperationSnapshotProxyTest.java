@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -52,7 +53,7 @@ public class AtomicOperationSnapshotProxyTest {
     var snapshot = new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet());
     return new AtomicOperationBinaryTracking(
         readCache, writeCache, 1, snapshot,
-        sharedSnapshotIndex, sharedVisibilityIndex);
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
   }
 
   // --- putSnapshotEntry / getSnapshotEntry ---

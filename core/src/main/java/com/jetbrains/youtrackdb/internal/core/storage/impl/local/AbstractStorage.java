@@ -294,8 +294,11 @@ public abstract class AbstractStorage
   // Set of all TsMinHolders across threads. Backed by a WeakHashMap so that entries are
   // automatically removed when the owning thread's TsMinHolder becomes unreachable (after
   // thread death releases the ThreadLocal's strong reference).
-  protected final Set<TsMinHolder> tsMins =
-      Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+  protected final Set<TsMinHolder> tsMins = newTsMinsSet();
+
+  static Set<TsMinHolder> newTsMinsSet() {
+    return Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+  }
 
   // Shared snapshot index: maps (componentId, collectionPosition, recordVersion) → PositionEntry.
   // Replaces per-collection snapshotIndex fields in PaginatedCollectionV2, enabling centralized
@@ -307,6 +310,12 @@ public abstract class AbstractStorage
   // Ordering by recordTs first enables efficient range-scan eviction via headMap(lowWaterMark).
   protected final ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIndex =
       new ConcurrentSkipListMap<>();
+
+  // Approximate count of entries in sharedSnapshotIndex, used for O(1) cleanup threshold checks.
+  // ConcurrentSkipListMap.size() is O(n) and calling it on every commit causes resource
+  // exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests).
+  // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
+  protected final AtomicLong snapshotIndexSize = new AtomicLong();
 
   public AbstractStorage(
       final String name, final String filePath, final int id,
@@ -4312,6 +4321,7 @@ public abstract class AbstractStorage
       indexEngineNameMap.clear();
       sharedSnapshotIndex.clear();
       visibilityIndex.clear();
+      snapshotIndexSize.set(0);
 
       if (writeCache != null) {
         writeCache.removeBackgroundExceptionListener(this);
@@ -5405,25 +5415,29 @@ public abstract class AbstractStorage
    * The threshold is re-checked under the lock (double-checked pattern) to avoid redundant work
    * if another thread already cleaned enough entries.
    *
-   * <p>Note: {@code ConcurrentSkipListMap.size()} is O(n) — it traverses the map to count
-   * entries. This is acceptable because (a) the check short-circuits most calls (map is below
-   * threshold), and (b) even at 10K entries the traversal is sub-millisecond.
+   * <p>Uses {@link #snapshotIndexSize} (an {@code AtomicLong} counter) instead of
+   * {@code ConcurrentSkipListMap.size()} for the threshold check. The latter is O(n) — it
+   * traverses the entire map — and calling it on every commit causes resource exhaustion
+   * under sustained heavy concurrent load (e.g., 30-minute soak tests with 10+ threads).
+   * The counter is incremented during {@code flushSnapshotBuffers()} and decremented during
+   * {@code evictStaleSnapshotEntries()}, providing an O(1) approximate size check.
    */
   private void cleanupSnapshotIndex() {
     int threshold = configuration.getContextConfiguration()
         .getValueAsInteger(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD);
-    if (sharedSnapshotIndex.size() <= threshold) {
+    if (snapshotIndexSize.get() <= threshold) {
       return;
     }
     if (!snapshotCleanupLock.tryLock()) {
       return;
     }
     try {
-      if (sharedSnapshotIndex.size() <= threshold) {
+      if (snapshotIndexSize.get() <= threshold) {
         return;
       }
       evictStaleSnapshotEntries(
-          computeGlobalLowWaterMark(), sharedSnapshotIndex, visibilityIndex);
+          computeGlobalLowWaterMark(), sharedSnapshotIndex, visibilityIndex,
+          snapshotIndexSize);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -5440,11 +5454,13 @@ public abstract class AbstractStorage
    *     is still set — {@code resetTsMin()} runs later in {@code FrontendTransactionImpl.close()}).
    * @param snapshotIndex the shared snapshot index to remove stale entries from
    * @param visibilityIdx the visibility index to scan and remove stale entries from
+   * @param sizeCounter   approximate size counter to decrement for each evicted snapshot entry
    */
   static void evictStaleSnapshotEntries(
       long lwm,
       ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
-      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx) {
+      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx,
+      @Nonnull AtomicLong sizeCounter) {
     if (lwm == Long.MAX_VALUE) {
       return;
     }
@@ -5455,7 +5471,9 @@ public abstract class AbstractStorage
     var iterator = staleEntries.entrySet().iterator();
     while (iterator.hasNext()) {
       var entry = iterator.next();
-      snapshotIndex.remove(entry.getValue());
+      if (snapshotIndex.remove(entry.getValue()) != null) {
+        sizeCounter.decrementAndGet();
+      }
       iterator.remove();
     }
   }
@@ -5470,6 +5488,10 @@ public abstract class AbstractStorage
 
   public ConcurrentSkipListMap<VisibilityKey, SnapshotKey> getVisibilityIndex() {
     return visibilityIndex;
+  }
+
+  public AtomicLong getSnapshotIndexSize() {
+    return snapshotIndexSize;
   }
 
   /**

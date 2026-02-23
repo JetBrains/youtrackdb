@@ -58,6 +58,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -94,6 +95,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // References to storage-wide shared indexes (never null).
   private final ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex;
   private final ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex;
+  private final AtomicLong snapshotIndexSize;
 
   // Local overlay buffers — lazily allocated to avoid overhead for read-only transactions.
   // Snapshot buffer uses TreeMap to support efficient subMap range queries in
@@ -109,7 +111,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       final int storageId,
       @Nonnull AtomicOperationsSnapshot snapshot,
       @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
-      @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex) {
+      @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex,
+      @Nonnull AtomicLong snapshotIndexSize) {
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -119,6 +122,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.writeCache = writeCache;
     this.sharedSnapshotIndex = sharedSnapshotIndex;
     this.sharedVisibilityIndex = sharedVisibilityIndex;
+    this.snapshotIndexSize = snapshotIndexSize;
     this.active = true;
   }
 
@@ -755,6 +759,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   void flushSnapshotBuffers() {
     if (localSnapshotBuffer != null) {
+      // Count only genuinely new entries (putIfAbsent semantics not needed — last writer wins
+      // for the same key, and the counter is approximate). Using size() of the local buffer
+      // is a good-enough approximation: slight overcounting is harmless (just triggers cleanup
+      // slightly earlier).
+      snapshotIndexSize.addAndGet(localSnapshotBuffer.size());
       sharedSnapshotIndex.putAll(localSnapshotBuffer);
     }
     if (localVisibilityBuffer != null) {

@@ -25,8 +25,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
  * thread (via {@code ThreadLocal}) and the cleanup thread (via the {@code tsMins} set in
  * {@link AbstractStorage}).
  *
- * <p>Non-volatile: stale reads during cleanup are safe — they only make cleanup slightly more
- * conservative (retaining entries a bit longer than strictly necessary).
+ * <p>{@code tsMin} is volatile because the cleanup thread must see the current value for
+ * threads with active read sessions. A stale {@code MAX_VALUE} would let cleanup evict
+ * entries the read session is actively using.
  *
  * <p>Multiple sessions on the same thread may have overlapping transactions (e.g., session
  * initialization starts a metadata-loading tx while another session's tx is active). The
@@ -40,9 +41,11 @@ final class TsMinHolder {
   // The minimum {@code minActiveOperationTs} across all currently active transactions on this
   // thread. Set to {@code Math.min(current, snapshot.minActiveOperationTs())} on each tx begin;
   // reset to {@code Long.MAX_VALUE} when {@code activeTxCount} drops to zero. The cleanup thread
-  // reads this value (without synchronization) to compute the global low-water-mark — stale
-  // reads are safe because they only make GC slightly more conservative.
-  long tsMin = Long.MAX_VALUE;
+  // reads this value to compute the global low-water-mark. Must be volatile: the cleanup thread
+  // must see the current tsMin of threads with active read sessions to avoid evicting snapshot
+  // entries those sessions need. The table-based bound in computeGlobalLowWaterMark() handles
+  // the TOCTOU for idle threads (tsMin=MAX_VALUE), but active readers must be visible.
+  volatile long tsMin = Long.MAX_VALUE;
 
   // Number of active transactions on the owning thread. Only accessed by the owning thread.
   int activeTxCount;

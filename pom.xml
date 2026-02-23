@@ -820,6 +820,8 @@
                   <youtrackdb.security.userPasswordSaltIterations>1
                   </youtrackdb.security.userPasswordSaltIterations>
                   <youtrackdb.test.env>ci</youtrackdb.test.env>
+                  <youtrackdb.test.deadlock.timeout.minutes>60
+                  </youtrackdb.test.deadlock.timeout.minutes>
                 </systemPropertyVariables>
               </configuration>
             </plugin>
