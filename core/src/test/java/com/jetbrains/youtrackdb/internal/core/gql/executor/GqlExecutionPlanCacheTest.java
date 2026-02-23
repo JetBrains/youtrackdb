@@ -386,7 +386,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var plan = new GqlExecutionPlan();
+      var plan = GqlExecutionPlan.empty();
       GqlExecutionPlanCache.put(null, plan, session);
       var cache = GqlExecutionPlanCache.instance(session);
       Assert.assertFalse(cache.contains("MATCH (x)"));
@@ -401,7 +401,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     var tx = graphInternal.tx();
     tx.readWrite();
     try {
-      var plan = new GqlExecutionPlan();
+      var plan = GqlExecutionPlan.empty();
       try {
         GqlExecutionPlanCache.put("MATCH (n:OUser)", plan, null);
         Assert.fail("expected IllegalArgumentException");
@@ -422,7 +422,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(graphInternal, session);
       var cache = new GqlExecutionPlanCache(10);
-      var plan = new GqlExecutionPlan();
+      var plan = GqlExecutionPlan.empty();
       cache.putInternal(null, plan);
       Assert.assertNull(cache.getInternal("any", ctx));
     } finally {
@@ -439,7 +439,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(graphInternal, session);
       var cache = new GqlExecutionPlanCache(10);
-      cache.putInternal("MATCH (a:A)", new GqlExecutionPlan());
+      cache.putInternal("MATCH (a:A)", GqlExecutionPlan.empty());
       var missing = cache.getInternal("MATCH (b:B)", ctx);
       Assert.assertNull(missing);
     } finally {
