@@ -73,7 +73,7 @@ flowchart TB
         direction TB
         maven_dev["Maven Central<br/>X.Y.Z-dev-SNAPSHOT<br/>X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT"]
         maven_release["Maven Central<br/>X.Y.Z-SNAPSHOT<br/>X.Y.Z-TIMESTAMP-SHA-SNAPSHOT"]
-        docker["Docker Hub<br/>youtrackdb/console<br/>youtrackdb/server"]
+        docker["Docker Hub<br/>youtrackdb/youtrackdb-console<br/>youtrackdb/youtrackdb-server"]
     end
 
 %% PR validation triggers
@@ -192,9 +192,9 @@ See [Test Quality Requirements](test-quality-requirements.md) for details.
 On successful push (not PRs), deploys Maven artifacts with the `-dev-SNAPSHOT` suffix to Maven
 Central. Each deployment is annotated with the exact version for traceability.
 
-#### JOB 7: CI Status Gate
+#### JOB 6: CI Status Gate
 
-Consolidates results from all required jobs (test-linux, test-windows, qodana, coverage-gate,
+Consolidates results from all required jobs (test-linux, test-windows, coverage-gate,
 mutation-testing) into a single required status check for branch protection. This job always runs
 and reports success only when:
 
