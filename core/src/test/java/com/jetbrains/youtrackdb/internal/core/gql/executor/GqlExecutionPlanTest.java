@@ -33,6 +33,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   }
 
   @Test
+  @SuppressWarnings("resource")
   public void emptyPlan_copy_returnsEmptyPlan() {
     var plan = GqlExecutionPlan.empty();
     var copy = plan.copy();
