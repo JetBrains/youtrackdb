@@ -28,15 +28,19 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 ./mvnw clean package -P docker-images
 
 # Run a single test class
-./mvnw -pl core test -Dtest=SomeTestClass
+./mvnw -pl core clean test -Dtest=SomeTestClass
 
 # Run a single test method
-./mvnw -pl core test -Dtest=SomeTestClass#testMethodName
+./mvnw -pl core clean test -Dtest=SomeTestClass#testMethodName
 ```
 
 **JVM memory**: `.mvn/jvm.config` sets `-Xmx1024m` for Maven itself. Tests use `-Xms4096m -Xmx4096m` (configurable via `heapSize` property).
 
 **Important**: Tests require numerous `--add-opens` JVM flags for Java module system compatibility. These are configured in each module's `pom.xml` `<argLine>` property - do not remove them.
+
+## Project Documentation
+
+The `docs/` folder contains project documentation including CI/CD pipeline architecture, test quality requirements, and infrastructure setup guides. See `docs/README.md` for the full index.
 
 ## Module Structure
 
@@ -131,7 +135,7 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 ### Unit Tests
 - **Core and server**: JUnit 4 with `surefire-junit47` runner
 - **Tests module**: TestNG with XML suite files (e.g., `embedded-test-db-from-scratch.xml`)
-- **Test utilities**: `test-commons` module provides shared base classes, `JUnitTestListener`
+- **Test utilities**: `test-commons` module provides shared base classes (`TestBuilder`, `TestFactory`, `ConcurrentTestHelper`)
 
 ### Integration Tests
 - Activated via Maven profile: `./mvnw clean verify -P ci-integration-tests`
@@ -191,9 +195,9 @@ Runs on `develop` pushes and PRs:
 - **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
 - **Coverage gate**: Enforces 85% line and branch coverage on new/changed code for Claude co-authored PRs, 70% otherwise. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
-- **Mutation testing**: PIT mutation testing on changed classes with Ekstazi-selected tests, fails below 85% mutation score
+- **Mutation testing**: PIT mutation testing on changed classes with PIT's own coverage-based test selection, fails below 85% mutation score
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
-- **CI Status gate**: Consolidates all checks (test-linux, test-windows, qodana, coverage-gate, mutation-testing) into a single required status for branch protection
+- **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, mutation-testing) into a single required status for branch protection
 - **Notifications**: Sends Zulip messages on build failure/recovery
 
 ### Nightly Integration Tests (`maven-integration-tests-pipeline.yml`)
@@ -245,10 +249,10 @@ Runs on `develop` pushes and PRs:
 1. **Run unit tests** for the affected module(s) before committing:
    ```bash
    # If changes are in core module
-   ./mvnw -pl core test
+   ./mvnw -pl core clean test
 
    # If changes span multiple modules, test all affected ones
-   ./mvnw -pl core,server test
+   ./mvnw -pl core,server clean test
 
    # If unsure which modules are affected, run the full unit test suite
    ./mvnw clean package
@@ -257,20 +261,33 @@ Runs on `develop` pushes and PRs:
 2. **Run related integration tests** if the change touches areas covered by integration tests:
    ```bash
    # Run integration tests for the affected module(s)
-   ./mvnw -pl core verify -P ci-integration-tests
+   ./mvnw -pl core clean verify -P ci-integration-tests
 
    # Or run the full integration test suite
    ./mvnw clean verify -P ci-integration-tests
    ```
 
-3. **Do not commit if tests fail.** Fix the failures first, then re-run the tests.
+3. **Check coverage of changed code** by running tests with the `coverage` profile and verifying coverage locally:
+   ```bash
+   # Run unit tests with coverage collection
+   ./mvnw clean package -P coverage
 
-4. **Determining which tests to run:**
-   - Changes to `core` module: always run `./mvnw -pl core test`
-   - Changes to `server` module: run `./mvnw -pl server test`
+   # Check coverage of changed lines against the 85% threshold
+   python3 .github/scripts/coverage-gate.py \
+     --threshold 85 \
+     --compare-branch origin/develop \
+     --coverage-dir .coverage/reports
+   ```
+   If coverage is below the threshold, add or improve tests for uncovered lines before committing.
+
+4. **Do not commit if tests fail.** Fix the failures first, then re-run the tests.
+
+5. **Determining which tests to run:**
+   - Changes to `core` module: always run `./mvnw -pl core clean test`
+   - Changes to `server` module: run `./mvnw -pl server clean test`
    - Changes to storage, WAL, or index code: also run integration tests (`-P ci-integration-tests`)
    - Changes to Gremlin integration or transaction handling: also run integration tests
-   - Changes to `tests` module: run `./mvnw -pl tests test`
+   - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
 
 ## File Modification Rules
