@@ -735,6 +735,308 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(copy instanceof ReturnMatchPathElementsStep);
   }
 
+  /** Verifies prettyPrint() returns the expected "UNROLL $pathElements" string. */
+  @Test
+  public void testReturnMatchPathElementsStepPrettyPrint() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    var result = step.prettyPrint(0, 2);
+    assertEquals("+ UNROLL $pathElements", result);
+  }
+
+  /** Verifies prettyPrint() applies indentation when depth > 0. */
+  @Test
+  public void testReturnMatchPathElementsStepPrettyPrintWithDepth() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    var result = step.prettyPrint(1, 3);
+    assertEquals("   + UNROLL $pathElements", result); // 1 * 3 = 3 spaces
+  }
+
+  /** Verifies prettyPrint() asserts when depth is negative. */
+  @Test(expected = AssertionError.class)
+  public void testReturnMatchPathElementsStepPrettyPrintNegativeDepth() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    step.prettyPrint(-1, 2);
+  }
+
+  /** Verifies prettyPrint() asserts when indent is negative. */
+  @Test(expected = AssertionError.class)
+  public void testReturnMatchPathElementsStepPrettyPrintNegativeIndent() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    step.prettyPrint(0, -1);
+  }
+
+  /**
+   * Verifies that unroll extracts Result-typed properties from the upstream row
+   * and emits each as a separate result. Both user-defined and auto-generated
+   * aliases are included, unlike ReturnMatchElementsStep which skips auto-generated
+   * aliases. This covers the {@code elem instanceof Result} true branch.
+   */
+  @Test
+  public void testReturnMatchPathElementsStepUnrollsResultProperties() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var row = new ResultInternal(session);
+        var r1 = new ResultInternal(session);
+        r1.setProperty("name", "Alice");
+        var r2 = new ResultInternal(session);
+        r2.setProperty("name", "Bob");
+        row.setProperty("userAlias", r1);
+        row.setProperty(
+            MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX + "0", r2);
+        return ExecutionStream.singleton(row);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    // Both aliases (user and auto-generated) should produce results
+    var names = new java.util.HashSet<String>();
+    assertTrue(stream.hasNext(ctx));
+    names.add(stream.next(ctx).getProperty("name"));
+    assertTrue(stream.hasNext(ctx));
+    names.add(stream.next(ctx).getProperty("name"));
+    assertFalse(stream.hasNext(ctx));
+    // Verify actual content, not just count
+    assertTrue(names.contains("Alice"));
+    assertTrue(names.contains("Bob"));
+  }
+
+  /**
+   * Verifies that unroll wraps Identifiable values into ResultInternal before
+   * emitting them. This covers the {@code elem instanceof Identifiable} true
+   * branch, followed by the {@code elem instanceof Result} true branch (since
+   * the wrapped ResultInternal is a Result).
+   */
+  @Test
+  public void testReturnMatchPathElementsStepWrapsIdentifiable() {
+    session.createClassIfNotExist("PathElemV", "V");
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var step = new ReturnMatchPathElementsStep(ctx, false);
+      var vertex = session.newVertex("PathElemV");
+      var prevStep = new AbstractExecutionStep(ctx, false) {
+        @Override
+        public ExecutionStream internalStart(CommandContext ctx) {
+          var row = new ResultInternal(session);
+          row.setProperty("node", vertex);
+          return ExecutionStream.singleton(row);
+        }
+
+        @Override
+        public String prettyPrint(int depth, int indent) {
+          return "";
+        }
+
+        @Override
+        public ExecutionStep copy(CommandContext ctx) {
+          return this;
+        }
+      };
+      step.setPrevious(prevStep);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      var result = stream.next(ctx);
+      // The Identifiable should have been wrapped into a Result
+      assertNotNull(result);
+      assertTrue(result.isEntity());
+      assertFalse(stream.hasNext(ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies that unroll silently skips properties whose values are neither
+   * Result nor Identifiable (e.g. primitives). This covers the false branch
+   * of both {@code instanceof Identifiable} and {@code instanceof Result}.
+   */
+  @Test
+  public void testReturnMatchPathElementsStepSkipsPrimitives() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var row = new ResultInternal(session);
+        // Primitive values: String and Integer
+        row.setProperty("scalarString", "hello");
+        row.setProperty("scalarInt", 42);
+        return ExecutionStream.singleton(row);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    // Primitives are skipped, so the stream should be empty
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies that unroll handles an empty upstream result (no properties) by
+   * returning an empty collection. The for-each loop body never executes.
+   */
+  @Test
+  public void testReturnMatchPathElementsStepEmptyProperties() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.singleton(new ResultInternal(session));
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    // No properties → no unrolled results
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies that unroll handles a mix of Result, Identifiable, and primitive
+   * properties: only Result and wrapped-Identifiable values are emitted, and
+   * primitives are discarded.
+   */
+  @Test
+  public void testReturnMatchPathElementsStepMixedProperties() {
+    session.createClassIfNotExist("PathMixV", "V");
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var step = new ReturnMatchPathElementsStep(ctx, false);
+      var vertex = session.newVertex("PathMixV");
+      var prevStep = new AbstractExecutionStep(ctx, false) {
+        @Override
+        public ExecutionStream internalStart(CommandContext ctx) {
+          var row = new ResultInternal(session);
+          var resultVal = new ResultInternal(session);
+          resultVal.setProperty("x", 1);
+          row.setProperty("resultProp", resultVal);     // Result → emitted
+          row.setProperty("identProp", vertex);          // Identifiable → wrapped & emitted
+          row.setProperty("primitiveProp", "ignored");   // Primitive → skipped
+          return ExecutionStream.singleton(row);
+        }
+
+        @Override
+        public String prettyPrint(int depth, int indent) {
+          return "";
+        }
+
+        @Override
+        public ExecutionStep copy(CommandContext ctx) {
+          return this;
+        }
+      };
+      step.setPrevious(prevStep);
+
+      var stream = step.start(ctx);
+      // 2 emitted: Result + wrapped Identifiable; primitive skipped
+      boolean foundEntity = false;
+      boolean foundResultWithX = false;
+      assertTrue(stream.hasNext(ctx));
+      var r1 = stream.next(ctx);
+      assertTrue(stream.hasNext(ctx));
+      var r2 = stream.next(ctx);
+      assertFalse(stream.hasNext(ctx));
+      // Verify content: one is an entity (wrapped Identifiable), one has property x=1
+      for (var r : List.of(r1, r2)) {
+        if (r.isEntity()) {
+          foundEntity = true;
+        }
+        if (Integer.valueOf(1).equals(r.<Integer>getProperty("x"))) {
+          foundResultWithX = true;
+        }
+      }
+      assertTrue("Expected a wrapped Identifiable (entity)", foundEntity);
+      assertTrue("Expected a Result with x=1", foundResultWithX);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies that internalStart (inherited from AbstractUnrollStep) throws
+   * CommandExecutionException when no previous step is connected. This tests
+   * the inherited null-prev guard in AbstractUnrollStep.
+   */
+  @Test(expected = CommandExecutionException.class)
+  public void testReturnMatchPathElementsStepNullPrevThrows() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    // No setPrevious call — prev remains null
+    step.start(ctx);
+  }
+
+  /**
+   * Verifies that internalStart handles an empty upstream stream correctly.
+   * When there are no upstream results, the step should produce an empty stream.
+   */
+  @Test
+  public void testReturnMatchPathElementsStepEmptyUpstream() {
+    var ctx = createCommandContext();
+    var step = new ReturnMatchPathElementsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertNotNull(stream);
+    assertFalse(stream.hasNext(ctx));
+  }
+
   // -- FilterNotMatchPatternStep tests --
 
   /** Verifies FilterNotMatchPatternStep.copy() returns a distinct instance. */
