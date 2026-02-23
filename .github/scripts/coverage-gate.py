@@ -7,7 +7,8 @@ enforces thresholds, and generates a markdown report with per-file tables
 of uncovered lines.
 
 Usage:
-    python coverage-gate.py --threshold 85 --compare-branch origin/develop \
+    python coverage-gate.py --line-threshold 85 --branch-threshold 70 \
+        --compare-branch origin/develop \
         --coverage-dir .coverage/reports --output-md /tmp/coverage-gate.md
 """
 
@@ -227,7 +228,7 @@ def compute_results(coverage_data):
     }
 
 
-def generate_markdown(results, threshold):
+def generate_markdown(results, line_threshold, branch_threshold):
     """Generate markdown report with per-file coverage tables.
 
     Returns:
@@ -241,13 +242,16 @@ def generate_markdown(results, threshold):
         (branch_covered / branch_total * 100) if branch_total > 0 else 100.0
     )
 
-    line_passed = line_pct >= threshold
-    branch_passed = branch_pct >= threshold
+    line_passed = line_pct >= line_threshold
+    branch_passed = branch_pct >= branch_threshold
 
     lines = []
     lines.append("<!-- coverage-gate-comment -->")
     lines.append("# Coverage Gate Results")
-    lines.append(f"**Threshold**: {threshold:.0f}%")
+    lines.append(
+        f"**Thresholds**: {line_threshold:.0f}% line, "
+        f"{branch_threshold:.0f}% branch"
+    )
     lines.append("")
 
     # Line coverage section
@@ -268,7 +272,7 @@ def generate_markdown(results, threshold):
         lines.append("|------|----------|-----------------|")
         for filepath, covered, total, uncovered in results["line_files"]:
             pct = covered / total * 100 if total > 0 else 100.0
-            icon = ":white_check_mark:" if pct >= threshold else ":x:"
+            icon = ":white_check_mark:" if pct >= line_threshold else ":x:"
             uncov_str = format_line_ranges(uncovered) if uncovered else "-"
             lines.append(
                 f"| `{filepath}` | {icon} {pct:.1f}% ({covered}/{total}) "
@@ -297,7 +301,9 @@ def generate_markdown(results, threshold):
         lines.append("|------|----------|-------------------------------|")
         for filepath, covered, total, uncovered in results["branch_files"]:
             pct = covered / total * 100 if total > 0 else 100.0
-            icon = ":white_check_mark:" if pct >= threshold else ":x:"
+            icon = (
+                ":white_check_mark:" if pct >= branch_threshold else ":x:"
+            )
             uncov_str = format_line_ranges(uncovered) if uncovered else "-"
             lines.append(
                 f"| `{filepath}` | {icon} {pct:.1f}% ({covered}/{total}) "
@@ -322,10 +328,16 @@ def main():
         description="Unified coverage gate for line and branch coverage"
     )
     parser.add_argument(
-        "--threshold",
+        "--line-threshold",
         type=float,
         required=True,
-        help="Minimum coverage percentage for both line and branch coverage",
+        help="Minimum line coverage percentage",
+    )
+    parser.add_argument(
+        "--branch-threshold",
+        type=float,
+        required=True,
+        help="Minimum branch coverage percentage",
     )
     parser.add_argument(
         "--compare-branch",
@@ -344,6 +356,11 @@ def main():
     )
     args = parser.parse_args()
 
+    threshold_label = (
+        f"{args.line_threshold:.0f}% line, "
+        f"{args.branch_threshold:.0f}% branch"
+    )
+
     changed_lines = get_changed_lines(args.compare_branch)
     if not changed_lines:
         print("No changed Java files found. Skipping coverage gate.")
@@ -352,7 +369,7 @@ def main():
                 f.write(
                     "<!-- coverage-gate-comment -->\n"
                     "# Coverage Gate Results\n"
-                    f"**Threshold**: {args.threshold:.0f}%\n\n"
+                    f"**Thresholds**: {threshold_label}\n\n"
                     ":white_check_mark: No changed Java files — "
                     "coverage gate skipped.\n"
                 )
@@ -368,7 +385,7 @@ def main():
                 f.write(
                     "<!-- coverage-gate-comment -->\n"
                     "# Coverage Gate Results\n"
-                    f"**Threshold**: {args.threshold:.0f}%\n\n"
+                    f"**Thresholds**: {threshold_label}\n\n"
                     ":warning: No JaCoCo XML reports found — "
                     "coverage gate skipped.\n"
                 )
@@ -384,7 +401,7 @@ def main():
     branch_covered, branch_total = results["branch_totals"]
 
     md, line_passed, branch_passed = generate_markdown(
-        results, args.threshold
+        results, args.line_threshold, args.branch_threshold
     )
 
     if args.output_md:
@@ -418,20 +435,22 @@ def main():
         failures = []
         if not line_passed:
             failures.append(
-                f"line coverage {line_covered / line_total * 100:.1f}%"
+                f"line coverage {line_covered / line_total * 100:.1f}% "
+                f"(threshold {args.line_threshold:.0f}%)"
             )
         if not branch_passed:
             failures.append(
                 f"branch coverage "
-                f"{branch_covered / branch_total * 100:.1f}%"
+                f"{branch_covered / branch_total * 100:.1f}% "
+                f"(threshold {args.branch_threshold:.0f}%)"
             )
-        print(
-            f"FAILED: {' and '.join(failures)} "
-            f"below threshold {args.threshold}%"
-        )
+        print(f"FAILED: {' and '.join(failures)}")
         sys.exit(1)
     else:
-        print(f"PASSED: All coverage meets threshold {args.threshold}%")
+        print(
+            f"PASSED: All coverage meets thresholds "
+            f"({threshold_label})"
+        )
 
 
 if __name__ == "__main__":

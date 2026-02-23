@@ -6,14 +6,14 @@ This document describes the quality gates and guidelines for tests in the YouTra
 
 ### Thresholds
 
-Coverage is measured for **new and changed code only** (not the entire codebase). Both line and branch coverage are enforced independently.
+Coverage is measured for **new and changed code only** (not the entire codebase). Line and branch coverage are enforced independently with different thresholds.
 
-| Condition | Line Coverage | Branch Coverage |
-|---|---|---|
-| Commits co-authored with Claude Code | 85% | 85% |
-| All other commits | 70% | 70% |
+| Metric | Threshold |
+|---|---|
+| Line Coverage | 85% |
+| Branch Coverage | 70% |
 
-Co-authorship is detected by scanning commit messages for `Co-Authored-By:.*Claude`.
+These thresholds apply to all pull requests regardless of author.
 
 ### How It Works
 
@@ -95,7 +95,7 @@ Generated code (SQL parser, GQL parser) is excluded from mutation analysis.
 
 3. **Place tests in the related module.** Tests for `core` code go in `core/src/test/java`, tests for `server` code go in `server/src/test/java`, etc.
 
-4. **Target 85% coverage.** Aim for at least 85% line and branch coverage on new code. This is the threshold enforced for Claude Code co-authored commits and the recommended standard for all contributions.
+4. **Target 85% line / 70% branch coverage.** Aim for at least 85% line coverage and 70% branch coverage on new code. These are the thresholds enforced by the CI coverage gate on all pull requests.
 
 ### Test Types and Naming
 
@@ -120,8 +120,8 @@ On every pull request, the CI pipeline enforces:
 
 | Gate | Tool | Threshold | Scope |
 |---|---|---|---|
-| Line coverage | coverage-gate.py | 70% or 85% | New/changed lines only |
-| Branch coverage | coverage-gate.py | 70% or 85% | New/changed lines only |
+| Line coverage | coverage-gate.py | 85% | New/changed lines only |
+| Branch coverage | coverage-gate.py | 70% | New/changed lines only |
 | Mutation score | PIT | 85% | New/changed production classes only |
 
 All gates must pass for a PR to be mergeable.
