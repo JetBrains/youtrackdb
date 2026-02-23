@@ -38,11 +38,11 @@ public class YTDBFullBackupService implements Service<String, String> {
 
   @Override
   public CloseableIterator<String> execute(ServiceCallContext ctx, Map params) {
-    final var graph = (((Admin<?, ?>) ctx.getTraversal()))
+    final var graph = ((Admin<?, ?>) ctx.getTraversal())
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    var backupPath = (((YTDBGraph) graph)).fullBackup(path);
+    var backupPath = ((YTDBGraph) graph).fullBackup(path);
     return CloseableIterator.of(IteratorUtils.of(backupPath));
   }
 

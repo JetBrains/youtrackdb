@@ -22,7 +22,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     session.getSharedContext().getIndexManager().reload(session);
     Assert.assertNotNull(
-        (session.getSharedContext().getIndexManager()).getIndex(indexName));
+        session.getSharedContext().getIndexManager().getIndex(indexName));
 
     var result = session.execute("drop index " + indexName);
     Assert.assertTrue(result.hasNext());

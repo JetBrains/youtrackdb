@@ -70,11 +70,11 @@ public class YouTrackDBConfigImplTest {
             .build();
 
     var settings =
-        (YouTrackDBConfigImpl) (YouTrackDBConfig.builder()
+        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.CLIENT_CONNECTION_STRATEGY,
                 "ROUND_ROBIN_CONNECT")
             .addAttribute(ATTRIBUTES.LOCALE_LANGUAGE, "en")
-            .build());
+            .build();
 
     settings.setParent((YouTrackDBConfigImpl) parent);
 

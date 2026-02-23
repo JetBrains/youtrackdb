@@ -14,7 +14,7 @@ public class FloatKeyNormalizer implements KeyNormalizers {
     // for comparison
     bb.order(ByteOrder.BIG_ENDIAN);
     bb.put((byte) 0);
-    bb.putInt((Float.floatToIntBits(matKey)) + Integer.MAX_VALUE + 1);
+    bb.putInt(Float.floatToIntBits(matKey) + Integer.MAX_VALUE + 1);
     return bb.array();
   }
 }

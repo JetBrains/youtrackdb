@@ -128,17 +128,17 @@ public class SafeBinaryConverter implements BinaryConverter {
   }
 
   private static int bytes2IntBigEndian(final byte[] b, final int offset) {
-    return (b[offset]) << 24
+    return b[offset] << 24
         | (0xff & b[offset + 1]) << 16
         | (0xff & b[offset + 2]) << 8
-        | ((0xff & b[offset + 3]));
+        | (0xff & b[offset + 3]);
   }
 
   private static int bytes2IntLittleEndian(final byte[] b, final int offset) {
-    return (b[offset + 3]) << 24
+    return b[offset + 3] << 24
         | (0xff & b[offset + 2]) << 16
         | (0xff & b[offset + 1]) << 8
-        | ((0xff & b[offset]));
+        | (0xff & b[offset]);
   }
 
   private static byte[] int2BytesBigEndian(

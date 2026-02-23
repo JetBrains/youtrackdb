@@ -66,7 +66,7 @@ public class DatabaseScriptManager {
                 if (language.equals("sql")) {
                   return language.equals(iValue.getFactory().getLanguageName());
                 } else {
-                  return !(iValue.getFactory().getLanguageName()).equals("sql");
+                  return !iValue.getFactory().getLanguageName().equals("sql");
                 }
               }
             });

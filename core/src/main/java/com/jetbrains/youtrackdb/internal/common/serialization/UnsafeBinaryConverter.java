@@ -102,7 +102,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
 
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       return (short)
-          ((theUnsafe.getByte(buffer, index + BYTE_ARRAY_OFFSET)) << 8
+          (theUnsafe.getByte(buffer, index + BYTE_ARRAY_OFFSET) << 8
               | (theUnsafe.getByte(buffer, index + BYTE_ARRAY_OFFSET + 1) & 0xff));
     }
 
@@ -125,9 +125,9 @@ public class UnsafeBinaryConverter implements BinaryConverter {
         theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET, (byte) (value >>> 24));
         theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 1, (byte) (value >>> 16));
         theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 2, (byte) (value >>> 8));
-        theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 3, (byte) (value));
+        theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 3, (byte) value);
       } else {
-        theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET, (byte) (value));
+        theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET, (byte) value);
         theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 1, (byte) (value >>> 8));
         theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 2, (byte) (value >>> 16));
         theUnsafe.putByte(buffer, pointer + BYTE_ARRAY_OFFSET + 3, (byte) (value >>> 24));
@@ -177,9 +177,9 @@ public class UnsafeBinaryConverter implements BinaryConverter {
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 4, (byte) (value >>> 24));
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 5, (byte) (value >>> 16));
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 6, (byte) (value >>> 8));
-        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 7, (byte) (value));
+        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 7, (byte) value);
       } else {
-        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET, (byte) (value));
+        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET, (byte) value);
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 1, (byte) (value >>> 8));
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 2, (byte) (value >>> 16));
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 3, (byte) (value >>> 24));
@@ -234,9 +234,9 @@ public class UnsafeBinaryConverter implements BinaryConverter {
     } else {
       if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET, (byte) (character >>> 8));
-        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 1, (byte) (character));
+        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 1, (byte) character);
       } else {
-        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET, (byte) (character));
+        theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET, (byte) character);
         theUnsafe.putByte(buffer, index + BYTE_ARRAY_OFFSET + 1, (byte) (character >>> 8));
       }
     }

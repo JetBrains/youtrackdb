@@ -216,7 +216,7 @@ public class YouTrackDBServer {
     databaseDirectory = databaseDirectory.replace("//", "/");
 
     // CONVERT IT TO ABSOLUTE PATH
-    databaseDirectory = (new File(databaseDirectory)).getCanonicalPath();
+    databaseDirectory = new File(databaseDirectory).getCanonicalPath();
     databaseDirectory = FileUtils.getPath(databaseDirectory);
 
     if (!(!databaseDirectory.isEmpty()

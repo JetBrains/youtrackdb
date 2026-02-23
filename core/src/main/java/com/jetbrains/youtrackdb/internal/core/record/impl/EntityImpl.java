@@ -2051,7 +2051,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + "' but the record has no class");
           }
 
-          if (!(entity.getImmutableSchemaClass(session).isSubClassOf(embeddedClass))) {
+          if (!entity.getImmutableSchemaClass(session).isSubClassOf(embeddedClass)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()

@@ -165,10 +165,10 @@ public class BinaryProtocol {
    * @return The integer
    */
   public static int bytes2int(final byte[] b, final int offset) {
-    return (b[offset]) << 24
+    return b[offset] << 24
         | (0xff & b[offset + 1]) << 16
         | (0xff & b[offset + 2]) << 8
-        | ((0xff & b[offset + 3]));
+        | (0xff & b[offset + 3]);
   }
 
   public static int bytes2short(final InputStream iStream) throws IOException {

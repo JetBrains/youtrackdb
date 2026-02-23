@@ -59,7 +59,7 @@ public class ShortSerializer implements BinarySerializer<Short> {
 
   public void serializeLiteral(final short value, final byte[] stream, final int startPosition) {
     stream[startPosition] = (byte) ((value >>> 8) & 0xFF);
-    stream[startPosition + 1] = (byte) ((value) & 0xFF);
+    stream[startPosition + 1] = (byte) (value & 0xFF);
   }
 
   @Override

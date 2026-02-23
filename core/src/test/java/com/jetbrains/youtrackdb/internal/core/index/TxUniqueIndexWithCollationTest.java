@@ -94,7 +94,7 @@ public class TxUniqueIndexWithCollationTest extends DbTestBase {
     final var r =
         session.query("select * from user where name in ['Abc', 'Abd', 'Abz'] order by name")
             .stream()
-            .map(x -> ((EntityImpl) (x.asEntityOrNull())))
+            .map(x -> (EntityImpl) x.asEntityOrNull())
             .toList();
     assertEquals(3, r.size());
     assertEquals("abc", r.get(0).getProperty("name"));

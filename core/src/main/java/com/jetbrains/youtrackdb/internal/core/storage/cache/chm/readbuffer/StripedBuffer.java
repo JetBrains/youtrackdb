@@ -238,7 +238,7 @@ abstract class StripedBuffer implements Buffer {
       final int n;
       if (((buffers = table) != null) && ((n = buffers.length) > 0)) {
         if ((buffer = buffers[(n - 1) & h]) == null) {
-          if ((!tableBusy.get())
+          if (!tableBusy.get()
               && tableBusy.compareAndSet(false, true)) { // Try to attach new Buffer
             var created = false;
             try { // Recheck under lock

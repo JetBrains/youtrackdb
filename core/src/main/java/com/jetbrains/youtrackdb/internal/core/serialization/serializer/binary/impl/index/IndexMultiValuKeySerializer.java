@@ -87,7 +87,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       final var key = keys.get(i);
 
       if (key == null) {
-        buffer.put((byte) (-(type.getId() + 1)));
+        buffer.put((byte) -(type.getId() + 1));
       } else {
         buffer.put((byte) type.getId());
         serializeKeyToByteBuffer(buffer, type, key, serializerFactory);

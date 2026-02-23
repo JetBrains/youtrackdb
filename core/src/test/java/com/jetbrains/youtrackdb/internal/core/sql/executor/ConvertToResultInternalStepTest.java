@@ -60,7 +60,7 @@ public class ConvertToResultInternalStepTest extends TestUtilsFixture {
     var counter = 0;
     while (result.hasNext(context)) {
       var currentItem = result.next(context);
-      if (!(currentItem.getClass().equals(ResultInternal.class))) {
+      if (!currentItem.getClass().equals(ResultInternal.class)) {
         Assert.fail("There is an item in result set that is not an instance of ResultInternal");
       }
       if (!currentItem

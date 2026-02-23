@@ -30,7 +30,7 @@ public class RetryStep extends AbstractExecutionStep {
     this.body = statements;
     this.retries = retries;
     this.elseBody = elseStatements;
-    this.elseFail = !(Boolean.FALSE.equals(elseFail));
+    this.elseFail = !Boolean.FALSE.equals(elseFail);
   }
 
   @Override

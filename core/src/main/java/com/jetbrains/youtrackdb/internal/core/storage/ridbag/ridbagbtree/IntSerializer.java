@@ -91,7 +91,7 @@ public final class IntSerializer implements BinarySerializer<Integer> {
     buffer.put((byte) numberSize);
 
     for (var i = 0; i < numberSize; i++) {
-      buffer.put((byte) ((0xFF) & value));
+      buffer.put((byte) (0xFF & value));
       value = value >>> 8;
     }
   }
@@ -166,7 +166,7 @@ public final class IntSerializer implements BinarySerializer<Integer> {
     startPosition++;
 
     for (var i = 0; i < numberSize; i++) {
-      stream[startPosition + i] = (byte) ((0xFF) & value);
+      stream[startPosition + i] = (byte) (0xFF & value);
       value = value >>> 8;
     }
 

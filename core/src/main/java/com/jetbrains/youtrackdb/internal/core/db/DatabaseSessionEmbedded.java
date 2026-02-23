@@ -3163,7 +3163,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 deletedInTx++;
               }
             } else {
-              if (schemaClass != null && (className.equals(schemaClass.getName()))) {
+              if (schemaClass != null && className.equals(schemaClass.getName())) {
                 deletedInTx++;
               }
             }

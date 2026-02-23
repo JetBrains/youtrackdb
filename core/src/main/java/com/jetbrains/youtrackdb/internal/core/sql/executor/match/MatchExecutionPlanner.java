@@ -1288,7 +1288,7 @@ public class MatchExecutionPlanner {
     var counter = 0;
     for (var expression : matchExpressions) {
       if (expression.getOrigin().getAlias() == null) {
-        expression.getOrigin().setAlias(DEFAULT_ALIAS_PREFIX + (counter++));
+        expression.getOrigin().setAlias(DEFAULT_ALIAS_PREFIX + counter++);
       }
 
       for (var item : expression.getItems()) {
@@ -1296,7 +1296,7 @@ public class MatchExecutionPlanner {
           item.setFilter(new SQLMatchFilter(-1));
         }
         if (item.getFilter().getAlias() == null) {
-          item.getFilter().setAlias(DEFAULT_ALIAS_PREFIX + (counter++));
+          item.getFilter().setAlias(DEFAULT_ALIAS_PREFIX + counter++);
         }
       }
     }

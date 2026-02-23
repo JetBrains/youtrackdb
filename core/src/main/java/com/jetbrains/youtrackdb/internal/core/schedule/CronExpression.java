@@ -307,7 +307,7 @@ public final class CronExpression implements Serializable, Cloneable {
 
     var timeAfter = getTimeAfter(testDateCal.getTime());
 
-    return ((timeAfter != null) && (timeAfter.equals(originalDate)));
+    return timeAfter != null && timeAfter.equals(originalDate);
   }
 
   /**
@@ -503,11 +503,11 @@ public final class CronExpression implements Serializable, Cloneable {
       return i;
     }
     var c = s.charAt(i);
-    if ((c >= 'A')
-        && (c <= 'Z')
-        && (!s.equals("L"))
-        && (!s.equals("LW"))
-        && (!s.matches("^L-[0-9]*[W]?"))) {
+    if (c >= 'A'
+        && c <= 'Z'
+        && !s.equals("L")
+        && !s.equals("LW")
+        && !s.matches("^L-[0-9]*[W]?")) {
       var sub = s.substring(i, i + 3);
       var sval = -1;
       var eval = -1;
@@ -1531,7 +1531,7 @@ public final class CronExpression implements Serializable, Cloneable {
       case 1:
         return 31;
       case 2:
-        return (isLeapYear(year)) ? 29 : 28;
+        return isLeapYear(year) ? 29 : 28;
       case 3:
         return 31;
       case 4:

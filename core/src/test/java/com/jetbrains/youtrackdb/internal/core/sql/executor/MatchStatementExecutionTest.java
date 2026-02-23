@@ -1227,7 +1227,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var d : result) {
       assertEquals(
           1,
-          (d.getEntity("friend1")).<Object>getProperty(
+          d.getEntity("friend1").<Object>getProperty(
               "uid"));
     }
     session.commit();

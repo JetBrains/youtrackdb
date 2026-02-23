@@ -62,7 +62,7 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
     stream[startPosition] = (byte) ((value >>> 24) & 0xFF);
     stream[startPosition + 1] = (byte) ((value >>> 16) & 0xFF);
     stream[startPosition + 2] = (byte) ((value >>> 8) & 0xFF);
-    stream[startPosition + 3] = (byte) ((value) & 0xFF);
+    stream[startPosition + 3] = (byte) (value & 0xFF);
   }
 
   @Override
@@ -72,10 +72,10 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
   }
 
   public static int deserializeLiteral(final byte[] stream, final int startPosition) {
-    return (stream[startPosition]) << 24
+    return stream[startPosition] << 24
         | (0xff & stream[startPosition + 1]) << 16
         | (0xff & stream[startPosition + 2]) << 8
-        | ((0xff & stream[startPosition + 3]));
+        | (0xff & stream[startPosition + 3]);
   }
 
   @Override

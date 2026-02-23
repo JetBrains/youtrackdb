@@ -68,14 +68,14 @@ public class IndexChangesQueryTest {
     db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertFalse(fetchCollectionFromIndex(index, 1).isEmpty());
-    Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
+    Assert.assertFalse(fetchCollectionFromIndex(index, 2).isEmpty());
 
     db.commit();
 
     db.begin();
     Assert.assertEquals(2, index.size(db));
-    Assert.assertFalse((fetchCollectionFromIndex(index, 1)).isEmpty());
-    Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
+    Assert.assertFalse(fetchCollectionFromIndex(index, 1).isEmpty());
+    Assert.assertFalse(fetchCollectionFromIndex(index, 2).isEmpty());
     db.rollback();
   }
 
@@ -105,8 +105,8 @@ public class IndexChangesQueryTest {
 
     db.begin();
     Assert.assertEquals(3, index.size(db));
-    Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
-    Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
+    Assert.assertEquals(2, fetchCollectionFromIndex(index, 1).size());
+    Assert.assertEquals(1, fetchCollectionFromIndex(index, 2).size());
     db.rollback();
 
     db.begin();
@@ -130,8 +130,8 @@ public class IndexChangesQueryTest {
 
     db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 
-    Assert.assertEquals(1, (fetchCollectionFromIndex(index, 1)).size());
-    Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
+    Assert.assertEquals(1, fetchCollectionFromIndex(index, 1).size());
+    Assert.assertEquals(1, fetchCollectionFromIndex(index, 2).size());
 
     db.rollback();
 
@@ -139,8 +139,8 @@ public class IndexChangesQueryTest {
 
     db.begin();
     Assert.assertEquals(3, index.size(db));
-    Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
-    Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
+    Assert.assertEquals(2, fetchCollectionFromIndex(index, 1).size());
+    Assert.assertEquals(1, fetchCollectionFromIndex(index, 2).size());
     db.rollback();
   }
 }

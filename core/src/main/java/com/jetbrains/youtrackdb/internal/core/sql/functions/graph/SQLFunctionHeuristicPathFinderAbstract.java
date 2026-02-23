@@ -102,7 +102,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
   protected double getSimpleHeuristicCost(double x, double g, double dFactor) {
     var dx = Math.abs(x - g);
-    return dFactor * (dx);
+    return dFactor * dx;
   }
 
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
@@ -323,7 +323,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
     }
     if (fromObject instanceof String) {
       var arr = fromObject.toString().replace("},{", " ,").split(",");
-      return (arr);
+      return arr;
     }
     if (fromObject instanceof Object) {
       return ((String[]) fromObject);

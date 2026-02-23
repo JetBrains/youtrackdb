@@ -57,7 +57,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
 
     var collectionPosition = r.getCollectionPosition();
     for (var i = 0; i < numberSize; i++) {
-      stream[startPosition + i] = (byte) ((0xFF) & collectionPosition);
+      stream[startPosition + i] = (byte) (0xFF & collectionPosition);
       collectionPosition = collectionPosition >>> 8;
     }
   }
@@ -112,7 +112,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
 
     var collectionPosition = r.getCollectionPosition();
     for (var i = 0; i < numberSize; i++) {
-      stream[startPosition + i] = (byte) ((0xFF) & collectionPosition);
+      stream[startPosition + i] = (byte) (0xFF & collectionPosition);
       collectionPosition = collectionPosition >>> 8;
     }
   }
@@ -165,7 +165,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
 
     var collectionPosition = r.getCollectionPosition();
     for (var i = 0; i < numberSize; i++) {
-      number[i] = (byte) ((0xFF) & collectionPosition);
+      number[i] = (byte) (0xFF & collectionPosition);
       collectionPosition = collectionPosition >>> 8;
     }
 

@@ -1298,7 +1298,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
-    assertNotNull((doc.<Map<String, String>>getProperty("mapEmbedded")).get("newDoc"));
+    assertNotNull(doc.<Map<String, String>>getProperty("mapEmbedded").get("newDoc"));
     assertEquals(
         doc.<Map<String, Entity>>getProperty("mapEmbedded")
             .get("newDoc")

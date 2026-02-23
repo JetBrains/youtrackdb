@@ -40,7 +40,7 @@ public class MurmurHash3 {
   }
 
   static long getblock(byte[] key, int i) {
-    return (((long) key[i] & 0x00000000000000FFL))
+    return ((long) key[i] & 0x00000000000000FFL)
         | (((long) key[i + 1] & 0x00000000000000FFL) << 8)
         | (((long) key[i + 2] & 0x00000000000000FFL) << 16)
         | (((long) key[i + 3] & 0x00000000000000FFL) << 24)

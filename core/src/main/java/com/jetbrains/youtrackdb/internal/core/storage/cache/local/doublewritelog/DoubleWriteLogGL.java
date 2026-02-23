@@ -472,7 +472,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                 .sorted(
                     (pathOne, pathTwo) -> {
                       final var indexOne = extractSegmentId(pathOne.getFileName().toString());
-                      final var indexTwo = extractSegmentId((pathTwo.getFileName().toString()));
+                      final var indexTwo = extractSegmentId(pathTwo.getFileName().toString());
                       return Long.compare(indexOne, indexTwo);
                     })
                 .toArray(Path[]::new);

@@ -75,7 +75,7 @@ public class QueryOperatorDivide extends QueryOperator {
       } else if (Double.class.equals(maxPrecisionClass)) {
         return l.doubleValue() / r.doubleValue();
       } else if (BigDecimal.class.equals(maxPrecisionClass)) {
-        return (QueryOperatorMultiply.toBigDecimal(l))
+        return QueryOperatorMultiply.toBigDecimal(l)
             .divide(QueryOperatorMultiply.toBigDecimal(r));
       }
     }

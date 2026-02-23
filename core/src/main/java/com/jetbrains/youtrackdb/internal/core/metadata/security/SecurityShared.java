@@ -1346,7 +1346,7 @@ public class SecurityShared implements SecurityInternal {
           return Collections.emptySet(); // TODO hierarchy...?
         }
         var val = roleMap.get(clazz.getName());
-        if (!(Boolean.TRUE.equals(val))) {
+        if (!Boolean.TRUE.equals(val)) {
           return Collections.emptySet(); // TODO hierarchy...?
         }
       }
@@ -1391,7 +1391,7 @@ public class SecurityShared implements SecurityInternal {
           return true; // TODO hierarchy...?
         }
         var val = roleMap.get(className);
-        if (!(Boolean.TRUE.equals(val))) {
+        if (!Boolean.TRUE.equals(val)) {
           return true; // TODO hierarchy...?
         }
       }
@@ -1466,7 +1466,7 @@ public class SecurityShared implements SecurityInternal {
             return true; // TODO hierarchy...?
           }
           var val = roleMap.get(className);
-          if (!(Boolean.TRUE.equals(val))) {
+          if (!Boolean.TRUE.equals(val)) {
             return true; // TODO hierarchy...?
           }
         }
@@ -1514,7 +1514,7 @@ public class SecurityShared implements SecurityInternal {
             return true; // TODO hierarchy...?
           }
           var val = roleMap.get(((EntityImpl) record).getSchemaClassName());
-          if (!(Boolean.TRUE.equals(val))) {
+          if (!Boolean.TRUE.equals(val)) {
             return true; // TODO hierarchy...?
           }
         }
@@ -1554,7 +1554,7 @@ public class SecurityShared implements SecurityInternal {
             return true; // TODO hierarchy...?
           }
           var val = roleMap.get(className);
-          if (!(Boolean.TRUE.equals(val))) {
+          if (!Boolean.TRUE.equals(val)) {
             return true; // TODO hierarchy...?
           }
         }
@@ -1659,7 +1659,7 @@ public class SecurityShared implements SecurityInternal {
             return true; // TODO hierarchy...?
           }
           var val = roleMap.get(className);
-          if (!(Boolean.TRUE.equals(val))) {
+          if (!Boolean.TRUE.equals(val)) {
             return true; // TODO hierarchy...?
           }
         }

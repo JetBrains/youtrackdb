@@ -320,7 +320,7 @@ public class HelperClasses {
     if (!justRunThrough) {
       result = new EntityLinkMapIml(owner);
     }
-    while ((size--) > 0) {
+    while (size-- > 0) {
       final var key = readString(bytes);
       final var value = readOptimizedLink(bytes, justRunThrough);
       if (value.equals(NULL_RECORD_ID)) {

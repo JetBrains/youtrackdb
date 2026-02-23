@@ -2019,7 +2019,7 @@ public final class WOWCache extends AbstractWriteCache
 
         if (files.get(externalId) == null) {
           final var path =
-              storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
+              storagePath.resolve(idFileNameMap.get(nameIdEntry.getValue().intValue()));
           final var file =
               new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
@@ -2088,7 +2088,7 @@ public final class WOWCache extends AbstractWriteCache
 
         if (files.get(externalId) == null) {
           final var path =
-              storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
+              storagePath.resolve(idFileNameMap.get(nameIdEntry.getValue().intValue()));
           final var file =
               new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 

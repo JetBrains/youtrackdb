@@ -38,7 +38,7 @@ public final class LongSerializer {
     position++;
 
     for (var i = 0; i < numberSize; i++) {
-      stream[position + i] = (byte) ((0xFF) & value);
+      stream[position + i] = (byte) (0xFF & value);
       value = value >>> 8;
     }
 
@@ -53,7 +53,7 @@ public final class LongSerializer {
     buffer.put((byte) numberSize);
 
     for (var i = 0; i < numberSize; i++) {
-      buffer.put((byte) ((0xFF) & value));
+      buffer.put((byte) (0xFF & value));
       value = value >>> 8;
     }
   }

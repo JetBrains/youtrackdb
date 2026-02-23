@@ -57,7 +57,7 @@ public class SelfSignedCertificate {
   }
 
   public void setAlgorithm(String algorithm) {
-    if ((algorithm == null) || (algorithm.isEmpty())) {
+    if (algorithm == null || algorithm.isEmpty()) {
       this.algorithm = DEFAULT_CERTIFICATE_ALGORITHM;
     } else {
       this.algorithm = algorithm;

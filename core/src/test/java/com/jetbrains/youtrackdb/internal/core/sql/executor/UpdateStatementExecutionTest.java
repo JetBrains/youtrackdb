@@ -361,7 +361,7 @@ public class UpdateStatementExecutionTest {
       Assert.assertTrue(result.hasNext());
       item = result.next();
       Assert.assertNotNull(item);
-      Assert.assertEquals((Object) (-1L), item.getProperty("number"));
+      Assert.assertEquals(Long.valueOf(-1L), item.getProperty("number"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();

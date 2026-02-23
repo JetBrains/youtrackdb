@@ -211,7 +211,7 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
         .property("noOfEyes", 2)
         .iterate();
 
-    (assertThatNames("character", false))
+    assertThatNames("character", false)
         .containsExactlyInAnyOrder("Jim Hawkins");
 
     assertThatNames("character", true)

@@ -149,7 +149,7 @@ public final class Indexes {
     for (var factory : getFactories()) {
       if (indexType == null
           || indexType.isEmpty()
-          || (factory.getTypes().contains(indexType))
+          || factory.getTypes().contains(indexType)
           && factory.getAlgorithms().contains(algorithm)) {
         return factory;
       }

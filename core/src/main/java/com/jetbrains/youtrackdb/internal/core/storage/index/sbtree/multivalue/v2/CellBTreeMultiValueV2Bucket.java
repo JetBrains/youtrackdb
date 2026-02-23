@@ -214,7 +214,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
         assert embeddedEntriesCount == 1;
 
-        setByteValue(embeddedEntriesCountPosition, (byte) (0));
+        setByteValue(embeddedEntriesCountPosition, (byte) 0);
         setIntValue(entriesCountPosition, entriesCount - 1);
 
         return entriesCount - 1;
