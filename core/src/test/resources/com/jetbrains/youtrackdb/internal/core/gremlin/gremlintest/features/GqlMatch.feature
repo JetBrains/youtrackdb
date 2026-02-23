@@ -5,7 +5,7 @@ Feature: GQL Match Support
     Given the empty graph
     And the traversal of
       """
-      g.sqlCommand("CREATE CLASS GqlPerson IF NOT EXISTS EXTENDS V").sqlCommand("CREATE CLASS GqlWork IF NOT EXISTS EXTENDS V")
+      g.yql("CREATE CLASS GqlPerson IF NOT EXISTS EXTENDS V").yql("CREATE CLASS GqlWork IF NOT EXISTS EXTENDS V")
       """
     When iterated to list
 
@@ -338,7 +338,7 @@ Feature: GQL Match Support
   Scenario: g_gql_MATCH_polymorphic_subclass
     And the traversal of
       """
-      g.sqlCommand("CREATE CLASS GqlEmployee IF NOT EXISTS EXTENDS GqlPerson")
+      g.yql("CREATE CLASS GqlEmployee IF NOT EXISTS EXTENDS GqlPerson")
       """
     When iterated to list
     And the traversal of

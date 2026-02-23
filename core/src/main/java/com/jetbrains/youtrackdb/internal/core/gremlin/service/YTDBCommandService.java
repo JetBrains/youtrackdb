@@ -13,11 +13,11 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 /// TinkerPop service that allows running any YouTrackDB non-idempotent command via GraphTraversal.
 ///
 /// Supports both Start and Streaming execution modes to allow chaining:
-/// g.sqlCommand("BEGIN").sqlCommand("INSERT")
+/// g.yql("BEGIN").yql("INSERT")
 public class YTDBCommandService implements Service<Object, Object> {
 
   public static final String NAME = "command";
-  public static final String SQL_COMMAND_NAME = "sqlCommand";
+  public static final String YQL_NAME = "yql";
   public static final String COMMAND = "command";
   public static final String ARGUMENTS = "args";
 
@@ -50,7 +50,7 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     @Override
     public Set<Type> getSupportedTypes() {
-      // Support both Start and Streaming to allow chaining: g.sqlCommand("BEGIN").sqlCommand("INSERT")
+      // Support both Start and Streaming to allow chaining: g.yql("BEGIN").yql("INSERT")
       return Set.of(Type.Start, Type.Streaming);
     }
 
@@ -95,11 +95,11 @@ public class YTDBCommandService implements Service<Object, Object> {
     }
   }
 
-  /// Factory for the sqlCommand service - an alias for command that can be used for chaining.
-  public static class SqlCommandFactory extends Factory {
+  /// Factory for the yql service - an alias for command that can be used for chaining.
+  public static class YqlFactory extends Factory {
 
-    public SqlCommandFactory() {
-      super(SQL_COMMAND_NAME);
+    public YqlFactory() {
+      super(YQL_NAME);
     }
   }
 
