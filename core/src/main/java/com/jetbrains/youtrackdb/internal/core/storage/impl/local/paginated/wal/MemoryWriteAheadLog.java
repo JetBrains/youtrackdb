@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
+ * In-memory implementation of the write-ahead log.
+ *
  * @since 6/25/14
  */
 public class MemoryWriteAheadLog extends AbstractWriteAheadLog {

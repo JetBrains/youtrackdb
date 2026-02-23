@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import org.junit.Test;
 
 /**
- *
+ * Tests symmetric key encryption and decryption including key generation and credential management.
  */
 public class SymmetricKeyTest extends DbTestBase {
 

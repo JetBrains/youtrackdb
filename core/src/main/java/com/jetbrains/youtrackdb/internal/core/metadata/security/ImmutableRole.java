@@ -12,6 +12,8 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
+ * An immutable snapshot of a security role and its associated rules and policies.
+ *
  * @since 03/11/14
  */
 public class ImmutableRole implements SecurityRole {

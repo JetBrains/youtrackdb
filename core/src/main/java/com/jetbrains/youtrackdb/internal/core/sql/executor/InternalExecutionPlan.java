@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Internal representation of a SQL execution plan with step management and lifecycle control. */
 public interface InternalExecutionPlan extends ExecutionPlan {
 
   String JAVA_TYPE = "javaType";

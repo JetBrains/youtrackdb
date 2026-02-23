@@ -32,6 +32,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
+ * WAL record that marks the end of an atomic operation unit, optionally carrying operation
+ * metadata.
+ *
  * @since 24.05.13
  */
 public class AtomicUnitEndRecord extends OperationUnitBodyRecord {

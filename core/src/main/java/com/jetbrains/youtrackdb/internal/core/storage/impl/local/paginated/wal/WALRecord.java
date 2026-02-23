@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 /**
+ * Represents a single record in the write-ahead log.
+ *
  * @since 25.04.13
  */
 public interface WALRecord {

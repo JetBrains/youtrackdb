@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 
 /**
+ * Exception thrown when a WAL page is detected to be corrupted or broken.
+ *
  * @since 12/16/13
  */
 public class WALPageBrokenException extends SystemException {

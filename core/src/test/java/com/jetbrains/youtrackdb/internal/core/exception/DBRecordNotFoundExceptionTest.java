@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import org.junit.Test;
 
 /**
- *
+ * Tests {@link RecordNotFoundException} construction and copy behavior including RID preservation.
  */
 public class DBRecordNotFoundExceptionTest {
 

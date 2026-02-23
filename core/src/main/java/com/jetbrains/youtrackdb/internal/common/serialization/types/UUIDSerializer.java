@@ -26,7 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.UUID;
 
 /**
- *
+ * Binary serializer for {@link UUID} values.
  */
 public class UUIDSerializer implements BinarySerializer<UUID> {
 

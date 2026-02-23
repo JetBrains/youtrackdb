@@ -1231,8 +1231,10 @@ public enum GlobalConfiguration {
   }
 
   /**
+   * Returns whether this configuration value has been changed from its default.
+   *
    * @return <code>true</code> if configuration was changed from default value and <code>false
-   * </code> otherwise.
+   *     </code> otherwise.
    */
   public boolean isChanged() {
     return value != nullValue;

@@ -19,9 +19,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/**
- *
- */
+/** An exception that aggregates multiple throwables from concurrent test workers. */
 public class CompositeException extends RuntimeException {
 
   private static final long serialVersionUID = 1L;

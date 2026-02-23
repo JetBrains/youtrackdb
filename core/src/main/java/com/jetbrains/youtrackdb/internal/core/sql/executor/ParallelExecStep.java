@@ -11,9 +11,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- *
- */
+/** Execution step that runs multiple sub-execution plans and merges their result streams. */
 public class ParallelExecStep extends AbstractExecutionStep {
 
   private final List<InternalExecutionPlan> subExecutionPlans;

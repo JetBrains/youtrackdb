@@ -5,7 +5,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DELETE VERTEX SQL statements.
  */
 public class DeleteVertexStatementExecutionTest extends DbTestBase {
 

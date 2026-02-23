@@ -20,9 +20,7 @@ import java.util.Spliterators;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-/**
- *
- */
+/** Execution step that fetches edges incoming to specified target vertices. */
 public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
 
   private final String toAlias;

@@ -114,6 +114,8 @@ public class VarIntSerializer {
   }
 
   /**
+   * Reads a signed variable-length long from the given byte container.
+   *
    * @param bytes to read bytes from
    * @return decode value
    * @throws IllegalArgumentException if variable-length value does not terminate after 9 bytes have
@@ -131,6 +133,8 @@ public class VarIntSerializer {
   }
 
   /**
+   * Reads a signed variable-length long from the given data input stream.
+   *
    * @param bytes to read bytes from
    * @return decode value
    * @throws IllegalArgumentException if variable-length value does not terminate after 9 bytes have
@@ -148,6 +152,8 @@ public class VarIntSerializer {
   }
 
   /**
+   * Reads an unsigned variable-length long from the given byte container.
+   *
    * @param bytes to read bytes from
    * @return decode value
    * @throws IllegalArgumentException if variable-length value does not terminate after 9 bytes have
@@ -168,6 +174,8 @@ public class VarIntSerializer {
   }
 
   /**
+   * Reads an unsigned variable-length long from the given data input stream.
+   *
    * @param bytes to read bytes from
    * @return decode value
    * @throws IllegalArgumentException if variable-length value does not terminate after 9 bytes have

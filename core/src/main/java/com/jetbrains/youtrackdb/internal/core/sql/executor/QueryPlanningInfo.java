@@ -13,9 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 
-/**
- *
- */
+/** Holds metadata collected during SQL query planning for use by the execution planner. */
 public class QueryPlanningInfo {
 
   protected SQLTimeout timeout;

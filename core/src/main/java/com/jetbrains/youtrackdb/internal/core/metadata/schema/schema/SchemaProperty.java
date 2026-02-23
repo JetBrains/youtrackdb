@@ -110,6 +110,8 @@ public interface SchemaProperty {
   String getMin();
 
   /**
+   * Sets the minimum allowed value for this property.
+   *
    * @param min can be null
    * @return this property
    * @see SchemaProperty#getMin()
@@ -135,6 +137,8 @@ public interface SchemaProperty {
   String getMax();
 
   /**
+   * Sets the maximum allowed value for this property.
+   *
    * @param max can be null
    * @return this property
    * @see SchemaProperty#getMax()
@@ -149,6 +153,8 @@ public interface SchemaProperty {
   String getDefaultValue();
 
   /**
+   * Sets the default value for this property.
+   *
    * @param defaultValue can be null
    * @return this property
    * @see SchemaProperty#getDefaultValue()

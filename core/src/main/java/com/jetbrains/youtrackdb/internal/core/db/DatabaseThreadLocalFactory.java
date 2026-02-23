@@ -17,7 +17,7 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 /**
- *
+ * Factory for obtaining the database session associated with the current thread.
  */
 public interface DatabaseThreadLocalFactory {
 

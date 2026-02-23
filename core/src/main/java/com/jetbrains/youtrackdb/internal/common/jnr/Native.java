@@ -150,6 +150,8 @@ public class Native {
   }
 
   /**
+   * Detects the memory limit available to the application, including container-aware detection.
+   *
    * @param printSteps Print all steps of discovering of memory limit in the log with {@code INFO}
    *                   level.
    * @return Amount of memory which are allowed to be consumed by application, and detects whether

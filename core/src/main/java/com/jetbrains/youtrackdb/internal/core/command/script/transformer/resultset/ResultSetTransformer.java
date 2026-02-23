@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.command.script.transformer.result
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 
 /**
- *
+ * Transforms a value of type {@code T} into a {@link ResultSet}.
  */
 public interface ResultSetTransformer<T> {
 

@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan for SQL DELETE statements. */
 public class DeleteExecutionPlan extends UpdateExecutionPlan {
 
   public DeleteExecutionPlan(CommandContext ctx) {

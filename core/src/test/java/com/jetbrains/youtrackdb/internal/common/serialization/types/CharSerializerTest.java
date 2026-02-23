@@ -27,6 +27,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link CharSerializer} serialization and deserialization of char values.
+ *
  * @since 19.01.12
  */
 public class CharSerializerTest {

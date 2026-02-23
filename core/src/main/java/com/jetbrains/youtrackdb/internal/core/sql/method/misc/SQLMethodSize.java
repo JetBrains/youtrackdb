@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
- *
+ * SQL method that returns the size of a collection, map, string, or multi-value object.
  */
 public class SQLMethodSize extends AbstractSQLMethod {
 

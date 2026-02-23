@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests the check index tool for detecting and reporting index inconsistencies.
  */
 public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
 

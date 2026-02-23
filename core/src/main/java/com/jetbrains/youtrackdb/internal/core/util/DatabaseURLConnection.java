@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import java.util.Optional;
 
 /**
- *
+ * Parsed representation of a database connection URL, including type, path, and database name.
  */
 public class DatabaseURLConnection {
 

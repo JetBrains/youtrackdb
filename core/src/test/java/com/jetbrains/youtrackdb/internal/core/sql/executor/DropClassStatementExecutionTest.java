@@ -7,7 +7,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DROP CLASS SQL statements.
  */
 public class DropClassStatementExecutionTest extends DbTestBase {
 

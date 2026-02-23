@@ -24,9 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL GRANT and REVOKE command executors. */
 public class CommandExecutorSQLGrantRevokeTest extends DbTestBase {
 
   @Test

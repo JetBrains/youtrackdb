@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.core.config;
 
 /**
+ * Configuration for a paginated storage collection.
+ *
  * @since 09.07.13
  */
 public class StoragePaginatedCollectionConfiguration implements StorageCollectionConfiguration {

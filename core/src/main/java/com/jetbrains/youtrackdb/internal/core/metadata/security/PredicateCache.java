@@ -30,6 +30,8 @@ public class PredicateCache {
   }
 
   /**
+   * Checks whether the cache contains a parsed executor for the given statement.
+   *
    * @param statement an SQL statement
    * @return true if the corresponding executor is present in the cache
    */
@@ -44,6 +46,8 @@ public class PredicateCache {
   }
 
   /**
+   * Returns the cached parsed executor for the given statement, or parses it if not cached.
+   *
    * @param statement an SQL statement
    * @return the corresponding executor, taking it from the internal cache, if it exists
    */

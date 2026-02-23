@@ -14,9 +14,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntComparators;
 import java.util.Set;
 
-/**
- *
- */
+/** Execution step that fetches all records belonging to a specified schema class. */
 public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   protected String className;

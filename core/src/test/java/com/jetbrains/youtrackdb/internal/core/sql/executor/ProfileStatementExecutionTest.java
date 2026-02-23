@@ -5,7 +5,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of PROFILE SQL statements for query profiling.
  */
 public class ProfileStatementExecutionTest extends DbTestBase {
 

@@ -10,7 +10,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DELETE SQL statements.
  */
 public class DeleteStatementExecutionTest extends DbTestBase {
 

@@ -16,6 +16,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 /**
+ * Tests for {@link ReadersWriterSpinLock} correctness under concurrent access.
+ *
  * @since 8/18/14
  */
 public class ReadersWriterSpinLockTst {

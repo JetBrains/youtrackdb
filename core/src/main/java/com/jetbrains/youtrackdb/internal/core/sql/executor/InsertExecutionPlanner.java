@@ -11,9 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUpdateItem;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- *
- */
+/** Planner that builds an execution plan for SQL INSERT statements. */
 public class InsertExecutionPlanner {
 
   protected SQLIdentifier targetClass;

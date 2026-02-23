@@ -8,9 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUpdateItem;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that applies SET operations to records during an UPDATE. */
 public class UpdateSetStep extends AbstractExecutionStep {
 
   private final List<SQLUpdateItem> items;

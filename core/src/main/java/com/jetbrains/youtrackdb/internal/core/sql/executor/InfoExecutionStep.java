@@ -7,9 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
 
-/**
- *
- */
+/** Read-only representation of an execution step used for informational display and serialization. */
 public class InfoExecutionStep implements ExecutionStep {
 
   private String name;

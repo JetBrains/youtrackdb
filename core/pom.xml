@@ -286,7 +286,7 @@
             <arg>-XDcompilePolicy=simple</arg>
             <arg>--should-stop=ifError=FLOW</arg>
             <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
-            <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR</arg>
+            <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR</arg>
           </compilerArgs>
           <annotationProcessorPaths>
             <path>

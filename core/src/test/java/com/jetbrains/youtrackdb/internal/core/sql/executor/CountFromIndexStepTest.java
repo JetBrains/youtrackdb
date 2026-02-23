@@ -12,9 +12,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-/**
- *
- */
+/** Tests for the CountFromIndexStep query execution step. */
 @RunWith(Parameterized.class)
 public class CountFromIndexStepTest extends TestUtilsFixture {
 

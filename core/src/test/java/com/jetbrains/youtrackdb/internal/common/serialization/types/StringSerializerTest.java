@@ -27,6 +27,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link StringSerializer} serialization and deserialization of string values.
+ *
  * @since 19.01.12
  */
 public class StringSerializerTest {

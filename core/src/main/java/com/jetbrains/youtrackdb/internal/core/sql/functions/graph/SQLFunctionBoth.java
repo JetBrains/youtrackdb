@@ -9,7 +9,7 @@ import java.util.Collection;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL function that traverses both incoming and outgoing edges of a vertex.
  */
 public class SQLFunctionBoth extends SQLFunctionMove implements SQLGraphNavigationFunction {
 

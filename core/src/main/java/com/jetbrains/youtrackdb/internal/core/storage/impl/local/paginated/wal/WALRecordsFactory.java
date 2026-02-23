@@ -175,6 +175,8 @@ import java.nio.ByteOrder;
 import net.jpountz.lz4.LZ4Factory;
 
 /**
+ * Factory for serializing and deserializing WAL records.
+ *
  * @since 25.04.13
  */
 public final class WALRecordsFactory {

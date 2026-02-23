@@ -39,6 +39,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 /**
+ * Tests restoring local paginated storage from WAL with additional records added after backup.
+ *
  * @since 18.06.13
  */
 public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {

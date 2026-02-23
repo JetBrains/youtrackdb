@@ -118,6 +118,8 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   private final ReferenceQueue<Thread> consumptionMapEvictionQueue = new ReferenceQueue<>();
 
   /**
+   * Returns the singleton instance of the allocator, creating it if necessary.
+   *
    * @return singleton instance.
    */
   public static DirectMemoryAllocator instance() {

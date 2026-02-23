@@ -20,6 +20,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for SB-tree v1 leaf bucket operations including entry add, get, update, and remove.
+ *
  * @since 09.08.13
  */
 public class SBTreeLeafBucketV1Test {

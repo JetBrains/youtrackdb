@@ -14,9 +14,7 @@ import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the ConvertToResultInternalStep query execution step. */
 public class ConvertToResultInternalStepTest extends TestUtilsFixture {
 
   private static final String STRING_PROPERTY = "stringPropertyName";

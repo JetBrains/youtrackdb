@@ -14,9 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUpdateItem;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that creates new records from explicit field identifier and value expression lists. */
 public class InsertValuesStep extends AbstractExecutionStep {
 
   private final List<SQLIdentifier> identifiers;

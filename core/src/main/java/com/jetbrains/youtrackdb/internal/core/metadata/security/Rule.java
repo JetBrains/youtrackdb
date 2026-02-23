@@ -8,6 +8,8 @@ import java.util.TreeMap;
 import javax.annotation.Nullable;
 
 /**
+ * Represents a security access rule that maps resources to permission bitmasks.
+ *
  * @since 08/11/14
  */
 public class Rule implements Serializable {

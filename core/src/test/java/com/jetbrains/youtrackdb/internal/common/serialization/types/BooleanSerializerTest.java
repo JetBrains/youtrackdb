@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link BooleanSerializer} serialization and deserialization of boolean values.
+ *
  * @since 18.01.12
  */
 public class BooleanSerializerTest {

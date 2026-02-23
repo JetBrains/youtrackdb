@@ -18,6 +18,8 @@ package com.jetbrains.youtrackdb.internal.test;
 import java.util.concurrent.Callable;
 
 /**
+ * Factory for creating concurrent test worker callables.
+ *
  * @param <T> the type of the {@link Callable} to be created with {@link #createWorker() }
  */
 public interface TestFactory<T> {

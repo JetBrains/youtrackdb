@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link BinaryTypeSerializer} serialization and deserialization of byte arrays.
+ *
  * @since 20.01.12
  */
 public class BinarySerializerTest extends DbTestBase {

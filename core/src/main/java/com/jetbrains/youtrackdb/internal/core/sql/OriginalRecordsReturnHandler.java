@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
- *
+ * A {@link ReturnHandler} that returns records in their original, unmodified form.
  */
 public class OriginalRecordsReturnHandler extends RecordsReturnHandler {
 

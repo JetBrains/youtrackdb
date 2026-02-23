@@ -163,6 +163,8 @@ public interface Storage {
   long getVersion();
 
   /**
+   * Returns the version of the product release under which this storage was created.
+   *
    * @return Version of product release under which storage was created.
    */
   @SuppressWarnings("unused")

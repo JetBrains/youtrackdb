@@ -30,6 +30,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
+ * A durable page bucket that maps logical record positions to physical page locations within a
+ * collection.
+ *
  * @since 10/7/13
  */
 public final class CollectionPositionMapBucket extends DurablePage {

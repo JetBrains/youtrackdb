@@ -23,8 +23,9 @@ import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 /**
+ * Generates self-signed X.509 certificates for TLS.
+ *
  * @since 24/02/2021
- * <p>Class developed to generate self-signed certificate
  */
 public class SelfSignedCertificate {
 

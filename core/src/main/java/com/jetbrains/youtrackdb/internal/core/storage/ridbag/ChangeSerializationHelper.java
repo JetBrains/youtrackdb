@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- *
+ * Helper for serializing and deserializing RID bag change entries.
  */
 public class ChangeSerializationHelper {
 

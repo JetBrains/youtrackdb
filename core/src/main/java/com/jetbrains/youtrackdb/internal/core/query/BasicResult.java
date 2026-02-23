@@ -376,6 +376,8 @@ public interface BasicResult {
   boolean hasProperty(@Nonnull String varName);
 
   /**
+   * Returns the database session to which this record is bound.
+   *
    * @return Returns session to which given record is bound or <code>null</code> if record is
    * unloaded.
    */

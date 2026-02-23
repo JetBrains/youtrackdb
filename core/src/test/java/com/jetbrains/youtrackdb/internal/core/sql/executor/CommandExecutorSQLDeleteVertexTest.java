@@ -25,9 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL DELETE VERTEX command executor. */
 public class CommandExecutorSQLDeleteVertexTest extends DbTestBase {
 
   @Override

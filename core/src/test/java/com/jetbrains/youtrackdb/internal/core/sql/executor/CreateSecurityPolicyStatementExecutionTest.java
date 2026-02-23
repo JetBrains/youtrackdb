@@ -5,7 +5,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of CREATE SECURITY POLICY SQL statements.
  */
 public class CreateSecurityPolicyStatementExecutionTest extends DbTestBase {
 

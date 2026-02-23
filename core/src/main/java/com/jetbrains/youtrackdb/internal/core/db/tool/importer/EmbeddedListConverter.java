@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.List;
 
 /**
- *
+ * Converts embedded list values by rewriting broken links during database import.
  */
 public final class EmbeddedListConverter extends AbstractCollectionConverter<List<Object>> {
 

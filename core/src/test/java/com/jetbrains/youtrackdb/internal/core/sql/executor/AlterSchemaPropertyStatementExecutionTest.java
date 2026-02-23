@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the ALTER PROPERTY SQL statement execution. */
 public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test

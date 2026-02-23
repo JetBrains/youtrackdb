@@ -11,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of CREATE PROPERTY SQL statements for schema properties.
  */
 public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 

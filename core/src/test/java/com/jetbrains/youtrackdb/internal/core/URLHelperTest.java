@@ -8,7 +8,7 @@ import java.io.File;
 import org.junit.Test;
 
 /**
- *
+ * Tests URL parsing and validation in {@link URLHelper}.
  */
 public class URLHelperTest {
 

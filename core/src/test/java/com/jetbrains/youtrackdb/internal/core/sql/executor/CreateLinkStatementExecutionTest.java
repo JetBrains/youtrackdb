@@ -7,7 +7,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of CREATE LINK SQL statements.
  */
 public class CreateLinkStatementExecutionTest extends DbTestBase {
 

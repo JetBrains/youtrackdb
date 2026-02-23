@@ -102,6 +102,8 @@ public interface SchemaClassInternal extends SchemaClass {
   Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session, Collection<String> fields);
 
   /**
+   * Returns indexes that contain the given fields as their first keys.
+   *
    * @param session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
@@ -121,6 +123,8 @@ public interface SchemaClassInternal extends SchemaClass {
   boolean areIndexed(DatabaseSessionEmbedded session, Collection<String> fields);
 
   /**
+   * Checks whether the given fields are indexed as first key fields in class indexes.
+   *
    * @param session
    * @param fields  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
@@ -129,11 +133,15 @@ public interface SchemaClassInternal extends SchemaClass {
   boolean areIndexed(DatabaseSessionEmbedded session, String... fields);
 
   /**
+   * Returns all indexes defined directly on this class, not the inherited ones.
+   *
    * @return All indexes for given class, not the inherited ones.
    */
   Set<String> getClassIndexes();
 
   /**
+   * Returns all indexes for this class and its super classes.
+   *
    * @return All indexes for given class and its super classes.
    */
   Set<String> getIndexes();

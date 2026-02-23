@@ -11,6 +11,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
+ * Tests for WAL page v2 changes portion serialization and deserialization.
+ *
  * @since 8/19/2015
  */
 public class WALPageV2ChangesPortionTest {

@@ -9,9 +9,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Read-only representation of an execution plan used for informational display and serialization. */
 public class InfoExecutionPlan implements ExecutionPlan {
 
   private List<ExecutionStep> steps = new ArrayList<>();

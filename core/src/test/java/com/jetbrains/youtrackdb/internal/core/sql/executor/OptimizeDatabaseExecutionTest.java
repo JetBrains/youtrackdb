@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of OPTIMIZE DATABASE SQL statements.
  */
 public class OptimizeDatabaseExecutionTest extends DbTestBase {
 

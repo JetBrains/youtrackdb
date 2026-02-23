@@ -49,6 +49,8 @@ public interface RecordElement {
   void setDirtyNoChanged();
 
   /**
+   * Returns the owner record element that contains this one.
+   *
    * @return Returns record element which contains given one.
    */
   @Nullable

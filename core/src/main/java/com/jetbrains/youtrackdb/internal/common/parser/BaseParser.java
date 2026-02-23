@@ -70,6 +70,8 @@ public abstract class BaseParser {
   }
 
   /**
+   * Extracts a single word from the given text starting at the specified index.
+   *
    * @param iText           Text where to search
    * @param iBeginIndex     Begin index
    * @param iSeparatorChars Separators as a String of multiple characters

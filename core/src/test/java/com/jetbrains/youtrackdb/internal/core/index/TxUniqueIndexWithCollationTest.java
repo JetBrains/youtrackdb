@@ -29,7 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
 /**
- *
+ * Tests unique index behavior with case-insensitive collation within transactions.
  */
 public class TxUniqueIndexWithCollationTest extends DbTestBase {
 

@@ -36,6 +36,8 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
+ * Bucket (page) implementation for the v2 multi-value cell B-tree index.
+ *
  * @since 8/7/13
  */
 public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {

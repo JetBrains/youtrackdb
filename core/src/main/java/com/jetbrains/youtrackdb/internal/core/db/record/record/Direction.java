@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.db.record.record;
 import javax.annotation.Nonnull;
 
 /**
- *
+ * Represents the direction of an edge relative to a vertex: outgoing, incoming, or both.
  */
 public enum Direction {
   OUT,

@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
- *
+ * A system-level security role that supports database-level filtering.
  */
 public class SystemRole extends Role {
   public static final String DB_FILTER = "dbFilter";

@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence.SEQUE
 import java.util.Set;
 
 /**
+ * Proxy for the sequence library that delegates operations to the underlying implementation.
+ *
  * @since 3/2/2015
  */
 public class SequenceLibraryProxy extends SequenceLibraryAbstract {

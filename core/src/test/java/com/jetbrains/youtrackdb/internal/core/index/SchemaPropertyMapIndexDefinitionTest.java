@@ -18,6 +18,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
+ * Tests {@link PropertyMapIndexDefinition} for key extraction and change processing on map properties.
+ *
  * @since 20.12.11
  */
 public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {

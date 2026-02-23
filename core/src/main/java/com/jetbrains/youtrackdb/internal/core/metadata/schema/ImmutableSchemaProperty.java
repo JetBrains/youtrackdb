@@ -44,6 +44,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
+ * An immutable, thread-safe snapshot of a schema property.
+ *
  * @since 10/21/14
  */
 public class ImmutableSchemaProperty implements SchemaPropertyInternal {

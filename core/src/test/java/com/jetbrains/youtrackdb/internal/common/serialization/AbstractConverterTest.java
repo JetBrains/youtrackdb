@@ -4,6 +4,8 @@ import java.nio.ByteOrder;
 import org.junit.Assert;
 
 /**
+ * Base test class for {@link BinaryConverter} implementations verifying byte-order conversions.
+ *
  * @since 21.05.13
  */
 public abstract class AbstractConverterTest {

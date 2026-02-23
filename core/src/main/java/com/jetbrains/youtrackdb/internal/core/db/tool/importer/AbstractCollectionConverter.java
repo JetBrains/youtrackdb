@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 
 /**
- *
+ * Base converter for collection-typed values that handles individual element conversion.
  */
 public abstract class AbstractCollectionConverter<T> implements ValuesConverter<T> {
 

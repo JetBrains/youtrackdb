@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Date;
 
 /**
- *
+ * SQL method that converts a value to a long.
  */
 public class SQLMethodAsLong extends AbstractSQLMethod {
 

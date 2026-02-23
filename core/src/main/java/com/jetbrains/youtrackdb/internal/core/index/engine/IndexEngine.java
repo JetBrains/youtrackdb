@@ -28,6 +28,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import java.io.IOException;
 
 /**
+ * Engine interface for index implementations that support key-value storage operations.
+ *
  * @since 6/29/13
  */
 public interface IndexEngine extends BaseIndexEngine {

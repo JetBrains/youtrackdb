@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
- *
+ * SQL method that converts a value to a boolean.
  */
 public class SQLMethodAsBoolean extends AbstractSQLMethod {
 

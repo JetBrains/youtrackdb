@@ -28,7 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- *
+ * Abstract {@link ReturnHandler} that collects and returns processed records.
  */
 public abstract class RecordsReturnHandler implements ReturnHandler {
 

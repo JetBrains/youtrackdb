@@ -25,9 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.Iterator;
 import java.util.Map;
 
-/**
- *
- */
+/** A source of identifiable records that can be iterated over during query execution. */
 public interface IterableRecordSource {
 
   Iterator<Identifiable> iterator(DatabaseSessionEmbedded session,

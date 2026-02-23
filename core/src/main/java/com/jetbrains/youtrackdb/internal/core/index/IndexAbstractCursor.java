@@ -27,6 +27,8 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 
 /**
+ * Abstract base class for index cursor implementations.
+ *
  * @since 4/24/14
  */
 public abstract class IndexAbstractCursor implements IndexCursor {

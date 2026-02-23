@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DELETE EDGE SQL statements.
  */
 public class DeleteEdgeStatementExecutionTest extends DbTestBase {
 

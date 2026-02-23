@@ -12,7 +12,7 @@ import java.util.List;
 import org.junit.Test;
 
 /**
- *
+ * Tests altering superclass hierarchies including property inheritance and diamond scenarios.
  */
 public class AlterSuperclassTest extends DbTestBase {
 

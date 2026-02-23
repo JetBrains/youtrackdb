@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Test;
 
 /**
- *
+ * Tests function library operations including creation, retrieval, and duplicate detection.
  */
 public class FunctionLibraryTest extends DbTestBase {
 

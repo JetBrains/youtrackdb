@@ -7,7 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import javax.annotation.Nonnull;
 
 /**
- *
+ * A local adapter that bridges a {@link LiveResultListener} to also implement {@link
+ * CommandResultListener}.
  */
 public class LocalLiveResultListener implements LiveResultListener, CommandResultListener {
 

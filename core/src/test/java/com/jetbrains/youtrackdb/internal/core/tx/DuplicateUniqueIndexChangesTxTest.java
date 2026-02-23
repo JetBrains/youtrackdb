@@ -28,9 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for transactional duplicate key handling in unique indexes. */
 public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
   private Index index;

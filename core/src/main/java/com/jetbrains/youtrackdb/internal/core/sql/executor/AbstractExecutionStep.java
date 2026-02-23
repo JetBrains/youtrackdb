@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import java.text.DecimalFormat;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Base class for execution steps that provides common profiling and chaining support. */
 public abstract class AbstractExecutionStep implements ExecutionStepInternal {
 
   public final CommandContext ctx;

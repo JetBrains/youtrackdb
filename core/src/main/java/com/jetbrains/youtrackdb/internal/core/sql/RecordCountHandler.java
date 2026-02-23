@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
- *
+ * A {@link ReturnHandler} that counts the number of processed records.
  */
 public class RecordCountHandler implements ReturnHandler {
 

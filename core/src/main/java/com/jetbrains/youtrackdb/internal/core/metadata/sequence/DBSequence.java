@@ -42,6 +42,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnull;
 
 /**
+ * Abstract base class for database sequences that generate unique numeric values.
+ *
  * @since 3/2/2015
  */
 public abstract class DBSequence {

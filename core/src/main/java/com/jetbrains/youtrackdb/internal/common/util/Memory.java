@@ -29,6 +29,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 public class Memory {
 
   /**
+   * Returns the JVM maximum memory, capped at the specified limit if the JVM reports unlimited.
+   *
    * @param unlimitedCap the upper limit on reported memory, if JVM reports unlimited memory.
    * @return same as {@link Runtime#maxMemory()} except that {@code unlimitedCap} limit is applied
    * if JVM reports {@link Long#MAX_VALUE unlimited memory}.

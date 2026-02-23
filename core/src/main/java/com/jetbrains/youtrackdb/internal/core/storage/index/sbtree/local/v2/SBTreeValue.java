@@ -23,6 +23,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2;
 import java.util.Objects;
 
 /**
+ * Holder for a value in the v2 SBTree, which can be either a direct value or a link.
+ *
  * @since 9/27/13
  */
 public class SBTreeValue<V> {

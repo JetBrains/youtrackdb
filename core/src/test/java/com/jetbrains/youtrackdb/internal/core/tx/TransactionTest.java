@@ -17,6 +17,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+/** Tests for transaction lifecycle including begin, commit, and rollback operations. */
 public class TransactionTest {
 
   private YouTrackDBImpl youTrackDB;

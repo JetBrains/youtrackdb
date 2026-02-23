@@ -16,7 +16,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests unique index enforcement including composite indexes with edges and null handling.
  */
 public class UniqueIndexTest extends DbTestBase {
 

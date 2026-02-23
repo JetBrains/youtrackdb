@@ -30,7 +30,7 @@ import java.io.StringReader;
 import javax.annotation.Nullable;
 
 /**
- *
+ * A {@link CommandStream} implementation that reads and parses commands from a character stream.
  */
 public class ConsoleCommandStream implements CommandStream {
 

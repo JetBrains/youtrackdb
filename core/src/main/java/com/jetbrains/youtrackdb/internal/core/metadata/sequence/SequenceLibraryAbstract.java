@@ -19,7 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 
 /**
- *
+ * Abstract base class for sequence library proxies that delegate to a {@link SequenceLibraryImpl}.
  */
 public abstract class SequenceLibraryAbstract extends ProxedResource<SequenceLibraryImpl>
     implements SequenceLibrary {

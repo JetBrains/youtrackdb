@@ -29,6 +29,8 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import javax.annotation.Nonnull;
 
 /**
+ * A sequence implementation that pre-allocates values in batches for improved performance.
+ *
  * @since 3/3/2015
  */
 public class SequenceCached extends DBSequence {

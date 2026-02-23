@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
- *
+ * SQL method that prepends a prefix string to a value.
  */
 public class SQLMethodPrefix extends AbstractSQLMethod {
 

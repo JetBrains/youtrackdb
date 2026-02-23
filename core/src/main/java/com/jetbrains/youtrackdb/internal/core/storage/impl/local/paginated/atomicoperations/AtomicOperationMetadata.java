@@ -27,11 +27,15 @@ import java.io.Serializable;
 public interface AtomicOperationMetadata<T> extends Serializable {
 
   /**
+   * Returns the key associated with this metadata entry.
+   *
    * @return Key associated with given metadata
    */
   String getKey();
 
   /**
+   * Returns the value of this metadata entry.
+   *
    * @return Metadata value.
    */
   T getValue();

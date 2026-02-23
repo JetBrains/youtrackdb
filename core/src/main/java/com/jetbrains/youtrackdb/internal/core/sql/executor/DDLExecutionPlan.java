@@ -13,9 +13,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan that wraps and executes a single DDL statement. */
 public class DDLExecutionPlan implements InternalExecutionPlan {
   private final DDLStatement statement;
   private final CommandContext ctx;

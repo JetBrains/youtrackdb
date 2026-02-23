@@ -19,9 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- *
- */
+/** Planner that builds an execution plan for DELETE EDGE statements. */
 public class DeleteEdgeExecutionPlanner {
 
   private final SQLDeleteEdgeStatement statement;

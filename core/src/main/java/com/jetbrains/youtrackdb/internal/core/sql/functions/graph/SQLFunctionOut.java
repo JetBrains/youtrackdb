@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL function that traverses outgoing edges and returns adjacent vertices.
  */
 public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphNavigationFunction {
 

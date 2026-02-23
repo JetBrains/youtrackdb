@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
- *
+ * Converts embedded map values by rewriting broken links during database import.
  */
 public final class EmbeddedMapConverter extends AbstractCollectionConverter<Map<String, Object>> {
 

@@ -29,6 +29,8 @@ import java.util.concurrent.locks.AbstractOwnableSynchronizer;
 import java.util.concurrent.locks.LockSupport;
 
 /**
+ * A spin-lock implementation that supports multiple concurrent readers and exclusive writers.
+ *
  * @since 8/18/14
  */
 public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {

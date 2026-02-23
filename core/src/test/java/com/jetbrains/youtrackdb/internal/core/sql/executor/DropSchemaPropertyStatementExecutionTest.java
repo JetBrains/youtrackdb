@@ -9,7 +9,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DROP PROPERTY SQL statements for schema properties.
  */
 public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 

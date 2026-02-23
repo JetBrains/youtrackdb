@@ -43,6 +43,11 @@ import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+/**
+ * Manages the lifecycle of atomic operations for the storage engine.
+ *
+ * @since 12/3/13
+ */
 public class AtomicOperationsManager {
 
   private final AbstractStorage storage;

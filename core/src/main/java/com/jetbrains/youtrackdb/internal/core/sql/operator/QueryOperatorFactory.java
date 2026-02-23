@@ -23,6 +23,8 @@ import java.util.Set;
 public interface QueryOperatorFactory {
 
   /**
+   * Returns the set of query operators provided by this factory.
+   *
    * @return set of operators
    */
   Set<QueryOperator> getOperators();

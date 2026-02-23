@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the ALTER ROLE SQL statement execution. */
 public class AlterRoleStatementExecutionTest extends DbTestBase {
 
   @Test

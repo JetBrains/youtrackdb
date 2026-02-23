@@ -41,6 +41,9 @@ import net.jpountz.xxhash.XXHash64;
 import net.jpountz.xxhash.XXHashFactory;
 
 /**
+ * Manages storage startup metadata including dirty flag and last transaction ID, persisted to a
+ * file with checksum verification.
+ *
  * @since 5/6/14
  */
 public class StorageStartupMetadata {

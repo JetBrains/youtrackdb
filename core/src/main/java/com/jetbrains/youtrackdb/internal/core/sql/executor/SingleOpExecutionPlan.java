@@ -13,9 +13,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan that wraps a single SQL statement execution. */
 public class SingleOpExecutionPlan implements InternalExecutionPlan {
 
   protected final SQLSimpleExecStatement statement;

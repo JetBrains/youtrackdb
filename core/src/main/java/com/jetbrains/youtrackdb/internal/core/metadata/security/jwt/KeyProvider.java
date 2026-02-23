@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security.jwt;
 import java.security.Key;
 
 /**
- *
+ * Provides cryptographic keys used for signing and verifying tokens.
  */
 public interface KeyProvider {
 

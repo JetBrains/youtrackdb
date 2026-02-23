@@ -57,6 +57,8 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
   private final int poolSize;
 
   /**
+   * Returns the singleton instance of the buffer pool, creating it if necessary.
+   *
    * @return Singleton instance
    */
   public static ByteBufferPool instance(ContextConfiguration contextConfiguration) {

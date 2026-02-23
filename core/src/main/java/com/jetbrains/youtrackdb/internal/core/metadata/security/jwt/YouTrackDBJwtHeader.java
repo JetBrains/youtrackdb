@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security.jwt;
 
 /**
- *
+ * Default implementation of a JWT token header for YouTrackDB.
  */
 public class YouTrackDBJwtHeader implements TokenHeader {
 

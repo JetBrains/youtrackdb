@@ -175,6 +175,8 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
   }
 
   /**
+   * Returns the maximum pool size.
+   *
    * @return max pool size. Default is 64
    */
   public int getMaxPoolSize() {

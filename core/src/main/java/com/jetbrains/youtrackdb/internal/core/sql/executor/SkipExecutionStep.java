@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 
-/**
- *
- */
+/** Execution step that skips a specified number of results from its input. */
 public class SkipExecutionStep extends AbstractExecutionStep {
 
   private final SQLSkip skip;

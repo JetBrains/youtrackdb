@@ -24,7 +24,7 @@ import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.PolyglotException;
 
 /**
- *
+ * Script executor that uses the GraalVM Polyglot API for multi-language script evaluation.
  */
 public class PolyglotScriptExecutor extends AbstractScriptExecutor
     implements ResourcePoolListener<DatabaseSessionEmbedded, Context> {

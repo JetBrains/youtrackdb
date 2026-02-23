@@ -8,9 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUpdateRemoveItem;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that applies REMOVE operations to records during an UPDATE. */
 public class UpdateRemoveStep extends AbstractExecutionStep {
 
   private final List<SQLUpdateRemoveItem> items;

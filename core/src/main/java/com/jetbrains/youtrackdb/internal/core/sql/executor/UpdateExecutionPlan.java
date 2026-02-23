@@ -10,9 +10,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution plan for SQL UPDATE statements. */
 public class UpdateExecutionPlan extends SelectExecutionPlan {
   private final List<Result> result = new ArrayList<>();
   private int next = 0;

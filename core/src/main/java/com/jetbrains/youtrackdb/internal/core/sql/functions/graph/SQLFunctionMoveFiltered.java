@@ -11,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFiltered;
 
 /**
- *
+ * Abstract base for graph traversal SQL functions that support filtering during navigation.
  */
 public abstract class SQLFunctionMoveFiltered extends SQLFunctionMove
     implements SQLFunctionFiltered {

@@ -4,9 +4,7 @@ import java.util.ArrayList;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for {@link MultiValue} utility methods on identifiable collections. */
 public class IdentifiableMultiValueTest {
 
   @Test

@@ -13,9 +13,7 @@ import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution step that filters out duplicate results from the upstream stream. */
 public class DistinctExecutionStep extends AbstractExecutionStep {
 
   private final long maxElementsAllowed;

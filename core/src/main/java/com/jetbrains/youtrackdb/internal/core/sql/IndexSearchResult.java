@@ -107,6 +107,8 @@ public class IndexSearchResult {
   }
 
   /**
+   * Checks whether this index search result can be merged with the given one.
+   *
    * @param searchResult Query subset is going to be merged with given one.
    * @return <code>true</code> if two query subsets can be merged.
    */

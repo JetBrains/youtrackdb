@@ -23,9 +23,7 @@ import java.util.Set;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution step that fetches edges connecting specified source and target vertices. */
 public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private final SQLIdentifier targetClass;

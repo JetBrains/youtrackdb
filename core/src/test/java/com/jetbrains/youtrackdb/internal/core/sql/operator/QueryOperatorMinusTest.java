@@ -25,9 +25,7 @@ import java.math.BigDecimal;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL subtraction operator across numeric types. */
 public class QueryOperatorMinusTest {
 
   @Test

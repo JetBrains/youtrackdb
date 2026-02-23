@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.Iterator;
 
-/**
- *
- */
+/** Iterator over the record identifiers contained in a {@link RidSet}. */
 public class RidSetIterator implements Iterator<RID> {
 
   private final Iterator<RID> negativesIterator;

@@ -42,6 +42,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
+ * Storage engine implementation for local paginated (disk-based) storage.
+ *
  * @since 28.03.13
  */
 public class EngineLocalPaginated extends EngineAbstract {
@@ -123,6 +125,8 @@ public class EngineLocalPaginated extends EngineAbstract {
   }
 
   /**
+   * Changes the maximum amount of memory available to the read cache.
+   *
    * @param cacheSize Cache size in bytes.
    * @see ReadCache#changeMaximumAmountOfMemory(long)
    */

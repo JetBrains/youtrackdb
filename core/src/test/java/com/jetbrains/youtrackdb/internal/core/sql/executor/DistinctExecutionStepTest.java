@@ -13,7 +13,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests the {@link DistinctExecutionStep} for deduplicating query results.
  */
 public class DistinctExecutionStepTest extends DbTestBase {
 

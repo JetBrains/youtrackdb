@@ -12,7 +12,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of FIND REFERENCES SQL statements.
  */
 public class FindReferencesStatementExecutionTest extends DbTestBase {
 

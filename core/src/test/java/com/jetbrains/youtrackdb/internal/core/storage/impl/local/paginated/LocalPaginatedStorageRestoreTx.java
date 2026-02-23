@@ -36,6 +36,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 /**
+ * Tests for restoring local paginated storage transactions from WAL.
+ *
  * @since 14.06.13
  */
 public class LocalPaginatedStorageRestoreTx {

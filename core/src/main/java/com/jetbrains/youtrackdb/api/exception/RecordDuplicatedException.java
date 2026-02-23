@@ -25,6 +25,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 
 /**
+ * Exception thrown when an attempt is made to insert a duplicate record into a unique index.
+ *
  * @since 9/5/12
  */
 public class RecordDuplicatedException extends CoreException implements HighLevelException {

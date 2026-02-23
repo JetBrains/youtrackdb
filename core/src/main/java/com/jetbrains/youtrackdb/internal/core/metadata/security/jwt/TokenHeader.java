@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security.jwt;
 
 /**
- *
+ * Represents the header portion of a JSON Web Token (JWT).
  */
 public interface TokenHeader {
 

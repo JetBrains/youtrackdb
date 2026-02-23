@@ -24,6 +24,11 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
+/**
+ * A durable page that stores the state metadata for a v2 paginated collection.
+ *
+ * @since 20.08.13
+ */
 public final class PaginatedCollectionStateV2 extends DurablePage {
 
   private static final int RECORDS_SIZE_OFFSET = NEXT_FREE_POSITION;

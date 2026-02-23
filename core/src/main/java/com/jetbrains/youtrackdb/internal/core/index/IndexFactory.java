@@ -34,11 +34,15 @@ public interface IndexFactory {
   int getLastVersion(final String algorithm);
 
   /**
+   * Returns the set of index types supported by this factory.
+   *
    * @return List of supported indexes of this factory
    */
   Set<String> getTypes();
 
   /**
+   * Returns the set of index algorithms supported by this factory.
+   *
    * @return List of supported algorithms of this factory
    */
   Set<String> getAlgorithms();

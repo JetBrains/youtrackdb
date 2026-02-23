@@ -8,7 +8,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests saving and removing linked types on embedded collection properties in the schema.
  */
 public class SaveLinkedTypeAnyTest extends DbTestBase {
 

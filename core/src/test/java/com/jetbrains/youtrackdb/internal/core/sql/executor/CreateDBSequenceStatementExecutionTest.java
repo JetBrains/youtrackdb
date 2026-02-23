@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CREATE SEQUENCE SQL statement execution. */
 public class CreateDBSequenceStatementExecutionTest extends DbTestBase {
 
   @Test

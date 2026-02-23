@@ -138,6 +138,8 @@ public class JSONReader {
   }
 
   /**
+   * Reads the next record string from the JSON input, extracting large RID bags separately.
+   *
    * @param maxRidbagSizeLazyImport
    * @return a pair containing as a key the parsed record string (with big ridbags emptied), and as
    * a value the map of big ridbag field names and content

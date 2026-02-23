@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL CREATE FUNCTION command executor. */
 public class CommandExecutorSQLCreateFunctionTest extends DbTestBase {
 
   @Test

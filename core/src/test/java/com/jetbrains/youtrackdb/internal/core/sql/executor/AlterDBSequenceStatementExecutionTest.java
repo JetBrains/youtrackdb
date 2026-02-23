@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the ALTER SEQUENCE SQL statement execution. */
 public class AlterDBSequenceStatementExecutionTest extends DbTestBase {
   @Test
   public void testSetIncrement() {

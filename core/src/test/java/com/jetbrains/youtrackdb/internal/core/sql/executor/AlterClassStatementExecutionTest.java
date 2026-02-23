@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the ALTER CLASS SQL statement execution. */
 public class AlterClassStatementExecutionTest extends DbTestBase {
 
   @Test

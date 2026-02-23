@@ -11,7 +11,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of CREATE VERTEX SQL statements.
  */
 public class CreateVertexStatementExecutionTest extends DbTestBase {
 

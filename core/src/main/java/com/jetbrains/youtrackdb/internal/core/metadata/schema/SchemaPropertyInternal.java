@@ -8,6 +8,8 @@ import java.util.Collection;
 public interface SchemaPropertyInternal extends SchemaProperty {
 
   /**
+   * Returns all indexes in which this property participates.
+   *
    * @return All indexes in which this property participates.
    */
   Collection<String> getAllIndexes();

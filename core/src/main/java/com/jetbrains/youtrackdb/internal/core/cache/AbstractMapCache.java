@@ -27,7 +27,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 
 /**
- *
+ * Abstract base implementation of {@link RecordCache} backed by a {@link Map}.
  */
 public abstract class AbstractMapCache<T extends Map<RID, ?>> implements RecordCache {
   @Nonnull

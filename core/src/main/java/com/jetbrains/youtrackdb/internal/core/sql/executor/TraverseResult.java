@@ -4,9 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import javax.annotation.Nonnull;
 
-/**
- *
- */
+/** Result type returned by TRAVERSE queries, carrying the traversal depth. */
 public class TraverseResult extends ResultInternal {
 
   protected Integer depth;

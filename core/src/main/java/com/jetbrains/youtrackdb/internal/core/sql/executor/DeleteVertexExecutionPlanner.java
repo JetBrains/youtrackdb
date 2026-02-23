@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 
-/**
- *
- */
+/** Planner that builds an execution plan for DELETE VERTEX statements. */
 public class DeleteVertexExecutionPlanner {
 
   private final SQLFromClause fromClause;

@@ -33,9 +33,7 @@ import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for transactional duplicate key handling in non-unique indexes. */
 public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
   private Index index;

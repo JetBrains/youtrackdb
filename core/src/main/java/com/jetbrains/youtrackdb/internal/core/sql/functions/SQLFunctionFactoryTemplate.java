@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- *
+ * Template base class for SQL function factories that register and look up functions by name.
  */
 public abstract class SQLFunctionFactoryTemplate implements SQLFunctionFactory {
 

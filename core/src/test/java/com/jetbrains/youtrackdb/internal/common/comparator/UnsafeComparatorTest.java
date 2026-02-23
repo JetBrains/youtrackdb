@@ -5,6 +5,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
+ * Tests for {@link UnsafeByteArrayComparator} byte array comparison.
+ *
  * @since 11.07.12
  */
 public class UnsafeComparatorTest {

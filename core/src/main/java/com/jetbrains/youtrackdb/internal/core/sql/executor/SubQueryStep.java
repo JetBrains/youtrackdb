@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
+/** Execution step that delegates to a sub-query execution plan. */
 public class SubQueryStep extends AbstractExecutionStep {
 
   private final InternalExecutionPlan subExecuitonPlan;

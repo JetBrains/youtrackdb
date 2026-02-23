@@ -100,6 +100,8 @@ public interface Index extends Comparable<Index> {
   long getRebuildVersion();
 
   /**
+   * Checks whether this index is currently being rebuilt.
+   *
    * @return Indicates whether index is rebuilding at the moment.
    * @see #getRebuildVersion()
    */
@@ -231,6 +233,8 @@ public interface Index extends Comparable<Index> {
   boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
 
   /**
+   * Returns the number of entries in this index.
+   *
    * @return number of entries in the index.
    */
   long size(DatabaseSessionEmbedded session);

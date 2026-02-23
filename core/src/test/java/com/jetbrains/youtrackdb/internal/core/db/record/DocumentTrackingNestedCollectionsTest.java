@@ -13,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
 /**
- *
+ * Tests dirty-tracking of nested embedded collections (sets, lists, maps) within entities.
  */
 public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
 

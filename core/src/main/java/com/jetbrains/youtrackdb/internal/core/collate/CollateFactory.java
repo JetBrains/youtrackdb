@@ -28,6 +28,8 @@ import java.util.Set;
 public interface CollateFactory {
 
   /**
+   * Returns the set of collate names supported by this factory.
+   *
    * @return Set of supported collate names of this factory
    */
   Set<String> getNames();

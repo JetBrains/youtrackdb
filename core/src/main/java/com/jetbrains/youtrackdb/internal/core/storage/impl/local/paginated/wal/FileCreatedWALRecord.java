@@ -25,6 +25,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerial
 import java.nio.ByteBuffer;
 
 /**
+ * WAL record that logs the creation of a new storage file.
+ *
  * @since 5/21/14
  */
 public class FileCreatedWALRecord extends OperationUnitBodyRecord {

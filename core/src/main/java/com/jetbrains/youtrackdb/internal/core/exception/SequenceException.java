@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
 /**
+ * Exception thrown when a sequence operation fails.
+ *
  * @since 2/28/2015
  */
 public class SequenceException extends CoreException {

@@ -22,9 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.query.live;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOp;
 import java.util.List;
 
-/**
- *
- */
+/** Version 2 listener that receives batched record operation events from live query subscriptions. */
 public interface LiveQueryListenerV2 {
 
   void onLiveResults(List<LiveQueryOp> iRecords);

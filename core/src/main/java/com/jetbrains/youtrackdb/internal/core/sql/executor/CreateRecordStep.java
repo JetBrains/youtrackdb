@@ -10,9 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 
-/**
- *
- */
+/** Execution step that creates new records of a specified class. */
 public class CreateRecordStep extends AbstractExecutionStep {
 
   private final int total;

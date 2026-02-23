@@ -37,6 +37,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
+ * Bucket (page) implementation for the v1 single-value cell B-tree index.
+ *
  * @since 8/7/13
  */
 public final class CellBTreeBucketSingleValueV1<K> extends DurablePage {

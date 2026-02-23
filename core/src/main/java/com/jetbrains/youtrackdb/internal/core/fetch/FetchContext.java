@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 /**
- *
+ * Context interface for controlling and receiving callbacks during record fetch operations.
  */
 public interface FetchContext {
 

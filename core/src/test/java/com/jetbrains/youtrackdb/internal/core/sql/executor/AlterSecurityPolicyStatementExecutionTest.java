@@ -5,9 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityPolicy;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the ALTER SECURITY POLICY SQL statement execution. */
 public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
 
   @Test

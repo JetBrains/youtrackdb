@@ -13,7 +13,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests deletion of SBTree-backed RID bags within transactions and across rollbacks.
  */
 public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 

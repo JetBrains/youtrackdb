@@ -16,7 +16,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of INSERT SQL statements.
  */
 public class InsertStatementExecutionTest extends DbTestBase {
 

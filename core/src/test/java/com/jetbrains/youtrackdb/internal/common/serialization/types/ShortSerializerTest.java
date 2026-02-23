@@ -26,6 +26,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
+ * Tests for {@link ShortSerializer} serialization and deserialization of short values.
+ *
  * @since 18.01.12
  */
 public class ShortSerializerTest {

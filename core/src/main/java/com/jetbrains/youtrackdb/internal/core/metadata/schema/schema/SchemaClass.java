@@ -121,16 +121,22 @@ public interface SchemaClass {
   int[] getPolymorphicCollectionIds();
 
   /**
+   * Returns all direct subclasses (one level hierarchy only).
+   *
    * @return all the subclasses (one level hierarchy only)
    */
   Collection<SchemaClass> getSubclasses();
 
   /**
+   * Returns all subclasses recursively across the entire hierarchy.
+   *
    * @return all the subclass hierarchy
    */
   Collection<SchemaClass> getAllSubclasses();
 
   /**
+   * Returns all super classes collected recursively across the entire hierarchy.
+   *
    * @return all recursively collected super classes
    */
   Collection<SchemaClass> getAllSuperClasses();
@@ -234,11 +240,15 @@ public interface SchemaClass {
       String... fields);
 
   /**
+   * Checks whether this class represents a subclass of an edge class (E).
+   *
    * @return true if this class represents a subclass of an edge class (E)
    */
   boolean isEdgeType();
 
   /**
+   * Checks whether this class represents a subclass of a vertex class (V).
+   *
    * @return true if this class represents a subclass of a vertex class (V)
    */
   boolean isVertexType();

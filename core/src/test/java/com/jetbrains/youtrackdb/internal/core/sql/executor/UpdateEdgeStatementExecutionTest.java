@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for SQL UPDATE EDGE statement execution. */
 public class UpdateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test

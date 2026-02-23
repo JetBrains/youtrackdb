@@ -26,9 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
-/**
- *
- */
+/** Background thread that processes queued record operations and dispatches them to live query listeners. */
 public class LiveQueryQueueThread extends Thread {
 
   private final BlockingQueue<RecordOperation> queue;

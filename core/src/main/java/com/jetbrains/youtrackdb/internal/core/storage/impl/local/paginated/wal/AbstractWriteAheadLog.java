@@ -21,6 +21,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 /**
+ * Abstract base class for write-ahead log implementations.
+ *
  * @since 6/25/14
  */
 public abstract class AbstractWriteAheadLog implements WriteAheadLog {

@@ -31,9 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the SQL CREATE PROPERTY command executor. */
 public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryInternalDatabase {
 
   private static final String PROP_NAME = "name";

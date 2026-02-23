@@ -5,9 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for the CheckClassTypeStep query execution step. */
 public class CheckClassTypeStepTest extends TestUtilsFixture {
 
   @Test

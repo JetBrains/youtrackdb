@@ -9,6 +9,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import java.nio.ByteBuffer;
 
 /**
+ * Represents a portion of changes applied to a WAL page.
+ *
  * @since 8/17/2015
  */
 public final class WALPageChangesPortion implements WALChanges {

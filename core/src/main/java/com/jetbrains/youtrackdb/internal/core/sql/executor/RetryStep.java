@@ -11,9 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import java.util.List;
 
-/**
- *
- */
+/** Execution step that retries a block of statements a configurable number of times. */
 public class RetryStep extends AbstractExecutionStep {
 
   public List<SQLStatement> body;

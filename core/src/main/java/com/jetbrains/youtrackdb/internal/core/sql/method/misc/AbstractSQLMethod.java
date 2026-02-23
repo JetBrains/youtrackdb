@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.method.SQLMethod;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Abstract base class for SQL method implementations providing common name and parameter handling.
  */
 public abstract class AbstractSQLMethod implements SQLMethod {
 

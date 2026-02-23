@@ -12,9 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- *
- */
+/** Describes an index search operation including the target index, key condition, and remaining filter. */
 public class IndexSearchDescriptor {
 
   private final Index index;

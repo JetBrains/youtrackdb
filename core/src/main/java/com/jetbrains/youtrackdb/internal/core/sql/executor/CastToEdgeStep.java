@@ -8,9 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
+/** Execution step that casts upstream results to edge records. */
 public class CastToEdgeStep extends AbstractExecutionStep {
 
   public CastToEdgeStep(CommandContext ctx, boolean profilingEnabled) {

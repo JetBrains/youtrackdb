@@ -7,9 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 
-/**
- *
- */
+/** Execution step that applies a SQL projection to each incoming result record. */
 public class ProjectionCalculationStep extends AbstractExecutionStep {
 
   protected final SQLProjection projection;

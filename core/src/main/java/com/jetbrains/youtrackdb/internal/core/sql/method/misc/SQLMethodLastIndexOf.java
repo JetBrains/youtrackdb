@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 
 /**
- *
+ * SQL method that returns the index of the last occurrence of a substring within a string.
  */
 public class SQLMethodLastIndexOf extends AbstractSQLMethod {
 

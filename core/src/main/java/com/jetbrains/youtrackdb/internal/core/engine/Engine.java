@@ -44,6 +44,8 @@ public interface Engine {
   String getNameFromPath(String dbPath);
 
   /**
+   * Returns whether this engine is currently running.
+   *
    * @return {@code true} if this engine has been started and not shutdown yet, {@code false}
    * otherwise.
    */

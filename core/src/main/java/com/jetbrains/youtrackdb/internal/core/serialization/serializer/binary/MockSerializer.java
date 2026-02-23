@@ -20,7 +20,7 @@ import java.nio.ByteBuffer;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Mock implementation of {@link BinarySerializer} used for testing purposes.
  */
 public class MockSerializer implements BinarySerializer<EntityImpl> {
 

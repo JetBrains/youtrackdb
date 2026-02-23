@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.ArrayDeque;
 
 /**
- *
+ * Represents a path of records visited during a graph traversal operation.
  */
 public class TraversePath {
 

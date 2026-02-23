@@ -8,7 +8,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- *
+ * Tests execution of DROP SEQUENCE SQL statements.
  */
 public class DropDBSequenceStatementExecutionTest extends DbTestBase {
 

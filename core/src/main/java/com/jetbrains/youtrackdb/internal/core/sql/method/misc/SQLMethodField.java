@@ -34,7 +34,7 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 /**
- *
+ * SQL method that retrieves a field value from a document or map by name.
  */
 public class SQLMethodField extends AbstractSQLMethod {
 

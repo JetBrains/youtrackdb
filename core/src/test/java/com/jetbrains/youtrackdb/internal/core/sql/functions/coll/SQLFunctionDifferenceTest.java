@@ -26,6 +26,8 @@ import java.util.Set;
 import org.junit.Test;
 
 /**
+ * Tests for the SQL DIFFERENCE() collection function.
+ *
  * @since 11.10.12 14:40
  */
 public class SQLFunctionDifferenceTest {

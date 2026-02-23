@@ -27,6 +27,9 @@ import java.security.PrivilegedAction;
 import sun.misc.Unsafe;
 
 /**
+ * A {@link BinaryConverter} implementation that uses {@code sun.misc.Unsafe} for direct memory
+ * access.
+ *
  * @since 26.07.12
  */
 @SuppressWarnings("restriction")

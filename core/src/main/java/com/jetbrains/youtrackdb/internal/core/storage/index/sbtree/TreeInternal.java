@@ -28,7 +28,7 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 /**
- *
+ * Internal interface for B-tree-based index operations.
  */
 public interface TreeInternal<K, V> {
 
@@ -44,7 +44,7 @@ public interface TreeInternal<K, V> {
   V remove(AtomicOperation atomicOperation, K key) throws IOException;
 
   /**
-   *
+   * Listener that receives entries during a range scan over the tree.
    */
   interface RangeResultListener<K, V> {
 

@@ -10,9 +10,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+/** Tests for user-defined SQL functions with parameters and result sets. */
 public class FunctionSqlTest extends DbTestBase {
 
   @Test

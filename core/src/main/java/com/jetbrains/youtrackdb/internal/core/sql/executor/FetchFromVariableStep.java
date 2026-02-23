@@ -14,9 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import java.util.Collections;
 import org.apache.commons.collections4.IteratorUtils;
 
-/**
- *
- */
+/** Execution step that fetches results from a named context variable. */
 public class FetchFromVariableStep extends AbstractExecutionStep {
 
   private String variableName;

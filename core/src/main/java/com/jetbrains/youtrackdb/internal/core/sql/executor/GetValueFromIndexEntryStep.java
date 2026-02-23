@@ -10,9 +10,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+/** Execution step that extracts record values from index entries, optionally filtering by collection ID. */
 public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
 
   private final IntArrayList filterCollectionIds;
