@@ -23,7 +23,7 @@ import javax.annotation.Nullable;
 /// Flow:
 /// 1. GqlPlanner.parse(query) → GqlStatement
 /// 2. GqlStatement.createExecutionPlan(ctx) → GqlExecutionPlan
-/// 3. GqlExecutionPlan.start(ctx) → GqlExecutionStream
+/// 3. GqlExecutionPlan.start() → GqlExecutionStream
 ///
 /// Similar to SQL's SQLEngine.parse() returning SQLStatement.
 public class GqlPlanner {

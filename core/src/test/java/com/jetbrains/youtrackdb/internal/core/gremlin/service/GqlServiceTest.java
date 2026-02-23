@@ -38,7 +38,10 @@ public class GqlServiceTest extends GraphBaseTest {
   @Test
   public void execute_streamingMode_delegatesToExecute() {
     graph.traversal().addV("V").property("name", "C").iterate();
-    var list = graph.traversal().V().gql("MATCH (a:V)").toList();
+    var list = graph.traversal().V()
+        .call(GqlService.NAME, Map.of(GqlService.QUERY, "MATCH (a:V)"))
+        .toList();
+    Assert.assertNotNull(list);
     Assert.assertEquals(1, list.size());
   }
 

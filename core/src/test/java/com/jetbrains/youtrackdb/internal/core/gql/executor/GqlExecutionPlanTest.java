@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner;
@@ -19,15 +20,9 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   @Test
   public void emptyPlan_start_returnsEmptyStream() {
     var plan = GqlExecutionPlan.empty();
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    var session = tx.getDatabaseSession();
-    var ctx = new GqlExecutionContext(graphInternal, session);
     var stream = plan.start();
     Assert.assertNotNull(stream);
     Assert.assertFalse(stream.hasNext());
-    tx.commit();
   }
 
   @Test
@@ -38,21 +33,13 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   }
 
   @Test
-  @SuppressWarnings("resource")
   public void emptyPlan_copy_returnsEmptyPlan() {
     var plan = GqlExecutionPlan.empty();
     var copy = plan.copy();
     Assert.assertNotNull(copy);
     Assert.assertNotSame(plan, copy);
-
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    var session = tx.getDatabaseSession();
-    var ctx = new GqlExecutionContext(graphInternal, session);
     var stream = copy.start();
     Assert.assertFalse(stream.hasNext());
-    tx.commit();
   }
 
   @Test
@@ -62,13 +49,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test
   public void sqlPlanMode_start_returnsAdaptedStream() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
+    var tx = ((YTDBGraphInternal) graph).tx();
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       session.command("CREATE CLASS SqlPlanTest EXTENDS V");
       session.command("CREATE VERTEX SqlPlanTest SET name = 'A'");
 
@@ -86,13 +70,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test
   public void sqlPlanMode_reset_allowsReExecution() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
+    var tx = ((YTDBGraphInternal) graph).tx();
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       session.command("CREATE CLASS SqlPlanReset EXTENDS V");
       session.command("CREATE VERTEX SqlPlanReset SET name = 'R'");
 
@@ -116,13 +97,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test
   public void sqlPlanMode_copy_producesIndependentCopy() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
+    var tx = ((YTDBGraphInternal) graph).tx();
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       session.command("CREATE CLASS SqlPlanCopy EXTENDS V");
       session.command("CREATE VERTEX SqlPlanCopy SET name = 'B'");
 
@@ -143,13 +121,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test
   public void sqlStreamAdapter_hasNext_afterClose_returnsFalse() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
+    var tx = ((YTDBGraphInternal) graph).tx();
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       session.command("CREATE CLASS SqlAdapterClose EXTENDS V");
       session.command("CREATE VERTEX SqlAdapterClose SET name = 'X'");
 
@@ -165,13 +140,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test(expected = NoSuchElementException.class)
   public void sqlStreamAdapter_next_afterClose_throwsNoSuchElement() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
+    var tx = ((YTDBGraphInternal) graph).tx();
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       session.command("CREATE CLASS SqlAdapterNextClose EXTENDS V");
       session.command("CREATE VERTEX SqlAdapterNextClose SET name = 'Y'");
 
@@ -186,13 +158,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test
   public void sqlStreamAdapter_close_isIdempotent() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
+    var tx = ((YTDBGraphInternal) graph).tx();
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       session.command("CREATE CLASS SqlAdapterIdempotent EXTENDS V");
       session.command("CREATE VERTEX SqlAdapterIdempotent SET name = 'Z'");
 
@@ -208,8 +177,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   }
 
   private static GqlExecutionPlan buildSqlPlan(
-      com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-      String alias, String className) {
+      DatabaseSessionEmbedded session, String alias, String className) {
     var pattern = new Pattern();
     pattern.addNode(alias);
     var planner = new MatchExecutionPlanner(
