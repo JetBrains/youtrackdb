@@ -1,62 +1,118 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import javax.annotation.Nullable;
 
-
-@SuppressWarnings("unused")
 /// Execution plan for GQL queries.
+///
+/// Wraps an [InternalExecutionPlan] produced by the unified YQL
+/// [com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner],
+/// adapting its [ExecutionStream] to [GqlExecutionStream].
+/// Future GQL features (WHERE, RETURN, edge traversal) extend the shared IR and planner,
+/// not this class.
 public class GqlExecutionPlan {
 
   @Nullable
-  private GqlExecutionStep lastStep = null;
+  private InternalExecutionPlan sqlPlan;
 
-  /// Add a step to the execution plan chain.
-  public void chain(GqlExecutionStep step) {
-    if (lastStep != null) {
-      Objects.requireNonNull(step).setPrevious(lastStep);
-    }
-    lastStep = step;
+  private GqlExecutionPlan() {}
+
+  /// Creates an execution plan that wraps an [InternalExecutionPlan] from the
+  /// unified MATCH planner.
+  public static GqlExecutionPlan forSqlMatchPlan(InternalExecutionPlan sqlPlan) {
+    var plan = new GqlExecutionPlan();
+    plan.sqlPlan = Objects.requireNonNull(sqlPlan);
+    return plan;
+  }
+
+  /// Creates an empty execution plan (no results).
+  public static GqlExecutionPlan empty() {
+    return new GqlExecutionPlan();
   }
 
   /// Start execution and return a stream of results.
-  public @Nullable GqlExecutionStream start(GqlExecutionContext ctx) {
-    if (lastStep == null) {
+  public GqlExecutionStream start() {
+    if (sqlPlan == null) {
       return GqlExecutionStream.empty();
     }
-    return lastStep.start(ctx);
+    var stream = sqlPlan.start();
+    return new SqlStreamAdapter(stream, sqlPlan.getContext());
   }
 
   /// Close the execution plan and release resources.
-  /// Closing lastStep will cascade to all previous steps.
   public void close() {
-    if (lastStep != null) {
-      lastStep.close();
+    if (sqlPlan != null) {
+      sqlPlan.close();
     }
   }
 
   /// Reset the execution plan for re-execution.
-  /// Resetting lastStep will cascade to all previous steps.
   public void reset() {
-    if (lastStep != null) {
-      lastStep.reset();
+    if (sqlPlan != null) {
+      sqlPlan.reset(sqlPlan.getContext());
     }
   }
 
   /// Create a copy of this execution plan for caching purposes.
   public GqlExecutionPlan copy() {
-    var copy = new GqlExecutionPlan();
-    if (lastStep != null) {
-      copy.lastStep = lastStep.copy();
+    if (sqlPlan != null) {
+      return forSqlMatchPlan(sqlPlan.copy(sqlPlan.getContext()));
     }
-    return copy;
+    return empty();
   }
 
   /// Check if this execution plan can be cached.
-  /// For now, all GQL plans can be cached.
   @SuppressWarnings("SameReturnValue")
   public static boolean canBeCached() {
     return true;
+  }
+
+  /// Adapts YQL's [ExecutionStream] (which requires
+  /// [com.jetbrains.youtrackdb.internal.core.command.CommandContext])
+  /// to GQL's context-free [GqlExecutionStream].
+  static final class SqlStreamAdapter implements GqlExecutionStream {
+
+    private final ExecutionStream sqlStream;
+    private final com.jetbrains.youtrackdb.internal.core.command.CommandContext commandContext;
+    private boolean closed;
+
+    SqlStreamAdapter(ExecutionStream sqlStream,
+        com.jetbrains.youtrackdb.internal.core.command.CommandContext commandContext) {
+      this.sqlStream = sqlStream;
+      this.commandContext = commandContext;
+    }
+
+    @Override
+    public boolean hasNext() {
+      if (closed) {
+        return false;
+      }
+      var has = sqlStream.hasNext(commandContext);
+      if (!has) {
+        close();
+      }
+      return has;
+    }
+
+    @Override
+    public Object next() {
+      if (closed) {
+        throw new NoSuchElementException();
+      }
+      return sqlStream.next(commandContext);
+    }
+
+    @Override
+    public void close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      sqlStream.close(commandContext);
+    }
   }
 }

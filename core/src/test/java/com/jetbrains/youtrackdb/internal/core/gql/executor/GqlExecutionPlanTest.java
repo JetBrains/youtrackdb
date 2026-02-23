@@ -1,21 +1,24 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
-import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.List;
-
 /**
- * Tests for GqlExecutionPlan: empty plan, chain, start, close, reset, copy, canBeCached.
+ * Tests for GqlExecutionPlan: empty plan, SQL-plan mode (start, close, reset, copy),
+ * SqlStreamAdapter edge cases (closed hasNext/next, idempotent close), canBeCached.
  */
 public class GqlExecutionPlanTest extends GraphBaseTest {
 
   @Test
   public void emptyPlan_start_returnsEmptyStream() {
-    var plan = new GqlExecutionPlan();
+    var plan = GqlExecutionPlan.empty();
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
     tx.readWrite();
@@ -28,70 +31,27 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   }
 
   @Test
-  public void emptyPlan_close_reset_copy_doNotThrow() {
-    var plan = new GqlExecutionPlan();
+  public void emptyPlan_close_reset_doNotThrow() {
+    var plan = GqlExecutionPlan.empty();
     plan.close();
     plan.reset();
+  }
+
+  @Test
+  @SuppressWarnings("resource")
+  public void emptyPlan_copy_returnsEmptyPlan() {
+    var plan = GqlExecutionPlan.empty();
     var copy = plan.copy();
     Assert.assertNotNull(copy);
     Assert.assertNotSame(plan, copy);
-  }
-
-  @Test
-  public void planWithOneStep_start_returnsStepStream() {
-    var plan = new GqlExecutionPlan();
-    var step = new FakeStep(GqlExecutionStream.fromIterator(List.of(1, 2, 3).iterator()));
-    plan.chain(step);
 
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
     tx.readWrite();
     var session = tx.getDatabaseSession();
     var ctx = new GqlExecutionContext(graphInternal, session);
-
-    var stream = plan.start(ctx);
-    Assert.assertNotNull(stream);
-    Assert.assertEquals(1, stream.next());
-    Assert.assertEquals(2, stream.next());
-    Assert.assertEquals(3, stream.next());
+    var stream = copy.start();
     Assert.assertFalse(stream.hasNext());
-    tx.commit();
-  }
-
-  @Test
-  public void plan_close_closesSteps() {
-    var plan = new GqlExecutionPlan();
-    var step = new FakeStep(GqlExecutionStream.fromIterator(List.of(1).iterator()));
-    plan.chain(step);
-    plan.close();
-    Assert.assertTrue(step.closed);
-  }
-
-  @Test
-  public void plan_reset_resetsSteps() {
-    var plan = new GqlExecutionPlan();
-    var step = new FakeStep(GqlExecutionStream.fromIterator(List.of(1).iterator()));
-    plan.chain(step);
-    plan.reset();
-    Assert.assertEquals(1, step.resetCount);
-  }
-
-  @Test
-  public void plan_copy_returnsNewPlanWithCopiedStep() {
-    var plan = new GqlExecutionPlan();
-    var step = new FakeStep(GqlExecutionStream.fromIterator(List.of(1).iterator()));
-    plan.chain(step);
-
-    var copy = plan.copy();
-    Assert.assertNotSame(plan, copy);
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    var session = tx.getDatabaseSession();
-    var ctx = new GqlExecutionContext(graphInternal, session);
-    var stream = copy.start(ctx);
-    Assert.assertNotNull(stream);
-    Assert.assertEquals(1, stream.next());
     tx.commit();
   }
 
@@ -100,46 +60,161 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     Assert.assertTrue(GqlExecutionPlan.canBeCached());
   }
 
-  private static final class FakeStep implements GqlExecutionStep {
+  @Test
+  public void sqlPlanMode_start_returnsAdaptedStream() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
 
-    private final GqlExecutionStream stream;
-    private GqlExecutionStep prev;
-    boolean closed;
-    int resetCount;
+      session.command("CREATE CLASS SqlPlanTest EXTENDS V");
+      session.command("CREATE VERTEX SqlPlanTest SET name = 'A'");
 
-    FakeStep(GqlExecutionStream stream) {
-      this.stream = stream;
+      var gqlPlan = buildSqlPlan(session, "a", "SqlPlanTest");
+      var stream = gqlPlan.start(ctx);
+      Assert.assertNotNull(stream);
+      Assert.assertTrue(stream.hasNext());
+      Assert.assertNotNull(stream.next());
+      Assert.assertFalse(stream.hasNext());
+      gqlPlan.close();
+    } finally {
+      tx.rollback();
     }
+  }
 
-    @Override
-    public GqlExecutionStream start(GqlExecutionContext ctx) {
-      return stream;
+  @Test
+  public void sqlPlanMode_reset_allowsReExecution() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+
+      session.command("CREATE CLASS SqlPlanReset EXTENDS V");
+      session.command("CREATE VERTEX SqlPlanReset SET name = 'R'");
+
+      var gqlPlan = buildSqlPlan(session, "a", "SqlPlanReset");
+
+      var stream1 = gqlPlan.start(ctx);
+      Assert.assertTrue(stream1.hasNext());
+      stream1.next();
+      Assert.assertFalse(stream1.hasNext());
+
+      gqlPlan.reset();
+      var stream2 = gqlPlan.start(ctx);
+      Assert.assertTrue(stream2.hasNext());
+      stream2.next();
+      Assert.assertFalse(stream2.hasNext());
+      gqlPlan.close();
+    } finally {
+      tx.rollback();
     }
+  }
 
-    @Override
-    public void setPrevious(GqlExecutionStep step) {
-      this.prev = step;
+  @Test
+  public void sqlPlanMode_copy_producesIndependentCopy() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+
+      session.command("CREATE CLASS SqlPlanCopy EXTENDS V");
+      session.command("CREATE VERTEX SqlPlanCopy SET name = 'B'");
+
+      var gqlPlan = buildSqlPlan(session, "b", "SqlPlanCopy");
+      var copy = gqlPlan.copy();
+      Assert.assertNotSame(gqlPlan, copy);
+
+      var stream = copy.start(ctx);
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+      copy.close();
+      gqlPlan.close();
+    } finally {
+      tx.rollback();
     }
+  }
 
-    @Override
-    public GqlExecutionStep getPrevious() {
-      return prev;
-    }
+  @Test
+  public void sqlStreamAdapter_hasNext_afterClose_returnsFalse() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
 
-    @Override
-    public void close() {
-      closed = true;
+      session.command("CREATE CLASS SqlAdapterClose EXTENDS V");
+      session.command("CREATE VERTEX SqlAdapterClose SET name = 'X'");
+
+      var gqlPlan = buildSqlPlan(session, "a", "SqlAdapterClose");
+      var stream = gqlPlan.start(ctx);
       stream.close();
+      Assert.assertFalse(stream.hasNext());
+      gqlPlan.close();
+    } finally {
+      tx.rollback();
     }
+  }
 
-    @Override
-    public void reset() {
-      resetCount++;
-    }
+  @Test(expected = NoSuchElementException.class)
+  public void sqlStreamAdapter_next_afterClose_throwsNoSuchElement() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
 
-    @Override
-    public GqlExecutionStep copy() {
-      return new FakeStep(GqlExecutionStream.fromIterator(List.of(1).iterator()));
+      session.command("CREATE CLASS SqlAdapterNextClose EXTENDS V");
+      session.command("CREATE VERTEX SqlAdapterNextClose SET name = 'Y'");
+
+      var gqlPlan = buildSqlPlan(session, "a", "SqlAdapterNextClose");
+      var stream = gqlPlan.start(ctx);
+      stream.close();
+      stream.next();
+    } finally {
+      tx.rollback();
     }
+  }
+
+  @Test
+  public void sqlStreamAdapter_close_isIdempotent() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+
+      session.command("CREATE CLASS SqlAdapterIdempotent EXTENDS V");
+      session.command("CREATE VERTEX SqlAdapterIdempotent SET name = 'Z'");
+
+      var gqlPlan = buildSqlPlan(session, "a", "SqlAdapterIdempotent");
+      var stream = gqlPlan.start(ctx);
+      stream.close();
+      stream.close();
+      Assert.assertFalse(stream.hasNext());
+      gqlPlan.close();
+    } finally {
+      tx.rollback();
+    }
+  }
+
+  private static GqlExecutionPlan buildSqlPlan(
+      com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+      String alias, String className) {
+    var pattern = new Pattern();
+    pattern.addNode(alias);
+    var planner = new MatchExecutionPlanner(
+        pattern, Map.of(alias, className), null, null);
+    var sqlPlan = planner.createExecutionPlan(new BasicCommandContext(session), false);
+    return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
   }
 }

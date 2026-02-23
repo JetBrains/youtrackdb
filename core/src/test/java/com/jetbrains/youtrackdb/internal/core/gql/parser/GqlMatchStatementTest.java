@@ -11,10 +11,114 @@ import org.junit.Test;
 import java.util.List;
 
 /**
- * Tests for GqlMatchStatement.createExecutionPlan: useCache false skips cache;
- * originalStatement null skips cache lookup and put; with cache yields plan.
+ * Tests for GqlMatchStatement: createExecutionPlan with cache on/off; buildPlan with empty
+ * patterns; anonymous alias generation; default type when label is blank.
  */
 public class GqlMatchStatementTest extends GraphBaseTest {
+
+  @Test
+  public void buildPlan_emptyPatterns_returnsEmptyPlan() {
+    var patterns = List.<GqlMatchVisitor.NodePattern>of();
+    var statement = new GqlMatchStatement(patterns);
+
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+      var plan = statement.createExecutionPlan(ctx, false);
+      Assert.assertNotNull(plan);
+      var stream = plan.start(ctx);
+      Assert.assertNotNull(stream);
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
+  public void buildPlan_anonymousPattern_generatesAlias() {
+    var patterns = List.of(new GqlMatchVisitor.NodePattern(null, "OUser"));
+    var statement = new GqlMatchStatement(patterns);
+
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+      var plan = statement.createExecutionPlan(ctx, false);
+      Assert.assertNotNull(plan);
+      var stream = plan.start(ctx);
+      Assert.assertNotNull(stream);
+      while (stream.hasNext()) {
+        var result = stream.next();
+        Assert.assertNotNull(result);
+      }
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
+  public void buildPlan_blankAlias_generatesAlias() {
+    var patterns = List.of(new GqlMatchVisitor.NodePattern("", "OUser"));
+    var statement = new GqlMatchStatement(patterns);
+
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+      var plan = statement.createExecutionPlan(ctx, false);
+      Assert.assertNotNull(plan);
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
+  public void buildPlan_noLabel_usesDefaultType() {
+    var patterns = List.of(new GqlMatchVisitor.NodePattern("x", null));
+    var statement = new GqlMatchStatement(patterns);
+
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+      var plan = statement.createExecutionPlan(ctx, false);
+      Assert.assertNotNull(plan);
+      var stream = plan.start(ctx);
+      Assert.assertNotNull(stream);
+      while (stream.hasNext()) {
+        stream.next();
+      }
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
+  public void buildPlan_blankLabel_usesDefaultType() {
+    var patterns = List.of(new GqlMatchVisitor.NodePattern("y", ""));
+    var statement = new GqlMatchStatement(patterns);
+
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(graphInternal, session);
+      var plan = statement.createExecutionPlan(ctx, false);
+      Assert.assertNotNull(plan);
+    } finally {
+      tx.commit();
+    }
+  }
 
   @Test
   public void createExecutionPlan_withUseCacheFalse_createsPlanWithoutUsingCache() {

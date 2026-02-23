@@ -1,21 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
-import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlUnifiedMatchStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
 
-/// Represents a GQL MATCH statement.
+/// Represents a parsed GQL MATCH statement.
 ///
-/// Examples:
-/// - `MATCH (a:Person)` → returns Map<String, Object> with {"a": vertex}
-/// - `MATCH (:Person)` → returns Vertex directly (no alias binding)
-///
-/// Contains the parsed node patterns from the MATCH clause.
+/// Builds the shared MATCH IR ([Pattern] + alias maps) directly from GQL node patterns
+/// and delegates execution to the unified YQL [MatchExecutionPlanner].
 public class GqlMatchStatement implements GqlStatement {
+
+  private static final String DEFAULT_TYPE = "V";
 
   private final List<GqlMatchVisitor.NodePattern> patterns;
   private String originalStatement;
@@ -33,24 +35,20 @@ public class GqlMatchStatement implements GqlStatement {
     return originalStatement;
   }
 
+  @SuppressWarnings("unused")
   public @Nullable List<GqlMatchVisitor.NodePattern> getPatterns() {
     return patterns;
   }
 
   @Override
-  public @Nullable GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx) {
+  public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx) {
     return createExecutionPlan(Objects.requireNonNull(ctx), true);
   }
 
   /// Create an execution plan, optionally using cache.
-  ///
-  /// @param ctx      execution context
-  /// @param useCache whether to use execution plan cache
-  /// @return the execution plan
-  public @Nullable GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
+  public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
     var session = Objects.requireNonNull(ctx).session();
 
-    // Try to get from cache if enabled
     if (useCache && originalStatement != null) {
       var cachedPlan = GqlExecutionPlanCache.get(originalStatement, ctx,
           Objects.requireNonNull(session));
@@ -61,11 +59,8 @@ public class GqlMatchStatement implements GqlStatement {
 
     var planningStart = System.nanoTime();
 
-    // Use unified YQL MATCH planner and engine
-    var plan = new GqlExecutionPlan();
-    plan.chain(new GqlUnifiedMatchStep(Objects.requireNonNull(patterns)));
+    var plan = buildPlan(ctx);
 
-    // Cache the plan if eligible
     if (useCache
         && originalStatement != null
         && GqlExecutionPlan.canBeCached()
@@ -76,5 +71,38 @@ public class GqlMatchStatement implements GqlStatement {
     }
 
     return plan;
+  }
+
+  private GqlExecutionPlan buildPlan(GqlExecutionContext ctx) {
+    if (patterns.isEmpty()) {
+      return GqlExecutionPlan.empty();
+    }
+
+    var pattern = new Pattern();
+    var aliasClasses = new LinkedHashMap<String, String>();
+    var anonymousCounter = 0;
+
+    for (var p : patterns) {
+      var alias = effectiveAlias(p.alias(), anonymousCounter);
+      if (p.alias() == null || p.alias().isBlank()) {
+        anonymousCounter++;
+      }
+      pattern.addNode(alias);
+      aliasClasses.put(alias, effectiveType(p.label()));
+    }
+
+    var commandContext = new BasicCommandContext(ctx.session());
+    var planner = new MatchExecutionPlanner(pattern, aliasClasses, null, null);
+    var sqlPlan = planner.createExecutionPlan(commandContext, false);
+
+    return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
+  }
+
+  private static String effectiveAlias(@Nullable String alias, int anonymousCounter) {
+    return (alias != null && !alias.isBlank()) ? alias : ("$c" + anonymousCounter);
+  }
+
+  private static String effectiveType(@Nullable String label) {
+    return (label == null || label.isBlank()) ? DEFAULT_TYPE : label;
   }
 }
