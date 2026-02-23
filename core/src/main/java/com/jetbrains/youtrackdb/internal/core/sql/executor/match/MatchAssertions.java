@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+
 /**
  * Assertion helper methods for MATCH execution classes.
  *
@@ -69,6 +71,26 @@ final class MatchAssertions {
     checkNotNull(edge, "pattern edge");
     checkNotNull(edge.out, "edge source node");
     checkNotNull(edge.in, "edge target node");
+    return true;
+  }
+
+  /**
+   * Validates preconditions for {@link PatternNode#addEdge}: both the path item and the
+   * target node must be non-null.
+   *
+   * <p>Consolidating two null-checks into a single method reduces the number of
+   * {@code assert} call sites in {@code addEdge} from two to one, which minimises
+   * JaCoCo phantom-branch noise while keeping full branch coverage on the checks
+   * themselves.
+   *
+   * @param item the parsed path item describing the traversal
+   * @param to   the target node
+   * @return always {@code true}
+   * @throws AssertionError if either argument is null
+   */
+  static boolean validateAddEdgeArgs(SQLMatchPathItem item, PatternNode to) {
+    checkNotNull(item, "path item");
+    checkNotNull(to, "target node");
     return true;
   }
 }
