@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.ref.WeakReference;
-import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -314,7 +313,6 @@ public class TsMinHolderTest {
   }
 
   private static Set<TsMinHolder> newTsMinsSet() {
-    return Collections.synchronizedSet(
-        Collections.newSetFromMap(new WeakHashMap<>()));
+    return AbstractStorage.newTsMinsSet();
   }
 }
