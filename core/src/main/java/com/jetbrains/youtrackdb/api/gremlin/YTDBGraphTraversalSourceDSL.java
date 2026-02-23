@@ -117,14 +117,14 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     ).iterate();
   }
 
-  /// Execute a generic YouTrackDB SQL command. Returns a lazy traversal that can be chained. Users
+  /// Execute a generic YouTrackDB YQL command. Returns a lazy traversal that can be chained. Users
   /// must call .iterate() or another terminal operation to execute the command.
   ///
-  /// @param command The SQL command to execute.
+  /// @param command The YQL command to execute.
   /// @return A traversal that can be chained with other steps.
-  public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command) {
+  public YTDBGraphTraversal<Object, Object> yql(@Nonnull String command) {
     return call(
-        YTDBCommandService.SQL_COMMAND_NAME,
+        YTDBCommandService.YQL_NAME,
         Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, Map.of()
@@ -132,18 +132,18 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     );
   }
 
-  /// Execute a generic parameterized YouTrackDB SQL command. Returns a lazy traversal. Users must
+  /// Execute a generic parameterized YouTrackDB YQL command. Returns a lazy traversal. Users must
   /// call .iterate() or another terminal operation to execute the command.
   ///
-  /// @param command   The SQL command to execute.
+  /// @param command   The YQL command to execute.
   /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
   ///                  value2, ...).
   /// @return A traversal that can be chained with other steps.
-  public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command,
+  public YTDBGraphTraversal<Object, Object> yql(@Nonnull String command,
       @Nonnull Object... keyValues) {
     var arguments = processKeyValueArguments(keyValues);
     return call(
-        YTDBCommandService.SQL_COMMAND_NAME,
+        YTDBCommandService.YQL_NAME,
         Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments

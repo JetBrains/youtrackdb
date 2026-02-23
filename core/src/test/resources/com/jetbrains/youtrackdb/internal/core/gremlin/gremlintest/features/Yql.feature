@@ -6,14 +6,14 @@ Feature: Command Support
     # DDL is not transactional - execute directly without BEGIN/COMMIT
     And the traversal of
       """
-      g.sqlCommand("CREATE CLASS Employee IF NOT EXISTS EXTENDS V")
+      g.yql("CREATE CLASS Employee IF NOT EXISTS EXTENDS V")
       """
     When iterated to list
 
-  Scenario: g_sqlCommand_INSERT_and_verify
+  Scenario: g_yql_INSERT_and_verify
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Alice'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Alice'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
@@ -23,10 +23,10 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_INSERT_with_parameters
+  Scenario: g_yql_INSERT_with_parameters
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = :name", "name", "Bob").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = :name", "name", "Bob").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
@@ -36,10 +36,10 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_INSERT_with_multiple_parameters
+  Scenario: g_yql_INSERT_with_multiple_parameters
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = :name, age = :age", "name", "Charlie", "age", 30).sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = :name, age = :age", "name", "Charlie", "age", 30).yql("COMMIT")
       """
     When iterated to list
     And the traversal of
@@ -49,11 +49,11 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_DELETE_with_parameters
+  Scenario: g_yql_DELETE_with_parameters
     # First insert a record
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'ToDelete'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'ToDelete'").yql("COMMIT")
       """
     When iterated to list
     # Verify it exists
@@ -66,7 +66,7 @@ Feature: Command Support
     # Delete with parameter
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("DELETE VERTEX FROM Employee WHERE name = :name", "name", "ToDelete").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("DELETE VERTEX FROM Employee WHERE name = :name", "name", "ToDelete").yql("COMMIT")
       """
     When iterated to list
     # Verify it's gone
@@ -202,3 +202,4 @@ Feature: Command Support
       | result  |
       | Bob     |
       | Charlie |
+
