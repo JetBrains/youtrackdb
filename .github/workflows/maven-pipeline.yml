@@ -162,7 +162,7 @@ jobs:
         include:
           - arch: x86
             java_arch: x64
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,coverage'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests,docker-images,coverage'
           - arch: arm
             java_arch: aarch64
             mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images'

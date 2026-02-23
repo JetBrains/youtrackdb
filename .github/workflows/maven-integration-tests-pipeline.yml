@@ -80,10 +80,10 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images'
             java_arch: x64
           - arch: arm
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P ci-integration-tests -P docker-images'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images'
             java_arch: aarch64
     steps:
       - name: Checkout Source Code
@@ -148,7 +148,7 @@ jobs:
       - name: Run Maven Test
         id: tests
         shell: bash
-        run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci
+        run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true -P ci-integration-tests
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}

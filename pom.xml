@@ -804,6 +804,9 @@
 
     <profile>
       <id>ci-integration-tests</id>
+      <properties>
+        <youtrackdb.test.env>ci</youtrackdb.test.env>
+      </properties>
       <build>
         <pluginManagement>
           <plugins>
