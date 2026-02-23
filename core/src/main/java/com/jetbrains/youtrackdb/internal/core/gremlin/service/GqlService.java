@@ -125,7 +125,7 @@ public class GqlService implements Service<Object, Object> {
       executionPlan = Objects.requireNonNull(statement).createExecutionPlan(executionCtx);
 
       // 5. Execute and return streaming result (Result rows converted to Gremlin types at read time)
-      stream = Objects.requireNonNull(executionPlan).start(executionCtx);
+      stream = Objects.requireNonNull(executionPlan).start();
       return new GqlResultIterator(stream, executionPlan, graph, session);
     } catch (Exception e) {
       if (stream != null) {

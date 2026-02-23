@@ -29,7 +29,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var ctx = new GqlExecutionContext(graphInternal, session);
       var plan = statement.createExecutionPlan(ctx, false);
       Assert.assertNotNull(plan);
-      var stream = plan.start(ctx);
+      var stream = plan.start();
       Assert.assertNotNull(stream);
       Assert.assertFalse(stream.hasNext());
     } finally {
@@ -50,7 +50,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var ctx = new GqlExecutionContext(graphInternal, session);
       var plan = statement.createExecutionPlan(ctx, false);
       Assert.assertNotNull(plan);
-      var stream = plan.start(ctx);
+      var stream = plan.start();
       Assert.assertNotNull(stream);
       while (stream.hasNext()) {
         var result = stream.next();
@@ -92,7 +92,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var ctx = new GqlExecutionContext(graphInternal, session);
       var plan = statement.createExecutionPlan(ctx, false);
       Assert.assertNotNull(plan);
-      var stream = plan.start(ctx);
+      var stream = plan.start();
       Assert.assertNotNull(stream);
       while (stream.hasNext()) {
         stream.next();

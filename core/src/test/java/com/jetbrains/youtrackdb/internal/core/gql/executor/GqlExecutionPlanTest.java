@@ -24,7 +24,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     tx.readWrite();
     var session = tx.getDatabaseSession();
     var ctx = new GqlExecutionContext(graphInternal, session);
-    var stream = plan.start(ctx);
+    var stream = plan.start();
     Assert.assertNotNull(stream);
     Assert.assertFalse(stream.hasNext());
     tx.commit();
@@ -73,7 +73,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       session.command("CREATE VERTEX SqlPlanTest SET name = 'A'");
 
       var gqlPlan = buildSqlPlan(session, "a", "SqlPlanTest");
-      var stream = gqlPlan.start(ctx);
+      var stream = gqlPlan.start();
       Assert.assertNotNull(stream);
       Assert.assertTrue(stream.hasNext());
       Assert.assertNotNull(stream.next());
@@ -98,13 +98,13 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
 
       var gqlPlan = buildSqlPlan(session, "a", "SqlPlanReset");
 
-      var stream1 = gqlPlan.start(ctx);
+      var stream1 = gqlPlan.start();
       Assert.assertTrue(stream1.hasNext());
       stream1.next();
       Assert.assertFalse(stream1.hasNext());
 
       gqlPlan.reset();
-      var stream2 = gqlPlan.start(ctx);
+      var stream2 = gqlPlan.start();
       Assert.assertTrue(stream2.hasNext());
       stream2.next();
       Assert.assertFalse(stream2.hasNext());
@@ -130,7 +130,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       var copy = gqlPlan.copy();
       Assert.assertNotSame(gqlPlan, copy);
 
-      var stream = copy.start(ctx);
+      var stream = copy.start();
       Assert.assertTrue(stream.hasNext());
       stream.next();
       Assert.assertFalse(stream.hasNext());
@@ -154,7 +154,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       session.command("CREATE VERTEX SqlAdapterClose SET name = 'X'");
 
       var gqlPlan = buildSqlPlan(session, "a", "SqlAdapterClose");
-      var stream = gqlPlan.start(ctx);
+      var stream = gqlPlan.start();
       stream.close();
       Assert.assertFalse(stream.hasNext());
       gqlPlan.close();
@@ -176,7 +176,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       session.command("CREATE VERTEX SqlAdapterNextClose SET name = 'Y'");
 
       var gqlPlan = buildSqlPlan(session, "a", "SqlAdapterNextClose");
-      var stream = gqlPlan.start(ctx);
+      var stream = gqlPlan.start();
       stream.close();
       stream.next();
     } finally {
@@ -197,7 +197,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       session.command("CREATE VERTEX SqlAdapterIdempotent SET name = 'Z'");
 
       var gqlPlan = buildSqlPlan(session, "a", "SqlAdapterIdempotent");
-      var stream = gqlPlan.start(ctx);
+      var stream = gqlPlan.start();
       stream.close();
       stream.close();
       Assert.assertFalse(stream.hasNext());
