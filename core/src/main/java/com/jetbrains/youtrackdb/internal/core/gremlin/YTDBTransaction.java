@@ -218,7 +218,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   }
 
   /// Set the tracking ID for this transaction that can be obtained from the QueryDetails inside the
-  /// listener. If null, YTDB will generate its own tracking ID.
+  /// listener. If not set, YTDB will generate its own tracking ID.
   public YTDBTransaction withTrackingId(@Nonnull String trackingId) {
     Objects.requireNonNull(trackingId);
     this.trackingId = trackingId;

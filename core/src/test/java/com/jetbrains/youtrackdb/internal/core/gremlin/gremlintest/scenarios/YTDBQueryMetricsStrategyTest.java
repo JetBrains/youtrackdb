@@ -10,7 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.util.LinkedHashMap;
 import java.util.List;
-import org.apache.commons.lang3.RandomUtils;
+import java.util.Random;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
 import org.apache.tinkerpop.gremlin.process.traversal.DT;
@@ -51,9 +51,16 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   @Test
   @LoadGraphWith(MODERN)
   public void testQueryMonitoringLightweight() throws Exception {
+    final var seed = System.nanoTime();
+    final var random = new Random(seed);
     final var listener = new RememberingListener();
-    for (var i = 0; i < 100; i++) {
-      testQuery(QueryMonitoringMode.LIGHTWEIGHT, listener);
+    try {
+      for (var i = 0; i < 100; i++) {
+        testQuery(QueryMonitoringMode.LIGHTWEIGHT, listener, random);
+      }
+    } catch (Exception | Error e) {
+      System.err.println("testQueryMonitoringLightweight seed: " + seed);
+      throw e;
     }
 
     g.tx().open();
@@ -66,9 +73,16 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   @Test
   @LoadGraphWith(MODERN)
   public void testQueryMonitoringExact() throws Exception {
+    final var seed = System.nanoTime();
+    final var random = new Random(seed);
     final var listener = new RememberingListener();
-    for (var i = 0; i < 100; i++) {
-      testQuery(QueryMonitoringMode.EXACT, listener);
+    try {
+      for (var i = 0; i < 100; i++) {
+        testQuery(QueryMonitoringMode.EXACT, listener, random);
+      }
+    } catch (Exception | Error e) {
+      System.err.println("testQueryMonitoringExact seed: " + seed);
+      throw e;
     }
 
     g.tx().open();
@@ -80,33 +94,39 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   @Test
   @LoadGraphWith(MODERN)
-  public void testLightweightDurationExcludesDelayBeforeClose() throws Exception {
-    final var listener = new RememberingListener();
-    final long delayMillis = 200;
+  public void testDurationExcludesDelayBeforeClose() throws Exception {
+    // Both modes should exclude idle time between the last iteration call and close().
+    // LIGHTWEIGHT captures endNano during the last hasNext()/next() call.
+    // EXACT only accumulates System.nanoTime() deltas inside hasNext()/next() calls.
+    for (var mode : QueryMonitoringMode.values()) {
+      final var listener = new RememberingListener();
+      final long delayMillis = 200;
 
-    ((YTDBTransaction) g.tx())
-        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
-        .withQueryListener(listener);
+      ((YTDBTransaction) g.tx())
+          .withQueryMonitoringMode(mode)
+          .withQueryListener(listener);
 
-    g.tx().open();
+      g.tx().open();
 
-    try (var q = g.V().hasLabel("person")) {
-      q.toList(); // consume all results
+      try (var q = g.V().hasLabel("person")) {
+        q.toList(); // consume all results
 
-      final var afterLastCallNanos = System.nanoTime();
+        final var afterLastCallNanos = System.nanoTime();
 
-      Thread.sleep(delayMillis);
+        Thread.sleep(delayMillis);
 
-      // close() is called here by try-with-resources;
-      // the reported duration should NOT include the sleep
-      assertThat(System.nanoTime() - afterLastCallNanos)
-          .as("sanity check: sleep actually elapsed")
-          .isGreaterThanOrEqualTo(delayMillis * 1_000_000 / 2);
+        // close() is called here by try-with-resources;
+        // the reported duration should NOT include the sleep
+        assertThat(System.nanoTime() - afterLastCallNanos)
+            .as("sanity check: sleep actually elapsed")
+            .isGreaterThanOrEqualTo(delayMillis * 1_000_000 / 2);
+      }
+      g.tx().commit();
+
+      assertThat(listener.executionTimeNanos)
+          .as("duration should exclude sleep delay in %s mode", mode)
+          .isLessThan(delayMillis * 1_000_000);
     }
-    g.tx().commit();
-
-    assertThat(listener.executionTimeNanos)
-        .isLessThan(delayMillis * 1_000_000);
   }
 
   @Test
@@ -1016,8 +1036,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     }
     g.tx().commit();
 
-    System.out.println(pattern + " -> " + listener.query);
-
     final var regex = pattern
         .replace("'", "\"")
         .replace("[", "\\[")
@@ -1030,12 +1048,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).matches(regex);
   }
 
-  private void testQuery(QueryMonitoringMode mode, RememberingListener listener) throws Exception {
-    final var rand = RandomUtils.insecure();
-    final var withTxId = rand.randomBoolean();
-    final var txId = "tx_" + rand.randomInt(0, 1000);
-    final var withSummary = rand.randomBoolean();
-    final var summary = "test_" + rand.randomInt(0, 1000);
+  private void testQuery(
+      QueryMonitoringMode mode, RememberingListener listener, Random random
+  ) throws Exception {
+    final var withTxId = random.nextBoolean();
+    final var txId = "tx_" + random.nextInt(1000);
+    final var withSummary = random.nextBoolean();
+    final var summary = "test_" + random.nextInt(1000);
 
     final var tx = ((YTDBTransaction) g.tx())
         .withQueryMonitoringMode(mode)
@@ -1062,9 +1081,9 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       beforeMillis = System.currentTimeMillis();
       beforeNanos = System.nanoTime();
 
-      q.hasNext(); // query has started
+      assertThat(q.hasNext()).isTrue(); // query has started
 
-      Thread.sleep(rand.randomInt(0, 50));
+      Thread.sleep(random.nextInt(50));
       q.iterate(); // query has finished
 
       afterNanos = System.nanoTime();

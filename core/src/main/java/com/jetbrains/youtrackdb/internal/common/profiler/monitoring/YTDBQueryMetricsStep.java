@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener.QueryDetails;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
-import java.util.Arrays;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -72,7 +71,6 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
   @Override
   protected Admin<S> processNextStart() throws NoSuchElementException {
-    queryHasStarted();
     return starts.next();
   }
 
@@ -123,9 +121,14 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     final var duration = isLightweight ? endNano - nano : nano;
     ytdbTx.getQueryMetricsListener().queryFinished(
         new QueryDetails() {
+          private String cachedQuery;
+
           @Override
           public String getQuery() {
-            return GROOVY_TRANSLATOR.get().translate(traversal.getBytecode()).getScript();
+            if (cachedQuery == null) {
+              cachedQuery = GROOVY_TRANSLATOR.get().translate(traversal.getBytecode()).getScript();
+            }
+            return cachedQuery;
           }
 
           @Override
@@ -264,24 +267,22 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     /// Renders all arguments as structural identifiers — strings are quoted literally,
     /// non-strings are recursed into via [#convertToScript].
     private void appendAllStructural(Object[] args) {
-      final var it = Arrays.stream(args).iterator();
-      while (it.hasNext()) {
-        appendStructural(it.next());
-        if (it.hasNext()) {
+      for (var i = 0; i < args.length; i++) {
+        if (i > 0) {
           script.append(",");
         }
+        appendStructural(args[i]);
       }
     }
 
     /// Renders all arguments as parameterized values via [#convertToScript], which replaces
     /// primitives and strings with `_args_N` placeholders.
     private void appendAllParameterized(Object[] args) {
-      final var it = Arrays.stream(args).iterator();
-      while (it.hasNext()) {
-        convertToScript(it.next());
-        if (it.hasNext()) {
+      for (var i = 0; i < args.length; i++) {
+        if (i > 0) {
           script.append(",");
         }
+        convertToScript(args[i]);
       }
     }
 
