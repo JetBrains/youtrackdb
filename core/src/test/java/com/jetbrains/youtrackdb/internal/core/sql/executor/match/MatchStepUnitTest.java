@@ -5,11 +5,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
@@ -17,9 +19,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import org.junit.Test;
 
@@ -1004,7 +1011,671 @@ public class MatchStepUnitTest extends DbTestBase {
     assertEquals("a", traverser.getEndpointAlias());
   }
 
+  // -- MatchMultiEdgeTraverser.toOResultInternal tests --
+
+  /** Verifies toOResultInternal passes through a ResultInternal unchanged. */
+  @Test
+  public void testToOResultInternalResultInternal() {
+    var result = new ResultInternal(session);
+    result.setProperty("key", "value");
+    var converted = MatchMultiEdgeTraverser.toOResultInternal(session, result);
+    assertSame(result, converted);
+    assertEquals("value", converted.getProperty("key"));
+  }
+
+  /** Verifies toOResultInternal wraps an Identifiable into a ResultInternal. */
+  @Test
+  public void testToOResultInternalIdentifiable() {
+    session.createClassIfNotExist("V");
+
+    session.begin();
+    try {
+      var vertex = session.newVertex("V");
+      var converted = MatchMultiEdgeTraverser.toOResultInternal(session, vertex);
+      assertNotNull(converted);
+      assertTrue(converted.isEntity());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Verifies toOResultInternal wraps a Relation into a ResultInternal. */
+  @Test
+  public void testToOResultInternalRelation() {
+    session.createClassIfNotExist("V");
+    session.createClassIfNotExist("TestEdge", "E");
+
+    session.begin();
+    try {
+      var v1 = session.newVertex("V");
+      var v2 = session.newVertex("V");
+      var edge = v1.addEdge(v2, "TestEdge");
+      var converted = MatchMultiEdgeTraverser.toOResultInternal(session, edge);
+      assertNotNull(converted);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Verifies toOResultInternal throws CommandExecutionException for unrecognized type. */
+  @Test(expected = CommandExecutionException.class)
+  public void testToOResultInternalUnrecognizedType() {
+    MatchMultiEdgeTraverser.toOResultInternal(session, "unknown-type");
+  }
+
+  /** Verifies toOResultInternal asserts when session is null. */
+  @Test(expected = AssertionError.class)
+  public void testToOResultInternalNullSession() {
+    MatchMultiEdgeTraverser.toOResultInternal(null, new ResultInternal(session));
+  }
+
+  /** Verifies toOResultInternal asserts when object is null. */
+  @Test(expected = AssertionError.class)
+  public void testToOResultInternalNullObject() {
+    MatchMultiEdgeTraverser.toOResultInternal(session, null);
+  }
+
+  // -- MatchMultiEdgeTraverser.matchesCondition tests --
+
+  /** Verifies matchesCondition returns true when filter is null. */
+  @Test
+  public void testMultiMatchesConditionNullFilter() {
+    var result = new ResultInternal(session);
+    var ctx = createCommandContext();
+    assertTrue(MatchMultiEdgeTraverser.matchesCondition(result, null, ctx));
+  }
+
+  /** Verifies matchesCondition returns true when filter's WHERE clause is null. */
+  @Test
+  public void testMultiMatchesConditionNullWhere() {
+    var result = new ResultInternal(session);
+    var ctx = createCommandContext();
+    // Filter with no WHERE clause items — getFilter() returns null
+    var filter = new SQLMatchFilter(-1);
+    assertTrue(MatchMultiEdgeTraverser.matchesCondition(result, filter, ctx));
+  }
+
+  /** Verifies matchesCondition returns true when WHERE clause evaluates to true. */
+  @Test
+  public void testMultiMatchesConditionPassingFilter() {
+    var result = new ResultInternal(session);
+    var ctx = createCommandContext();
+    var filter = new SQLMatchFilter(-1);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(SQLBooleanExpression.TRUE);
+    filter.setFilter(where);
+    assertTrue(MatchMultiEdgeTraverser.matchesCondition(result, filter, ctx));
+  }
+
+  /** Verifies matchesCondition returns false when WHERE clause evaluates to false. */
+  @Test
+  public void testMultiMatchesConditionFailingFilter() {
+    var result = new ResultInternal(session);
+    var ctx = createCommandContext();
+    var filter = new SQLMatchFilter(-1);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(SQLBooleanExpression.FALSE);
+    filter.setFilter(where);
+    assertFalse(MatchMultiEdgeTraverser.matchesCondition(result, filter, ctx));
+  }
+
+  /** Verifies matchesCondition asserts when candidate record is null. */
+  @Test(expected = AssertionError.class)
+  public void testMultiMatchesConditionNullRecord() {
+    var ctx = createCommandContext();
+    MatchMultiEdgeTraverser.matchesCondition(null, null, ctx);
+  }
+
+  // -- MatchMultiEdgeTraverser.dispatchTraversalResult tests --
+
+  /**
+   * Verifies dispatchTraversalResult handles a Collection of ResultInternal
+   * by converting and filtering each element.
+   */
+  @Test
+  public void testDispatchCollectionOfResultInternal() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    r1.setProperty("n", 1);
+    var r2 = new ResultInternal(session);
+    r2.setProperty("n", 2);
+    List<ResultInternal> collection = List.of(r1, r2);
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    // null filter means all pass
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        collection, session, null, ctx, rightSide);
+    assertEquals(2, rightSide.size());
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a Collection with Identifiable elements,
+   * converting them to ResultInternal via toOResultInternal.
+   */
+  @Test
+  public void testDispatchCollectionOfIdentifiable() {
+    session.createClassIfNotExist("V");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var v1 = session.newVertex("V");
+      var v2 = session.newVertex("V");
+      List<Object> collection = List.of(v1, v2);
+      List<ResultInternal> rightSide = new ArrayList<>();
+
+      MatchMultiEdgeTraverser.dispatchTraversalResult(
+          collection, session, null, ctx, rightSide);
+      assertEquals(2, rightSide.size());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a Collection with a filter that
+   * rejects all elements.
+   */
+  @Test
+  public void testDispatchCollectionWithRejectingFilter() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    List<ResultInternal> collection = List.of(r1);
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    var filter = new SQLMatchFilter(-1);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(SQLBooleanExpression.FALSE);
+    filter.setFilter(where);
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        collection, session, filter, ctx, rightSide);
+    assertTrue(rightSide.isEmpty());
+  }
+
+  /** Verifies dispatchTraversalResult handles a single Identifiable. */
+  @Test
+  public void testDispatchSingleIdentifiable() {
+    session.createClassIfNotExist("V");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var vertex = session.newVertex("V");
+      List<ResultInternal> rightSide = new ArrayList<>();
+
+      MatchMultiEdgeTraverser.dispatchTraversalResult(
+          vertex, session, null, ctx, rightSide);
+      assertEquals(1, rightSide.size());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a single Identifiable with a filter
+   * that rejects it.
+   */
+  @Test
+  public void testDispatchSingleIdentifiableRejected() {
+    session.createClassIfNotExist("V");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var vertex = session.newVertex("V");
+      List<ResultInternal> rightSide = new ArrayList<>();
+
+      var filter = new SQLMatchFilter(-1);
+      var where = new SQLWhereClause(-1);
+      where.setBaseExpression(SQLBooleanExpression.FALSE);
+      filter.setFilter(where);
+
+      MatchMultiEdgeTraverser.dispatchTraversalResult(
+          vertex, session, filter, ctx, rightSide);
+      assertTrue(rightSide.isEmpty());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Verifies dispatchTraversalResult handles a single Relation. */
+  @Test
+  public void testDispatchSingleRelation() {
+    session.createClassIfNotExist("V");
+    session.createClassIfNotExist("DispatchRelEdge", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var v1 = session.newVertex("V");
+      var v2 = session.newVertex("V");
+      var edge = v1.addEdge(v2, "DispatchRelEdge");
+      List<ResultInternal> rightSide = new ArrayList<>();
+
+      MatchMultiEdgeTraverser.dispatchTraversalResult(
+          edge, session, null, ctx, rightSide);
+      assertEquals(1, rightSide.size());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a single Relation with a filter
+   * that rejects it.
+   */
+  @Test
+  public void testDispatchSingleRelationRejected() {
+    session.createClassIfNotExist("V");
+    session.createClassIfNotExist("DispatchRelEdge2", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var v1 = session.newVertex("V");
+      var v2 = session.newVertex("V");
+      var edge = v1.addEdge(v2, "DispatchRelEdge2");
+      List<ResultInternal> rightSide = new ArrayList<>();
+
+      var filter = new SQLMatchFilter(-1);
+      var where = new SQLWhereClause(-1);
+      where.setBaseExpression(SQLBooleanExpression.FALSE);
+      filter.setFilter(where);
+
+      MatchMultiEdgeTraverser.dispatchTraversalResult(
+          edge, session, filter, ctx, rightSide);
+      assertTrue(rightSide.isEmpty());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Verifies dispatchTraversalResult handles a single ResultInternal. */
+  @Test
+  public void testDispatchSingleResultInternal() {
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session);
+    result.setProperty("key", "val");
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        result, session, null, ctx, rightSide);
+    assertEquals(1, rightSide.size());
+    assertSame(result, rightSide.get(0));
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a single ResultInternal with a
+   * filter that rejects it.
+   */
+  @Test
+  public void testDispatchSingleResultInternalRejected() {
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session);
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    var filter = new SQLMatchFilter(-1);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(SQLBooleanExpression.FALSE);
+    filter.setFilter(where);
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        result, session, filter, ctx, rightSide);
+    assertTrue(rightSide.isEmpty());
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles an Iterable that is not a Collection.
+   * Covers the {@code instanceof Iterable} branch (but not Collection).
+   */
+  @Test
+  public void testDispatchNonCollectionIterable() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    r1.setProperty("n", 1);
+    var r2 = new ResultInternal(session);
+    r2.setProperty("n", 2);
+    // Lambda-based Iterable is NOT a Collection
+    Iterable<ResultInternal> iterable = () -> List.of(r1, r2).iterator();
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        iterable, session, null, ctx, rightSide);
+    assertEquals(2, rightSide.size());
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles an Iterable with a filter that
+   * rejects elements.
+   */
+  @Test
+  public void testDispatchNonCollectionIterableWithRejectingFilter() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    Iterable<ResultInternal> iterable = () -> List.of(r1).iterator();
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    var filter = new SQLMatchFilter(-1);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(SQLBooleanExpression.FALSE);
+    filter.setFilter(where);
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        iterable, session, filter, ctx, rightSide);
+    assertTrue(rightSide.isEmpty());
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a raw Iterator.
+   * Covers the {@code instanceof Iterator} branch.
+   */
+  @Test
+  public void testDispatchIterator() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    r1.setProperty("n", 1);
+    Iterator<ResultInternal> iterator = List.of(r1).iterator();
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        iterator, session, null, ctx, rightSide);
+    assertEquals(1, rightSide.size());
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles a raw Iterator with a filter that
+   * rejects the element.
+   */
+  @Test
+  public void testDispatchIteratorWithRejectingFilter() {
+    var ctx = createCommandContext();
+    var r1 = new ResultInternal(session);
+    Iterator<ResultInternal> iterator = List.of(r1).iterator();
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    var filter = new SQLMatchFilter(-1);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(SQLBooleanExpression.FALSE);
+    filter.setFilter(where);
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        iterator, session, filter, ctx, rightSide);
+    assertTrue(rightSide.isEmpty());
+  }
+
+  /**
+   * Verifies dispatchTraversalResult handles null input by adding nothing to the
+   * right side (no branch matches for null).
+   */
+  @Test
+  public void testDispatchNull() {
+    var ctx = createCommandContext();
+    List<ResultInternal> rightSide = new ArrayList<>();
+
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        null, session, null, ctx, rightSide);
+    assertTrue(rightSide.isEmpty());
+  }
+
+  /** Verifies dispatchTraversalResult asserts when rightSide is null. */
+  @Test(expected = AssertionError.class)
+  public void testDispatchNullRightSide() {
+    var ctx = createCommandContext();
+    MatchMultiEdgeTraverser.dispatchTraversalResult(
+        new ResultInternal(session), session, null, ctx, null);
+  }
+
+  // -- MatchMultiEdgeTraverser.traversePatternEdge integration tests --
+
+  /**
+   * Verifies the multi-edge traverser performs a basic two-step pipeline through
+   * real graph edges: A -[TestE]-> B -[TestE]-> C. The pipeline has two
+   * out('TestE') sub-items, starting from A and ending at C.
+   */
+  @Test
+  public void testMultiEdgeTraverserBasicPipeline() {
+    session.createClassIfNotExist("MTestV", "V");
+    session.createClassIfNotExist("MTestE", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var a = session.newVertex("MTestV");
+      a.setProperty("name", "A");
+      var b = session.newVertex("MTestV");
+      b.setProperty("name", "B");
+      var c = session.newVertex("MTestV");
+      c.setProperty("name", "C");
+      a.addEdge(b, "MTestE");
+      b.addEdge(c, "MTestE");
+
+      var multiItem = createMultiItemWithOutSteps("MTestE", "MTestE");
+      var traverser = createMultiEdgeTraverser(multiItem);
+      var startResult = new ResultInternal(session, a);
+
+      var stream = traverser.traversePatternEdge(startResult, ctx);
+      // Pipeline: A → out('MTestE') → B → out('MTestE') → C
+      assertTrue(stream.hasNext(ctx));
+      var result = stream.next(ctx);
+      assertEquals("C", result.<String>getProperty("name"));
+      assertFalse(stream.hasNext(ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies the multi-edge traverser returns an empty stream when the pipeline
+   * produces no results (vertex has no outgoing edges).
+   */
+  @Test
+  public void testMultiEdgeTraverserEmptyResult() {
+    session.createClassIfNotExist("MTestV", "V");
+    session.createClassIfNotExist("MTestE", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var isolated = session.newVertex("MTestV");
+      isolated.setProperty("name", "isolated");
+
+      var multiItem = createMultiItemWithOutSteps("MTestE");
+      var traverser = createMultiEdgeTraverser(multiItem);
+      var startResult = new ResultInternal(session, isolated);
+
+      var stream = traverser.traversePatternEdge(startResult, ctx);
+      assertFalse(stream.hasNext(ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies the multi-edge traverser properly saves and restores the $current
+   * context variable after traversal.
+   */
+  @Test
+  public void testMultiEdgeTraverserRestoresCurrentVariable() {
+    session.createClassIfNotExist("MTestV", "V");
+    session.createClassIfNotExist("MTestE", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var a = session.newVertex("MTestV");
+      var b = session.newVertex("MTestV");
+      a.addEdge(b, "MTestE");
+
+      var sentinel = "sentinel-value";
+      ctx.setVariable("$current", sentinel);
+
+      var multiItem = createMultiItemWithOutSteps("MTestE");
+      var traverser = createMultiEdgeTraverser(multiItem);
+      var startResult = new ResultInternal(session, a);
+
+      traverser.traversePatternEdge(startResult, ctx);
+      // $current must be restored to its original value
+      assertEquals(sentinel, ctx.getVariable("$current"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies the multi-edge traverser handles a pipeline with a sub-item that
+   * has a null filter (no filter at all on the sub-item). Covers the
+   * {@code sub.getFilter() == null} branch of the whileCondition ternary.
+   */
+  @Test
+  public void testMultiEdgeTraverserSubItemNullFilter() {
+    session.createClassIfNotExist("MTestV", "V");
+    session.createClassIfNotExist("MTestE", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var a = session.newVertex("MTestV");
+      var b = session.newVertex("MTestV");
+      b.setProperty("name", "B");
+      a.addEdge(b, "MTestE");
+
+      // Create a sub-item with no filter
+      var multiItem = new SQLMultiMatchPathItem(-1);
+      var subItem = new SQLMatchPathItem(-1);
+      subItem.outPath(null); // out('E')
+      // No filter set — filter remains null
+      multiItem.addItem(subItem);
+
+      var traverser = createMultiEdgeTraverser(multiItem);
+      var startResult = new ResultInternal(session, a);
+
+      var stream = traverser.traversePatternEdge(startResult, ctx);
+      assertTrue(stream.hasNext(ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies the multi-edge traverser handles a pipeline with a sub-item
+   * whose filter has a WHERE clause that rejects all candidates.
+   */
+  @Test
+  public void testMultiEdgeTraverserSubItemWithRejectingFilter() {
+    session.createClassIfNotExist("MTestV", "V");
+    session.createClassIfNotExist("MTestE", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var a = session.newVertex("MTestV");
+      var b = session.newVertex("MTestV");
+      a.addEdge(b, "MTestE");
+
+      var multiItem = new SQLMultiMatchPathItem(-1);
+      var subItem = new SQLMatchPathItem(-1);
+      subItem.outPath(null);
+      var filter = new SQLMatchFilter(-1);
+      filter.setAlias("result");
+      var where = new SQLWhereClause(-1);
+      where.setBaseExpression(SQLBooleanExpression.FALSE);
+      filter.setFilter(where);
+      subItem.setFilter(filter);
+      multiItem.addItem(subItem);
+
+      var traverser = createMultiEdgeTraverser(multiItem);
+      var startResult = new ResultInternal(session, a);
+
+      var stream = traverser.traversePatternEdge(startResult, ctx);
+      // Filter rejects everything
+      assertFalse(stream.hasNext(ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Verifies traversePatternEdge asserts when startingPoint is null. */
+  @Test(expected = AssertionError.class)
+  public void testMultiEdgeTraverserNullStartingPoint() {
+    var multiItem = createMultiItemWithOutSteps("E");
+    var traverser = createMultiEdgeTraverser(multiItem);
+    var ctx = createCommandContext();
+    traverser.traversePatternEdge(null, ctx);
+  }
+
+  /**
+   * Verifies the multi-edge traverser handles a pipeline where the sub-item's
+   * filter has an alias but no WHERE and no WHILE. Covers the path where
+   * {@code sub.getFilter() != null} but {@code getWhileCondition() == null}.
+   */
+  @Test
+  public void testMultiEdgeTraverserFilterWithoutWhere() {
+    session.createClassIfNotExist("MTestV", "V");
+    session.createClassIfNotExist("MTestE", "E");
+
+    session.begin();
+    try {
+      var ctx = createCommandContext();
+      var a = session.newVertex("MTestV");
+      var b = session.newVertex("MTestV");
+      b.setProperty("name", "B");
+      a.addEdge(b, "MTestE");
+
+      // Sub-item with filter that has alias but no WHERE and no WHILE
+      var multiItem = new SQLMultiMatchPathItem(-1);
+      var subItem = new SQLMatchPathItem(-1);
+      subItem.outPath(null);
+      var filter = new SQLMatchFilter(-1);
+      filter.setAlias("result");
+      subItem.setFilter(filter);
+      multiItem.addItem(subItem);
+
+      var traverser = createMultiEdgeTraverser(multiItem);
+      var startResult = new ResultInternal(session, a);
+
+      var stream = traverser.traversePatternEdge(startResult, ctx);
+      assertTrue(stream.hasNext(ctx));
+      var result = stream.next(ctx);
+      assertEquals("B", result.<String>getProperty("name"));
+    } finally {
+      session.rollback();
+    }
+  }
+
   // -- Helper methods --
+
+  /** Creates a SQLMultiMatchPathItem with one out(edgeLabel) sub-item per label. */
+  private SQLMultiMatchPathItem createMultiItemWithOutSteps(String... edgeLabels) {
+    var multiItem = new SQLMultiMatchPathItem(-1);
+    for (var label : edgeLabels) {
+      var subItem = new SQLMatchPathItem(-1);
+      var edgeName = new SQLIdentifier(label);
+      subItem.outPath(edgeName);
+      var filter = new SQLMatchFilter(-1);
+      filter.setAlias("step_" + label);
+      subItem.setFilter(filter);
+      multiItem.addItem(subItem);
+    }
+    return multiItem;
+  }
+
+  /**
+   * Creates a MatchMultiEdgeTraverser with the given multi-item as the edge's
+   * path item.
+   */
+  private MatchMultiEdgeTraverser createMultiEdgeTraverser(
+      SQLMultiMatchPathItem multiItem) {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    nodeA.addEdge(multiItem, nodeB);
+    var patternEdge = nodeA.out.iterator().next();
+    var edgeTraversal = new EdgeTraversal(patternEdge, true);
+    var sourceResult = new ResultInternal(session);
+    return new MatchMultiEdgeTraverser(sourceResult, edgeTraversal);
+  }
 
   private CommandContext createCommandContext() {
     var ctx = new BasicCommandContext();

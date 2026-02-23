@@ -73,6 +73,8 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
   @Override
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
+    assert MatchAssertions.checkNotNull(startingPoint, "startingPoint");
+    assert MatchAssertions.checkNotNull(iCommandContext, "command context");
 
     Iterable<Identifiable> possibleResults = null;
 
@@ -116,43 +118,8 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
 
           // Normalize the heterogeneous return types into ResultInternal, applying
           // the sub-item's WHERE filter to each candidate
-          if (nextSteps instanceof Collection) {
-            ((Collection<?>) nextSteps)
-                .stream()
-                .map(obj -> toOResultInternal(db, obj))
-                .filter(
-                    x ->
-                        matchesCondition(x, sub.getFilter(), iCommandContext))
-                .forEach(rightSide::add);
-          } else if (nextSteps instanceof Identifiable) {
-            var res = new ResultInternal(db, (Identifiable) nextSteps);
-            if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
-              rightSide.add(res);
-            }
-          } else if (nextSteps instanceof Relation<?> bidirectionalLink) {
-            var res = new ResultInternal(db, bidirectionalLink);
-            if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
-              rightSide.add(res);
-            }
-          } else if (nextSteps instanceof ResultInternal) {
-            if (matchesCondition((ResultInternal) nextSteps, sub.getFilter(), iCommandContext)) {
-              rightSide.add((ResultInternal) nextSteps);
-            }
-          } else if (nextSteps instanceof Iterable) {
-            for (var step : (Iterable<?>) nextSteps) {
-              var converted = toOResultInternal(db, step);
-              if (matchesCondition(converted, sub.getFilter(), iCommandContext)) {
-                rightSide.add(converted);
-              }
-            }
-          } else if (nextSteps instanceof Iterator<?> iterator) {
-            while (iterator.hasNext()) {
-              var converted = toOResultInternal(db, iterator.next());
-              if (matchesCondition(converted, sub.getFilter(), iCommandContext)) {
-                rightSide.add(converted);
-              }
-            }
-          }
+          dispatchTraversalResult(
+              nextSteps, db, sub.getFilter(), iCommandContext, rightSide);
         }
       }
       // The right side of this stage becomes the left side of the next stage
@@ -166,12 +133,77 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
   }
 
   /**
+   * Dispatches a raw traversal result into the appropriate conversion path based on its
+   * runtime type, applies the sub-item's WHERE filter, and adds passing records to the
+   * right side of the pipeline.
+   *
+   * <p>The method handles six possible return types from a traversal method:
+   * {@link Collection}, {@link Identifiable}, {@link Relation}, {@link ResultInternal},
+   * {@link Iterable} (non-Collection), and {@link Iterator}.
+   *
+   * @param nextSteps        the raw result from method.execute()
+   * @param db               the database session for wrapping records
+   * @param filter           the sub-item's match filter (may be null)
+   * @param iCommandContext  the command execution context
+   * @param rightSide        accumulator for matching results
+   */
+  static void dispatchTraversalResult(
+      Object nextSteps,
+      DatabaseSessionEmbedded db,
+      SQLMatchFilter filter,
+      CommandContext iCommandContext,
+      List<ResultInternal> rightSide) {
+    assert MatchAssertions.checkNotNull(db, "database session");
+    assert MatchAssertions.checkNotNull(rightSide, "right side accumulator");
+
+    if (nextSteps instanceof Collection) {
+      ((Collection<?>) nextSteps)
+          .stream()
+          .map(obj -> toOResultInternal(db, obj))
+          .filter(
+              x ->
+                  matchesCondition(x, filter, iCommandContext))
+          .forEach(rightSide::add);
+    } else if (nextSteps instanceof Identifiable) {
+      var res = new ResultInternal(db, (Identifiable) nextSteps);
+      if (matchesCondition(res, filter, iCommandContext)) {
+        rightSide.add(res);
+      }
+    } else if (nextSteps instanceof Relation<?> bidirectionalLink) {
+      var res = new ResultInternal(db, bidirectionalLink);
+      if (matchesCondition(res, filter, iCommandContext)) {
+        rightSide.add(res);
+      }
+    } else if (nextSteps instanceof ResultInternal) {
+      if (matchesCondition((ResultInternal) nextSteps, filter, iCommandContext)) {
+        rightSide.add((ResultInternal) nextSteps);
+      }
+    } else if (nextSteps instanceof Iterable) {
+      for (var step : (Iterable<?>) nextSteps) {
+        var converted = toOResultInternal(db, step);
+        if (matchesCondition(converted, filter, iCommandContext)) {
+          rightSide.add(converted);
+        }
+      }
+    } else if (nextSteps instanceof Iterator<?> iterator) {
+      while (iterator.hasNext()) {
+        var converted = toOResultInternal(db, iterator.next());
+        if (matchesCondition(converted, filter, iCommandContext)) {
+          rightSide.add(converted);
+        }
+      }
+    }
+  }
+
+  /**
    * Evaluates the sub-item's WHERE filter against a candidate record.
    *
    * @return `true` if no filter is defined or the record passes the filter
    */
-  private static boolean matchesCondition(ResultInternal x, SQLMatchFilter filter,
+  static boolean matchesCondition(ResultInternal x, SQLMatchFilter filter,
       CommandContext ctx) {
+    assert MatchAssertions.checkNotNull(x, "candidate record");
+
     if (filter == null) {
       return true;
     }
@@ -187,7 +219,10 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
    *
    * @throws CommandExecutionException if the object type is unrecognized
    */
-  private static ResultInternal toOResultInternal(DatabaseSessionEmbedded session, Object x) {
+  static ResultInternal toOResultInternal(DatabaseSessionEmbedded session, Object x) {
+    assert MatchAssertions.checkNotNull(session, "database session");
+    assert MatchAssertions.checkNotNull(x, "traversal result");
+
     if (x instanceof ResultInternal resultInternal) {
       return resultInternal;
     } else if (x instanceof Identifiable identifiable) {
