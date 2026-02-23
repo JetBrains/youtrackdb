@@ -40,7 +40,6 @@ public class MemoryStream extends OutputStream {
   private final Charset charset = StandardCharsets.UTF_8;
 
   private static final int NATIVE_COPY_THRESHOLD = 9;
-  private static long metricResize = 0;
 
   public MemoryStream() {
     this(DEF_SIZE);
@@ -271,8 +270,6 @@ public class MemoryStream extends OutputStream {
     final var bufferLength = localBuffer.length;
 
     if (bufferLength < capacity) {
-      metricResize++;
-
       final var newbuf = new byte[Math.max(bufferLength << 1, capacity)];
 
       if (pos < NATIVE_COPY_THRESHOLD) {

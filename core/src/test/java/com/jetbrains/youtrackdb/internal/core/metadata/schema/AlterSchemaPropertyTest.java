@@ -96,7 +96,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
   public void testMax() {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestWrongMax");
-    var prop = classA.createProperty("dates", PropertyType.EMBEDDEDLIST,
+    classA.createProperty("dates", PropertyType.EMBEDDEDLIST,
         PropertyType.DATE);
 
     session.execute("alter property TestWrongMax.dates max 2016-05-25").close();

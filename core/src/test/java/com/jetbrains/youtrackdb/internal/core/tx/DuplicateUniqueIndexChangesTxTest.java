@@ -332,8 +332,8 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
     var person1 = session.newInstance("Person");
     person1.setProperty("name", "Name1");
-    var person2 = session.newInstance("Person");
-    var person3 = session.newInstance("Person");
+    session.newInstance("Person");
+    session.newInstance("Person");
     var person4 = session.newInstance("Person");
     person4.setProperty("name", "Name1");
     //    Assert.assertThrows(RecordDuplicatedException.class, new Assert.ThrowingRunnable() {

@@ -18,7 +18,7 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var clazz = session.createVertexClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     session.begin();
-    var vertex = session.newVertex(clazz.getName());
+    session.newVertex(clazz.getName());
     session.commit();
   }
 

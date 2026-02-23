@@ -47,7 +47,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     session.getMetadata().reload();
     try {
       session.begin();
-      var entity = ((EntityImpl) session.newEntity("MyTestClass"));
+      session.newEntity("MyTestClass");
       session.commit();
       Assert.fail();
     } catch (ValidationException ignored) {

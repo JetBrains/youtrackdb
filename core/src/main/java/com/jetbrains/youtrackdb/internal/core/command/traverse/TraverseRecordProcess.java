@@ -166,7 +166,6 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
   private void processFields(Iterator<Object> target) {
     var transaction2 = session.getActiveTransaction();
     EntityImpl entity = transaction2.load(this.target);
-    var database = command.getContext().getDatabaseSession();
     while (target.hasNext()) {
       var field = target.next();
 

@@ -566,7 +566,6 @@ public class CommandExecutorScript extends CommandExecutorAbstract
 
   private Object getValue(final String iValue, final DatabaseSessionEmbedded db) {
     Object lastResult = null;
-    var recordResultSet = true;
     if (iValue.equalsIgnoreCase("NULL")) {
       lastResult = null;
     } else if (iValue.startsWith("[") && iValue.endsWith("]")) {

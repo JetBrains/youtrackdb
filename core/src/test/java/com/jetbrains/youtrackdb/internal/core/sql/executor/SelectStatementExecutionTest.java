@@ -1132,7 +1132,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromSingleRid3() {
     session.begin();
-    var document = (EntityImpl) session.newEntity();
+    session.newEntity();
 
     session.commit();
 
@@ -1875,8 +1875,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testExpand1() {
     var childClassName = "testExpand1_child";
     var parentClassName = "testExpand1_parent";
-    var childClass = session.getMetadata().getSchema().createClass(childClassName);
-    var parentClass = session.getMetadata().getSchema().createClass(parentClassName);
+    session.getMetadata().getSchema().createClass(childClassName);
+    session.getMetadata().getSchema().createClass(parentClassName);
 
     var count = 10;
     for (var i = 0; i < count; i++) {
@@ -2503,7 +2503,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubclassIndexes3_child2";
     var parentClass = session.getMetadata().getSchema().createClass(parent);
     var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
+    session.getMetadata().getSchema().createClass(child2, parentClass);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2672,8 +2672,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var parentClass = session.getMetadata().getSchema().createClass(parent);
     var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
     var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
-    var childClass12 =
-        session.getMetadata().getSchema().createClass(child12, childClass1, childClass2);
+    session.getMetadata().getSchema().createClass(child12, childClass1, childClass2);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -4275,7 +4274,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testMapByValueIndex";
 
     var clazz1 = session.createClassIfNotExist(className);
-    var prop = clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP,
+    clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
 
     session.execute(

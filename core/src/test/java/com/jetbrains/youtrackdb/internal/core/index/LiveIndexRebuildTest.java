@@ -23,7 +23,6 @@ public class LiveIndexRebuildTest {
   private final String className = "liveIndexClass";
   private final String propertyName = "liveIndexProperty";
 
-  private final String databaseURL = "memory:liveIndexRebuild";
   private final AtomicBoolean stop = new AtomicBoolean();
 
   @Test

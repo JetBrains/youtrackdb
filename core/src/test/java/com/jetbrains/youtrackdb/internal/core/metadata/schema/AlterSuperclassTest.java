@@ -22,7 +22,7 @@ public class AlterSuperclassTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ParentClass");
     classA.setAbstract(true);
-    var property = classA.createProperty("RevNumberNine", PropertyType.INTEGER);
+    classA.createProperty("RevNumberNine", PropertyType.INTEGER);
     var classChild = schema.createClass("ChildClass1", classA);
     assertEquals(classChild.getSuperClasses(), List.of(classA));
     var classChild2 = schema.createClass("ChildClass2", classChild);
@@ -36,7 +36,7 @@ public class AlterSuperclassTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ParentClass");
     classA.setAbstract(true);
-    var property = classA.createProperty("RevNumberNine", PropertyType.INTEGER);
+    classA.createProperty("RevNumberNine", PropertyType.INTEGER);
     var classChild = schema.createClass("ChildClass1", classA);
     assertEquals(classChild.getSuperClasses(), List.of(classA));
     var classChild2 = schema.createClass("ChildClass2");

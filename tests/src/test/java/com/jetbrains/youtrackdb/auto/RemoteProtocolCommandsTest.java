@@ -4,8 +4,6 @@ import org.testng.annotations.Test;
 
 public class RemoteProtocolCommandsTest {
 
-  private static final String serverPort = System.getProperty("youtrackdb.server.port", "2424");
-
   @Test(enabled = false)
   public void testConnect() {
 //    final var admin =

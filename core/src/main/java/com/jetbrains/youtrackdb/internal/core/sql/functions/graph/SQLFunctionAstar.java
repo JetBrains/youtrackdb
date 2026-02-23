@@ -208,7 +208,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
   }
 
   private static Vertex getNeighbor(DatabaseSessionEmbedded db, Vertex current, Edge neighborEdge,
-      DatabaseSessionEmbedded graph) {
+      DatabaseSessionEmbedded unusedGraph) {
     if (neighborEdge.getFrom().equals(current)) {
       return toVertex(neighborEdge.getTo(), db);
     }

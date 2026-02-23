@@ -379,9 +379,9 @@ public class SchemaTest extends BaseDBTest {
         .createClass("RenameClassTest");
 
     session.begin();
-    var document = ((EntityImpl) session.newEntity("RenameClassTest"));
+    session.newEntity("RenameClassTest");
 
-    document = ((EntityImpl) session.newEntity("RenameClassTest"));
+    session.newEntity("RenameClassTest");
 
     session.commit();
 

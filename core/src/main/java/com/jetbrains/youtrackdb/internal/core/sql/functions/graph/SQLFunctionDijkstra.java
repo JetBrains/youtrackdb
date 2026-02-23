@@ -40,8 +40,6 @@ public class SQLFunctionDijkstra extends SQLFunctionPathFinder {
 
   public static final String NAME = "dijkstra";
 
-  private String paramWeightFieldName;
-
   public SQLFunctionDijkstra() {
     super(NAME, 3, 4);
   }

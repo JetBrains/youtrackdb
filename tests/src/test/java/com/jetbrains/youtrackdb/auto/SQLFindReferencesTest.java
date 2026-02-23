@@ -35,7 +35,6 @@ public class SQLFindReferencesTest extends BaseDBTest {
   private RecordIdInternal johnDoeID;
   private RecordIdInternal janeDoeID;
   private RecordIdInternal chuckNorrisID;
-  private RecordIdInternal jackBauerID;
   private RecordIdInternal ctuID;
   private RecordIdInternal fbiID;
 
@@ -148,7 +147,6 @@ public class SQLFindReferencesTest extends BaseDBTest {
     chuckNorrisID = chuckNorris.getIdentity().copy();
     janeDoeID = janeDoe.getIdentity().copy();
     johnDoeID = johnDoe.getIdentity().copy();
-    jackBauerID = jackBauer.getIdentity().copy();
     ctuID = ctu.getIdentity();
     fbiID = fbi.getIdentity();
     carID = car.getIdentity().copy();
@@ -162,7 +160,6 @@ public class SQLFindReferencesTest extends BaseDBTest {
     johnDoeID = null;
     janeDoeID = null;
     chuckNorrisID = null;
-    jackBauerID = null;
     ctuID = null;
     fbiID = null;
     deleteSchema();

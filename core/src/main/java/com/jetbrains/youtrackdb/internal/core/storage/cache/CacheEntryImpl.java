@@ -24,6 +24,7 @@ public class CacheEntryImpl implements CacheEntry {
 
   private CachePointer dataPointer;
   private volatile int usagesCount;
+  @SuppressWarnings("UnusedVariable")
   private volatile int state;
 
   private volatile CacheEntry next;

@@ -244,8 +244,6 @@ public class SymmetricKey {
    * Creates an SymmetricKey from a file containing a Base64 key.
    */
   public static SymmetricKey fromFile(final String algorithm, final String path) {
-    String base64Key = null;
-
     try {
       java.io.FileInputStream fis = null;
 
@@ -292,11 +290,7 @@ public class SymmetricKey {
    */
   public static SymmetricKey fromKeystore(
       final String path, final String password, final String keyAlias, final String keyPassword) {
-    SymmetricKey sk = null;
-
     try {
-      var ks = KeyStore.getInstance("JCEKS"); // JCEKS is required to hold SecretKey entries.
-
       java.io.FileInputStream fis = null;
 
       try {
@@ -585,13 +579,6 @@ public class SymmetricKey {
 
       // Convert the JSON content to an Map to make parsing it easier.
       final var map = JSONSerializerJackson.INSTANCE.mapFromJson(json);
-
-      // Set a default in case the JSON document does not contain an "algorithm" property.
-      var algorithm = secretKeyAlgorithm;
-
-      if (map.containsKey("algorithm")) {
-        algorithm = map.get("algorithm").toString();
-      }
 
       // Set a default in case the JSON document does not contain a "transform" property.
       var transform = defaultCipherTransformation;

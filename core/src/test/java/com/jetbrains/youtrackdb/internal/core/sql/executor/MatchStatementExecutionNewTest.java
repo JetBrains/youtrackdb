@@ -1394,7 +1394,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
@@ -1415,7 +1415,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
@@ -1436,7 +1436,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
@@ -1458,7 +1458,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var result = session.query(query);
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
@@ -1678,7 +1678,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var result = session.query(query);
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
@@ -1696,7 +1696,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
@@ -1713,7 +1713,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
 
     //    EntityImpl doc = result.get(0);
@@ -1734,7 +1734,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     //    EntityImpl doc = result.get(0);
     //    assertEquals("foo", doc.field("name"));
@@ -1754,7 +1754,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     //    EntityImpl doc = result.get(0);
     //    assertEquals("foo", doc.field("name"));
@@ -1777,7 +1777,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var result = session.query(query.toString());
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
 
     query = new StringBuilder();
@@ -1790,7 +1790,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
     result = session.query(query.toString());
     Assert.assertTrue(result.hasNext());
-    doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     //    EntityImpl doc = result.get(0);
@@ -1812,9 +1812,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var result = session.query(query.toString());
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
-    var doc = result.next();
+    result.next();
     Assert.assertTrue(result.hasNext());
-    doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
 
@@ -1826,9 +1826,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
     result = session.query(query.toString());
     Assert.assertTrue(result.hasNext());
-    doc = result.next();
+    result.next();
     Assert.assertTrue(result.hasNext());
-    doc = result.next();
+    result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
     //    EntityImpl doc = result.get(0);
@@ -2552,7 +2552,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     printExecutionPlan(null, result);
   }
 
-  private void printExecutionPlan(String query, BasicResultSet result) {
+  private void printExecutionPlan(String unusedQuery, BasicResultSet unusedResult) {
     //    if (query != null) {
     //      System.out.println(query);
     //    }

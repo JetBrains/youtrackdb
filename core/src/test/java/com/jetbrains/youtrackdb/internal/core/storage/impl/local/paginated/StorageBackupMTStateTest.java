@@ -53,7 +53,6 @@ public class StorageBackupMTStateTest {
   private final AtomicInteger classCounter = new AtomicInteger();
 
   private final String CLASS_PREFIX = "StorageBackupMTStateTest";
-  private String dbURL;
   private File backupDir;
   private volatile boolean stop = false;
 
@@ -79,8 +78,6 @@ public class StorageBackupMTStateTest {
     if (!backupDir.exists()) {
       Assert.assertTrue(backupDir.mkdirs());
     }
-
-    dbURL = "disk:" + dbDirectory;
 
     System.out.println("Create database");
     try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(dbDirectory)) {

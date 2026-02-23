@@ -41,7 +41,7 @@ public class UpdateMergeStep extends AbstractExecutionStep {
     return result;
   }
 
-  private void handleMerge(EntityImpl record, CommandContext ctx) {
+  private void handleMerge(EntityImpl record, CommandContext unusedCtx) {
     record.updateFromJSON(json.toString());
   }
 

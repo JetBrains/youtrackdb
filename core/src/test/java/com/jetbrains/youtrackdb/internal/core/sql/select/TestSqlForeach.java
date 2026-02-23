@@ -12,7 +12,7 @@ public class TestSqlForeach extends DbTestBase {
     session.getMetadata().getSchema().createClass("Test");
 
     session.begin();
-    var doc = ((EntityImpl) session.newEntity("Test"));
+    session.newEntity("Test");
     session.commit();
 
     session.begin();

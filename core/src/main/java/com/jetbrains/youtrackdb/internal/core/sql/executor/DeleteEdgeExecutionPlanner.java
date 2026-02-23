@@ -216,11 +216,11 @@ public class DeleteEdgeExecutionPlanner {
   }
 
   private boolean handleIndexAsTarget(
-      DeleteExecutionPlan result,
+      DeleteExecutionPlan unusedResult,
       SQLIndexIdentifier indexIdentifier,
-      SQLWhereClause whereClause,
+      SQLWhereClause unusedWhereClause,
       CommandContext ctx,
-      boolean profilingEnabled) {
+      boolean unusedProfilingEnabled) {
     if (indexIdentifier == null) {
       return false;
     }

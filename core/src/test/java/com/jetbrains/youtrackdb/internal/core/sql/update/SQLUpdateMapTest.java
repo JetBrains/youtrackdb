@@ -13,7 +13,6 @@ public class SQLUpdateMapTest extends DbTestBase {
   public void testMapPut() {
 
     EntityImpl ret;
-    EntityImpl ret1;
     session.execute("create class vRecord").close();
     session.execute("create property vRecord.attrs EMBEDDEDMAP ").close();
 
@@ -22,9 +21,7 @@ public class SQLUpdateMapTest extends DbTestBase {
       ret = (EntityImpl) rs.next().asRecord();
     }
 
-    try (var rs = session.execute("insert into vRecord (title) values('second record')")) {
-      ret1 = (EntityImpl) rs.next().asRecord();
-    }
+    session.execute("insert into vRecord (title) values('second record')").close();
     session.commit();
 
     session.begin();

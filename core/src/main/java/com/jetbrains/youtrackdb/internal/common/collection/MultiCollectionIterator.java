@@ -191,7 +191,6 @@ public class MultiCollectionIterator<T>
   @Override
   public boolean isSizeable() {
     // SUM ALL THE COLLECTION SIZES
-    var size = 0;
     for (var o : sources) {
       if (o != null) {
         if (o instanceof Sizeable sizeable) {

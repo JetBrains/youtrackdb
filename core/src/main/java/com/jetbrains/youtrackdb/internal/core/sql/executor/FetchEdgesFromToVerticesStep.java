@@ -91,9 +91,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   @Nullable
   private Set<RID> loadTo(DatabaseSessionEmbedded session) {
-    Object toValues = null;
-
-    toValues = ctx.getVariable(toAlias);
+    Object toValues = ctx.getVariable(toAlias);
     if (toValues instanceof Iterable && !(toValues instanceof Identifiable)) {
       toValues = ((Iterable<?>) toValues).iterator();
     } else if (!(toValues instanceof Iterator) && toValues != null) {
@@ -127,9 +125,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
   }
 
   private Iterator<?> loadFrom() {
-    Object fromValues = null;
-
-    fromValues = ctx.getVariable(fromAlias);
+    Object fromValues = ctx.getVariable(fromAlias);
     if (fromValues instanceof Iterable && !(fromValues instanceof Identifiable)) {
       fromValues = ((Iterable<?>) fromValues).iterator();
     } else if (!(fromValues instanceof Iterator)) {
@@ -175,7 +171,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return false;
   }
 
-  private boolean matchesClass(DatabaseSessionEmbedded db, Edge edge) {
+  private boolean matchesClass(DatabaseSessionEmbedded unusedDb, Edge edge) {
     if (targetClass == null) {
       return true;
     }

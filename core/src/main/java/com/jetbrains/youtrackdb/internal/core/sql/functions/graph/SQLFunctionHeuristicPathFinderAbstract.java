@@ -158,17 +158,15 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       double dFactor,
       CommandContext ctx) {
 
-    var heuristic = 0.0;
-
     var session = ctx.getDatabaseSession();
     var func = session.getMetadata().getFunctionLibrary().getFunction(session, functionName);
     var fValue =
         func.executeInContext(
             context, vertextAxisNames, start, goal, current, parent, depth, dFactor);
     if (fValue != null && fValue instanceof Number) {
-      heuristic = doubleOrDefault(fValue, heuristic);
+      return doubleOrDefault(fValue, 0.0);
     }
-    return heuristic;
+    return 0.0;
   }
 
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
@@ -202,7 +200,6 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       final Map<String, Double> glist,
       long depth,
       double dFactor) {
-    Double heuristic = 0.0;
     var res = 0.0;
     for (var str : axisNames) {
       res +=
@@ -210,8 +207,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
               (clist.get(str) != null ? clist.get(str) : 0.0)
                   - (glist.get(str) != null ? glist.get(str) : 0.0));
     }
-    heuristic = dFactor * res;
-    return heuristic;
+    return dFactor * res;
   }
 
   protected double getMaxAxisHeuristicCost(
@@ -222,7 +218,6 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       final Map<String, Double> glist,
       long depth,
       double dFactor) {
-    Double heuristic = 0.0;
     var res = 0.0;
     for (var str : axisNames) {
       res =
@@ -232,8 +227,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
                       - (glist.get(str) != null ? glist.get(str) : 0.0)),
               res);
     }
-    heuristic = dFactor * res;
-    return heuristic;
+    return dFactor * res;
   }
 
   protected double getDiagonalHeuristicCost(
@@ -245,7 +239,6 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       long depth,
       double dFactor) {
 
-    Double heuristic = 0.0;
     var hDiagonal = 0.0;
     var hStraight = 0.0;
     for (var str : axisNames) {
@@ -260,8 +253,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
               (clist.get(str) != null ? clist.get(str) : 0.0)
                   - (glist.get(str) != null ? glist.get(str) : 0.0));
     }
-    heuristic = (dFactor * 2) * hDiagonal + dFactor * (hStraight - 2 * hDiagonal);
-    return heuristic;
+    return (dFactor * 2) * hDiagonal + dFactor * (hStraight - 2 * hDiagonal);
   }
 
   protected double getEuclideanHeuristicCost(
@@ -272,7 +264,6 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       final Map<String, Double> glist,
       long depth,
       double dFactor) {
-    Double heuristic = 0.0;
     var res = 0.0;
     for (var str : axisNames) {
       res +=
@@ -282,8 +273,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
                       - (glist.get(str) != null ? glist.get(str) : 0.0)),
               2);
     }
-    heuristic = Math.sqrt(res);
-    return heuristic;
+    return Math.sqrt(res);
   }
 
   protected double getEuclideanNoSQRHeuristicCost(
@@ -294,7 +284,6 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       final Map<String, Double> glist,
       long depth,
       double dFactor) {
-    Double heuristic = 0.0;
     var res = 0.0;
     for (var str : axisNames) {
       res +=
@@ -304,8 +293,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
                       - (glist.get(str) != null ? glist.get(str) : 0.0)),
               2);
     }
-    heuristic = dFactor * res;
-    return heuristic;
+    return dFactor * res;
   }
 
   protected double getTieBreakingHeuristicCost(

@@ -116,7 +116,7 @@ public class MultiValue {
     }
     if ((iObject instanceof Iterable && !(iObject instanceof EntityImpl))) {
       var i = 0;
-      for (var o : (Iterable<?>) iObject) {
+      for (var ignored : (Iterable<?>) iObject) {
         i++;
       }
       return i;

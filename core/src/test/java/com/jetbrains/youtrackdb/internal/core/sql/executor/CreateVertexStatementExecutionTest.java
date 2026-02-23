@@ -52,7 +52,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
 
     try {
-      var result = session.execute("create vertex " + className + " set name = 'name1'");
+      session.execute("create vertex " + className + " set name = 'name1'").close();
       Assert.fail();
     } catch (CommandExecutionException e1) {
     } catch (Exception e2) {

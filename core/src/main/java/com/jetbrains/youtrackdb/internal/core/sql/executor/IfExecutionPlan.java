@@ -13,8 +13,6 @@ import javax.annotation.Nullable;
 /** Execution plan for SQL IF/ELSE conditional statements. */
 public class IfExecutionPlan implements InternalExecutionPlan {
 
-  private String location;
-
   private final CommandContext ctx;
 
   @Override

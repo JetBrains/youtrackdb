@@ -256,11 +256,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
 
-  //those two fields are used in the remote session wrapper to track state when embedded session
-//is opened in remote mode.
-  private boolean openedAsRemoteSession;
-  private int remoteCallsCount;
-
   public DatabaseSessionEmbedded(final AbstractStorage storage, boolean serverMode) {
     super(false);
     this.serverMode = serverMode;

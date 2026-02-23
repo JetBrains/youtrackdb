@@ -163,7 +163,7 @@ public class TransactionRidAllocationTest {
 
     db.activateOnCurrentThread();
     db.begin();
-    var v = db.newVertex("V");
+    db.newVertex("V");
 
     ((AbstractStorage) db.getStorage()).preallocateRids(db.getTransactionInternal());
     var transaction = db.getTransactionInternal();

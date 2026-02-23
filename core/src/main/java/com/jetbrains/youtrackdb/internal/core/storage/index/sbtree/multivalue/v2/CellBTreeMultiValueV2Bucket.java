@@ -51,7 +51,6 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   private static final int COLLECTION_ID_OFFSET = M_ID_OFFSET + LongSerializer.LONG_SIZE;
   private static final int COLLECTION_POSITION_OFFSET =
       COLLECTION_ID_OFFSET + ShortSerializer.SHORT_SIZE;
-  private static final int KEY_OFFSET = COLLECTION_POSITION_OFFSET + LongSerializer.LONG_SIZE;
 
   private static final int EMBEDDED_ITEMS_THRESHOLD = 64;
   private static final int RID_SIZE = ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE;
@@ -993,9 +992,6 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final var entrySize = key.length + 2 * IntegerSerializer.INT_SIZE;
     var size = getIntValue(SIZE_OFFSET);
-
-    final var leftChild = getIntValue(entryPosition);
-    final var rightChild = getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
 
     if (entryIndex < size - 1) {
       moveData(

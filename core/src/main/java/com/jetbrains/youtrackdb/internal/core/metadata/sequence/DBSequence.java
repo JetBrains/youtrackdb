@@ -21,8 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.sequence;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.internal.common.thread.NonDaemonThreadFactory;
-import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutorWithLogging;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -35,9 +33,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInterna
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Objects;
 import java.util.Random;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnull;
 
@@ -48,14 +43,6 @@ import javax.annotation.Nonnull;
  */
 public abstract class DBSequence {
 
-  private static final ExecutorService sequenceExecutor =
-      new ThreadPoolExecutorWithLogging(
-          0,
-          Runtime.getRuntime().availableProcessors(),
-          1,
-          TimeUnit.MINUTES,
-          new LinkedBlockingQueue<>(1024),
-          new NonDaemonThreadFactory("SequenceExecutor"));
   public static final long DEFAULT_START = 0;
   public static final int DEFAULT_INCREMENT = 1;
   public static final int DEFAULT_CACHE = 20;

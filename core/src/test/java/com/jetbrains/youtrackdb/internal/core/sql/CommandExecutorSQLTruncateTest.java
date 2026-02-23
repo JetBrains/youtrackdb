@@ -17,11 +17,11 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("ab", vcl);
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity("A");
+    session.newEntity("A");
     session.commit();
 
     session.begin();
-    doc = (EntityImpl) session.newEntity("ab");
+    session.newEntity("ab");
     session.commit();
 
     session.begin();
@@ -35,8 +35,8 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("A");
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity("A");
-    var record = session.load(new RecordId(1, 3));
+    session.newEntity("A");
+    session.load(new RecordId(1, 3));
     session.commit();
 
     session.begin();
@@ -58,11 +58,11 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("ab", vcl);
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity("A");
+    session.newEntity("A");
     session.commit();
 
     session.begin();
-    doc = (EntityImpl) session.newEntity("ab");
+    session.newEntity("ab");
     session.commit();
 
     session.begin();

@@ -12,7 +12,6 @@ public class CreateUserStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testPlain() {
-    var name = "testPlain";
     session.begin();
     var result = session.execute("CREATE USER test IDENTIFIED BY foo ROLE admin");
     session.commit();

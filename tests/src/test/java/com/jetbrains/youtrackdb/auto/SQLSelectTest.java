@@ -1396,7 +1396,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     session.getMetadata().getSchema().createClass("FamousPlace", 1, placeClass);
 
     session.begin();
-    var firstPlace = ((EntityImpl) session.newEntity("Place"));
+    session.newEntity("Place");
     session.commit();
 
     session.begin();
