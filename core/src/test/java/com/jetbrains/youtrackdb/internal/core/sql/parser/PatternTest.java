@@ -3,16 +3,19 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternEdge;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
 
@@ -250,6 +253,234 @@ public class PatternTest extends ParserTestAbstract {
     nodeMap.put("test", node);
     pattern.setAliasToNode(nodeMap);
     assertSame(node, pattern.getAliasToNode().get("test"));
+  }
+
+  // -- getLowerSubclass tests --
+
+  /**
+   * Verifies that getLowerSubclass returns the more specific class when class1
+   * is a subclass of class2 in the schema hierarchy.
+   */
+  @Test
+  public void testGetLowerSubclassReturnsChildWhenFirstIsSubclass() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("Animal");
+    schema.createClass("Dog", schema.getClass("Animal"));
+
+    var result = SQLMatchStatement.getLowerSubclass(session, "Dog", "Animal");
+    assertEquals("Dog", result);
+  }
+
+  /**
+   * Verifies that getLowerSubclass returns the more specific class when class2
+   * is a subclass of class1 (reversed argument order).
+   */
+  @Test
+  public void testGetLowerSubclassReturnsChildWhenSecondIsSubclass() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("Vehicle");
+    schema.createClass("Car", schema.getClass("Vehicle"));
+
+    var result = SQLMatchStatement.getLowerSubclass(session, "Vehicle", "Car");
+    assertEquals("Car", result);
+  }
+
+  /**
+   * Verifies that getLowerSubclass returns null when neither class is a subclass
+   * of the other (they are in separate hierarchies).
+   */
+  @Test
+  public void testGetLowerSubclassReturnsNullForUnrelatedClasses() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("Planet");
+    schema.createClass("Star");
+
+    var result = SQLMatchStatement.getLowerSubclass(session, "Planet", "Star");
+    assertNull("unrelated classes should return null", result);
+  }
+
+  /**
+   * Verifies that getLowerSubclass throws CommandExecutionException when the first
+   * class name does not exist in the schema.
+   */
+  @Test(expected = CommandExecutionException.class)
+  public void testGetLowerSubclassThrowsForMissingFirstClass() {
+    session.getMetadata().getSchema().createClass("Existing");
+    SQLMatchStatement.getLowerSubclass(session, "NonExistent", "Existing");
+  }
+
+  /**
+   * Verifies that getLowerSubclass throws CommandExecutionException when the second
+   * class name does not exist in the schema.
+   */
+  @Test(expected = CommandExecutionException.class)
+  public void testGetLowerSubclassThrowsForMissingSecondClass() {
+    session.getMetadata().getSchema().createClass("AlsoExisting");
+    SQLMatchStatement.getLowerSubclass(session, "AlsoExisting", "DoesNotExist");
+  }
+
+  // -- buildPatterns / addAliases filter merging tests --
+
+  /**
+   * Verifies that buildPatterns correctly merges WHERE filters when the same alias
+   * appears in multiple MATCH expressions, combining them into an AND block.
+   */
+  @Test
+  public void testBuildPatternsMergesFiltersForSameAlias() throws ParseException {
+    // Alias 'a' appears twice with different WHERE conditions
+    var query = "MATCH {as:a, class:V, where:(name = 'foo')}.out(){as:b},"
+        + " {as:a, class:V, where:(age > 10)} RETURN a, b";
+    var parser = getParserFor(query);
+    var stm = (SQLMatchStatement) parser.parse();
+    stm.setContext(getContext());
+    stm.buildPatterns();
+
+    // Both filters should be merged into a single SQLWhereClause for alias 'a'
+    assertNotNull("alias filter map should be populated", stm.aliasFilters);
+    var mergedFilter = stm.aliasFilters.get("a");
+    assertNotNull("alias 'a' should have a merged filter", mergedFilter);
+
+    // The merged filter should be an AND block containing both sub-conditions
+    var andBlock = (SQLAndBlock) mergedFilter.baseExpression;
+    assertEquals("merged filter should combine both conditions",
+        2, andBlock.subBlocks.size());
+  }
+
+  /**
+   * Verifies that buildPatterns resolves the lower (more specific) class when the
+   * same alias is referenced with two classes in a subclass hierarchy.
+   */
+  @Test
+  public void testBuildPatternsResolvesClassHierarchyForSameAlias() throws ParseException {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("Creature");
+    schema.createClass("Human", schema.getClass("Creature"));
+
+    // Alias 'a' referenced with parent class 'Creature' and child class 'Human'
+    var query = "MATCH {as:a, class:Creature}.out(){as:b},"
+        + " {as:a, class:Human} RETURN a, b";
+    var parser = getParserFor(query);
+    var stm = (SQLMatchStatement) parser.parse();
+    stm.setContext(getContext());
+    stm.buildPatterns();
+
+    // buildPatterns should resolve to the more specific class 'Human'
+    assertNotNull("pattern should be built", stm.pattern);
+    assertNotNull("alias 'a' should exist in pattern", stm.pattern.get("a"));
+  }
+
+  /**
+   * Verifies that buildPatterns throws when the same alias references two classes
+   * that are not in the same hierarchy (incompatible classes).
+   */
+  @Test(expected = CommandExecutionException.class)
+  public void testBuildPatternsThrowsForIncompatibleClasses() throws ParseException {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("Fish");
+    schema.createClass("Rock");
+
+    var query = "MATCH {as:a, class:Fish}.out(){as:b},"
+        + " {as:a, class:Rock} RETURN a, b";
+    var parser = getParserFor(query);
+    var stm = (SQLMatchStatement) parser.parse();
+    stm.setContext(getContext());
+    stm.buildPatterns();
+  }
+
+  /**
+   * Verifies that assignDefaultAliases correctly assigns default alias names to
+   * path items that have no explicit alias, including creating a SQLMatchFilter
+   * when none exists.
+   */
+  @Test
+  public void testAssignDefaultAliasesToItemsWithoutFilter() throws ParseException {
+    // out(){} has no alias and may have a null filter internally
+    var query = "MATCH {as:a, class:V}.out().in() RETURN a";
+    var parser = getParserFor(query);
+    var stm = (SQLMatchStatement) parser.parse();
+    var expressions = stm.getMatchExpressions();
+
+    // Call assignDefaultAliases and verify all nodes get aliases
+    SQLMatchStatement.assignDefaultAliases(expressions);
+
+    // The origin should keep its explicit alias
+    assertEquals("a", expressions.get(0).origin.getAlias());
+
+    // Path items without aliases should get default aliases
+    for (var item : expressions.get(0).items) {
+      assertNotNull("each path item should have a filter after assignment", item.filter);
+      assertNotNull("each path item should have an alias after assignment",
+          item.filter.getAlias());
+      assertTrue("default alias should start with the expected prefix",
+          item.filter.getAlias().startsWith(SQLMatchStatement.DEFAULT_ALIAS_PREFIX));
+    }
+  }
+
+  // -- execute with Map params test --
+
+  /**
+   * Verifies that execute(session, Map, parentCtx, usePlanCache) correctly processes
+   * named parameters and returns results. This tests the Map-parameter execution path.
+   */
+  @Test
+  public void testExecuteWithMapParams() throws ParseException {
+    // Set up test data: create a simple vertex class with data
+    session.execute("CREATE class MapTestVertex extends V").close();
+    session.begin();
+    session.execute("CREATE VERTEX MapTestVertex set name = 'alice'").close();
+    session.execute("CREATE VERTEX MapTestVertex set name = 'bob'").close();
+    session.commit();
+
+    var query = "MATCH {class: MapTestVertex, as: a, where: (name = :name)} RETURN a.name as name";
+    var parser = getParserFor(query);
+    var stm = (SQLMatchStatement) parser.parse();
+
+    Map<Object, Object> params = new java.util.HashMap<>();
+    params.put("name", "alice");
+
+    // Execute with Map params, no parent context, with plan cache
+    session.begin();
+    try {
+      var resultSet = stm.execute(session, params, null, true);
+      assertTrue("should have at least one result", resultSet.hasNext());
+      var result = resultSet.next();
+      assertEquals("alice", result.getProperty("name"));
+      assertFalse("should have exactly one result", resultSet.hasNext());
+      resultSet.close();
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies that execute(session, Map, parentCtx, usePlanCache) works correctly
+   * without plan cache and with a parent context.
+   */
+  @Test
+  public void testExecuteWithMapParamsNoCacheWithParentCtx() throws ParseException {
+    session.execute("CREATE class NoCacheVertex extends V").close();
+    session.begin();
+    session.execute("CREATE VERTEX NoCacheVertex set val = 42").close();
+    session.commit();
+
+    var query = "MATCH {class: NoCacheVertex, as: a} RETURN a.val as val";
+    var parser = getParserFor(query);
+    var stm = (SQLMatchStatement) parser.parse();
+
+    var parentCtx = getContext();
+    Map<Object, Object> params = new java.util.HashMap<>();
+
+    // Execute with Map params, with parent context, without plan cache
+    session.begin();
+    try {
+      var resultSet = stm.execute(session, params, parentCtx, false);
+      assertTrue("should have at least one result", resultSet.hasNext());
+      var result = resultSet.next();
+      assertEquals(42, result.<Object>getProperty("val"));
+      resultSet.close();
+    } finally {
+      session.rollback();
+    }
   }
 
   private CommandContext getContext() {

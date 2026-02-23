@@ -227,6 +227,7 @@ public final class SQLMatchStatement extends SQLStatement {
         }
       }
     }
+    assert SQLMatchAssertions.allAliasesAssigned(matchExpressions);
   }
 
   public boolean returnsPathElements() {
@@ -330,6 +331,7 @@ public final class SQLMatchStatement extends SQLStatement {
   @Nullable
   static String getLowerSubclass(DatabaseSessionEmbedded session, String className1,
       String className2) {
+    assert SQLMatchAssertions.classNamesNotNull(className1, className2);
     Schema schema = session.getMetadata().getSchema();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
