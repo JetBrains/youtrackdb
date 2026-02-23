@@ -166,26 +166,26 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
   @Override
   public RID getBeginRidRange(DatabaseSessionEmbedded session, final Object iLeft,
       final Object iRight) {
-    if (iLeft instanceof SQLFilterItemField
-        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
-      if (iRight instanceof RID) {
-        return (RID) iRight;
+    if (iLeft instanceof SQLFilterItemField leftField
+        && EntityHelper.ATTRIBUTE_RID.equals(leftField.getRoot(session))) {
+      if (iRight instanceof RID rid) {
+        return rid;
       } else {
-        if (iRight instanceof SQLFilterItemParameter
-            && ((SQLFilterItemParameter) iRight).getValue(null, null, null) instanceof RID) {
-          return (RID) ((SQLFilterItemParameter) iRight).getValue(null, null, null);
+        if (iRight instanceof SQLFilterItemParameter rightParam
+            && rightParam.getValue(null, null, null) instanceof RID rid) {
+          return rid;
         }
       }
     }
 
-    if (iRight instanceof SQLFilterItemField
-        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iRight).getRoot(session))) {
-      if (iLeft instanceof RID) {
-        return (RID) iLeft;
+    if (iRight instanceof SQLFilterItemField rightField
+        && EntityHelper.ATTRIBUTE_RID.equals(rightField.getRoot(session))) {
+      if (iLeft instanceof RID rid) {
+        return rid;
       } else {
-        if (iLeft instanceof SQLFilterItemParameter
-            && ((SQLFilterItemParameter) iLeft).getValue(null, null, null) instanceof RID) {
-          return (RID) ((SQLFilterItemParameter) iLeft).getValue(null, null, null);
+        if (iLeft instanceof SQLFilterItemParameter leftParam
+            && leftParam.getValue(null, null, null) instanceof RID rid) {
+          return rid;
         }
       }
     }

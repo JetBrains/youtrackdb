@@ -59,8 +59,8 @@ public class ImmutableUser implements SecurityUser {
     this.userType = userType;
     if (role != null) {
       ImmutableRole immutableRole;
-      if (role instanceof ImmutableRole) {
-        immutableRole = (ImmutableRole) role;
+      if (role instanceof ImmutableRole ir) {
+        immutableRole = ir;
       } else {
         immutableRole = new ImmutableRole(session, role);
       }

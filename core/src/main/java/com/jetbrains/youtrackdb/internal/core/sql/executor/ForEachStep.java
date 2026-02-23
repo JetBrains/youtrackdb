@@ -74,10 +74,10 @@ public class ForEachStep extends AbstractExecutionStep {
       if (stm instanceof SQLReturnStatement) {
         return true;
       }
-      if (stm instanceof SQLForEachBlock && ((SQLForEachBlock) stm).containsReturn()) {
+      if (stm instanceof SQLForEachBlock forEachBlock && forEachBlock.containsReturn()) {
         return true;
       }
-      if (stm instanceof SQLIfStatement && ((SQLIfStatement) stm).containsReturn()) {
+      if (stm instanceof SQLIfStatement ifStmt && ifStmt.containsReturn()) {
         return true;
       }
     }

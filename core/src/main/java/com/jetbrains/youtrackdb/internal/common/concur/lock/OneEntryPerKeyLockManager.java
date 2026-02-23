@@ -278,8 +278,8 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
 
     var seenNulls = 0;
     for (var value : values) {
-      if (value instanceof Comparable) {
-        comparables.add((Comparable) value);
+      if (value instanceof Comparable comparable) {
+        comparables.add(comparable);
       } else if (value == null) {
         ++seenNulls;
       } else {
@@ -379,8 +379,8 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
 
     var seenNulls = 0;
     for (var value : values) {
-      if (value instanceof Comparable) {
-        comparables.add((Comparable) value);
+      if (value instanceof Comparable comparable) {
+        comparables.add(comparable);
       } else if (value == null) {
         ++seenNulls;
       } else {

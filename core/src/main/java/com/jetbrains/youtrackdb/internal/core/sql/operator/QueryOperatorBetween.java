@@ -85,15 +85,15 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
     }
 
     final int leftResult;
-    if (left instanceof Number && right1 instanceof Number) {
-      var conv = PropertyTypeInternal.castComparableNumber((Number) left, (Number) right1);
+    if (left instanceof Number leftNum && right1 instanceof Number right1Num) {
+      var conv = PropertyTypeInternal.castComparableNumber(leftNum, right1Num);
       leftResult = ((Comparable) conv[0]).compareTo(conv[1]);
     } else {
       leftResult = ((Comparable<Object>) left).compareTo(right1c);
     }
     final int rightResult;
-    if (left instanceof Number && right2 instanceof Number) {
-      var conv = PropertyTypeInternal.castComparableNumber((Number) left, (Number) right2);
+    if (left instanceof Number leftNum && right2 instanceof Number right2Num) {
+      var conv = PropertyTypeInternal.castComparableNumber(leftNum, right2Num);
       rightResult = ((Comparable) conv[0]).compareTo(conv[1]);
     } else {
       rightResult = ((Comparable<Object>) left).compareTo(right2c);
@@ -131,8 +131,8 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
       final Object iRight) {
     validate(iRight);
 
-    if (iLeft instanceof SQLFilterItemField
-        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
+    if (iLeft instanceof SQLFilterItemField field
+        && EntityHelper.ATTRIBUTE_RID.equals(field.getRoot(session))) {
       final var valueIterator = MultiValue.getMultiValueIterator(iRight);
 
       final var right1 = valueIterator.next();
@@ -156,8 +156,8 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
 
     validate(iRight);
 
-    if (iLeft instanceof SQLFilterItemField
-        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
+    if (iLeft instanceof SQLFilterItemField field
+        && EntityHelper.ATTRIBUTE_RID.equals(field.getRoot(session))) {
       final var valueIterator = MultiValue.getMultiValueIterator(iRight);
 
       final var right1 = valueIterator.next();

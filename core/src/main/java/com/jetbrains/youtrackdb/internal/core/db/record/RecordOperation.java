@@ -52,11 +52,11 @@ public final class RecordOperation implements Comparable<RecordOperation> {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof RecordOperation)) {
+    if (!(obj instanceof RecordOperation other)) {
       return false;
     }
 
-    return record.equals(((RecordOperation) obj).record);
+    return record.equals(other.record);
   }
 
   @Override

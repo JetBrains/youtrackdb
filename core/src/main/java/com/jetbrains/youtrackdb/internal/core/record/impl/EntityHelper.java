@@ -526,8 +526,8 @@ public class EntityHelper {
             for (var v : MultiValue.getMultiValueIterable(value)) {
               final Object item;
 
-              if (v instanceof Identifiable) {
-                item = getIdentifiableValue(session, (Identifiable) v, fieldName);
+              if (v instanceof Identifiable identifiable) {
+                item = getIdentifiableValue(session, identifiable, fieldName);
               } else if (v instanceof Map) {
                 item = ((Map<?, ?>) v).get(fieldName);
               } else {
@@ -665,11 +665,11 @@ public class EntityHelper {
   protected static Object filterItem(
       DatabaseSessionEmbedded db, final String iConditionFieldName,
       final Object iConditionFieldValue, final Object iValue) {
-    if (iValue instanceof Identifiable) {
+    if (iValue instanceof Identifiable identifiable) {
       final DBRecord rec;
       try {
         var transaction = db.getActiveTransaction();
-        rec = transaction.load(((Identifiable) iValue));
+        rec = transaction.load(identifiable);
       } catch (RecordNotFoundException rnf) {
         return null;
       }
@@ -878,7 +878,7 @@ public class EntityHelper {
     } else if (function.startsWith("TRIM(")) {
       result = currentValue.toString().trim();
     } else if (function.startsWith("TOJSON(")) {
-      result = currentValue instanceof EntityImpl ? ((EntityImpl) currentValue).toJSON() : null;
+      result = currentValue instanceof EntityImpl entity ? entity.toJSON() : null;
     } else if (function.startsWith("KEYS(")) {
       result = currentValue instanceof Map<?, ?> ? ((Map<?, ?>) currentValue).keySet() : null;
     } else if (function.startsWith("VALUES(")) {
@@ -890,10 +890,10 @@ public class EntityHelper {
     } else if (function.startsWith("ASFLOAT(")) {
       result = Float.parseFloat(currentValue.toString());
     } else if (function.startsWith("ASBOOLEAN(")) {
-      if (currentValue instanceof String) {
-        result = Boolean.parseBoolean((String) currentValue);
-      } else if (currentValue instanceof Number) {
-        final var bValue = ((Number) currentValue).intValue();
+      if (currentValue instanceof String s) {
+        result = Boolean.parseBoolean(s);
+      } else if (currentValue instanceof Number number) {
+        final var bValue = number.intValue();
         if (bValue == 0) {
           result = false;
         } else if (bValue == 1) {
@@ -903,8 +903,8 @@ public class EntityHelper {
     } else if (function.startsWith("ASDATE(")) {
       if (currentValue instanceof Date) {
         result = currentValue;
-      } else if (currentValue instanceof Number) {
-        result = new Date(((Number) currentValue).longValue());
+      } else if (currentValue instanceof Number number) {
+        result = new Date(number.longValue());
       } else {
         try {
           result =
@@ -916,8 +916,8 @@ public class EntityHelper {
     } else if (function.startsWith("ASDATETIME(")) {
       if (currentValue instanceof Date) {
         result = currentValue;
-      } else if (currentValue instanceof Number) {
-        result = new Date(((Number) currentValue).longValue());
+      } else if (currentValue instanceof Number number) {
+        result = new Date(number.longValue());
       } else {
         try {
           result =
@@ -1009,7 +1009,7 @@ public class EntityHelper {
       final DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper) {
     if (iCurrent instanceof EntityImpl current) {
-      if (iOther instanceof RID) {
+      if (iOther instanceof RID rid) {
         if (!current.isDirty()) {
           RID id;
           if (ridMapper != null) {
@@ -1023,9 +1023,9 @@ public class EntityHelper {
             id = current.getIdentity();
           }
 
-          return id.equals(iOther);
+          return id.equals(rid);
         } else {
-          final EntityImpl otherEntity = iOtherDb.load((RID) iOther);
+          final EntityImpl otherEntity = iOtherDb.load(rid);
           return EntityHelper.hasSameContentOf(current, iMyDb, otherEntity, iOtherDb, ridMapper);
         }
       } else {
@@ -1312,9 +1312,9 @@ public class EntityHelper {
         if (first == null && second != null) {
           return false;
         }
-        if (first instanceof EntityImpl && second instanceof EntityImpl) {
+        if (first instanceof EntityImpl firstEntity && second instanceof EntityImpl secondEntity) {
           return hasSameContentOf(
-              (EntityImpl) first, iMyDb, (EntityImpl) second, iOtherDb, ridMapper);
+              firstEntity, iMyDb, secondEntity, iOtherDb, ridMapper);
         }
 
         if (first != null && !first.equals(second)) {

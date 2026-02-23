@@ -63,8 +63,8 @@ public class FileUtils {
       throw new IllegalArgumentException("Size is null");
     }
 
-    if (iSize instanceof Number) {
-      return ((Number) iSize).longValue();
+    if (iSize instanceof Number number) {
+      return number.longValue();
     }
 
     var size = iSize.toString();

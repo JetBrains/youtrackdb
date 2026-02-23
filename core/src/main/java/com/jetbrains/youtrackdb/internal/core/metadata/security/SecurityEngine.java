@@ -53,14 +53,14 @@ public class SecurityEngine {
     }
 
     var resource = getResourceFromString(resourceString);
-    if (resource instanceof SecurityResourceClass) {
-      return getPredicateForClass(session, security, (SecurityResourceClass) resource, scope);
-    } else if (resource instanceof SecurityResourceProperty) {
+    if (resource instanceof SecurityResourceClass resourceClass) {
+      return getPredicateForClass(session, security, resourceClass, scope);
+    } else if (resource instanceof SecurityResourceProperty resourceProperty) {
       return getPredicateForProperty(
-          session, security, (SecurityResourceProperty) resource, scope);
-    } else if (resource instanceof SecurityResourceFunction) {
+          session, security, resourceProperty, scope);
+    } else if (resource instanceof SecurityResourceFunction resourceFunction) {
       return getPredicateForFunction(
-          session, security, (SecurityResourceFunction) resource, scope);
+          session, security, resourceFunction, scope);
     }
     return SQLBooleanExpression.FALSE;
   }

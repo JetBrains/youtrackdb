@@ -27,9 +27,9 @@ public class UpdateRemoveStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    if (result instanceof ResultInternal) {
+    if (result instanceof ResultInternal resInt) {
       for (var item : items) {
-        item.applyUpdate((ResultInternal) result, ctx);
+        item.applyUpdate(resInt, ctx);
       }
     }
     return result;

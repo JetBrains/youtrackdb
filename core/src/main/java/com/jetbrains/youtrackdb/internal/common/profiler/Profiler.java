@@ -82,8 +82,8 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
     long diskCacheUsed = 0;
     long diskCacheTotal = 0;
     for (Storage stg : YouTrackDBEnginesManager.instance().getStorages()) {
-      if (stg instanceof DiskStorage) {
-        diskCacheUsed += ((DiskStorage) stg).getReadCache().getUsedMemory();
+      if (stg instanceof DiskStorage diskStorage) {
+        diskCacheUsed += diskStorage.getReadCache().getUsedMemory();
         diskCacheTotal += GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024;
         stgs++;
       }
@@ -163,9 +163,9 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
         final long jvmMaxMemory = Runtime.getRuntime().maxMemory();
 
         for (Storage s : YouTrackDBEnginesManager.instance().getStorages()) {
-          if (s instanceof DiskStorage) {
-            final ReadCache dk = ((DiskStorage) s).getReadCache();
-            final WriteCache wk = ((DiskStorage) s).getWriteCache();
+          if (s instanceof DiskStorage diskStorage) {
+            final ReadCache dk = diskStorage.getReadCache();
+            final WriteCache wk = diskStorage.getWriteCache();
             if (dk == null || wk == null)
             // NOT YET READY
             {

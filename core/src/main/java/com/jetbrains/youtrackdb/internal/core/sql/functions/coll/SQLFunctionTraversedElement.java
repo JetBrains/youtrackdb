@@ -103,8 +103,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     if (beginIndex < 0) {
       var i = -1;
       for (final var o : stack) {
-        if (o instanceof TraverseRecordProcess) {
-          final var record = ((TraverseRecordProcess) o).getTarget();
+        if (o instanceof TraverseRecordProcess trp) {
+          final var record = trp.getTarget();
 
           SchemaImmutableClass result1 = null;
           var transaction = session.getActiveTransaction();
@@ -155,8 +155,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
       var listStack = stackToList(stack);
       for (var x = listStack.size() - 1; x >= 0; x--) {
         final var o = listStack.get(x);
-        if (o instanceof TraverseRecordProcess) {
-          final var record = ((TraverseRecordProcess) o).getTarget();
+        if (o instanceof TraverseRecordProcess trp) {
+          final var record = trp.getTarget();
 
           SchemaImmutableClass result1 = null;
           var transaction = session.getActiveTransaction();
@@ -213,8 +213,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
   }
 
   private static List stackToList(Collection stack) {
-    if (stack instanceof List) {
-      return (List) stack;
+    if (stack instanceof List list) {
+      return list;
     }
 
     return (List) stack.stream().collect(Collectors.toList());

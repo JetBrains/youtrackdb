@@ -26,12 +26,12 @@ public abstract class AbstractCollectionConverter<T> implements ValuesConverter<
       return false;
     }
 
-    if (item instanceof Identifiable) {
+    if (item instanceof Identifiable identifiable) {
       final var converter =
           (ValuesConverter<Identifiable>)
               ImportConvertersFactory.INSTANCE.getConverter(item, converterData);
 
-      final var newValue = converter.convert(db, (Identifiable) item);
+      final var newValue = converter.convert(db, identifiable);
 
       // this code intentionally uses == instead of equals, in such case we may distinguish rids
       // which already contained in

@@ -348,11 +348,11 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
     if (fromObject == null) {
       return defaultValue;
     }
-    if (fromObject instanceof Boolean) {
-      return (Boolean) fromObject;
+    if (fromObject instanceof Boolean b) {
+      return b;
     }
-    if (fromObject instanceof String) {
-      return Boolean.parseBoolean((String) fromObject);
+    if (fromObject instanceof String s) {
+      return Boolean.parseBoolean(s);
     }
     return defaultValue;
   }
@@ -368,8 +368,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
     if (fromObject == null) {
       return defaultValue;
     }
-    if (fromObject instanceof Number) {
-      return ((Number) fromObject).intValue();
+    if (fromObject instanceof Number n) {
+      return n.intValue();
     }
     if (fromObject instanceof String) {
       try {
@@ -384,8 +384,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
     if (fromObject == null) {
       return defaultValue;
     }
-    if (fromObject instanceof Number) {
-      return ((Number) fromObject).longValue();
+    if (fromObject instanceof Number n) {
+      return n.longValue();
     }
     if (fromObject instanceof String) {
       try {
@@ -400,8 +400,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
     if (fromObject == null) {
       return defaultValue;
     }
-    if (fromObject instanceof Number) {
-      return ((Number) fromObject).doubleValue();
+    if (fromObject instanceof Number n) {
+      return n.doubleValue();
     }
     if (fromObject instanceof String) {
       try {

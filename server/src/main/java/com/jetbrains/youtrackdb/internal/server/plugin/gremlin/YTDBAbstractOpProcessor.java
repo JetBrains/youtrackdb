@@ -680,8 +680,8 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
                   statusAttribute(Tokens.STATUS_ATTRIBUTE_FAIL_STEP_MESSAGE, failure.format());
             }
             ctx.writeAndFlush(specialResponseMsg.create());
-          } else if (t instanceof OpProcessorException) {
-            ctx.writeAndFlush(((OpProcessorException) t).getResponseMessage());
+          } else if (t instanceof OpProcessorException ope) {
+            ctx.writeAndFlush(ope.getResponseMessage());
           } else if (t instanceof TimedInterruptTimeoutException) {
             // occurs when the TimedInterruptCustomizerProvider is in play
             final var errorMessage = String.format(
@@ -708,9 +708,9 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
             // presented itself where the "Method code too large!" comes with other compilation errors so
             // it seems that this message trumps other compilation errors to some reasonable degree that ends
             // up being favorable for this problem
-            if (t instanceof MultipleCompilationErrorsException && t.getMessage()
-                .contains("Method too large") &&
-                ((MultipleCompilationErrorsException) t).getErrorCollector().getErrorCount() == 1) {
+            if (t instanceof MultipleCompilationErrorsException mcee
+                && mcee.getMessage().contains("Method too large")
+                && mcee.getErrorCollector().getErrorCount() == 1) {
               final var errorMessage = String.format(
                   "The Gremlin statement that was submitted exceeds the maximum compilation size allowed by the JVM, please split it into multiple smaller statements - %s",
                   trimMessage(msg));

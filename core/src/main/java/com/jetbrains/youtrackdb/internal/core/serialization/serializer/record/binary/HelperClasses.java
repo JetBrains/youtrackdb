@@ -244,8 +244,8 @@ public class HelperClasses {
   public static PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
     var type = PropertyTypeInternal.getTypeByValue(fieldValue);
     if (type == PropertyTypeInternal.LINK
-        && fieldValue instanceof EntityImpl
-        && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
+        && fieldValue instanceof EntityImpl entity
+        && !entity.getIdentity().isValidPosition()) {
       type = PropertyTypeInternal.EMBEDDED;
     }
     return type;

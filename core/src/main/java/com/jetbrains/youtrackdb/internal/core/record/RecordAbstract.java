@@ -476,22 +476,22 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {
-    if (recordId instanceof ChangeableIdentity) {
-      ((ChangeableIdentity) recordId).addIdentityChangeListener(identityChangeListeners);
+    if (recordId instanceof ChangeableIdentity changeableIdentity) {
+      changeableIdentity.addIdentityChangeListener(identityChangeListeners);
     }
   }
 
   @Override
   public void removeIdentityChangeListener(IdentityChangeListener identityChangeListener) {
-    if (recordId instanceof ChangeableIdentity) {
-      ((ChangeableIdentity) recordId).removeIdentityChangeListener(identityChangeListener);
+    if (recordId instanceof ChangeableIdentity changeableIdentity) {
+      changeableIdentity.removeIdentityChangeListener(identityChangeListener);
     }
   }
 
   @Override
   public boolean canChangeIdentity() {
-    if (recordId instanceof ChangeableIdentity) {
-      return ((ChangeableIdentity) recordId).canChangeIdentity();
+    if (recordId instanceof ChangeableIdentity changeableIdentity) {
+      return changeableIdentity.canChangeIdentity();
     }
 
     return false;

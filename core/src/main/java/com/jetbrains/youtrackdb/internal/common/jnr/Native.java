@@ -512,8 +512,8 @@ public class Native {
               new ObjectName("java.lang", "type", "OperatingSystem"), "TotalPhysicalMemorySize");
 
       if (attribute != null) {
-        if (attribute instanceof Long) {
-          osMemory = (Long) attribute;
+        if (attribute instanceof Long l) {
+          osMemory = l;
         } else {
           try {
             osMemory = Long.parseLong(attribute.toString());

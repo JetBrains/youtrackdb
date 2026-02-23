@@ -104,8 +104,8 @@ public abstract class SLF4JLogManager {
   private static String fetchDbName(@Nullable Object requester, @Nullable Throwable exception) {
     String dbName = null;
     try {
-      if (requester instanceof Storage) {
-        dbName = ((Storage) requester).getName();
+      if (requester instanceof Storage storage) {
+        dbName = storage.getName();
       } else if (requester instanceof DatabaseSessionEmbedded databaseSession) {
         dbName = databaseSession.getDatabaseName();
       } else if (exception instanceof BaseException baseException) {

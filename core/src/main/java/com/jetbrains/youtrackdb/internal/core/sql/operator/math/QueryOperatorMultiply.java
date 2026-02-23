@@ -84,8 +84,8 @@ public class QueryOperatorMultiply extends QueryOperator {
 
   @Nullable
   public static BigDecimal toBigDecimal(Number number) {
-    if (number instanceof BigDecimal) {
-      return (BigDecimal) number;
+    if (number instanceof BigDecimal bd) {
+      return bd;
     }
     if (number instanceof Double) {
       return BigDecimal.valueOf(number.doubleValue());

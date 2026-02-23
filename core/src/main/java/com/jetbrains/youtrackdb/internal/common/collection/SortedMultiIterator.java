@@ -120,15 +120,15 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
     }
 
     EntityImpl leftEntity;
-    if ((left instanceof EntityImpl)) {
-      leftEntity = (EntityImpl) left;
+    if (left instanceof EntityImpl leftImpl) {
+      leftEntity = leftImpl;
     } else {
       var transaction = db.getActiveTransaction();
       leftEntity = transaction.load(left);
     }
     EntityImpl rightEntity;
-    if ((right instanceof EntityImpl)) {
-      rightEntity = (EntityImpl) right;
+    if (right instanceof EntityImpl rightImpl) {
+      rightEntity = rightImpl;
     } else {
       var transaction = db.getActiveTransaction();
       rightEntity = transaction.load(right);
@@ -143,8 +143,8 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
       if (leftVal == null) {
         return false;
       }
-      if (leftVal instanceof Comparable) {
-        var compare = ((Comparable) leftVal).compareTo(rightVal);
+      if (leftVal instanceof Comparable leftComparable) {
+        var compare = leftComparable.compareTo(rightVal);
         if (compare == 0) {
           continue;
         }

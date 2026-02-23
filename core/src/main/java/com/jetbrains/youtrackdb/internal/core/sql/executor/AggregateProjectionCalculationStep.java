@@ -65,8 +65,8 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
       }
       for (var name : item.getTemporaryProperties()) {
         var prevVal = item.getTemporaryProperty(name);
-        if (prevVal instanceof AggregationContext) {
-          item.setTemporaryProperty(name, ((AggregationContext) prevVal).getFinalValue());
+        if (prevVal instanceof AggregationContext aggregationContext) {
+          item.setTemporaryProperty(name, aggregationContext.getFinalValue());
         }
       }
     }

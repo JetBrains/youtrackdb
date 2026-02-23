@@ -135,8 +135,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static Object convertKey(Object key) {
-    if (key instanceof CompositeKey) {
-      return new ArrayList<>(((CompositeKey) key).getKeys());
+    if (key instanceof CompositeKey ck) {
+      return new ArrayList<>(ck.getKeys());
     }
     return key;
   }
@@ -158,8 +158,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       var andBlock = (SQLAndBlock) condition;
       size = andBlock.getSubBlocks().size();
       var lastOp = andBlock.getSubBlocks().getLast();
-      if (lastOp instanceof SQLBinaryCondition) {
-        var op = ((SQLBinaryCondition) lastOp).getOperator();
+      if (lastOp instanceof SQLBinaryCondition binCond) {
+        var op = binCond.getOperator();
         range = op.isRangeOperator();
       }
     }
@@ -429,19 +429,19 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * </ul>
    */
   private static Object unboxResult(Object value) {
-    if (value instanceof List) {
-      try (var stream = ((List<?>) value).stream()) {
+    if (value instanceof List<?> list) {
+      try (var stream = list.stream()) {
         return stream.map(FetchFromIndexStep::unboxResult).collect(Collectors.toList());
       }
     }
-    if (value instanceof Result) {
-      if (((Result) value).isEntity()) {
-        return ((Result) value).getIdentity();
+    if (value instanceof Result res) {
+      if (res.isEntity()) {
+        return res.getIdentity();
       }
 
-      var props = ((Result) value).getPropertyNames();
+      var props = res.getPropertyNames();
       if (props.size() == 1) {
-        return ((Result) value).getProperty(props.getFirst());
+        return res.getProperty(props.getFirst());
       }
     }
     return value;
@@ -505,15 +505,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         result.add(types[i++].convert(o, null, null, session));
       }
 
-      if (condition instanceof SQLAndBlock) {
-        for (var j = 0; j < ((SQLAndBlock) condition).getSubBlocks().size(); j++) {
-          var subExp = ((SQLAndBlock) condition).getSubBlocks().get(j);
-          if (subExp instanceof SQLBinaryCondition) {
-            if (((SQLBinaryCondition) subExp).getOperator() instanceof SQLContainsKeyOperator) {
+      if (condition instanceof SQLAndBlock andBlock) {
+        for (var j = 0; j < andBlock.getSubBlocks().size(); j++) {
+          var subExp = andBlock.getSubBlocks().get(j);
+          if (subExp instanceof SQLBinaryCondition binCond) {
+            if (binCond.getOperator() instanceof SQLContainsKeyOperator) {
               Map<Object, Object> newValue = new HashMap<>();
               newValue.put(result.get(j), "");
               result.set(j, newValue);
-            } else if (((SQLBinaryCondition) subExp).getOperator()
+            } else if (binCond.getOperator()
                 instanceof SQLContainsValueOperator) {
               Map<Object, Object> newValue = new HashMap<>();
               newValue.put("", result.get(j));
@@ -683,8 +683,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         keyCondition.getSubBlocks().getLast();
     var additionalOperator =
         Optional.ofNullable(additional).map(SQLBinaryCondition::getOperator).orElse(null);
-    if (exp instanceof SQLBinaryCondition) {
-      var operator = ((SQLBinaryCondition) exp).getOperator();
+    if (exp instanceof SQLBinaryCondition binCond) {
+      var operator = binCond.getOperator();
       if (isGreaterOperator(operator)) {
         return isIncludeOperator(operator);
       } else {
@@ -697,8 +697,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           || (isIncludeOperator(additionalOperator) && isGreaterOperator(additionalOperator));
     } else if (exp instanceof SQLContainsTextCondition) {
       return true;
-    } else if (exp instanceof SQLContainsValueCondition) {
-      SQLBinaryCompareOperator operator = ((SQLContainsValueCondition) exp).getOperator();
+    } else if (exp instanceof SQLContainsValueCondition cvCond) {
+      SQLBinaryCompareOperator operator = cvCond.getOperator();
       if (isGreaterOperator(operator)) {
         return isIncludeOperator(operator);
       } else {
@@ -737,8 +737,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         keyCondition.getSubBlocks().getLast();
     var additionalOperator =
         Optional.ofNullable(additional).map(SQLBinaryCondition::getOperator).orElse(null);
-    if (exp instanceof SQLBinaryCondition) {
-      var operator = ((SQLBinaryCondition) exp).getOperator();
+    if (exp instanceof SQLBinaryCondition binCond) {
+      var operator = binCond.getOperator();
       if (isLessOperator(operator)) {
         return isIncludeOperator(operator);
       } else {
@@ -751,8 +751,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           || (isIncludeOperator(additionalOperator) && isLessOperator(additionalOperator));
     } else if (exp instanceof SQLContainsTextCondition) {
       return true;
-    } else if (exp instanceof SQLContainsValueCondition) {
-      SQLBinaryCompareOperator operator = ((SQLContainsValueCondition) exp).getOperator();
+    } else if (exp instanceof SQLContainsValueCondition cvCond) {
+      SQLBinaryCompareOperator operator = cvCond.getOperator();
       if (isLessOperator(operator)) {
         return isIncludeOperator(operator);
       } else {

@@ -102,11 +102,11 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
         lastRetryBlock.add(stm);
       }
 
-      if (stm instanceof SQLCommitStatement && nestedTxLevel > 0) {
+      if (stm instanceof SQLCommitStatement commitStatement && nestedTxLevel > 0) {
         nestedTxLevel--;
         if (nestedTxLevel == 0) {
-          if (((SQLCommitStatement) stm).getRetry() != null) {
-            var nRetries = ((SQLCommitStatement) stm).getRetry().getValue().intValue();
+          if (commitStatement.getRetry() != null) {
+            var nRetries = commitStatement.getRetry().getValue().intValue();
             if (nRetries <= 0) {
               throw new CommandExecutionException(
                   scriptContext.getDatabaseSession().getDatabaseName(),
@@ -144,8 +144,8 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
         lastRetryBlock = new ArrayList<>();
       }
 
-      if (stm instanceof SQLLetStatement) {
-        scriptContext.declareScriptVariable(((SQLLetStatement) stm).getName().getStringValue());
+      if (stm instanceof SQLLetStatement letStatement) {
+        scriptContext.declareScriptVariable(letStatement.getName().getStringValue());
       }
     }
     return new LocalResultSet(scriptContext.getDatabaseSession(), plan);

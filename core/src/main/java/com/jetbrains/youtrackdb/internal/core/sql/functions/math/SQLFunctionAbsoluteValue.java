@@ -50,20 +50,20 @@ public class SQLFunctionAbsoluteValue extends SQLFunctionMathAbstract {
 
     if (inputValue == null) {
       result = null;
-    } else if (inputValue instanceof BigDecimal) {
-      result = ((BigDecimal) inputValue).abs();
-    } else if (inputValue instanceof BigInteger) {
-      result = ((BigInteger) inputValue).abs();
-    } else if (inputValue instanceof Integer) {
-      result = Math.abs((Integer) inputValue);
-    } else if (inputValue instanceof Long) {
-      result = Math.abs((Long) inputValue);
-    } else if (inputValue instanceof Short) {
-      result = (short) Math.abs((Short) inputValue);
-    } else if (inputValue instanceof Double) {
-      result = Math.abs((Double) inputValue);
-    } else if (inputValue instanceof Float) {
-      result = Math.abs((Float) inputValue);
+    } else if (inputValue instanceof BigDecimal bd) {
+      result = bd.abs();
+    } else if (inputValue instanceof BigInteger bi) {
+      result = bi.abs();
+    } else if (inputValue instanceof Integer i) {
+      result = Math.abs(i);
+    } else if (inputValue instanceof Long l) {
+      result = Math.abs(l);
+    } else if (inputValue instanceof Short s) {
+      result = (short) Math.abs(s);
+    } else if (inputValue instanceof Double d) {
+      result = Math.abs(d);
+    } else if (inputValue instanceof Float f) {
+      result = Math.abs(f);
     } else {
       throw new IllegalArgumentException("Argument to absolute value must be a number.");
     }

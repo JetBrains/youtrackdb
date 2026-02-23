@@ -53,7 +53,7 @@ public class SQLMethodCurrent extends AbstractSQLMethod {
           "Method 'current()' can be invoked only on OSequence instances, while NULL was found");
     }
 
-    if (!(iThis instanceof DBSequence)) {
+    if (!(iThis instanceof DBSequence seq)) {
       throw new CommandSQLParsingException(iContext.getDatabaseSession().getDatabaseName(),
           "Method 'current()' can be invoked only on OSequence instances, while '"
               + iThis.getClass()
@@ -61,7 +61,7 @@ public class SQLMethodCurrent extends AbstractSQLMethod {
     }
 
     try {
-      return ((DBSequence) iThis).current(iContext.getDatabaseSession());
+      return seq.current(iContext.getDatabaseSession());
     } catch (DatabaseException exc) {
       var message = "Unable to execute command: " + exc.getMessage();
       LogManager.instance().error(this, message, exc, (Object) null);

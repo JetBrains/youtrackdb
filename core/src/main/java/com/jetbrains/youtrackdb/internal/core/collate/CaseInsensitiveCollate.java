@@ -43,8 +43,8 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
   @Override
   public @Nullable Object transform(final @Nullable Object obj) {
-    if (obj instanceof String) {
-      return ((String) obj).toLowerCase(Locale.ENGLISH);
+    if (obj instanceof String s) {
+      return s.toLowerCase(Locale.ENGLISH);
     }
 
     if (obj instanceof Set<?> set) {

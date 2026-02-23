@@ -556,9 +556,9 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   }
 
   private Object toMap(Object parameters) {
-    if (parameters instanceof SimpleBindings) {
+    if (parameters instanceof SimpleBindings simpleBindings) {
       HashMap<Object, Object> result = new LinkedHashMap<Object, Object>();
-      result.putAll((SimpleBindings) parameters);
+      result.putAll(simpleBindings);
       return result;
     }
     return parameters;

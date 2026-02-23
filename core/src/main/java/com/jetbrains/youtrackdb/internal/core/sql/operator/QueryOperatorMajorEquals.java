@@ -70,14 +70,14 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
   @Override
   public RID getBeginRidRange(DatabaseSessionEmbedded session, final Object iLeft,
       final Object iRight) {
-    if (iLeft instanceof SQLFilterItemField
-        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
-      if (iRight instanceof RID) {
-        return (RID) iRight;
+    if (iLeft instanceof SQLFilterItemField field
+        && EntityHelper.ATTRIBUTE_RID.equals(field.getRoot(session))) {
+      if (iRight instanceof RID rid) {
+        return rid;
       } else {
-        if (iRight instanceof SQLFilterItemParameter
-            && ((SQLFilterItemParameter) iRight).getValue(null, null, null) instanceof RID) {
-          return (RID) ((SQLFilterItemParameter) iRight).getValue(null, null, null);
+        if (iRight instanceof SQLFilterItemParameter param
+            && param.getValue(null, null, null) instanceof RID rid) {
+          return rid;
         }
       }
     }

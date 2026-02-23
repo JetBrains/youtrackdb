@@ -134,8 +134,8 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
       if (step instanceof ReturnStep) {
         return true;
       }
-      if (step instanceof ScriptLineStep) {
-        return ((ScriptLineStep) step).containsReturn();
+      if (step instanceof ScriptLineStep scriptLineStep) {
+        return scriptLineStep.containsReturn();
       }
     }
 

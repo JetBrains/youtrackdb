@@ -508,8 +508,8 @@ public class SecurityShared implements SecurityInternal {
   private static void validatePolicyWithIndexes(DatabaseSessionEmbedded session, String resource)
       throws IllegalArgumentException {
     var res = SecurityResource.getInstance(resource);
-    if (res instanceof SecurityResourceProperty) {
-      var clazzName = ((SecurityResourceProperty) res).getClassName();
+    if (res instanceof SecurityResourceProperty resourceProperty) {
+      var clazzName = resourceProperty.getClassName();
       var clazz =
           session
               .getMetadata()
@@ -1315,11 +1315,11 @@ public class SecurityShared implements SecurityInternal {
         || res.equals(SecurityResourceProperty.ALL_PROPERTIES)) {
       return true;
     }
-    if (res instanceof SecurityResourceClass) {
-      var resourceClass = ((SecurityResourceClass) res).getClassName();
+    if (res instanceof SecurityResourceClass securityResourceClass) {
+      var resourceClass = securityResourceClass.getClassName();
       return clazz.isSubClassOf(resourceClass);
-    } else if (res instanceof SecurityResourceProperty) {
-      var resourceClass = ((SecurityResourceProperty) res).getClassName();
+    } else if (res instanceof SecurityResourceProperty securityResourceProperty) {
+      var resourceClass = securityResourceProperty.getClassName();
       return clazz.isSubClassOf(resourceClass);
     }
     return false;
@@ -1455,12 +1455,12 @@ public class SecurityShared implements SecurityInternal {
       return true;
     }
 
-    if (record instanceof Entity) {
+    if (record instanceof Entity entity) {
       String className;
-      if (record instanceof EntityImpl) {
-        className = ((EntityImpl) record).getSchemaClassName();
+      if (record instanceof EntityImpl entityImpl) {
+        className = entityImpl.getSchemaClassName();
       } else {
-        className = ((Entity) record).getSchemaClassName();
+        className = entity.getSchemaClassName();
       }
 
       if (roleHasPredicateSecurityForClass != null) {
@@ -1542,13 +1542,13 @@ public class SecurityShared implements SecurityInternal {
       // executeNoAuth
       return true;
     }
-    if (record instanceof Entity) {
+    if (record instanceof Entity entity) {
 
       String className;
-      if (record instanceof EntityImpl) {
-        className = ((EntityImpl) record).getSchemaClassName();
+      if (record instanceof EntityImpl entityImpl) {
+        className = entityImpl.getSchemaClassName();
       } else {
-        className = ((Entity) record).getSchemaClassName();
+        className = entity.getSchemaClassName();
       }
 
       if (className != null && roleHasPredicateSecurityForClass != null) {
@@ -1620,9 +1620,9 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private static Object convert(Object originalValue) {
-    if (originalValue instanceof LinkBag) {
+    if (originalValue instanceof LinkBag linkBag) {
       Set result = new LinkedHashSet<>();
-      ((LinkBag) originalValue).iterator().forEachRemaining(result::add);
+      linkBag.iterator().forEachRemaining(result::add);
       return result;
     }
     return originalValue;
@@ -1630,9 +1630,9 @@ public class SecurityShared implements SecurityInternal {
 
   public static Object unboxRidbags(Object value) {
     // TODO move it to some helper class
-    if (value instanceof LinkBag) {
-      List<Identifiable> result = new ArrayList<>(((LinkBag) value).size());
-      for (Identifiable identifiable : (LinkBag) value) {
+    if (value instanceof LinkBag linkBag) {
+      List<Identifiable> result = new ArrayList<>(linkBag.size());
+      for (Identifiable identifiable : linkBag) {
         result.add(identifiable);
       }
 
@@ -1648,12 +1648,12 @@ public class SecurityShared implements SecurityInternal {
       return true;
     }
 
-    if (record instanceof Entity) {
+    if (record instanceof Entity entity) {
       String className;
-      if (record instanceof EntityImpl) {
-        className = ((EntityImpl) record).getSchemaClassName();
+      if (record instanceof EntityImpl entityImpl) {
+        className = entityImpl.getSchemaClassName();
       } else {
-        className = ((Entity) record).getSchemaClassName();
+        className = entity.getSchemaClassName();
       }
 
       if (roleHasPredicateSecurityForClass != null) {
@@ -1808,14 +1808,14 @@ public class SecurityShared implements SecurityInternal {
           for (var policyEntry : policies.entrySet()) {
             try {
               var res = SecurityResource.getInstance(policyEntry.getKey());
-              if (res instanceof SecurityResourceProperty) {
+              if (res instanceof SecurityResourceProperty securityResourceProperty) {
                 var transaction = db.getActiveTransaction();
                 final Entity entity = transaction.load(policyEntry.getValue());
                 final SecurityPolicy policy =
                     new ImmutableSecurityPolicy(new SecurityPolicyImpl((EntityImpl) entity));
                 final var readRule = policy.getReadRule();
                 if (readRule != null && !readRule.trim().equalsIgnoreCase("true")) {
-                  result.add((SecurityResourceProperty) res);
+                  result.add(securityResourceProperty);
                 }
               }
             } catch (RecordNotFoundException e) {

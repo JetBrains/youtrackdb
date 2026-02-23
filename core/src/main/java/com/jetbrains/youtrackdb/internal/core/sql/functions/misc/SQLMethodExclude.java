@@ -119,10 +119,10 @@ public class SQLMethodExclude extends AbstractSQLMethod {
             // ACT ON MULTIPLE DOCUMENTS
             final List<Object> result = new ArrayList<Object>((int) MultiValue.getSize(iThis));
             for (var o : MultiValue.getMultiValueIterable(iThis)) {
-              if (o instanceof Identifiable) {
+              if (o instanceof Identifiable id) {
                 try {
                   var transaction = db.getActiveTransaction();
-                  var rec = transaction.load(((Identifiable) o));
+                  var rec = transaction.load(id);
                   result.add(copy(db, (EntityImpl) rec, iParams));
                 } catch (RecordNotFoundException rnf) {
                   // IGNORE IT

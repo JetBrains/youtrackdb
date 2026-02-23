@@ -424,8 +424,8 @@ public class SQLHelper {
       return null;
     }
 
-    if (iObject instanceof SQLFilterItem) {
-      return ((SQLFilterItem) iObject).getValue(null, null, null);
+    if (iObject instanceof SQLFilterItem filterItem) {
+      return filterItem.getValue(null, null, null);
     }
 
     return iObject;
@@ -481,19 +481,19 @@ public class SQLHelper {
       }
     }
 
-    if (iFieldValue instanceof EntityImpl && !((EntityImpl) iFieldValue).getIdentity()
+    if (iFieldValue instanceof EntityImpl entityImpl && !entityImpl.getIdentity()
         .isValidPosition())
     // EMBEDDED entity
     {
-      ((EntityImpl) iFieldValue).setOwner(entity);
+      entityImpl.setOwner(entity);
     }
 
     // can't use existing getValue with iContext
     if (iFieldValue == null) {
       return null;
     }
-    if (iFieldValue instanceof SQLFilterItem) {
-      return ((SQLFilterItem) iFieldValue).getValue(entity, null, iContext);
+    if (iFieldValue instanceof SQLFilterItem filterItem) {
+      return filterItem.getValue(entity, null, iContext);
     }
 
     return iFieldValue;

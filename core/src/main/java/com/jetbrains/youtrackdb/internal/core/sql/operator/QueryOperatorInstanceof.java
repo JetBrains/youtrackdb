@@ -59,21 +59,21 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
     }
 
     SchemaClass cls = null;
-    if (iLeft instanceof Identifiable) {
+    if (iLeft instanceof Identifiable id) {
       // GET THE RECORD'S CLASS
       var transaction = iContext.getDatabaseSession().getActiveTransaction();
-      var record = transaction.load(((Identifiable) iLeft));
-      if (record instanceof EntityImpl) {
+      var record = transaction.load(id);
+      if (record instanceof EntityImpl entity) {
         SchemaImmutableClass result = null;
-        if (record != null) {
-          result = ((EntityImpl) record).getImmutableSchemaClass(session);
+        if (entity != null) {
+          result = entity.getImmutableSchemaClass(session);
         }
         cls = result;
       }
-    } else if (iLeft instanceof String)
+    } else if (iLeft instanceof String str)
     // GET THE CLASS BY NAME
     {
-      cls = schema.getClass((String) iLeft);
+      cls = schema.getClass(str);
     }
 
     return cls != null && cls.isSubClassOf(baseClass);

@@ -28,8 +28,8 @@ public class MapTransformer implements ResultTransformer<Map<Object, Object>> {
             internal.setProperty(key.toString(), transformer.toResult(db, val));
           } else {
 
-            if (val instanceof Iterable) {
-              var spliterator = ((Iterable) val).spliterator();
+            if (val instanceof Iterable iterable) {
+              var spliterator = iterable.spliterator();
               var collect =
                   StreamSupport.stream(spliterator, false)
                       .map((e) -> this.transformer.toResult(db, e))

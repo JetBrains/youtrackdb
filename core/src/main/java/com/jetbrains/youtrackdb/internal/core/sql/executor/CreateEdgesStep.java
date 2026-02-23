@@ -116,8 +116,8 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     assert fromStatemen != null;
 
     var execPlan = createExecutionPlan(fromStatemen);
-    if (execPlan instanceof InsertExecutionPlan) {
-      ((InsertExecutionPlan) execPlan).executeInternal();
+    if (execPlan instanceof InsertExecutionPlan insertPlan) {
+      insertPlan.executeInternal();
     }
 
     var session = ctx.getDatabaseSession();

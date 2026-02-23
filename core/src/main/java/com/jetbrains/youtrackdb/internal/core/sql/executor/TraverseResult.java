@@ -30,8 +30,8 @@ public class TraverseResult extends ResultInternal {
   public void setProperty(@Nonnull String name, Object value) {
     assert session == null || session.assertIfNotActive();
     if ("$depth".equalsIgnoreCase(name)) {
-      if (value instanceof Number) {
-        depth = ((Number) value).intValue();
+      if (value instanceof Number num) {
+        depth = num.intValue();
       }
     } else {
       super.setProperty(name, value);

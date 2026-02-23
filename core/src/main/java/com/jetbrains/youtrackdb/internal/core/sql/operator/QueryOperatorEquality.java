@@ -85,10 +85,10 @@ public abstract class QueryOperatorEquality extends QueryOperator {
       CommandContext iContext,
       final EntitySerializer serializer) {
 
-    if (iLeft instanceof BinaryField && iRight instanceof BinaryField)
+    if (iLeft instanceof BinaryField leftField && iRight instanceof BinaryField rightField)
     // BINARY COMPARISON
     {
-      return evaluate((BinaryField) iLeft, (BinaryField) iRight, iContext, serializer);
+      return evaluate(leftField, rightField, iContext, serializer);
     } else if (iLeft instanceof QueryRuntimeValueMulti left) {
       // LEFT = MULTI
 

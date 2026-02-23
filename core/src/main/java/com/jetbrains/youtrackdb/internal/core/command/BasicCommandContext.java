@@ -233,16 +233,15 @@ public class BasicCommandContext implements CommandContext {
     var pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
     if (pos > -1) {
       var nested = getVariable(iName.substring(0, pos));
-      if (nested != null && nested instanceof CommandContext) {
-        ((CommandContext) nested).setVariable(iName.substring(pos + 1), iValue);
+      if (nested instanceof CommandContext commandContext) {
+        commandContext.setVariable(iName.substring(pos + 1), iValue);
       }
     } else {
       if (variables.containsKey(iName)) {
         variables.put(
             iName, iValue); // this is a local existing variable, so it's bound to current contex
-      } else if (parent != null
-          && parent instanceof BasicCommandContext
-          && ((BasicCommandContext) parent).hasVariable(iName)) {
+      } else if (parent instanceof BasicCommandContext basicCommandContext
+          && basicCommandContext.hasVariable(iName)) {
         if ("current".equalsIgnoreCase(iName) || "parent".equalsIgnoreCase(iName)) {
           variables.put(iName, iValue);
         } else {
@@ -280,15 +279,15 @@ public class BasicCommandContext implements CommandContext {
       var pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
       if (pos > -1) {
         var nested = getVariable(iName.substring(0, pos));
-        if (nested != null && nested instanceof CommandContext) {
-          ((CommandContext) nested).incrementVariable(iName.substring(pos + 1));
+        if (nested instanceof CommandContext commandContext) {
+          commandContext.incrementVariable(iName.substring(pos + 1));
         }
       } else {
         final var v = variables.get(iName);
         if (v == null) {
           variables.put(iName, 1);
-        } else if (v instanceof Number) {
-          variables.put(iName, PropertyTypeInternal.increment((Number) v, 1));
+        } else if (v instanceof Number number) {
+          variables.put(iName, PropertyTypeInternal.increment(number, 1));
         } else {
           throw new IllegalArgumentException(
               "Variable '" + iName + "' is not a number, but: " + v.getClass());

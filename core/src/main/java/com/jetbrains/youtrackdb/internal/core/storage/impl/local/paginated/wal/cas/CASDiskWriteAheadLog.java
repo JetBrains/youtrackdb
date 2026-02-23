@@ -741,7 +741,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
             while (recordCursor != null) {
               final var nextRecord = recordCursor.getItem();
 
-              if (nextRecord instanceof WriteableWALRecord) {
+              if (nextRecord instanceof WriteableWALRecord writeableRecord) {
                 final var nextLSN = nextRecord.getLsn();
 
                 if (nextLSN.getPosition() < 0) {
@@ -749,7 +749,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
                 }
 
                 if (nextLSN.compareTo(lsn) > 0) {
-                  return Collections.singletonList((WriteableWALRecord) nextRecord);
+                  return Collections.singletonList(writeableRecord);
                 } else {
                   assert nextLSN.compareTo(lsn) == 0;
                 }

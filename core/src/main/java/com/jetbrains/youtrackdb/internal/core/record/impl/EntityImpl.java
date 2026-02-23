@@ -3453,8 +3453,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
               if (record.getIdentity().isValidPosition()) {
                 record.getIdentity().toString(buffer);
               } else {
-                if (record instanceof EntityImpl) {
-                  buffer.append(((EntityImpl) record).toString(inspected));
+                if (record instanceof EntityImpl entity) {
+                  buffer.append(entity.toString(inspected));
                 } else {
                   buffer.append(record);
                 }
@@ -3624,12 +3624,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       for (var propertyEntry : properties.entrySet()) {
         var entry = propertyEntry.getValue();
         final var propertyValue = entry.value;
-        if (propertyValue instanceof LinkBag) {
+        if (propertyValue instanceof LinkBag linkBag) {
           if (isEmbedded()) {
             throw new DatabaseException(session.getDatabaseName(),
                 "RidBag are supported only at entity root");
           }
-          ((LinkBag) propertyValue).checkAndConvert();
+          linkBag.checkAndConvert();
         }
         if (!(propertyValue instanceof Collection<?>)
             && !(propertyValue instanceof Map<?, ?>)
@@ -3637,8 +3637,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
           continue;
         }
 
-        if (propertyValue instanceof EntityImpl && ((EntityImpl) propertyValue).isEmbedded()) {
-          ((EntityImpl) propertyValue).checkAllMultiValuesAreTrackedVersions();
+        if (propertyValue instanceof EntityImpl entity && entity.isEmbedded()) {
+          entity.checkAllMultiValuesAreTrackedVersions();
           continue;
         }
 

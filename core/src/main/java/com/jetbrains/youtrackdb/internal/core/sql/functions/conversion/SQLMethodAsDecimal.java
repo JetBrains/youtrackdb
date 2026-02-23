@@ -47,8 +47,8 @@ public class SQLMethodAsDecimal extends AbstractSQLMethod {
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    if (iThis instanceof Date) {
-      return new BigDecimal(((Date) iThis).getTime());
+    if (iThis instanceof Date d) {
+      return new BigDecimal(d.getTime());
     }
     return iThis != null ? new BigDecimal(iThis.toString().trim()) : null;
   }
