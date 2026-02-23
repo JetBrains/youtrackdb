@@ -427,7 +427,7 @@ public abstract class YTDBAbstractOpProcessor implements OpProcessor {
     final Map<String, Object> metaData = new HashMap<>();
     metaData.put(Tokens.ARGS_HOST, ctx.channel().remoteAddress().toString());
 
-    return metaData;
+    return Collections.unmodifiableMap(metaData);
   }
 
 

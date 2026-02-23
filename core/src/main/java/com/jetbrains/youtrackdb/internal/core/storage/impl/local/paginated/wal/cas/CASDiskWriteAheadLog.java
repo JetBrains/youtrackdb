@@ -623,7 +623,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
                         null,
                         pageIndex,
                         segmentName);
-                return result;
+                return Collections.unmodifiableList(result);
               }
 
               buffer.position((int) (position - pageIndex * pageSize));
@@ -679,7 +679,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
                   result.add(walRecord);
 
                   if (result.size() == limit) {
-                    return result;
+                    return Collections.unmodifiableList(result);
                   }
                 }
               }
@@ -706,7 +706,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       }
     }
 
-    return result;
+    return Collections.unmodifiableList(result);
   }
 
   @Override

@@ -654,7 +654,7 @@ public class ResultInternal implements Result, BasicResultInternal {
   public @Nonnull List<String> getPropertyNames() {
     assert checkSession();
     if (content != null) {
-      return new ArrayList<>(content.keySet());
+      return Collections.unmodifiableList(new ArrayList<>(content.keySet()));
     }
 
     if (isEntity()) {

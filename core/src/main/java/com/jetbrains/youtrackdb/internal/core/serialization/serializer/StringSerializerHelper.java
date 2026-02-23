@@ -1222,7 +1222,7 @@ public abstract class StringSerializerHelper {
       }
     }
 
-    return map;
+    return Collections.unmodifiableMap(map);
   }
 
   /**
