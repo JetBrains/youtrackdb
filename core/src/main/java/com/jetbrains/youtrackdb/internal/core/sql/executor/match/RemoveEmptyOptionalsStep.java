@@ -50,6 +50,9 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
+    assert depth >= 0 : "depth must be non-negative";
+    assert indent >= 0 : "indent must be non-negative";
+
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ REMOVE EMPTY OPTIONALS";
   }

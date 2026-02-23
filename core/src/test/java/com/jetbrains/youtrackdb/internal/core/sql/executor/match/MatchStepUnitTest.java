@@ -275,6 +275,196 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(copy instanceof RemoveEmptyOptionalsStep);
   }
 
+  /** Verifies prettyPrint() returns the expected "REMOVE EMPTY OPTIONALS" string. */
+  @Test
+  public void testRemoveEmptyOptionalsStepPrettyPrint() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    var result = step.prettyPrint(0, 2);
+    assertEquals("+ REMOVE EMPTY OPTIONALS", result);
+  }
+
+  /** Verifies prettyPrint() applies indentation when depth > 0. */
+  @Test
+  public void testRemoveEmptyOptionalsStepPrettyPrintWithDepth() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    var result = step.prettyPrint(1, 3);
+    assertEquals("   + REMOVE EMPTY OPTIONALS", result); // 1 * 3 = 3 spaces
+  }
+
+  /** Verifies prettyPrint() asserts when depth is negative. */
+  @Test(expected = AssertionError.class)
+  public void testRemoveEmptyOptionalsStepPrettyPrintNegativeDepth() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    step.prettyPrint(-1, 2);
+  }
+
+  /** Verifies prettyPrint() asserts when indent is negative. */
+  @Test(expected = AssertionError.class)
+  public void testRemoveEmptyOptionalsStepPrettyPrintNegativeIndent() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    step.prettyPrint(0, -1);
+  }
+
+  /**
+   * Verifies that internalStart replaces EMPTY_OPTIONAL sentinel values with null
+   * while preserving non-sentinel property values. This is the core logic of the step:
+   * after optional traversals complete, sentinel placeholders must be normalized to null
+   * for the final output.
+   */
+  @Test
+  public void testRemoveEmptyOptionalsStepReplacesEmptyOptionals() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("matched", "Alice");
+        result.setProperty("optional", OptionalMatchEdgeTraverser.EMPTY_OPTIONAL);
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Non-sentinel value must be preserved
+    assertEquals("Alice", result.getProperty("matched"));
+    // EMPTY_OPTIONAL sentinel must be replaced with null
+    assertNull(result.getProperty("optional"));
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies that internalStart preserves all property values when none of them
+   * are EMPTY_OPTIONAL sentinels. The step must be a no-op for non-optional rows.
+   */
+  @Test
+  public void testRemoveEmptyOptionalsStepPreservesNonOptionals() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("a", "value1");
+        result.setProperty("b", 42);
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("value1", result.getProperty("a"));
+    assertEquals(42, (int) result.getProperty("b"));
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies that internalStart handles an empty upstream stream correctly.
+   * When there are no results to process, the step should return an empty stream.
+   */
+  @Test
+  public void testRemoveEmptyOptionalsStepEmptyStream() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertNotNull(stream);
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies that internalStart correctly handles a result row with no properties.
+   * The for loop body should not execute, and the empty result is returned unchanged.
+   */
+  @Test
+  public void testRemoveEmptyOptionalsStepEmptyProperties() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        // Result with no properties
+        return ExecutionStream.singleton(new ResultInternal(session));
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertTrue(result.getPropertyNames().isEmpty());
+    assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * Verifies that internalStart asserts when the previous step is null.
+   * This guards against a pipeline configuration error where the step is
+   * started without being connected to an upstream.
+   */
+  @Test(expected = AssertionError.class)
+  public void testRemoveEmptyOptionalsStepAssertNullPrev() {
+    var ctx = createCommandContext();
+    var step = new RemoveEmptyOptionalsStep(ctx, false);
+    // No setPrevious call — prev remains null
+    step.start(ctx);
+  }
+
   // -- ReturnMatchPathsStep tests --
 
   /** Verifies ReturnMatchPathsStep.copy() returns a distinct instance. */
