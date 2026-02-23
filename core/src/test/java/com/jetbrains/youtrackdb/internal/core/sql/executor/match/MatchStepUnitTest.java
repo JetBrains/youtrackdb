@@ -11,8 +11,17 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -26,8 +35,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import javax.annotation.Nonnull;
 import org.junit.Test;
 
 /**
@@ -732,6 +745,345 @@ public class MatchStepUnitTest extends DbTestBase {
     var copy = step.copy(ctx);
     assertNotSame(step, copy);
     assertTrue(copy instanceof FilterNotMatchPatternStep);
+  }
+
+  /**
+   * Verifies that constructing FilterNotMatchPatternStep with a null sub-steps list
+   * triggers the assertion guard. The constructor requires a non-null list because
+   * a null would cause NPE during pattern evaluation later.
+   */
+  @Test(expected = AssertionError.class)
+  public void testFilterNotMatchPatternStepConstructorNullSteps() {
+    var ctx = createCommandContext();
+    new FilterNotMatchPatternStep(null, ctx, false);
+  }
+
+  /**
+   * Verifies that internalStart throws IllegalStateException when no previous step
+   * is connected. The step requires upstream input to filter; starting it without
+   * a predecessor is a pipeline configuration error.
+   */
+  @Test(expected = IllegalStateException.class)
+  public void testFilterNotMatchPatternStepNullPrevThrows() {
+    var ctx = createCommandContext();
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
+    // No setPrevious call — prev remains null
+    step.start(ctx);
+  }
+
+  /**
+   * Verifies that when the NOT pattern matches (sub-steps produce a result),
+   * the upstream row is discarded. With an empty sub-steps list, the internal
+   * plan consists solely of ChainStep which always emits a copy of the row —
+   * so the pattern always "matches" and every upstream row is dropped.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepDiscardsMatchingRows() {
+    var ctx = createCommandContext();
+    // Empty sub-steps: ChainStep alone always produces output → pattern matches
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("name", "Alice");
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    // Pattern matches → row is discarded → stream is empty
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that when the NOT pattern does NOT match (sub-steps produce no result),
+   * the upstream row passes through. A sub-step that always returns empty causes
+   * the NOT-pattern plan to produce no results, so the row is kept.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepKeepsNonMatchingRows() {
+    var ctx = createCommandContext();
+    // Sub-step that always returns empty → pattern never matches → rows pass through
+    var step = new FilterNotMatchPatternStep(
+        List.of(createEmptySubStep(ctx)), ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("name", "Bob");
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    // Pattern does not match → row passes through
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Bob", result.<String>getProperty("name"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that when upstream is empty, the filtered stream is also empty
+   * regardless of the sub-steps configuration. No rows means nothing to evaluate.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepEmptyUpstream() {
+    var ctx = createCommandContext();
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that ChainStep copies both properties and metadata from a
+   * ResultInternal source row without error. This covers the true branch
+   * of the {@code instanceof ResultInternal} check inside ChainStep's copy
+   * logic.
+   *
+   * <p>Note: ChainStep is a private inner class whose copy output is consumed
+   * internally by the NOT-pattern sub-plan. The original upstream row (not the
+   * copy) is what passes through or gets discarded. With an empty sub-steps
+   * list, ChainStep is the sole plan step and always produces output, so the
+   * pattern "matches" and the row is discarded — but the copy path with
+   * metadata is fully exercised during evaluation.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepCopiesMetadata() {
+    var ctx = createCommandContext();
+    // Empty sub-steps: ChainStep alone always produces output → pattern matches.
+    // This path invokes ChainStep.copy(Result) with a ResultInternal that has
+    // metadata, exercising the instanceof-true branch.
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        var result = new ResultInternal(session);
+        result.setProperty("key", "value");
+        result.setMetadata("md_key", "md_value");
+        return ExecutionStream.singleton(result);
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    // Pattern matches → row discarded (ChainStep.copy with metadata exercised)
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that ChainStep handles non-ResultInternal Result objects correctly,
+   * copying only properties and skipping metadata (which is ResultInternal-
+   * specific). This covers the false branch of the {@code instanceof
+   * ResultInternal} check in ChainStep's copy logic.
+   *
+   * <p>With an empty sub-steps list, ChainStep is the sole plan step and
+   * always produces output, so the pattern "matches" and the row is discarded.
+   * The key assertion is that ChainStep.copy() does not throw when the
+   * upstream row is a non-ResultInternal Result.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepNonResultInternalUpstream() {
+    var ctx = createCommandContext();
+    // Empty sub-steps → ChainStep alone → pattern matches → row discarded.
+    // ChainStep.copy(Result) receives a NonResultInternalStub, exercising the
+    // instanceof-false branch.
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
+    var prevStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.singleton(new NonResultInternalStub("prop1", "val1"));
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    step.setPrevious(prevStep);
+
+    // Pattern matches → row discarded (ChainStep.copy without metadata exercised)
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Verifies that getSubSteps() returns the sub-steps list provided at construction.
+   * The returned list should reflect the NOT-pattern's traversal edges.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepGetSubSteps() {
+    var ctx = createCommandContext();
+    var subStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "sub";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    var step = new FilterNotMatchPatternStep(List.of(subStep), ctx, false);
+    var subSteps = step.getSubSteps();
+    assertEquals(1, subSteps.size());
+    assertSame(subStep, subSteps.get(0));
+  }
+
+  /**
+   * Verifies that prettyPrint() outputs the "NOT" block header with each sub-step
+   * indented inside parentheses. This is the human-readable representation used
+   * in EXPLAIN output.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepPrettyPrint() {
+    var ctx = createCommandContext();
+    var subStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "  child_step";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+    var step = new FilterNotMatchPatternStep(List.of(subStep), ctx, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("NOT"));
+    assertTrue(output.contains("child_step"));
+    assertTrue(output.contains(")"));
+  }
+
+  /**
+   * Verifies that close() can be called without error. The step delegates to
+   * AbstractExecutionStep.close() which closes the upstream chain.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepClose() {
+    var ctx = createCommandContext();
+    var step = new FilterNotMatchPatternStep(List.of(), ctx, false);
+    // close() should not throw even without a previous step set
+    step.close();
+  }
+
+  /**
+   * Verifies that copy() preserves sub-steps by copying each one via its own copy()
+   * method. The copied step should have the same number of sub-steps as the original.
+   */
+  @Test
+  public void testFilterNotMatchPatternStepCopyPreservesSubSteps() {
+    var ctx = createCommandContext();
+    var subStep = new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return new AbstractExecutionStep(ctx, false) {
+          @Override
+          public ExecutionStream internalStart(CommandContext ctx) {
+            return ExecutionStream.empty();
+          }
+
+          @Override
+          public String prettyPrint(int depth, int indent) {
+            return "";
+          }
+
+          @Override
+          public ExecutionStep copy(CommandContext ctx) {
+            return this;
+          }
+        };
+      }
+    };
+    var step = new FilterNotMatchPatternStep(List.of(subStep), ctx, false);
+    var copy = (FilterNotMatchPatternStep) step.copy(ctx);
+    assertNotSame(step, copy);
+    assertEquals(1, copy.getSubSteps().size());
+    // Sub-step should be a copy, not the same instance
+    assertNotSame(subStep, copy.getSubSteps().get(0));
   }
 
   // -- MatchPrefetchStep tests --
@@ -1913,5 +2265,212 @@ public class MatchStepUnitTest extends DbTestBase {
 
   private EdgeTraversal createTestEdgeTraversal() {
     return new EdgeTraversal(createTestPatternEdge(), true);
+  }
+
+  /** Creates a sub-step that always returns an empty stream. */
+  private AbstractExecutionStep createEmptySubStep(CommandContext ctx) {
+    return new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+  }
+
+  /**
+   * Minimal Result stub that is NOT a ResultInternal. Used to test the false
+   * branch of the {@code instanceof ResultInternal} check in ChainStep's copy
+   * logic. Only {@link #getPropertyNames()} and {@link #getProperty(String)}
+   * are functional; all other methods return safe defaults or throw.
+   */
+  // Most methods intentionally return null for this test-only stub
+  @SuppressWarnings("NullableProblems")
+  private static class NonResultInternalStub implements Result {
+
+    private final Map<String, Object> properties = new LinkedHashMap<>();
+
+    NonResultInternalStub(String key, Object value) {
+      properties.put(key, value);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getProperty(@Nonnull String name) {
+      return (T) properties.get(name);
+    }
+
+    @Nonnull
+    @Override
+    public List<String> getPropertyNames() {
+      return new ArrayList<>(properties.keySet());
+    }
+
+    @Override
+    public boolean hasProperty(@Nonnull String varName) {
+      return properties.containsKey(varName);
+    }
+
+    @Override
+    public boolean isIdentifiable() {
+      return false;
+    }
+
+    @Override
+    public RID getIdentity() {
+      return null;
+    }
+
+    @Override
+    public boolean isProjection() {
+      return true;
+    }
+
+    @Nonnull
+    @Override
+    public Map<String, Object> toMap() {
+      return Collections.unmodifiableMap(properties);
+    }
+
+    @Nonnull
+    @Override
+    public String toJSON() {
+      return properties.toString();
+    }
+
+    @Override
+    public RID getLink(@Nonnull String name) {
+      return null;
+    }
+
+    @Override
+    public DatabaseSessionEmbedded getBoundedToSession() {
+      return null;
+    }
+
+    @Nonnull
+    @Override
+    public Result detach() {
+      return this;
+    }
+
+    @Override
+    public Result getResult(@Nonnull String name) {
+      return null;
+    }
+
+    @Override
+    public Entity getEntity(@Nonnull String name) {
+      return null;
+    }
+
+    @Override
+    public Blob getBlob(@Nonnull String name) {
+      return null;
+    }
+
+    @Override
+    public boolean isEntity() {
+      return false;
+    }
+
+    @Nonnull
+    @Override
+    public Entity asEntity() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Entity asEntityOrNull() {
+      return null;
+    }
+
+    @Override
+    public boolean isVertex() {
+      return false;
+    }
+
+    @Override
+    public boolean isRelation() {
+      return false;
+    }
+
+    @Override
+    public Relation<?> asRelation() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Relation<?> asRelationOrNull() {
+      return null;
+    }
+
+    @Override
+    public boolean isEdge() {
+      return false;
+    }
+
+    @Nonnull
+    @Override
+    public Edge asEdge() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Edge asEdgeOrNull() {
+      return null;
+    }
+
+    @Override
+    public boolean isStatefulEdge() {
+      return false;
+    }
+
+    @Override
+    public boolean isBlob() {
+      return false;
+    }
+
+    @Nonnull
+    @Override
+    public Blob asBlob() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Blob asBlobOrNull() {
+      return null;
+    }
+
+    @Nonnull
+    @Override
+    public DBRecord asRecord() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public DBRecord asRecordOrNull() {
+      return null;
+    }
+
+    @Nonnull
+    @Override
+    public Identifiable asIdentifiable() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Identifiable asIdentifiableOrNull() {
+      return null;
+    }
   }
 }
