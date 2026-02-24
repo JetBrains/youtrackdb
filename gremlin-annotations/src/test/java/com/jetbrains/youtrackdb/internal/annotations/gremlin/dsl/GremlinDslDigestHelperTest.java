@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -91,6 +92,32 @@ public class GremlinDslDigestHelperTest {
   public void getStoredDigestFromGeneratedFile_returnsNullForNonExistentPath() {
     var missing = temp.getRoot().toPath().resolve("__.java");
     assertThat(GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(missing)).isNull();
+  }
+
+  /**
+   * When the generated file exists but cannot be read (e.g. no read permission on Unix),
+   * getStoredDigestFromGeneratedFile catches IOException and returns null.
+   * Skipped on Windows where setReadable(false) does not prevent owner read.
+   */
+  @Test
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void getStoredDigestFromGeneratedFile_returnsNullWhenFileUnreadable() throws Exception {
+    var generated = temp.newFile("__.java").toPath();
+    Files.writeString(generated,
+        "// " + GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + "abc123\npackage p;");
+
+    var wasSetSuccessful = generated.toFile().setReadable(false, false);
+    var canRead = generated.toFile().canRead();
+    generated.toFile().setReadable(true, false);
+    Assume.assumeTrue("Platform does not support making files unreadable",
+        wasSetSuccessful && !canRead);
+
+    generated.toFile().setReadable(false, false);
+    try {
+      assertThat(GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(generated)).isNull();
+    } finally {
+      generated.toFile().setReadable(true, false);
+    }
   }
 
   @Test

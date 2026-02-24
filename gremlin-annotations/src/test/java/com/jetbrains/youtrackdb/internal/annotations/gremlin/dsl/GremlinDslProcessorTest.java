@@ -223,6 +223,7 @@ public class GremlinDslProcessorTest {
     Files.createDirectories(sentinel.getParent());
     Files.writeString(sentinel,
         "// " + GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + digest + "\npackage p;\nclass __ {}");
+    var sentinelModifiedBefore = Files.getLastModifiedTime(sentinel);
 
     var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
@@ -232,9 +233,15 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    var generatedSourceFiles = compilation.generatedSourceFiles();
-    Assert.assertTrue("No source files should be generated when digest matches (skip)",
-        generatedSourceFiles.isEmpty());
+    var genPkgDir = generatedDir.resolve(DSL_PACKAGE_PATH);
+    Assert.assertFalse("SocialTraversal.java should NOT be generated when digest matches",
+        Files.isRegularFile(genPkgDir.resolve("SocialTraversal.java")));
+    Assert.assertFalse("SocialTraversalSource.java should NOT be generated when digest matches",
+        Files.isRegularFile(genPkgDir.resolve("SocialTraversalSource.java")));
+    Assert.assertFalse("DefaultSocialTraversal.java should NOT be generated when digest matches",
+        Files.isRegularFile(genPkgDir.resolve("DefaultSocialTraversal.java")));
+    Assert.assertEquals("Sentinel __.java should NOT be modified",
+        sentinelModifiedBefore, Files.getLastModifiedTime(sentinel));
   }
 
   /**
@@ -259,9 +266,13 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
-        Files.isRegularFile(
-            generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
+    var genPkgDir = generatedDir.resolve(DSL_PACKAGE_PATH);
+    assertAllFourArtifactsGenerated(genPkgDir, "Social");
+    var digest = GremlinDslDigestHelper.computeSourceDigest(dslSource);
+    var storedDigest =
+        GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(genPkgDir.resolve("__.java"));
+    Assert.assertEquals("Generated __.java should contain the DSL source digest",
+        digest, storedDigest);
   }
 
   /**
@@ -290,6 +301,13 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
+    var genPkgDir = generatedDir.resolve(DSL_PACKAGE_PATH);
+    assertAllFourArtifactsGenerated(genPkgDir, "Social");
+    var currentDigest = GremlinDslDigestHelper.computeSourceDigest(dslSource);
+    var storedDigest =
+        GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(genPkgDir.resolve("__.java"));
+    Assert.assertEquals("Regenerated __.java should contain the updated DSL source digest",
+        currentDigest, storedDigest);
   }
 
   /**
@@ -316,7 +334,8 @@ public class GremlinDslProcessorTest {
   }
 
   /**
-   * sourceDir empty but generatedDir set
+   * sourceDir empty but generatedDir set: getDslSourcePath returns null because sourceDir is
+   * empty, so canSkipByDigest returns false and generation proceeds with an empty digest.
    */
   @Test
   public void withOptions_emptySourceDir_generatesBecauseGetDslSourcePathReturnsNull() throws IOException {
@@ -330,21 +349,24 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
-        Files.isRegularFile(
-            generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
+    var genPkgDir = generatedDir.resolve(DSL_PACKAGE_PATH);
+    assertAllFourArtifactsGenerated(genPkgDir, "Social");
+    var storedDigest =
+        GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(genPkgDir.resolve("__.java"));
+    Assert.assertTrue("Digest should be empty when sourceDir is empty",
+        storedDigest == null || storedDigest.isEmpty());
   }
 
   /**
    * With -A options set but DSL source file absent at expected path, getDslSourcePath returns null
-   * (line 114: Files.isRegularFile(path) is false). Processor runs full generation.
+   * (line 114: Files.isRegularFile(path) is false). Processor runs full generation with empty
+   * digest (because source path is null, so no digest can be computed).
    */
   @Test
   public void withOptions_dslSourceFileAbsent_generatesBecausePathNotRegularFile() throws IOException {
     var sourceDir = temp.newFolder("src").toPath();
     var generatedDir = temp.newFolder("gen").toPath();
     Files.createDirectories(sourceDir.resolve(DSL_PACKAGE_PATH));
-    // Do NOT write SocialTraversalDsl.java under sourceDir - path will not be a regular file
 
     var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
@@ -354,9 +376,12 @@ public class GremlinDslProcessorTest {
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
     assertThat(compilation).succeeded();
-    Assert.assertTrue("SocialTraversal.java should be generated in generatedDir",
-        Files.isRegularFile(
-            generatedDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversal.java")));
+    var genPkgDir = generatedDir.resolve(DSL_PACKAGE_PATH);
+    assertAllFourArtifactsGenerated(genPkgDir, "Social");
+    var storedDigest =
+        GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(genPkgDir.resolve("__.java"));
+    Assert.assertTrue("Digest should be empty when DSL source file is absent",
+        storedDigest == null || storedDigest.isEmpty());
   }
 
   /**
@@ -411,6 +436,18 @@ public class GremlinDslProcessorTest {
 
   private static void assertCompilationSuccess(final Compilation compilation) {
     assertThat(compilation).succeeded();
+  }
+
+  private static void assertAllFourArtifactsGenerated(java.nio.file.Path genPkgDir,
+      String dslPrefix) {
+    Assert.assertTrue(dslPrefix + "Traversal.java should be generated",
+        Files.isRegularFile(genPkgDir.resolve(dslPrefix + "Traversal.java")));
+    Assert.assertTrue("Default" + dslPrefix + "Traversal.java should be generated",
+        Files.isRegularFile(genPkgDir.resolve("Default" + dslPrefix + "Traversal.java")));
+    Assert.assertTrue(dslPrefix + "TraversalSource.java should be generated",
+        Files.isRegularFile(genPkgDir.resolve(dslPrefix + "TraversalSource.java")));
+    Assert.assertTrue("__.java should be generated",
+        Files.isRegularFile(genPkgDir.resolve("__.java")));
   }
 
   private static String readGeneratedFile(java.nio.file.Path generatedDir, String fileName)
