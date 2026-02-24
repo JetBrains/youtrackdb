@@ -91,7 +91,7 @@ public class CartesianProductStep extends AbstractExecutionStep {
                 });
       }
     }
-    assert stream != null;
+    assert CartesianProductAssertions.checkStreamBuilt(stream);
     var db = ctx.getDatabaseSession();
     var finalStream = stream.map(path -> produceResult(db, path));
     return ExecutionStream.resultIterator(finalStream.iterator())
@@ -111,6 +111,7 @@ public class CartesianProductStep extends AbstractExecutionStep {
   }
 
   public void addSubPlan(InternalExecutionPlan subPlan) {
+    assert CartesianProductAssertions.checkSubPlanNotNull(subPlan);
     this.subPlans.add(subPlan);
   }
 
@@ -130,11 +131,8 @@ public class CartesianProductStep extends AbstractExecutionStep {
       result.insert(0, "+-------------------------\n");
       for (var j = 0; j < partials.length; j++) {
         var p = partials[partials.length - 1 - j];
-        if (!result.isEmpty()) {
-          result.insert(0, appendPipe(p) + "\n");
-        } else {
-          result = new StringBuilder(appendPipe(p));
-        }
+        // result is always non-empty here: the insert above guarantees it
+        result.insert(0, appendPipe(p) + "\n");
       }
       result.insert(0, "+-------------------------\n");
     }
