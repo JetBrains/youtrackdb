@@ -98,7 +98,7 @@ public class SQLIndexIdentifier extends SimpleNode {
     var result = new SQLIndexIdentifier(-1);
     result.type = type;
     result.indexNameString = indexNameString;
-    result.indexName = indexName.copy();
+    result.indexName = indexName == null ? null : indexName.copy();
     return result;
   }
 
