@@ -30,6 +30,9 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
+    And the result should be unordered
+      | result    |
+      | v[Alice]  |
 
   Scenario: g_gql_MATCH_without_alias_returns_vertex
     And the traversal of
@@ -43,6 +46,9 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
+    And the result should be unordered
+      | result    |
+      | v[Alice]  |
 
   Scenario: g_gql_MATCH_without_alias_returns_vertices
     And the traversal of
@@ -56,6 +62,10 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
+    And the result should be unordered
+      | result    |
+      | v[Alice]  |
+      | v[John]   |
 
   Scenario: g_gql_MATCH_without_label_returns_all_vertices
     And the traversal of
@@ -69,6 +79,10 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
+    And the result should be unordered
+      | result         |
+      | v[Alice]       |
+      | v[Programmer]  |
 
   Scenario: g_gql_MATCH_with_empty_pattern
     And the traversal of
@@ -82,6 +96,9 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
+    And the result should be unordered
+      | result    |
+      | v[Alice]  |
 
   Scenario: g_gql_MATCH_multiple_nodes
     And the traversal of
@@ -95,6 +112,10 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
+    And the result should be unordered
+      | result    |
+      | v[John]   |
+      | v[Alice]  |
 
   Scenario: g_gql_MATCH_with_empty_pattern_with_multiple_nodes
     And the traversal of
@@ -108,6 +129,10 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 2
+    And the result should be unordered
+      | result    |
+      | v[Alice]  |
+      | v[John]   |
 
   Scenario: g_gql_MATCH_multiple_patterns
     And the traversal of
@@ -255,6 +280,9 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
+    And the result should be unordered
+      | result    |
+      | v[Maria]  |
 
   # Single binding returns vertex; get property with values("name")
   Scenario: g_gql_MATCH_with_select_and_values
@@ -300,6 +328,9 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
+    And the result should be unordered
+      | result            |
+      | v[StreamingAlice] |
 
   Scenario: g_gql_MATCH_second_pattern_non_existent_class_throws_exception
     And the traversal of
@@ -352,3 +383,6 @@ Feature: GQL Match Support
       """
     When iterated to list
     Then the result should have a count of 1
+    And the result should be unordered
+      | result  |
+      | v[Bob]  |
