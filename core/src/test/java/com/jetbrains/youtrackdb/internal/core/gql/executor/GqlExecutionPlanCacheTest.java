@@ -184,15 +184,10 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(graphInternal, session);
 
-      // Create cache with size 2
       var cache = new GqlExecutionPlanCache(2);
 
-      var stmt1 = GqlPlanner.getStatement("MATCH (a:Person)", session);
-      var stmt2 = GqlPlanner.getStatement("MATCH (b:Company)", session);
-      var stmt3 = GqlPlanner.getStatement("MATCH (c:Product)", session);
-
-      var plan1 = stmt1.createExecutionPlan(ctx);
-      var plan2 = stmt2.createExecutionPlan(ctx);
+      var plan1 = GqlExecutionPlan.empty();
+      var plan2 = GqlExecutionPlan.empty();
 
       cache.putInternal("MATCH (a:Person)", plan1);
       cache.putInternal("MATCH (b:Company)", plan2);
@@ -200,8 +195,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       Assert.assertTrue(cache.contains("MATCH (a:Person)"));
       Assert.assertTrue(cache.contains("MATCH (b:Company)"));
 
-      // Adding third item should evict oldest (a:Person)
-      var plan3 = stmt3.createExecutionPlan(ctx);
+      var plan3 = GqlExecutionPlan.empty();
       cache.putInternal("MATCH (c:Product)", plan3);
 
       Assert.assertFalse("First query should have been evicted",
@@ -209,12 +203,9 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       Assert.assertTrue(cache.contains("MATCH (b:Company)"));
       Assert.assertTrue(cache.contains("MATCH (c:Product)"));
 
-      // Access (b:Company) to refresh LRU
       cache.getInternal("MATCH (b:Company)", ctx);
 
-      // Adding fourth item should now evict (c:Product) not (b:Company)
-      var stmt4 = GqlPlanner.getStatement("MATCH (d:Location)", session);
-      var plan4 = stmt4.createExecutionPlan(ctx);
+      var plan4 = GqlExecutionPlan.empty();
       cache.putInternal("MATCH (d:Location)", plan4);
 
       Assert.assertTrue(cache.contains("MATCH (b:Company)"));
@@ -275,14 +266,12 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
           var ctx = new GqlExecutionContext(graphInternal, session);
 
           for (var i = 0; i < plansPerThread; i++) {
-            var query = "MATCH (n:Type" + (i % 5) + ") WHERE n.id = " + threadId;
-            var stmt = GqlPlanner.getStatement(query, session);
-            var plan = stmt.createExecutionPlan(ctx);
+            var query = "MATCH (n:OUser) WHERE n.id = " + threadId + "_" + i;
+            var plan = GqlExecutionPlan.empty();
 
             cache.putInternal(query, plan);
             Assert.assertTrue(cache.contains(query));
 
-            // Get again - should return a COPY (different instance)
             var retrieved = cache.getInternal(query, ctx);
             Assert.assertNotNull(retrieved);
             Assert.assertNotSame("Should return copy, not same instance", plan, retrieved);
@@ -322,17 +311,13 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       var query1 = "MATCH (n:Type1)";
       var extraQuery = "MATCH (n:TypeExtra)";
 
-      var stmt0 = GqlPlanner.getStatement(query0, session);
-      var stmt1 = GqlPlanner.getStatement(query1, session);
-      var extraStmt = GqlPlanner.getStatement(extraQuery, session);
-
-      cache.putInternal(query0, stmt0.createExecutionPlan(ctx));
+      cache.putInternal(query0, GqlExecutionPlan.empty());
       Assert.assertTrue("First query should be in cache", cache.contains(query0));
 
-      cache.putInternal(query1, stmt1.createExecutionPlan(ctx));
+      cache.putInternal(query1, GqlExecutionPlan.empty());
       Assert.assertTrue("Second query should be in cache", cache.contains(query1));
 
-      cache.putInternal(extraQuery, extraStmt.createExecutionPlan(ctx));
+      cache.putInternal(extraQuery, GqlExecutionPlan.empty());
 
       // With capacity 2, one entry must have been evicted; extra must be present
       Assert.assertTrue("Extra query should be cached", cache.contains(extraQuery));

@@ -1,57 +1,159 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import java.util.List;
+import java.util.Map;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.List;
-import java.util.Map;
-
 /**
- * Tests for GqlService: Factory createService with null params, non-String QUERY,
- * ARGUMENTS as List; execute with empty query returns empty iterator; execute with valid
- * MATCH; streaming execute; gql() DSL methods.
+ * End-to-end tests for GqlService verifying:
+ * - single binding returns correct Vertex with label and properties
+ * - multiple vertices all returned with correct properties
+ * - multiple patterns produce Map projection with cartesian product
+ * - anonymous alias returns Vertex (single binding)
+ * - streaming mode
+ * - error paths (non-existent class, empty query)
+ * - Factory: all parameter parsing branches, type, name, requirements
  */
 @SuppressWarnings("resource")
 public class GqlServiceTest extends GraphBaseTest {
 
+  // ── Single binding: verify vertex content ──
+
   @Test
-  public void execute_withValidMatch_returnsResults() {
-    graph.traversal().addV("V").property("name", "A").iterate();
-    var g = graph.traversal();
-    var list = g.gql("MATCH (a:V)").toList();
-    Assert.assertNotNull(list);
+  public void execute_singleVertex_returnsVertexWithCorrectProperties() {
+    graph.addVertex(T.label, "GqlSvcPerson", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    var results = graph.traversal().gql("MATCH (a:GqlSvcPerson)").toList();
+
+    Assert.assertEquals(1, results.size());
+    Assert.assertTrue(results.getFirst() instanceof Vertex);
+    var v = (Vertex) results.getFirst();
+    Assert.assertEquals("GqlSvcPerson", v.label());
+    Assert.assertEquals("Alice", v.property("name").value());
+    Assert.assertEquals(30, v.property("age").value());
+  }
+
+  // ── Multiple vertices: verify all returned ──
+
+  @Test
+  public void execute_multipleVertices_returnsAllWithCorrectProperties() {
+    graph.addVertex(T.label, "GqlSvcAnimal", "species", "Cat");
+    graph.addVertex(T.label, "GqlSvcAnimal", "species", "Dog");
+    graph.addVertex(T.label, "GqlSvcAnimal", "species", "Parrot");
+    graph.tx().commit();
+
+    var results = graph.traversal().gql("MATCH (a:GqlSvcAnimal)").toList();
+
+    Assert.assertEquals(3, results.size());
+    var species = results.stream()
+        .map(r -> ((Vertex) r).property("species").value().toString())
+        .sorted()
+        .toList();
+    Assert.assertEquals(List.of("Cat", "Dog", "Parrot"), species);
+  }
+
+  // ── Multiple patterns: cartesian product returns Map ──
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void execute_multiplePatterns_returnsMapWithAllBindings() {
+    graph.addVertex(T.label, "GqlSvcCity", "name", "Warsaw");
+    graph.addVertex(T.label, "GqlSvcCountry", "name", "Poland");
+    graph.tx().commit();
+
+    var results = graph.traversal().gql("MATCH (c:GqlSvcCity), (co:GqlSvcCountry)").toList();
+
+    Assert.assertEquals(1, results.size());
+    Assert.assertTrue(results.getFirst() instanceof Map);
+    var map = (Map<String, Object>) results.getFirst();
+    Assert.assertTrue(map.containsKey("c"));
+    Assert.assertTrue(map.containsKey("co"));
+    Assert.assertEquals("Warsaw", ((Vertex) map.get("c")).property("name").value());
+    Assert.assertEquals("Poland", ((Vertex) map.get("co")).property("name").value());
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void execute_multiplePatterns_cartesianProductSize() {
+    graph.addVertex(T.label, "GqlSvcColor", "name", "Red");
+    graph.addVertex(T.label, "GqlSvcColor", "name", "Blue");
+    graph.addVertex(T.label, "GqlSvcShape", "name", "Circle");
+    graph.tx().commit();
+
+    var results = graph.traversal().gql("MATCH (c:GqlSvcColor), (s:GqlSvcShape)").toList();
+
+    Assert.assertEquals(2, results.size());
+    for (var result : results) {
+      var row = (Map<String, Object>) result;
+      Assert.assertTrue(row.containsKey("c"));
+      Assert.assertTrue(row.containsKey("s"));
+      Assert.assertEquals("Circle", ((Vertex) row.get("s")).property("name").value());
+    }
+  }
+
+  // ── Anonymous alias: single binding returns Vertex ──
+
+  @Test
+  public void execute_withoutAlias_returnsVertexWithProperties() {
+    graph.addVertex(T.label, "GqlSvcItem", "name", "Widget");
+    graph.tx().commit();
+
+    var results = graph.traversal().gql("MATCH (:GqlSvcItem)").toList();
+
+    Assert.assertEquals(1, results.size());
+    Assert.assertTrue(results.getFirst() instanceof Vertex);
+    Assert.assertEquals("Widget", ((Vertex) results.getFirst()).property("name").value());
+  }
+
+  // ── gql() with arguments ──
+
+  @Test
+  public void execute_gqlWithArguments_returnsResults() {
+    graph.addVertex(T.label, "GqlSvcArg", "name", "Arg");
+    graph.tx().commit();
+
+    var list = graph.traversal().gql("MATCH (a:GqlSvcArg)", Map.of()).toList();
     Assert.assertEquals(1, list.size());
     Assert.assertTrue(list.getFirst() instanceof Vertex);
   }
 
+  // ── Streaming mode ──
+
   @Test
-  public void execute_gqlWithArguments_callsServiceWithMap() {
-    graph.traversal().addV("V").property("name", "B").iterate();
-    var list = graph.traversal().gql("MATCH (a:V)", Map.of()).toList();
-    Assert.assertNotNull(list);
+  public void execute_streamingMode_returnsResults() {
+    graph.addVertex(T.label, "GqlSvcStream", "name", "S");
+    graph.tx().commit();
+
+    var list = graph.traversal().V()
+        .call(GqlService.NAME, Map.of(GqlService.QUERY, "MATCH (a:GqlSvcStream)"))
+        .toList();
     Assert.assertEquals(1, list.size());
   }
 
-  @Test
-  public void execute_streamingMode_delegatesToExecute() {
-    graph.traversal().addV("V").property("name", "C").iterate();
-    var list = graph.traversal().V()
-        .call(GqlService.NAME, Map.of(GqlService.QUERY, "MATCH (a:V)"))
-        .toList();
-    Assert.assertNotNull(list);
-    Assert.assertEquals(1, list.size());
-  }
+  // ── Error paths ──
 
   @Test(expected = Exception.class)
-  public void execute_whenClassDoesNotExist_throws() {
-    graph.traversal().gql("MATCH (a:NonExistentClassXYZ)").toList();
+  public void execute_nonExistentClass_throws() {
+    graph.traversal().gql("MATCH (a:NonExistentClassXYZ123)").toList();
   }
 
   @Test
-  public void factory_createService_withNullParams_usesEmptyQuery() {
+  public void execute_emptyQuery_returnsEmptyList() {
+    var list = graph.traversal()
+        .call(GqlService.NAME, Map.of(GqlService.QUERY, "")).toList();
+    Assert.assertTrue(list.isEmpty());
+  }
+
+  // ── Factory: parameter parsing ──
+
+  @Test
+  public void factory_nullParams_returnsStartService() {
     var factory = new GqlService.Factory();
     var service = factory.createService(true, null);
     Assert.assertNotNull(service);
@@ -59,47 +161,63 @@ public class GqlServiceTest extends GraphBaseTest {
   }
 
   @Test
-  public void factory_createService_whenQueryNotString_usesEmptyQuery() {
+  public void factory_isStartFalse_returnsStreamingService() {
     var factory = new GqlService.Factory();
-    var service = factory.createService(true, Map.of(GqlService.QUERY, 123));
+    var service = factory.createService(false, null);
+    Assert.assertSame(Service.Type.Streaming, service.getType());
+  }
+
+  @Test
+  public void factory_queryNotString_usesEmptyQuery() {
+    var service = new GqlService.Factory().createService(true,
+        Map.of(GqlService.QUERY, 123));
     Assert.assertNotNull(service);
   }
 
   @Test
-  public void factory_createService_whenArgumentsIsMap_usesMap() {
-    var factory = new GqlService.Factory();
-    var service = factory.createService(true,
+  public void factory_argumentsIsMap_accepted() {
+    var service = new GqlService.Factory().createService(true,
         Map.of(GqlService.QUERY, "MATCH (n:V)", GqlService.ARGUMENTS, Map.of("k", "v")));
     Assert.assertNotNull(service);
   }
 
   @Test
-  public void factory_createService_whenArgumentsIsListWithFirstString_usesQueryFromList() {
-    var factory = new GqlService.Factory();
-    var service = factory.createService(true,
+  public void factory_argumentsListSingleString_usesQueryFromList() {
+    var service = new GqlService.Factory().createService(true,
         Map.of(GqlService.ARGUMENTS, List.of("MATCH (n:OUser)")));
     Assert.assertNotNull(service);
   }
 
   @Test
-  public void factory_createService_whenArgumentsIsListWithKeyValuePairs_buildsMap() {
-    var factory = new GqlService.Factory();
-    var service = factory.createService(true,
+  public void factory_argumentsListWithKeyValuePairs_buildsMap() {
+    var service = new GqlService.Factory().createService(true,
         Map.of(GqlService.ARGUMENTS, List.of("MATCH (n:OUser)", "key", "value")));
     Assert.assertNotNull(service);
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void factory_createService_whenArgumentsListHasOddRest_throws() {
-    var factory = new GqlService.Factory();
-    factory.createService(true,
+  public void factory_argumentsListOddRest_throws() {
+    new GqlService.Factory().createService(true,
         Map.of(GqlService.ARGUMENTS, List.of("MATCH (n:V)", "key")));
   }
 
+  // ── Factory metadata ──
+
   @Test
-  public void execute_withEmptyQuery_returnsEmptyIterator() {
-    var g = graph.traversal();
-    var list = g.call(GqlService.NAME, Map.of(GqlService.QUERY, "")).toList();
-    Assert.assertTrue(list.isEmpty());
+  public void factory_getName_returnsGql() {
+    Assert.assertEquals("gql", new GqlService.Factory().getName());
+  }
+
+  @Test
+  public void factory_getSupportedTypes_containsStartAndStreaming() {
+    var types = new GqlService.Factory().getSupportedTypes();
+    Assert.assertTrue(types.contains(Service.Type.Start));
+    Assert.assertTrue(types.contains(Service.Type.Streaming));
+  }
+
+  @Test
+  public void service_getRequirements_isEmpty() {
+    var service = new GqlService.Factory().createService(true, null);
+    Assert.assertTrue(service.getRequirements().isEmpty());
   }
 }
