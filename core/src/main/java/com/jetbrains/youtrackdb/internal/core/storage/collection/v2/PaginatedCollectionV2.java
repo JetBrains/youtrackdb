@@ -1891,15 +1891,44 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             collectionPositionMap.lowerPositionsEntriesReversed(prevPagePosition, atomicOperation);
 
         if (nextPositions.length > 0) {
+          var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+          var operationTs = atomicOperation.getCommitTsUnsafe();
+
           final List<CollectionBrowseEntry> next = new ArrayList<>(nextPositions.length);
           for (final var pos : nextPositions) {
-            final var buff =
-                internalReadRecord(
-                    pos.getPosition(), pos.getPage(), pos.getOffset(),
-                    pos.getRecordVersion(), atomicOperation);
-            next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
+            // Check visibility before doing the expensive page read.
+            // The position map is shared across transactions, so it may contain
+            // entries for records inserted by concurrent transactions that are
+            // not yet visible to this snapshot.
+            if (isRecordVersionVisible(pos.getRecordVersion(), operationTs, snapshot)) {
+              final var buff =
+                  internalReadRecord(
+                      pos.getPosition(), pos.getPage(), pos.getOffset(),
+                      pos.getRecordVersion(), atomicOperation);
+              next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
+            } else {
+              // Record version not visible — check for a historical version
+              // (e.g., the record was updated by a concurrent transaction and
+              // the old version is still visible to this snapshot).
+              var historicalEntry = findHistoricalPositionEntry(
+                  pos.getPosition(), operationTs, snapshot, atomicOperation);
+              if (historicalEntry != null) {
+                final var buff = readRecordFromHistoricalEntry(
+                    pos.getPosition(),
+                    historicalEntry.getPageIndex(),
+                    historicalEntry.getRecordPosition(),
+                    historicalEntry.getRecordVersion(),
+                    atomicOperation);
+                next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
+              }
+              // else: record was inserted by a concurrent transaction and has no
+              // historical version visible to this snapshot — skip it.
+            }
           }
 
+          if (next.isEmpty()) {
+            return null;
+          }
           return new CollectionBrowsePage(next);
         } else {
           return null;

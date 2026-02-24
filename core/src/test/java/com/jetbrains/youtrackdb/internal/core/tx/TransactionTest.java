@@ -543,6 +543,145 @@ public class TransactionTest {
         "Expected ConcurrentModificationException on Thread A", caughtCme.get());
   }
 
+  // ---------- Snapshot isolation during collection iteration ----------
+
+  /*
+    Insert initial records, commit.
+    tx1:begin (takes snapshot)
+      tx2:begin
+      tx2:insert new records
+      tx2:commit
+    tx1:query (iterate collection) -> should see only initial records
+    tx1:commit
+
+    Regression test: before the fix, the collection iterator (nextPage) would throw
+    RecordNotFoundException when encountering records inserted by tx2, because the
+    position map is shared and contained entries not yet visible to tx1's snapshot.
+   */
+  @Test
+  public void testSnapshotIsolationCollectionIteration() {
+    // Setup: create a class with some initial records
+    var schema = db.getMetadata().getSchema();
+    if (!schema.existsClass("IterTest")) {
+      var cls = schema.createClass("IterTest");
+      cls.createProperty("val", PropertyType.INTEGER);
+    }
+
+    // Insert 5 initial records
+    db.executeInTx(tx -> {
+      for (var i = 0; i < 5; i++) {
+        var entity = tx.newEntity("IterTest");
+        entity.setProperty("val", i);
+      }
+    });
+
+    // Open a second session for the concurrent writer
+    var db2 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    try {
+      // tx1: start a read transaction (takes snapshot before tx2's inserts)
+      var tx1 = db.begin();
+
+      // tx2: insert more records and commit on the second session
+      db2.executeInTx(tx -> {
+        for (var i = 100; i < 105; i++) {
+          var entity = tx.newEntity("IterTest");
+          entity.setProperty("val", i);
+        }
+      });
+
+      // tx1: iterate via query — must see only the 5 initial records,
+      // not the 5 records inserted by tx2
+      try (var rs = tx1.query("select from IterTest")) {
+        var count = 0;
+        while (rs.hasNext()) {
+          var result = rs.next();
+          int val = result.getProperty("val");
+          Assert.assertTrue("Unexpected record with val=" + val + " from concurrent tx",
+              val < 100);
+          count++;
+        }
+        Assert.assertEquals("Should see exactly 5 initial records", 5, count);
+      }
+      tx1.commit();
+    } finally {
+      db2.close();
+    }
+  }
+
+  /*
+    Multi-threaded variant of testSnapshotIsolationCollectionIteration.
+    Thread A starts a read transaction, then signals Thread B to insert records
+    and commit. After Thread B finishes, Thread A iterates the collection and
+    verifies it only sees the records from before its snapshot.
+   */
+  @Test
+  public void testSnapshotIsolationCollectionIterationMultiThread()
+      throws Exception {
+    // Setup: create a class with some initial records
+    var schema = db.getMetadata().getSchema();
+    if (!schema.existsClass("IterTestMT")) {
+      var cls = schema.createClass("IterTestMT");
+      cls.createProperty("val", PropertyType.INTEGER);
+    }
+
+    db.executeInTx(tx -> {
+      for (var i = 0; i < 5; i++) {
+        var entity = tx.newEntity("IterTestMT");
+        entity.setProperty("val", i);
+      }
+    });
+
+    var writerReady = new CountDownLatch(1);
+    var writerDone = new CountDownLatch(1);
+    var threadError = new AtomicReference<Throwable>();
+
+    // Thread B: waits for signal, then inserts records and commits
+    var writerThread = new Thread(() -> {
+      try {
+        var db2 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+        try {
+          awaitOrFail(writerReady);
+          db2.executeInTx(tx -> {
+            for (var i = 100; i < 105; i++) {
+              var entity = tx.newEntity("IterTestMT");
+              entity.setProperty("val", i);
+            }
+          });
+        } finally {
+          db2.close();
+          writerDone.countDown();
+        }
+      } catch (Throwable t) {
+        threadError.set(t);
+        writerDone.countDown();
+      }
+    });
+    writerThread.start();
+
+    try {
+      // Thread A: start read transaction, signal writer, wait for writer, then iterate
+      var tx1 = db.begin();
+      writerReady.countDown();
+      awaitOrFail(writerDone);
+
+      try (var rs = tx1.query("select from IterTestMT")) {
+        var count = 0;
+        while (rs.hasNext()) {
+          var result = rs.next();
+          int val = result.getProperty("val");
+          Assert.assertTrue(
+              "Unexpected record with val=" + val + " from concurrent tx",
+              val < 100);
+          count++;
+        }
+        Assert.assertEquals("Should see exactly 5 initial records", 5, count);
+      }
+      tx1.commit();
+    } finally {
+      joinAndCheck(writerThread, threadError);
+    }
+  }
+
   @After
   public void after() {
     db.close();
