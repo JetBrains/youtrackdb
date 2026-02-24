@@ -304,8 +304,29 @@
               <artifactId>youtrackdb-gremlin-annotations</artifactId>
               <version>${project.version}</version>
             </path>
+            <path>
+              <groupId>org.openjdk.jmh</groupId>
+              <artifactId>jmh-generator-annprocess</artifactId>
+              <version>1.37</version>
+            </path>
           </annotationProcessorPaths>
         </configuration>
+        <executions>
+          <execution>
+            <id>test-compile</id>
+            <phase>test-compile</phase>
+            <goals>
+              <goal>testCompile</goal>
+            </goals>
+            <configuration>
+              <annotationProcessors>
+                <annotationProcessor>
+                  org.openjdk.jmh.generators.BenchmarkProcessor
+                </annotationProcessor>
+              </annotationProcessors>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

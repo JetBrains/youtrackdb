@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.YTDBQueryMetricsStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -62,9 +63,10 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 YTDBGraphStepStrategy.instance(),
                 YTDBGraphCountStrategy.instance(),
                 YTDBGraphMatchStepStrategy.instance(),
-                YTDBGraphIoStepStrategy.instance()));
+                YTDBGraphIoStepStrategy.instance(),
+                YTDBQueryMetricsStrategy.instance()
+            ));
   }
-
 
   public static final Logger logger = LoggerFactory.getLogger(YTDBGraphImplAbstract.class);
 

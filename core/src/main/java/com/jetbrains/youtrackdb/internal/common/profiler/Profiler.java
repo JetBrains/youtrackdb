@@ -35,7 +35,9 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
   private static final Logger logger = LoggerFactory.getLogger(Profiler.class);
 
   private final Ticker ticker = new GranularTicker(
-      GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong());
+      GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong(),
+      GlobalConfiguration.PROFILER_TICKER_ADJUSTMENT_RATE.getValueAsLong()
+  );
   private final MetricsRegistry metricsRegistry = new MetricsRegistry(ticker);
   private final YouTrackDBScheduler scheduler;
 
@@ -62,6 +64,10 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
   public void onShutdown() {
     metricsRegistry.shutdown();
     ticker.stop();
+  }
+
+  public Ticker getTicker() {
+    return ticker;
   }
 
   public static String dumpEnvironment() {

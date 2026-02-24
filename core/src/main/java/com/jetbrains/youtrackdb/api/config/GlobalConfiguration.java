@@ -724,6 +724,15 @@ public enum GlobalConfiguration {
       10_000_000L
   ),
 
+  PROFILER_TICKER_ADJUSTMENT_RATE(
+      "youtrackdb.profiler.tickerAdjustmentRate",
+      "Adjustment rate (in nanoseconds) of the ticker's absolute time. Internally, ticker "
+          + "approximates absolute time based on system time and nanotime difference. This parameter "
+          + "controls how often the ticker adjusts this difference. Default value is 10 seconds.",
+      Long.class,
+      10_000_000_000L
+  ),
+
   // SEQUENCES
 
   SEQUENCE_MAX_RETRY(

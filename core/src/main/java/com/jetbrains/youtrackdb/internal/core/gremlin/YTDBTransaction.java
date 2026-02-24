@@ -2,10 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
+import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
@@ -24,6 +28,11 @@ public final class YTDBTransaction extends AbstractTransaction {
   private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners = new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
   private DatabaseSessionEmbedded activeSession;
+
+  // Query monitoring
+  private QueryMonitoringMode queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
+  private String trackingId;
+  private QueryMetricsListener queryMetricsListener = QueryMetricsListener.NO_OP;
 
   public YTDBTransaction(YTDBGraphImplAbstract graph) {
     super(graph);
@@ -185,11 +194,19 @@ public final class YTDBTransaction extends AbstractTransaction {
   @Override
   protected void fireOnCommit() {
     this.transactionListeners.forEach(c -> c.accept(Status.COMMIT));
+    clearMonitoringState();
   }
 
   @Override
   protected void fireOnRollback() {
     this.transactionListeners.forEach(c -> c.accept(Status.ROLLBACK));
+    clearMonitoringState();
+  }
+
+  private void clearMonitoringState() {
+    this.trackingId = null;
+    this.queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
+    this.queryMetricsListener = QueryMetricsListener.NO_OP;
   }
 
   public DatabaseSessionEmbedded getDatabaseSession() {
@@ -198,5 +215,47 @@ public final class YTDBTransaction extends AbstractTransaction {
     }
 
     return activeSession;
+  }
+
+  /// Set the tracking ID for this transaction that can be obtained from the QueryDetails inside the
+  /// listener. If not set, YTDB will generate its own tracking ID.
+  public YTDBTransaction withTrackingId(@Nonnull String trackingId) {
+    Objects.requireNonNull(trackingId);
+    this.trackingId = trackingId;
+    return this;
+  }
+
+  /// Set the mode under which the listener will operate. Lightweight mode uses approximate
+  /// timestamps and lower precision of durations. Exact mode uses precise timestamp values but is
+  /// heavier performance-wise.
+  public YTDBTransaction withQueryMonitoringMode(@Nonnull QueryMonitoringMode mode) {
+    Objects.requireNonNull(mode);
+    this.queryMonitoringMode = mode;
+    return this;
+  }
+
+  /// Register a query metrics listener for this transaction. Supported only when YouTrackDB is run
+  /// in embedded mode.
+  public YTDBTransaction withQueryListener(@Nonnull QueryMetricsListener listener) {
+    Objects.requireNonNull(listener);
+    this.queryMetricsListener = listener;
+    return this;
+  }
+
+  public boolean isQueryMetricsEnabled() {
+    return queryMetricsListener != null && queryMetricsListener != QueryMetricsListener.NO_OP;
+  }
+
+  public @Nonnull QueryMonitoringMode getQueryMonitoringMode() {
+    return queryMonitoringMode;
+  }
+
+  public @Nonnull String getTrackingId() {
+    return trackingId != null ? trackingId :
+        String.valueOf(getDatabaseSession().getActiveTransaction().getId());
+  }
+
+  public QueryMetricsListener getQueryMetricsListener() {
+    return queryMetricsListener;
   }
 }

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBAddVertexProcessTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBHasLabelProcessTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBPropertiesProcessTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBQueryMetricsStrategyTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
@@ -192,7 +193,11 @@ public class YTDBGremlinProcessTests {
       YTDBTemporaryRidConversionTest.Traversals.class,
   };
 
-  static final Class<?>[] embeddedTests = commonTests;
+  private static final Class<?>[] embeddedOnlyTests = new Class<?>[]{
+      YTDBQueryMetricsStrategyTest.class
+  };
+
+  static final Class<?>[] embeddedTests = commonTestsPlusAdditional(embeddedOnlyTests);
   static final Class<?>[] remoteTests = commonTestsPlusAdditional(remoteOnlyTests);
 
   private static Class<?>[] commonTestsPlusAdditional(Class<?>[] additional) {

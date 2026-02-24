@@ -129,7 +129,7 @@ public class TimeRateTest extends MetricsBaseTest {
     final var writerThreadCount = 5;
     final var eventPeriodNanos = 1000; // 1 event per 1000ns = 1000 events per millisecond
 
-    final var ticker = closeable(new GranularTicker(TICK.toNanos()));
+    final var ticker = closeable(new GranularTicker(TICK.toNanos(), TICK.toNanos()));
     ticker.start();
     final var meter = TimeRate.create(
         ticker,
