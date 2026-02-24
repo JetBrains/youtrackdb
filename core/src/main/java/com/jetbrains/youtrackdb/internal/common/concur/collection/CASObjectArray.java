@@ -46,8 +46,7 @@ public final class CASObjectArray<T> {
   public void set(int index, T value) {
     if (defaultPlaceholder == null) {
       throw new UnsupportedOperationException(
-          "set without placeholder only works with new CASObjectArray(defaultPlaceholder) constructed object."
-              + "Please use set(index, value, placeholder) instead.");
+          "set without placeholder only works with new CASObjectArray(defaultPlaceholder) constructed object. Please use set(index, value, placeholder) instead.");
     }
     set(index, value, defaultPlaceholder);
   }
@@ -112,7 +111,7 @@ public final class CASObjectArray<T> {
     return container.compareAndSet(indexInsideContainer, oldValue, value);
   }
 
-  public T getOrEmpty(int index) {
+  public T getOrDefault(int index) {
     return get(index, false);
   }
 

@@ -217,7 +217,7 @@ public class CASObjectArrayTest {
   public void shouldReturnNullIfElementDoesNotExistsLikeAMap() {
     final var array = new CASObjectArray<Integer>();
 
-    assertNull(array.getOrEmpty(0));
+    assertNull(array.getOrDefault(0));
   }
 
   @Test
@@ -225,7 +225,8 @@ public class CASObjectArrayTest {
     Integer defaultPlaceholder = (int) (Math.random() * Integer.MAX_VALUE);
     final var array = new CASObjectArray<>(defaultPlaceholder);
 
-    Assert.assertSame(defaultPlaceholder, array.getOrEmpty(0));
+    Assert.assertSame("not the same with placeholder " + defaultPlaceholder,
+        defaultPlaceholder, array.getOrDefault(0));
   }
 
   @Test
@@ -246,7 +247,7 @@ public class CASObjectArrayTest {
   public void shouldNotHangOnNegativeIndexGetOrEmpty() {
     final var array = new CASObjectArray<>();
 
-    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.getOrEmpty(-2));
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.getOrDefault(-2));
   }
 
 
