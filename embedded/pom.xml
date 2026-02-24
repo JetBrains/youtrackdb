@@ -66,6 +66,44 @@
       <artifactId>slf4j-jdk14</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Core test-jar: provides YTDBGraphInitUtil and other test helpers -->
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-core</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <!-- TinkerPop Cucumber feature files + step definitions -->
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>gremlin-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Required by gremlin-test for graph data loading -->
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>tinkergraph-gremlin</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Cucumber runtime -->
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-java</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- JUnit Cucumber runner -->
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Cucumber-Guice DI -->
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -378,10 +416,13 @@
           </dependency>
         </dependencies>
         <configuration>
+          <excludes>
+            <exclude>**/EmbeddedGraphFeatureTest.java</exclude>
+          </excludes>
           <argLine>
             -ea
-            -Xms512m
-            -Xmx512m
+            -Xms4096m
+            -Xmx4096m
             -Dyoutrackdb.storage.diskCache.bufferSize=4096
             -Dyoutrackdb.security.createDefaultUsers=false
             -Dyoutrackdb.memory.directMemory.trackMode=true
@@ -408,4 +449,22 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- Include cucumber feature tests only in CI integration mode -->
+    <profile>
+      <id>ci-integration-tests</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <excludes combine.self="override"/>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
