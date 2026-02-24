@@ -219,5 +219,9 @@
     ],
     "defaultMode": "acceptEdits"
   },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "model": "opus[1m]"
 }
