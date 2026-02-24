@@ -173,7 +173,7 @@
         <dependencies>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-junit-platform</artifactId>
+            <artifactId>surefire-junit47</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
@@ -196,7 +196,7 @@
         <dependencies>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-junit-platform</artifactId>
+            <artifactId>surefire-junit47</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
@@ -495,18 +495,6 @@
       <groupId>com.vmlens</groupId>
       <artifactId>api</artifactId>
       <version>1.2.26</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.junit.vintage</groupId>
-      <artifactId>junit-vintage-engine</artifactId>
-      <version>5.12.1</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>5.12.1</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
