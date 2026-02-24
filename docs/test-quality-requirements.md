@@ -104,6 +104,9 @@ Generated code (SQL parser, GQL parser) is excluded from mutation analysis.
 | Unit tests | `*Test.java` | JUnit 4 | maven-surefire-plugin |
 | Integration tests | `*IT.java`, `*IntegrationTest.java` | JUnit 4 | maven-failsafe-plugin |
 | Functional tests | Located in `tests` module | TestNG | maven-surefire-plugin |
+| Cucumber feature tests | `*FeatureTest.java` | Cucumber-JUnit | maven-surefire-plugin |
+
+**Note on Cucumber feature tests**: These run the TinkerPop Gremlin compliance suite (~1900 scenarios). In the `core` module they run by default; in the `embedded` module they are excluded from the default build and only run with `-P ci-integration-tests`.
 
 ### What Makes a Good Test
 

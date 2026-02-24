@@ -54,6 +54,7 @@ The `docs/` folder contains project documentation including CI/CD pipeline archi
 | `gremlin-annotations` | `youtrackdb-gremlin-annotations` | Annotation processor for Gremlin DSL code generation |
 | `tests` | `youtrackdb-tests` | Integration/functional test suite (TestNG) |
 | `test-commons` | `youtrackdb-test-commons` | Shared test utilities (JUnit 4, Mockito, AssertJ) |
+| `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests (CI only) |
 | `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
 | `examples` | `youtrackdb-examples` | Example applications |
 
@@ -141,6 +142,14 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 ### Integration Tests
 - Activated via Maven profile: `./mvnw clean verify -P ci-integration-tests`
 - Uses failsafe plugin in `core` and `server` modules
+
+### TinkerPop Cucumber Feature Tests
+- Validate full Gremlin compliance by running the TinkerPop Cucumber scenario suite (~1900 scenarios)
+- Present in both `core` (`YTDBGraphFeatureTest`) and `embedded` (`EmbeddedGraphFeatureTest`) modules
+- **`core`**: runs by default with `mvn test` (always included)
+- **`embedded`**: excluded from default `mvn test` (heavyweight); only runs with `-P ci-integration-tests`
+- Uses Cucumber-JUnit runner with Guice DI; graph datasets (MODERN, CLASSIC, CREW, GRATEFUL, SINK) are loaded once per JVM via static initializers
+- Requires `-Xms4096m -Xmx4096m` heap for the GRATEFUL dataset
 
 ### Docker Tests
 - Module: `docker-tests`, requires `docker-images` Maven profile
@@ -288,6 +297,7 @@ Runs on `develop` pushes and PRs:
    - Changes to `server` module: run `./mvnw -pl server clean test`
    - Changes to storage, WAL, or index code: also run integration tests (`-P ci-integration-tests`)
    - Changes to Gremlin integration or transaction handling: also run integration tests
+   - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (smoke test only); use `-P ci-integration-tests` to include Cucumber feature tests
    - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
 
