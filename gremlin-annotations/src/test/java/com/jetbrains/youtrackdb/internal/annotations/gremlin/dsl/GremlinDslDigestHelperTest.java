@@ -37,6 +37,17 @@ public class GremlinDslDigestHelperTest {
   }
 
   @Test
+  public void computeSourceDigest_sameDigestForCRLFandLF() throws Exception {
+    var lfFile = temp.newFile("lf.java").toPath();
+    var crlfFile = temp.newFile("crlf.java").toPath();
+    Files.writeString(lfFile, "interface Foo {\n  void bar();\n}\n");
+    Files.writeString(crlfFile, "interface Foo {\r\n  void bar();\r\n}\r\n");
+    assertThat(GremlinDslDigestHelper.computeSourceDigest(lfFile))
+        .isNotEmpty()
+        .isEqualTo(GremlinDslDigestHelper.computeSourceDigest(crlfFile));
+  }
+
+  @Test
   public void computeSourceDigest_returnsNonEmptyHexForEmptyFile() throws Exception {
     var file = temp.newFile("empty.java").toPath();
     var digest = GremlinDslDigestHelper.computeSourceDigest(file);

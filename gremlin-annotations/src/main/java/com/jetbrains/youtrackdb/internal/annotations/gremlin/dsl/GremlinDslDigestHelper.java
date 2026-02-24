@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.CRC32;
@@ -23,12 +24,19 @@ public final class GremlinDslDigestHelper {
   private GremlinDslDigestHelper() {
   }
 
-  /** CRC32 of file content (hex string). Returns empty string if the file cannot be read. */
+  /**
+   * CRC32 of file content (hex string) with line endings normalized to LF.
+   * Normalization ensures the digest is identical on Windows (CRLF) and Unix (LF),
+   * so that generated files committed from one OS are not needlessly regenerated on another.
+   * Returns empty string if the file cannot be read.
+   */
   public static String computeSourceDigest(final Path sourcePath) {
     try {
-      var bytes = Files.readAllBytes(sourcePath);
+      var raw = Files.readAllBytes(sourcePath);
+      var normalized = new String(raw, StandardCharsets.UTF_8).replace("\r\n", "\n")
+          .getBytes(StandardCharsets.UTF_8);
       var crc = new CRC32();
-      crc.update(bytes);
+      crc.update(normalized);
       return Long.toHexString(crc.getValue());
     } catch (IOException e) {
       log.warn("Cannot read DSL source for digest: {}", sourcePath, e);
