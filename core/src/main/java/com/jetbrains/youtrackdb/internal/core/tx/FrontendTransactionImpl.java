@@ -184,6 +184,14 @@ public class FrontendTransactionImpl implements
     }
 
     txStartCounter++;
+
+    assert status == TXSTATUS.BEGUN
+        : "Transaction status must be BEGUN after beginInternal, but was " + status;
+    assert txStartCounter > 0
+        : "txStartCounter must be positive after begin, but was " + txStartCounter;
+    assert atomicOperation != null
+        : "atomicOperation must be initialized after begin";
+
     return txStartCounter;
   }
 
@@ -385,6 +393,12 @@ public class FrontendTransactionImpl implements
       close();
       status = TXSTATUS.ROLLED_BACK;
 
+      assert atomicOperation == null
+          : "atomicOperation must be null after rollback close";
+      assert recordOperations.isEmpty()
+          : "recordOperations must be cleared after rollback, but had "
+          + recordOperations.size() + " entries";
+
       //There are could be exceptions during session opening
       // that will force to rollback of txs started during this process.
       //Session is active only if it is opened successfully.
@@ -414,6 +428,9 @@ public class FrontendTransactionImpl implements
 
     final DBRecord txRecord = getRecord(rid);
     if (isDeletedInTx(rid)) {
+      // If the record is marked as deleted in tx, getRecord returns null per its contract
+      assert txRecord == null
+          : "getRecord must return null for a record deleted in tx. RID: " + rid;
       return false;
     }
 
@@ -438,12 +455,22 @@ public class FrontendTransactionImpl implements
     }
 
     // DELEGATE TO THE STORAGE, NO TOMBSTONES SUPPORT IN TX MODE
-    return session.executeReadRecord((RecordIdInternal) rid, null, true);
+    var record = session.executeReadRecord((RecordIdInternal) rid, null, true);
+
+    assert record.getSession() == session
+        : "Loaded record's session must match the transaction's session. Record: " + rid;
+
+    return record;
   }
 
   @Override
   public void deleteRecord(final RecordAbstract record) {
     assertOnOwningThread();
+
+    assert record.getSession() == session
+        : "Deleted record's session must match the transaction's session. Record: "
+        + record.getIdentity();
+
     try {
       addRecordOperation(record, RecordOperation.DELETED);
       //execute it here because after this operation record will be unloaded
@@ -629,6 +656,11 @@ public class FrontendTransactionImpl implements
 
     close();
     status = TXSTATUS.COMPLETED;
+
+    assert txStartCounter == 0
+        : "txStartCounter must be 0 after successful commit, but was " + txStartCounter;
+    assert atomicOperation == null
+        : "atomicOperation must be null after close";
 
     return result;
   }

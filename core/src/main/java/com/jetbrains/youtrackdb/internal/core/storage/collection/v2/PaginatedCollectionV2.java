@@ -895,6 +895,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var commitTs = atomicOperation.getCommitTsUnsafe();
     var status = entryWithStatus.status();
 
+    assert snapshot != null
+        : "AtomicOperationsSnapshot must not be null during record read";
+
     // 1. Entry does not exist at all
     if (status == CollectionPositionMapBucket.NOT_EXISTENT
         || status == CollectionPositionMapBucket.ALLOCATED) {
@@ -1355,6 +1358,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         // no other transaction could have seen this version.
         return;
       }
+
+      // Postcondition of the guard above: versions are guaranteed to differ here.
+      // Assert monotonicity: new versions must always be greater than old ones.
+      assert oldRecordVersion < newRecordVersion
+          : "Record version must increase monotonically. "
+          + "Collection: " + id + ", position: " + collectionPosition
+          + ", oldVersion: " + oldRecordVersion + ", newVersion: " + newRecordVersion;
 
       // Store the old version's physical location in the snapshot index.
       var snapshotKey = new SnapshotKey(id, collectionPosition, oldRecordVersion);
