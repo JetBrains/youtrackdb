@@ -173,7 +173,7 @@
         <dependencies>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-junit47</artifactId>
+            <artifactId>surefire-junit-platform</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
@@ -196,7 +196,7 @@
         <dependencies>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-junit47</artifactId>
+            <artifactId>surefire-junit-platform</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
@@ -321,17 +321,22 @@
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.pastalab.fray.maven</groupId>
-        <artifactId>fray-plugins-maven</artifactId>
-        <version>0.7.1</version>
+        <groupId>com.vmlens</groupId>
+        <artifactId>vmlens-maven-plugin</artifactId>
+        <version>1.2.26</version>
         <executions>
           <execution>
-            <id>prepare-fray</id>
+            <id>test</id>
             <goals>
-              <goal>prepare-fray</goal>
+              <goal>test</goal>
             </goals>
           </execution>
         </executions>
+        <configuration>
+          <includes>
+            <include>**/*MTTest.java</include>
+          </includes>
+        </configuration>
       </plugin>
     </plugins>
   </build>
@@ -487,15 +492,21 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.pastalab.fray</groupId>
-      <artifactId>fray-runtime</artifactId>
-      <version>0.7.1</version>
+      <groupId>com.vmlens</groupId>
+      <artifactId>api</artifactId>
+      <version>1.2.26</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.pastalab.fray</groupId>
-      <artifactId>fray-junit</artifactId>
-      <version>0.7.1</version>
+      <groupId>org.junit.vintage</groupId>
+      <artifactId>junit-vintage-engine</artifactId>
+      <version>5.12.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.12.1</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
