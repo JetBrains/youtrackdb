@@ -9,16 +9,21 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.GremlinResultMapper;
+import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
+import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBeginStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCommitStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRollbackStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
@@ -231,50 +236,75 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   }
 
   @Override
-  public ResultSet executeCommand(String command, Map<?, ?> params) {
-    if (command == null || command.isBlank()) {
+  public SqlCommandExecutionResult executeCommand(String sqlCommand, Map<?, ?> params) {
+    if (sqlCommand == null || sqlCommand.isBlank()) {
       throw new IllegalArgumentException("Command cannot be null or empty");
     }
 
-    var normalized = command.trim().toUpperCase(Locale.ROOT);
+    var statement = getSqlStatement(sqlCommand);
     var tx = tx();
 
-    switch (normalized) {
-      case "BEGIN" -> {
-        if (!tx.isOpen()) {
-          tx.readWrite();
-        }
-        return null;
+    if (statement instanceof SQLBeginStatement) {
+      if (!tx.isOpen()) {
+        tx.readWrite();
       }
-      case "COMMIT" -> {
-        if (tx.isOpen()) {
-          tx.commit();
-        } else {
-          throw new IllegalStateException("No active transaction to commit");
-        }
-        return null;
-      }
-      case "ROLLBACK" -> {
-        if (tx.isOpen()) {
-          tx.rollback();
-        } else {
-          throw new IllegalStateException("No active transaction to rollback");
-        }
-        return null;
-      }
+      return SqlCommandExecutionResult.unit();
     }
 
-    var statement = getSqlStatement(command);
+    if (statement instanceof SQLCommitStatement) {
+      if (tx.isOpen()) {
+        tx.commit();
+      } else {
+        throw new IllegalStateException("No active transaction to commit");
+      }
+      return SqlCommandExecutionResult.unit();
+    }
+
+    if (statement instanceof SQLRollbackStatement) {
+      if (tx.isOpen()) {
+        tx.rollback();
+      } else {
+        throw new IllegalStateException("No active transaction to rollback");
+      }
+      return SqlCommandExecutionResult.unit();
+    }
 
     if (statement instanceof DDLStatement) {
       try (var schemaSession = acquireSession()) {
         schemaSession.command(statement, params);
       }
-    } else {
-      return tx.getDatabaseSession().execute(statement, params);
+      return SqlCommandExecutionResult.unit();
     }
 
-    return null;
+    var session = tx.getDatabaseSession();
+    var resultSet = session.execute(statement, params);
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var mapped = IteratorUtils.map(resultSet, r -> GremlinResultMapper.toGremlinValue(this, schema, r));
+    var closeable = new EagerCloseIterator<>(mapped, resultSet::close);
+    return SqlCommandExecutionResult.results(closeable);
+  }
+
+  /// Iterator that closes the underlying resource eagerly on last element or on error,
+  /// so the ResultSet doesn't survive past transaction teardown.
+  private static final class EagerCloseIterator<T> extends CloseableIteratorWithCallback<T> {
+
+    EagerCloseIterator(Iterator<T> underlying, Runnable onClose) {
+      super(underlying, onClose);
+    }
+
+    @Override
+    public T next() {
+      try {
+        var value = super.next();
+        if (!hasNext()) {
+          close();
+        }
+        return value;
+      } catch (RuntimeException e) {
+        close();
+        throw e;
+      }
+    }
   }
 
   private static SQLStatement getSqlStatement(String command) {

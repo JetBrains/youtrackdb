@@ -1,20 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
-import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashMap;
+import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
@@ -23,7 +10,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequire
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
-import org.jspecify.annotations.Nullable;
 
 /// TinkerPop service that allows running any YouTrackDB non-idempotent command via GraphTraversal.
 ///
@@ -138,13 +124,11 @@ public class YTDBCommandService implements Service<Object, Object> {
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    var resultSet = ((YTDBGraphInternal) graph).executeCommand(command, commandParams);
-    if (resultSet == null) {
+    return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Emit a single placeholder so chaining works (Streaming needs an input traverser).
-      return CloseableIterator.of(IteratorUtils.of(true));
-    }
-
-    return toResultIterator((YTDBGraphInternal) graph, resultSet);
+      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(true));
+      case SqlCommandExecutionResult.Results r -> r.iterator();
+    };
   }
 
   @Override
@@ -159,154 +143,10 @@ public class YTDBCommandService implements Service<Object, Object> {
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    var resultSet = ((YTDBGraphInternal) graph).executeCommand(command, commandParams);
-    if (resultSet == null) {
+    return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Pass through the input traverser for Streaming mode
-      return CloseableIterator.of(IteratorUtils.of(in.get()));
-    }
-
-    return toResultIterator((YTDBGraphInternal) graph, resultSet);
-  }
-
-  private static CloseableIterator<Object> toResultIterator(
-      YTDBGraphInternal graph,
-      ResultSet resultSet
-  ) {
-    // Close eagerly on last element so the ResultSet doesn't survive past transaction teardown.
-    var iterator = new EagerCloseResultSetIterator(graph, resultSet);
-    return new CloseableIteratorWithCallback<>(iterator, iterator::closeOnce);
-  }
-
-  private static final class EagerCloseResultSetIterator implements java.util.Iterator<Object> {
-
-    private final YTDBGraphInternal graph;
-    private final ResultSet resultSet;
-    private boolean closed;
-
-    private EagerCloseResultSetIterator(YTDBGraphInternal graph, ResultSet resultSet) {
-      this.graph = graph;
-      this.resultSet = resultSet;
-    }
-
-    @Override
-    public boolean hasNext() {
-      if (closed) {
-        return false;
-      }
-
-      var hasNext = resultSet.hasNext();
-      if (!hasNext) {
-        closeOnce();
-      }
-      return hasNext;
-    }
-
-    @Override
-    public Object next() {
-      if (closed) {
-        throw new java.util.NoSuchElementException();
-      }
-
-      var value = toGremlinValue(graph, (Object) resultSet.next());
-      if (!resultSet.hasNext()) {
-        closeOnce();
-      }
-      return value;
-    }
-
-    private void closeOnce() {
-      if (!closed) {
-        closed = true;
-        resultSet.close();
-      }
-    }
-  }
-
-  @Nullable
-  private static Object toGremlinValue(YTDBGraphInternal graph, Object value) {
-    return switch (value) {
-      case null -> null;
-      case Vertex vertex -> new YTDBVertexImpl(graph, vertex);
-      case StatefulEdge edge -> new YTDBStatefulEdgeImpl(graph, edge);
-      case Edge edge -> new YTDBStatefulEdgeImpl(graph, edge.asStatefulEdge());
-      case Entity entity -> {
-        if (entity.isVertex()) {
-          yield new YTDBVertexImpl(graph, entity.asVertex());
-        } else if (entity.isStatefulEdge()) {
-          yield new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
-        }
-        yield entity;
-      }
-      case Identifiable identifiable -> wrapIdentifiable(graph, identifiable);
-      case Result result -> toGremlinValue(graph, result);
-      case Map<?, ?> map -> {
-        var mapped = new LinkedHashMap<>();
-        for (var entry : map.entrySet()) {
-          mapped.put(entry.getKey(), toGremlinValue(graph, entry.getValue()));
-        }
-        yield mapped;
-      }
-      case Iterable<?> iterable -> {
-        var list = new ArrayList<>();
-        for (var element : iterable) {
-          list.add(toGremlinValue(graph, element));
-        }
-        yield list;
-      }
-      case Object[] array -> Arrays.stream(array).map(v -> toGremlinValue(graph, v)).toList();
-      default -> value;
+      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(in.get()));
+      case SqlCommandExecutionResult.Results r -> r.iterator();
     };
-  }
-
-  private static Object toGremlinValue(YTDBGraphInternal graph, Result result) {
-    if (result.isEntity()) {
-      var entity = result.asEntity();
-      if (entity.isVertex()) {
-        return new YTDBVertexImpl(graph, entity.asVertex());
-      } else if (entity.isStatefulEdge()) {
-        return new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
-      }
-      return entity;
-    }
-
-    if (result.isIdentifiable()) {
-      var identity = result.getIdentity();
-      if (identity != null) {
-        return wrapRid(graph, identity);
-      }
-    }
-
-    var mapped = new LinkedHashMap<String, Object>();
-    for (var name : result.getPropertyNames()) {
-      mapped.put(name, toGremlinValue(graph, (Object) result.getProperty(name)));
-    }
-    return mapped;
-  }
-
-  private static Object wrapIdentifiable(YTDBGraphInternal graph, Identifiable identifiable) {
-    var identity = identifiable.getIdentity();
-    if (identity == null) {
-      return identifiable;
-    }
-
-    return wrapRid(graph, identity);
-  }
-
-  private static Object wrapRid(YTDBGraphInternal graph, RID rid) {
-    graph.tx().readWrite();
-    var session = graph.tx().getDatabaseSession();
-    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
-    var cls = immutableSchema.getClassByCollectionId(rid.getCollectionId());
-    if (cls == null) {
-      throw new IllegalStateException(
-          "Unsupported schema class for collection " + rid.getCollectionId());
-    }
-    if (cls.isVertexType()) {
-      return new YTDBVertexImpl(graph, rid);
-    }
-    if (cls.isEdgeType()) {
-      return new YTDBStatefulEdgeImpl(graph, rid);
-    }
-    throw new IllegalStateException("Unsupported schema class " + cls.getName());
   }
 }

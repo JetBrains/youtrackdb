@@ -6,6 +6,7 @@ import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -15,6 +16,13 @@ import org.junit.Test;
  * correctly typed results: vertices, edges, projected scalars, and link references.
  */
 public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
+
+  @After
+  public void rollbackOpenTx() {
+    if (graph.tx().isOpen()) {
+      graph.tx().rollback();
+    }
+  }
 
   @Test
   public void shouldReturnVertexForFullRecordSelect() {
