@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import yaml
 from datetime import datetime
 from pathlib import Path
@@ -272,19 +274,24 @@ class Orchestrator:
         logger.info(f"Started container: {container_id}")
         self._wait_for_db()
 
-    def _wait_for_db(self, timeout: int = 30) -> None:
+    def _wait_for_db(self, timeout: int = 120) -> None:
         host = self.config.get("hosts", "db", "public_ip")
         port = self.config.get("database", "port", default=8182)
+        url = f"http://{host}:{port}/gremlin"
         start = time.time()
         while time.time() - start < timeout:
-            # Use curl to check if Gremlin endpoint responds (any HTTP response means it's ready)
-            result = local_run(
-                f"curl -s -o /dev/null -w '%{{http_code}}' --max-time 5 http://{host}:{port}/gremlin",
-                check=False, timeout=10
-            )
-            if result.ok and result.stdout.strip():
-                logger.info(f"Database ready ({time.time() - start:.1f}s)")
-                return
+            try:
+                # WebSocketChannelizer returns HTTP 400 to a plain HTTP request,
+                # so any non-5xx response means the server is up.
+                with urllib.request.urlopen(url, timeout=5):
+                    logger.info(f"Database ready ({time.time() - start:.1f}s)")
+                    return
+            except urllib.error.HTTPError as e:
+                if e.code < 500:
+                    logger.info(f"Database ready ({time.time() - start:.1f}s)")
+                    return
+            except (urllib.error.URLError, OSError):
+                pass
             time.sleep(2)
         raise TimeoutError(f"Database not ready after {timeout}s")
 
