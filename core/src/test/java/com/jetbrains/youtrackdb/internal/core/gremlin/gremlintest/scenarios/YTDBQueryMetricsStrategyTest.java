@@ -4,6 +4,7 @@ import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -55,9 +56,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     final var random = new Random(seed);
     final var listener = new RememberingListener();
     try {
-      for (var i = 0; i < 100; i++) {
-        testQuery(QueryMonitoringMode.LIGHTWEIGHT, listener, random);
-      }
+      testQuery(QueryMonitoringMode.LIGHTWEIGHT, listener, random);
     } catch (Exception | Error e) {
       System.err.println("testQueryMonitoringLightweight seed: " + seed);
       throw e;
@@ -77,9 +76,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     final var random = new Random(seed);
     final var listener = new RememberingListener();
     try {
-      for (var i = 0; i < 100; i++) {
-        testQuery(QueryMonitoringMode.EXACT, listener, random);
-      }
+      testQuery(QueryMonitoringMode.EXACT, listener, random);
     } catch (Exception | Error e) {
       System.err.println("testQueryMonitoringExact seed: " + seed);
       throw e;
@@ -1048,84 +1045,97 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).matches(regex);
   }
 
+  /// Runs 100 randomized query iterations and verifies listener callbacks.
+  ///
+  /// For LIGHTWEIGHT mode, we avoid per-iteration lower-bound checks on startedAtMillis because
+  /// [Ticker#approximateCurrentTimeMillis()] is updated by a background thread that can be delayed
+  /// by OS scheduling, making any single-iteration lower bound flaky. So we check per-iteration
+  /// monotonicity and upper bound, then verify after the loop that the ticker has kept pace with
+  /// real elapsed time overall.
   private void testQuery(
       QueryMonitoringMode mode, RememberingListener listener, Random random
   ) throws Exception {
-    final var withTxId = random.nextBoolean();
-    final var txId = "tx_" + random.nextInt(1000);
-    final var withSummary = random.nextBoolean();
-    final var summary = "test_" + random.nextInt(1000);
+    long prevStartedAtMillis = 0;
 
-    final var tx = ((YTDBTransaction) g.tx())
-        .withQueryMonitoringMode(mode)
-        .withQueryListener(listener);
+    for (var i = 0; i < 100; i++) {
+      final var withTxId = random.nextBoolean();
+      final var txId = "tx_" + random.nextInt(1000);
+      final var withSummary = random.nextBoolean();
+      final var summary = "test_" + random.nextInt(1000);
 
-    if (withTxId) {
-      tx.withTrackingId(txId);
+      final var tx = ((YTDBTransaction) g.tx())
+          .withQueryMonitoringMode(mode)
+          .withQueryListener(listener);
+
+      if (withTxId) {
+        tx.withTrackingId(txId);
+      }
+
+      tx.open();
+
+      final long beforeMillis;
+      final long beforeNanos;
+      final long afterMillis;
+      final long afterNanos;
+
+      var gs = g();
+      if (withSummary) {
+        gs = gs.with(YTDBQueryConfigParam.querySummary, summary);
+      }
+
+      try (var q = gs.V().hasLabel("person")) {
+
+        beforeMillis = System.currentTimeMillis();
+        beforeNanos = System.nanoTime();
+
+        assertThat(q.hasNext()).isTrue(); // query has started
+
+        Thread.sleep(random.nextInt(50));
+        q.iterate(); // query has finished
+
+        afterNanos = System.nanoTime();
+        afterMillis = System.currentTimeMillis();
+      }
+      tx.commit();
+
+      final var duration = afterNanos - beforeNanos;
+
+      assertThat(listener.query).isNotNull().contains("hasLabel");
+      if (withSummary) {
+        assertThat(listener.querySummary).isEqualTo(summary);
+      } else {
+        assertThat(listener.querySummary).isNull();
+      }
+      if (withTxId) {
+        assertThat(listener.transactionTrackingId).isEqualTo(txId);
+      } else {
+        assertThat(listener.transactionTrackingId).isNotNull();
+      }
+
+      if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
+        // Ticker should not run ahead of real time.
+        assertThat(listener.startedAtMillis)
+            .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS)
+            // Monotonicity: ticker-based timestamps should never go backward.
+            .isGreaterThanOrEqualTo(prevStartedAtMillis);
+        // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
+        // window [beforeNanos, afterNanos], so the measured duration is at most the real
+        // elapsed time plus ticker lag.
+        assertThat(listener.executionTimeNanos)
+            .isGreaterThanOrEqualTo(0)
+            .isLessThanOrEqualTo(duration + TICKER_POSSIBLE_LAG_NANOS);
+      } else {
+        assertThat(listener.startedAtMillis)
+            .isGreaterThanOrEqualTo(beforeMillis)
+            .isLessThanOrEqualTo(afterMillis);
+        assertThat(listener.executionTimeNanos)
+            .isLessThanOrEqualTo(duration)
+            .isGreaterThan(0);
+      }
+
+      prevStartedAtMillis = listener.startedAtMillis;
+      listener.reset();
     }
-
-    tx.open();
-
-    final long beforeMillis;
-    final long beforeNanos;
-    final long afterMillis;
-    final long afterNanos;
-
-    var gs = g();
-    if (withSummary) {
-      gs = gs.with(YTDBQueryConfigParam.querySummary, summary);
-    }
-
-    try (var q = gs.V().hasLabel("person")) {
-
-      beforeMillis = System.currentTimeMillis();
-      beforeNanos = System.nanoTime();
-
-      assertThat(q.hasNext()).isTrue(); // query has started
-
-      Thread.sleep(random.nextInt(50));
-      q.iterate(); // query has finished
-
-      afterNanos = System.nanoTime();
-      afterMillis = System.currentTimeMillis();
-    }
-    tx.commit();
-
-    final var duration = afterNanos - beforeNanos;
-
-    assertThat(listener.query).isNotNull().contains("hasLabel");
-    if (withSummary) {
-      assertThat(listener.querySummary).isEqualTo(summary);
-    } else {
-      assertThat(listener.querySummary).isNull();
-    }
-    if (withTxId) {
-      assertThat(listener.transactionTrackingId).isEqualTo(txId);
-    } else {
-      assertThat(listener.transactionTrackingId).isNotNull();
-    }
-
-    if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
-      assertThat(listener.startedAtMillis)
-          .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS)
-          .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS);
-      // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
-      // window [beforeNanos, afterNanos], so the measured duration is at most the real
-      // elapsed time plus ticker lag.
-      assertThat(listener.executionTimeNanos)
-          .isGreaterThanOrEqualTo(0)
-          .isLessThanOrEqualTo(duration + TICKER_POSSIBLE_LAG_NANOS);
-    } else {
-
-      assertThat(listener.startedAtMillis)
-          .isGreaterThanOrEqualTo(beforeMillis)
-          .isLessThanOrEqualTo(afterMillis);
-      assertThat(listener.executionTimeNanos)
-          .isLessThanOrEqualTo(duration)
-          .isGreaterThan(0);
-    }
-
-    listener.reset();
   }
 
   static class RememberingListener implements QueryMetricsListener {
