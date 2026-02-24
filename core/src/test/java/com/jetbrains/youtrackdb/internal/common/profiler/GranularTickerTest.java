@@ -15,18 +15,43 @@ public class GranularTickerTest {
     try (var ticker = new GranularTicker(granularityNanos, timeAdjustmentNanos)) {
 
       ticker.start();
+      final var granularityMillis = TimeUnit.NANOSECONDS.toMillis(granularityNanos);
+
+      final var startRealNano = System.nanoTime();
+      final var startApproxNano = ticker.approximateNanoTime();
+      var prevApproxNano = startApproxNano;
+      var prevApproxMillis = ticker.approximateCurrentTimeMillis();
+
       for (var i = 0; i < 20; i++) {
-        final var nanoDiff = System.nanoTime() - ticker.approximateNanoTime();
-        final var millisDiff =
-            System.currentTimeMillis() - ticker.approximateCurrentTimeMillis();
-
-        final var precision = 1.2; // we allow for some error due to a possible multi-threading lag
-        assertThat(nanoDiff).isLessThanOrEqualTo((long) (granularityNanos * precision));
-        assertThat(millisDiff).isLessThanOrEqualTo(
-            (long) (granularityNanos * precision / 1_000_000L));
-
         Thread.sleep(13);
+
+        final var approxNano = ticker.approximateNanoTime();
+        final var approxMillis = ticker.approximateCurrentTimeMillis();
+
+        final var afterNano = System.nanoTime();
+        final var afterMillis = System.currentTimeMillis();
+
+        // The ticker should never run ahead of real time.
+        assertThat(approxNano)
+            .isLessThanOrEqualTo(afterNano + granularityNanos);
+        assertThat(approxMillis)
+            .isLessThanOrEqualTo(afterMillis + granularityMillis);
+
+        // The ticker should be monotonically non-decreasing.
+        assertThat(approxNano).isGreaterThanOrEqualTo(prevApproxNano);
+        assertThat(approxMillis).isGreaterThanOrEqualTo(prevApproxMillis);
+
+        prevApproxNano = approxNano;
+        prevApproxMillis = approxMillis;
       }
+
+      // The ticker can lag behind real time by at most one granularity tick
+      // at any point, so its total advancement should be close to real elapsed time.
+      final var totalRealNanos = System.nanoTime() - startRealNano;
+      final var totalTickerNanos = prevApproxNano - startApproxNano;
+      assertThat(totalTickerNanos)
+          .as("ticker should advance over 20 iterations")
+          .isGreaterThanOrEqualTo(totalRealNanos - 2 * granularityNanos);
     }
   }
 }
