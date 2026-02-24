@@ -459,11 +459,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /// @param collectionPosition logical position embedded in the metadata header
   /// @param nextRecordPointer  initial next-page pointer ({@code -1} for a new entry, or a page
   ///                           pointer when continuing from a previous serialization)
-  /// @param pageSupplier       provides a {@link CollectionPage} with at least the requested free
-  ///                           space; may return {@code null} if no page is available
+  /// @param pageSupplier       provides a non-null {@link CollectionPage} with at least the
+  ///                           requested free space; the current implementation uses
+  ///                           {@code findNewPageToWrite} which always succeeds by allocating
+  ///                           a new page if needed
   /// @param pagePostProcessor  called after each chunk is written (typically closes the page)
-  /// @return {@code int[3]}: {@code [pageIndex, pageOffset, remainingBytes]}. When
-  /// {@code remainingBytes > 0}, the caller must continue serialization on new pages
+  /// @return {@code int[3]}: {@code [pageIndex, pageOffset, remainingBytes]} where
+  /// {@code remainingBytes} is always 0
   private int[] serializeRecord(
       final byte[] content,
       final int len,
@@ -484,45 +486,41 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var nextPageOffset = -1;
 
     while (bytesToWrite > 0) {
+      // All current callers use findNewPageToWrite which always returns a page (either an
+      // existing free page or a newly allocated one).
       final var page = pageSupplier.apply(Math.max(bytesToWrite, MIN_ENTRY_SIZE + 1));
-      if (page == null) {
-        return new int[]{nextPageIndex, nextPageOffset, bytesToWrite};
-      }
 
       int maxRecordSize;
       try {
+        // findNewPageToWrite guarantees that the page has adequate free space
+        // (either via FSM lookup or by allocating a new page with full capacity).
         var availableInPage = page.getMaxRecordSize();
-        if (availableInPage > MIN_ENTRY_SIZE) {
+        final var pageChunkSize = Math.min(availableInPage, chunkSize);
 
-          final var pageChunkSize = Math.min(availableInPage, chunkSize);
+        final var pair =
+            serializeEntryChunk(
+                content, pageChunkSize, bytesToWrite, nextRecordPointers, recordType,
+                collectionPosition);
+        final var chunk = pair.first;
 
-          final var pair =
-              serializeEntryChunk(
-                  content, pageChunkSize, bytesToWrite, nextRecordPointers, recordType,
-                  collectionPosition);
-          final var chunk = pair.first;
+        final var cacheEntry = page.getCacheEntry();
+        nextPageOffset =
+            page.appendRecord(
+                recordVersion,
+                chunk,
+                -1,
+                atomicOperation.getBookedRecordPositions(id, cacheEntry.getPageIndex()));
+        assert nextPageOffset >= 0;
 
-          final var cacheEntry = page.getCacheEntry();
-          nextPageOffset =
-              page.appendRecord(
-                  recordVersion,
-                  chunk,
-                  -1,
-                  atomicOperation.getBookedRecordPositions(id, cacheEntry.getPageIndex()));
-          assert nextPageOffset >= 0;
+        bytesToWrite -= pair.second;
+        assert bytesToWrite >= 0;
 
-          bytesToWrite -= pair.second;
-          assert bytesToWrite >= 0;
+        nextPageIndex = cacheEntry.getPageIndex();
 
-          nextPageIndex = cacheEntry.getPageIndex();
+        if (bytesToWrite > 0) {
+          chunkSize = calculateChunkSize(bytesToWrite);
 
-          if (bytesToWrite > 0) {
-            chunkSize = calculateChunkSize(bytesToWrite);
-
-            nextRecordPointers = createPagePointer(nextPageIndex, nextPageOffset);
-          }
-        } else {
-          return new int[]{nextPageIndex, nextPageOffset, bytesToWrite};
+          nextRecordPointers = createPagePointer(nextPageIndex, nextPageOffset);
         }
         maxRecordSize = page.getMaxRecordSize();
       } finally {
@@ -647,21 +645,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       bytesToWrite = MAX_ENTRY_SIZE;
     }
 
-    int pageIndex;
-
-    // if page is empty we will not find it inside of free mpa because of the policy
-    // that always requests to find page which is bigger than current record
-    // so we find page with at least half of the space at the worst case
-    // we will split record by two anyway.
-    if (bytesToWrite >= DurablePage.MAX_PAGE_SIZE_BYTES - FreeSpaceMap.NORMALIZATION_INTERVAL) {
-      final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
-      pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation);
-
-      return pageIndex;
-    }
+    // After clamping, bytesToWrite <= MAX_ENTRY_SIZE (8095) which is always below
+    // MAX_PAGE_SIZE_BYTES - NORMALIZATION_INTERVAL (8160), so the "near-page-size"
+    // path that used to exist here is unreachable and was removed.
 
     var chunkSize = calculateChunkSize(bytesToWrite);
-    pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation);
+    var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation);
 
     if (pageIndex < 0 && bytesToWrite > MAX_ENTRY_SIZE / 2) {
       final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
@@ -913,11 +902,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       List<byte[]> recordChunks,
       int contentSize) {
 
+    // convertRecordChunksToSingleChunk always returns a non-null result because
+    // recordChunks is non-empty (callers add at least one chunk before invoking this method).
     var fullContent = convertRecordChunksToSingleChunk(recordChunks, contentSize);
-
-    if (fullContent == null) {
-      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
-    }
 
     // Parse the metadata header: [recordType: 1B][contentSize: 4B][collectionPosition: 8B].
     var fullContentPosition = 0;
@@ -1029,67 +1016,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
-  private boolean deleteRecord(AtomicOperation atomicOperation, long collectionPosition,
-      PositionEntry positionEntry) throws IOException {
-    var pageIndex = positionEntry.getPageIndex();
-    var recordPosition = positionEntry.getRecordPosition();
-
-    long nextPagePointer;
-    var removedContentSize = 0;
-    do {
-      var cacheEntryReleased = false;
-      final int maxRecordSize;
-      var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-      try {
-        var localPage = new CollectionPage(cacheEntry);
-
-        if (localPage.isDeleted(recordPosition)) {
-          if (removedContentSize == 0) {
-            cacheEntryReleased = true;
-            cacheEntry.close();
-            return false;
-          } else {
-            throw new PaginatedCollectionException(storageName,
-                "Content of record " + new RecordId(id, collectionPosition)
-                    + " was broken",
-                this);
-          }
-        } else if (removedContentSize == 0) {
-          cacheEntry.close();
-
-          cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-
-          localPage = new CollectionPage(cacheEntry);
-        }
-
-        final var initialFreeSpace = localPage.getFreeSpace();
-        final var content = localPage.deleteRecord(recordPosition, true);
-        atomicOperation.addDeletedRecordPosition(
-            id, cacheEntry.getPageIndex(), recordPosition);
-        assert content != null;
-
-        maxRecordSize = localPage.getMaxRecordSize();
-        removedContentSize += localPage.getFreeSpace() - initialFreeSpace;
-        nextPagePointer =
-            LongSerializer.deserializeNative(
-                content, content.length - LongSerializer.LONG_SIZE);
-      } finally {
-        if (!cacheEntryReleased) {
-          cacheEntry.close();
-        }
-      }
-
-      freeSpaceMap.updatePageFreeSpace(atomicOperation, (int) pageIndex, maxRecordSize);
-
-      pageIndex = getPageIndex(nextPagePointer);
-      recordPosition = getRecordPosition(nextPagePointer);
-    } while (nextPagePointer >= 0);
-
-    collectionPositionMap.remove(collectionPosition, atomicOperation.getCommitTs(),
-        atomicOperation);
-    return true;
-  }
-
   private void deleteRecordWithPreservingPreviousVersion(AtomicOperation atomicOperation,
       long collectionPosition,
       PositionEntry positionEntry) throws IOException {
@@ -1127,114 +1053,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
     updateRecordWithPreservingPreviousVersion(collectionPosition, content,
         recordType, atomicOperation, positionEntry);
-  }
-
-  private void updateRecord(long collectionPosition, byte[] content,
-      byte recordType, AtomicOperation atomicOperation,
-      PositionEntry positionEntry) throws IOException {
-    var nextPageIndex = (int) positionEntry.getPageIndex();
-    var nextRecordPosition = positionEntry.getRecordPosition();
-
-    var nextPagePointer = createPagePointer(nextPageIndex, nextRecordPosition);
-
-    var storedPages = new ArrayList<CollectionPage>();
-    var recordVersion = atomicOperation.getCommitTs();
-
-    while (nextPagePointer >= 0) {
-      final var cacheEntry =
-          loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
-      final var page = new CollectionPage(cacheEntry);
-      final var deletedRecord = page.deleteRecord(nextRecordPosition, true);
-      assert deletedRecord != null;
-      nextPagePointer =
-          LongSerializer.deserializeNative(
-              deletedRecord, deletedRecord.length - LongSerializer.LONG_SIZE);
-
-      nextPageIndex = (int) getPageIndex(nextPagePointer);
-      nextRecordPosition = getRecordPosition(nextPagePointer);
-
-      storedPages.add(page);
-    }
-
-    final var reverseIterator =
-        storedPages.listIterator(storedPages.size());
-    var result =
-        serializeRecord(
-            content,
-            calculateCollectionEntrySize(content.length),
-            recordType,
-            recordVersion,
-            collectionPosition,
-            -1,
-            atomicOperation,
-            entrySize -> {
-              if (reverseIterator.hasPrevious()) {
-                return reverseIterator.previous();
-              }
-              //noinspection ReturnOfNull
-              return null;
-            },
-            page -> {
-              final var cacheEntry = page.getCacheEntry();
-              try {
-                cacheEntry.close();
-              } catch (final IOException e) {
-                throw BaseException.wrapException(
-                    new PaginatedCollectionException(storageName,
-                        "Can not update record with rid "
-                            + new RecordId(id, collectionPosition), this),
-                    e, storageName);
-              }
-            });
-
-    nextPageIndex = result[0];
-    nextRecordPosition = result[1];
-
-    while (reverseIterator.hasPrevious()) {
-      final var page = reverseIterator.previous();
-      page.getCacheEntry().close();
-    }
-
-    if (result[2] != 0) {
-      result =
-          serializeRecord(
-              content,
-              result[2],
-              recordType,
-              recordVersion,
-              collectionPosition,
-              createPagePointer(nextPageIndex, nextRecordPosition),
-              atomicOperation,
-              entrySize -> findNewPageToWrite(atomicOperation, entrySize),
-              page -> {
-                final var cacheEntry = page.getCacheEntry();
-                try {
-                  cacheEntry.close();
-                } catch (final IOException e) {
-                  throw BaseException.wrapException(
-                      new PaginatedCollectionException(storageName,
-                          "Can not update record with rid "
-                              + new RecordId(id, collectionPosition), this),
-                      e, storageName);
-                }
-              });
-
-      nextPageIndex = result[0];
-      nextRecordPosition = result[1];
-    }
-
-    assert result[2] == 0;
-
-    if (nextPageIndex != positionEntry.getPageIndex()
-        || nextRecordPosition != positionEntry.getRecordPosition()) {
-      collectionPositionMap.update(
-          collectionPosition,
-          new PositionEntry(nextPageIndex, nextRecordPosition, recordVersion),
-          atomicOperation);
-    } else if (recordVersion != positionEntry.getRecordVersion()) {
-      collectionPositionMap.updateVersion(
-          collectionPosition, recordVersion, atomicOperation);
-    }
   }
 
   private void updateRecordWithPreservingPreviousVersion(long collectionPosition, byte[] content,
