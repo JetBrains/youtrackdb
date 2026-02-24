@@ -161,15 +161,15 @@ public class CASObjectArrayMTTest {
   }
 
   /**
-   * Verifies that getOrEmpty does not livelock when called concurrently with add().
+   * Verifies that getOrDefault does not livelock when called concurrently with add().
    *
    * <p>The get() method contains two spin-wait loops (with Thread.yield()) -- one waiting
    * for the container to be non-null, another for the value to be non-null. If there exists
-   * a thread interleaving where getOrEmpty passes the size check but then enters a spin-wait
+   * a thread interleaving where getOrDefault passes the size check but then enters a spin-wait
    * that can never terminate, VMLens will detect it as a data race or liveness violation.
    *
    * <p>Multiple writers add items concurrently while a reader probes every index via
-   * getOrEmpty, maximizing the chance of hitting the race between size increment and
+   * getOrDefault, maximizing the chance of hitting the race between size increment and
    * container/value publication.
    */
   @Test
@@ -196,10 +196,10 @@ public class CASObjectArrayMTTest {
 
         var reader = new Thread(() -> {
           // Probe every index that will eventually exist.
-          // getOrEmpty must return either the placeholder (index not yet visible)
+          // getOrDefault must return either the placeholder (index not yet visible)
           // or a positive value written by one of the writers -- never spin forever.
           for (var i = 0; i < totalItems; i++) {
-            var val = array.getOrEmpty(i);
+            var val = array.getOrDefault(i);
             assertTrue(placeholder.equals(val) || (val != null && val > 0),
                 "Expected placeholder or positive value at index " + i + ", got: " + val);
           }
@@ -218,11 +218,11 @@ public class CASObjectArrayMTTest {
   }
 
   /**
-   * Verifies that getOrEmpty does not livelock when set() is concurrently expanding
+   * Verifies that getOrDefault does not livelock when set() is concurrently expanding
    * the array beyond its current size.
    *
    * <p>The set(index, value, placeholder) method calls add(placeholder) in a loop to grow
-   * the array, then overwrites the target slot. During expansion, a concurrent getOrEmpty
+   * the array, then overwrites the target slot. During expansion, a concurrent getOrDefault
    * reader might see the intermediate size updates and attempt to read slots whose containers
    * or values are not yet published. If there's a scheduling where get() enters a spin-wait
    * that never terminates, VMLens will detect it as a data race or liveness violation.
@@ -245,8 +245,8 @@ public class CASObjectArrayMTTest {
           // Read indices that are being created by the expansion.
           // Should never hang -- returns either the placeholder or an actual value.
           for (var i = 0; i <= targetIndex; i++) {
-            var val = array.getOrEmpty(i);
-            assertNotNull(val, "getOrEmpty returned null at index " + i);
+            var val = array.getOrDefault(i);
+            assertNotNull(val, "getOrDefault returned null at index " + i);
           }
         });
 
