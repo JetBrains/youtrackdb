@@ -37,6 +37,7 @@
     <module>driver</module>
     <module>examples</module>
     <module>console</module>
+    <module>embedded</module>
     <module>docker-tests</module>
   </modules>
 

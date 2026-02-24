@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Licensed under the Apache License, Version 2.0 (the "License");
+    You may not use this file except in compliance with the License.
+    You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+    Unless required by applicable law or agreed to in writing, software distributed under the
+    License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+    -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.youtrackdb</groupId>
+    <artifactId>youtrackdb-parent</artifactId>
+    <version>${revision}${sha1}${changelist}</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>youtrackdb-embedded</artifactId>
+  <name>YouTrackDB Embedded</name>
+  <description>
+    Uber-jar with all third-party dependencies relocated under
+    com.jetbrains.youtrackdb.shade to avoid classpath conflicts
+    when YouTrackDB is used as an embedded library.
+
+    NOTE: The custom TinkerPop fork (io.youtrackdb:gremlin-*) retains
+    the org.apache.tinkerpop Java package and is intentionally NOT
+    relocated. Relocating it would break ServiceLoader entries, Gremlin
+    plugin registrations, and reflection-based lookups. Users who also
+    depend on upstream Apache TinkerPop should use dependency exclusions.
+
+    Netty, SLF4J, and GraalVM/Truffle are excluded from the uber-jar
+    (not bundled) and must be provided by the user:
+    - Netty: native transport relies on class-path-relative resource loading.
+    - SLF4J: logging facade whose binding must be chosen by the user.
+    - GraalVM/Truffle: internal class loading by name; needed only if the
+      Gremlin JavaScript engine is used.
+    The shaded jar is unsigned (original signatures are stripped during
+    repackaging).
+  </description>
+
+  <properties>
+    <!--This property is updated automatically and is needed to make build reproducible-->
+    <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-core</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- test -->
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-jdk14</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Disable Error Prone: this module has no Java source code,
+        so the compiler plugin only needs to compile the test sources
+        without the Error Prone annotation processor.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <compilerArgs combine.self="override"/>
+          <annotationProcessorPaths combine.self="override"/>
+        </configuration>
+      </plugin>
+
+      <!-- Skip source jar: no source code in this module -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <configuration>
+          <skipSource>true</skipSource>
+        </configuration>
+      </plugin>
+
+      <!-- Skip javadoc: no source code in this module -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>true</createDependencyReducedPom>
+              <createSourcesJar>false</createSourcesJar>
+
+              <!-- Exclude dependencies that must NOT be bundled in the uber-jar -->
+              <artifactSet>
+                <excludes>
+                  <!-- SLF4J: logging facade, user provides binding -->
+                  <exclude>org.slf4j:*</exclude>
+                  <!-- GraalVM / Truffle: internal class loading by name; relocating breaks polyglot engine -->
+                  <exclude>org.graalvm.sdk:*</exclude>
+                  <exclude>org.graalvm.truffle:*</exclude>
+                  <exclude>org.graalvm.js:*</exclude>
+                  <exclude>org.graalvm.regex:*</exclude>
+                  <exclude>com.oracle.truffle:*</exclude>
+                  <!-- Annotation-only artifacts -->
+                  <exclude>com.google.code.findbugs:jsr305</exclude>
+                  <exclude>org.jspecify:jspecify</exclude>
+                  <exclude>com.google.errorprone:error_prone_annotations</exclude>
+                  <exclude>com.google.j2objc:j2objc-annotations</exclude>
+                  <!--
+                    Netty: native transport loads .so/.jnilib from META-INF/native/
+                    using the calling class's package path. Relocation breaks this
+                    because NativeLibraryLoader would look under the relocated path
+                    while the native files remain at their original location.
+                  -->
+                  <exclude>io.netty:*</exclude>
+                  <!-- Provided / JDK API -->
+                  <exclude>javax.servlet:javax.servlet-api</exclude>
+                  <exclude>javax.activation:javax.activation-api</exclude>
+                </excludes>
+              </artifactSet>
+
+              <relocations>
+                <!-- Guava -->
+                <relocation>
+                  <pattern>com.google.common</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.google.common</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.thirdparty</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.google.thirdparty</shadedPattern>
+                </relocation>
+
+                <!-- Jackson -->
+                <relocation>
+                  <pattern>com.fasterxml.jackson</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.fasterxml.jackson</shadedPattern>
+                </relocation>
+
+                <!-- Apache Commons (all commons-* libs) -->
+                <relocation>
+                  <pattern>org.apache.commons</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.apache.commons</shadedPattern>
+                </relocation>
+
+                <!-- fastutil -->
+                <relocation>
+                  <pattern>it.unimi.dsi</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.it.unimi.dsi</shadedPattern>
+                </relocation>
+
+                <!-- ANTLR4 runtime -->
+                <relocation>
+                  <pattern>org.antlr.v4</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.antlr.v4</shadedPattern>
+                </relocation>
+
+                <!-- Groovy 4.x (three root packages: org.apache.groovy, groovy, org.codehaus.groovy) -->
+                <relocation>
+                  <pattern>org.apache.groovy</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.apache.groovy</shadedPattern>
+                </relocation>
+                <!-- Matches groovy.* root package for Groovy 4.x -->
+                <relocation>
+                  <pattern>groovy</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.groovy</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.codehaus.groovy</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.codehaus.groovy</shadedPattern>
+                </relocation>
+
+                <!-- ASM -->
+                <relocation>
+                  <pattern>org.objectweb.asm</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.objectweb.asm</shadedPattern>
+                </relocation>
+
+                <!-- JNR / JFFI -->
+                <relocation>
+                  <pattern>com.github.jnr</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.github.jnr</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>jnr</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.jnr</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.kenai</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.kenai</shadedPattern>
+                </relocation>
+
+                <!-- SnakeYAML -->
+                <relocation>
+                  <pattern>org.yaml.snakeyaml</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.yaml.snakeyaml</shadedPattern>
+                </relocation>
+
+                <!-- HPPC -->
+                <relocation>
+                  <pattern>com.carrotsearch.hppc</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.carrotsearch.hppc</shadedPattern>
+                </relocation>
+
+                <!-- Caffeine -->
+                <relocation>
+                  <pattern>com.github.benmanes.caffeine</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.github.benmanes.caffeine</shadedPattern>
+                </relocation>
+
+                <!-- exp4j -->
+                <relocation>
+                  <pattern>net.objecthunter.exp4j</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.net.objecthunter.exp4j</shadedPattern>
+                </relocation>
+
+                <!-- JavaTuples -->
+                <relocation>
+                  <pattern>org.javatuples</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.javatuples</shadedPattern>
+                </relocation>
+
+                <!-- JavaPoet (both squareup and palantir variants) -->
+                <relocation>
+                  <pattern>com.squareup.javapoet</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.squareup.javapoet</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.palantir.javapoet</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.palantir.javapoet</shadedPattern>
+                </relocation>
+
+                <!-- ConcurrentLinkedHashMap -->
+                <relocation>
+                  <pattern>com.googlecode.concurrentlinkedhashmap</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.googlecode.concurrentlinkedhashmap</shadedPattern>
+                </relocation>
+
+                <!-- LZ4 (classes are under net.jpountz, not org.lz4) -->
+                <relocation>
+                  <pattern>net.jpountz</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.net.jpountz</shadedPattern>
+                </relocation>
+
+                <!-- Ivy -->
+                <relocation>
+                  <pattern>org.apache.ivy</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.apache.ivy</shadedPattern>
+                </relocation>
+
+                <!-- JLine -->
+                <relocation>
+                  <pattern>jline</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.jline</shadedPattern>
+                </relocation>
+
+                <!-- Jansi / HawtJNI (transitive from JLine via Groovy) -->
+                <relocation>
+                  <pattern>org.fusesource</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.fusesource</shadedPattern>
+                </relocation>
+
+                <!-- JavaParser -->
+                <relocation>
+                  <pattern>com.github.javaparser</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.github.javaparser</shadedPattern>
+                </relocation>
+
+                <!-- TreeLayout -->
+                <relocation>
+                  <pattern>org.abego.treelayout</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.abego.treelayout</shadedPattern>
+                </relocation>
+
+                <!-- jbcrypt -->
+                <relocation>
+                  <pattern>org.mindrot</pattern>
+                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.mindrot</shadedPattern>
+                </relocation>
+              </relocations>
+
+              <transformers>
+                <!-- Merge META-INF/services files and rewrite relocated class names -->
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <!-- Produce a valid MANIFEST.MF -->
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"/>
+                <!-- Merge NOTICE files from bundled dependencies -->
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
+                <!-- Merge LICENSE files from bundled dependencies -->
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+              </transformers>
+
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <!-- Signature files break verification after repackaging -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <!-- Replaced by ManifestResourceTransformer -->
+                    <exclude>META-INF/MANIFEST.MF</exclude>
+                    <!-- Module descriptors are invalid after relocation -->
+                    <exclude>module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Integration tests that inspect the shaded jar (run after package phase) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-junit47</artifactId>
+            <version>${surefire.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <argLine>
+            -ea
+          </argLine>
+          <systemPropertyVariables>
+            <project.build.directory>${project.build.directory}</project.build.directory>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-junit47</artifactId>
+            <version>${surefire.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <argLine>
+            -ea
+            -Xms512m
+            -Xmx512m
+            -Dyoutrackdb.storage.diskCache.bufferSize=4096
+            -Dyoutrackdb.security.createDefaultUsers=false
+            -Dyoutrackdb.memory.directMemory.trackMode=true
+            -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
+            -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
+            --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
+            --add-opens java.base/sun.security.x509=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+            --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-exports=java.base/sun.security.x509=ALL-UNNAMED
+            --add-exports=java.base/sun.security.action=ALL-UNNAMED
+            -XX:+IgnoreUnrecognizedVMOptions
+          </argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
