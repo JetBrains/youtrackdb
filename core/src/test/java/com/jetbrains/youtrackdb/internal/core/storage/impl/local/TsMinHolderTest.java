@@ -197,7 +197,7 @@ public class TsMinHolderTest {
     // Poll until GC collects the weak reference (bounded to avoid hanging).
     // Allocate 1 MB per iteration to increase GC pressure in large-heap CI environments.
     for (int i = 0; i < 100 && weakRef.get() != null; i++) {
-      //noinspection unused
+      @SuppressWarnings("UnusedVariable") // Allocation creates GC pressure
       byte[] pressure = new byte[1024 * 1024];
       System.gc();
       try {
