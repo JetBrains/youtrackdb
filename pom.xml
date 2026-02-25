@@ -974,6 +974,11 @@
                   <formats>
                     <format>XML</format>
                   </formats>
+                  <excludes>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/sql/parser/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/gql/parser/gen/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/*.class</exclude>
+                  </excludes>
                 </configuration>
               </execution>
               <execution>
@@ -989,6 +994,11 @@
                   <formats>
                     <format>XML</format>
                   </formats>
+                  <excludes>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/sql/parser/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/internal/core/gql/parser/gen/*.class</exclude>
+                    <exclude>**/com/jetbrains/youtrackdb/api/gremlin/*.class</exclude>
+                  </excludes>
                 </configuration>
               </execution>
             </executions>
@@ -1089,6 +1099,7 @@
               <excludedClasses>
                 <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
                 <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
+                <param>com.jetbrains.youtrackdb.api.gremlin.*</param>
               </excludedClasses>
               <excludedTestClasses>
                 <param>*IT</param>

@@ -27,9 +27,11 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
     <generated.sources.dir>${basedir}/src/main/generated/java</generated.sources.dir>
+    <generated.antlr.dir>${generated.sources.dir}/antlr</generated.antlr.dir>
+    <generated.gremlin.dir>${generated.sources.dir}/gremlin</generated.gremlin.dir>
     <gql.antlr.package>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</gql.antlr.package>
     <gql.antlr.output.dir>
-      ${generated.sources.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen
+      ${generated.antlr.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen
     </gql.antlr.output.dir>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
@@ -134,7 +136,6 @@
           <outputDirectory>${basedir}/src/main/java</outputDirectory>
         </configuration>
       </plugin>
-      <!-- Generate ANTLR sources using official antlr4-maven-plugin -->
       <plugin>
         <groupId>org.antlr</groupId>
         <artifactId>antlr4-maven-plugin</artifactId>
@@ -160,21 +161,10 @@
           </execution>
         </executions>
       </plugin>
-      <plugin>
+       <plugin>
         <artifactId>maven-clean-plugin</artifactId>
         <version>${maven.clean.plugin.version}</version>
-        <configuration>
-          <filesets>
-            <fileset>
-              <directory>${generated.sources.dir}</directory>
-              <includes>
-                <include>**/*.java</include>
-                <include>**/*.tokens</include>
-                <include>**/*.interp</include>
-              </includes>
-            </fileset>
-          </filesets>
-        </configuration>
+        <!-- No filesets: generated code (ANTLR + Gremlin DSL) is in git and not cleaned; regenerated only when grammar/DSL changes -->
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -250,19 +240,21 @@
             </goals>
             <configuration>
               <sources>
-                <source>${generated.sources.dir}</source>
+                <source>${generated.antlr.dir}</source>
+                <!-- Gremlin generated dir: in git; compiler sees existing files when processor skips (content unchanged) -->
+                <source>${generated.gremlin.dir}</source>
               </sources>
             </configuration>
           </execution>
           <execution>
-            <id>add-generated-test-sources</id>
+            <id>add-antlr-test-sources</id>
             <phase>generate-test-sources</phase>
             <goals>
               <goal>add-test-source</goal>
             </goals>
             <configuration>
               <sources>
-                <source>${generated.sources.dir}</source>
+                <source>${generated.antlr.dir}</source>
               </sources>
             </configuration>
           </execution>
@@ -273,16 +265,16 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
           <encoding>${project.build.sourceEncoding}</encoding>
+          <useIncrementalCompilation>true</useIncrementalCompilation>
           <annotationProcessors>
             <annotationProcessor>
               com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
             </annotationProcessor>
           </annotationProcessors>
-          <generatedSourcesDirectory>
-            ${generated.sources.dir}/annotations
-          </generatedSourcesDirectory>
           <compilerArgs>
             <arg>-parameters</arg>
+            <arg>-Agremlin.dsl.generatedDir=${project.basedir}/src/main/generated/java/gremlin</arg>
+            <arg>-Agremlin.dsl.sourceDir=${project.basedir}/src/main/java</arg>
             <arg>-XDcompilePolicy=simple</arg>
             <arg>--should-stop=ifError=FLOW</arg>
             <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
