@@ -722,10 +722,9 @@ public abstract class SchemaClassImpl {
     if (this == obj) {
       return true;
     }
-    if (obj == null || getClass() != obj.getClass()) {
+    if (!(obj instanceof SchemaClassImpl other)) {
       return false;
     }
-    var other = (SchemaClassImpl) obj;
 
     return Objects.equals(name, other.name);
   }

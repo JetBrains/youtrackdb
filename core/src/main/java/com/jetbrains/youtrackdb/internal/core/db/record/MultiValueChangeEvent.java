@@ -92,10 +92,9 @@ public class MultiValueChangeEvent<K, V> {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof MultiValueChangeEvent<?, ?> that)) {
       return false;
     }
-    var that = (MultiValueChangeEvent<?, ?>) o;
     return changeType == that.changeType
         && Objects.equals(key, that.key)
         && Objects.equals(value, that.value)

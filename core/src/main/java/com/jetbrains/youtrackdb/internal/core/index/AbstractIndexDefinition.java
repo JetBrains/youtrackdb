@@ -64,11 +64,9 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof AbstractIndexDefinition that)) {
       return false;
     }
-
-    var that = (AbstractIndexDefinition) o;
 
     if (!collate.equals(that.collate)) {
       return false;

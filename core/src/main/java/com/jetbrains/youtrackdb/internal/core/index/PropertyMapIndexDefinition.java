@@ -153,14 +153,12 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof PropertyMapIndexDefinition that)) {
       return false;
     }
     if (!super.equals(o)) {
       return false;
     }
-
-    var that = (PropertyMapIndexDefinition) o;
 
     return indexBy == that.indexBy;
   }

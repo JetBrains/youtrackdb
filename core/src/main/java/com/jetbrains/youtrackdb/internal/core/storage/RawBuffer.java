@@ -26,11 +26,9 @@ public record RawBuffer(byte[] buffer, long version, byte recordType) {
 
   @Override
   public boolean equals(Object o) {
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof RawBuffer that)) {
       return false;
     }
-
-    var that = (RawBuffer) o;
 
     return version == that.version
         && recordType == that.recordType

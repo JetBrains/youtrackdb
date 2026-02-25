@@ -42,10 +42,9 @@ public class SecurityResourceProperty extends SecurityResource {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof SecurityResourceProperty that)) {
       return false;
     }
-    var that = (SecurityResourceProperty) o;
     return allClasses == that.allClasses
         && Objects.equals(className, that.className)
         && Objects.equals(propertyName, that.propertyName);

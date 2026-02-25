@@ -56,11 +56,9 @@ public class SBTreeValue<V> {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof SBTreeValue<?> that)) {
       return false;
     }
-
-    var that = (SBTreeValue) o;
 
     if (isLink != that.isLink) {
       return false;

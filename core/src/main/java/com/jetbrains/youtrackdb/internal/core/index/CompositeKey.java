@@ -172,11 +172,9 @@ public class CompositeKey
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof CompositeKey that)) {
       return false;
     }
-
-    final var that = (CompositeKey) o;
 
     return keys.equals(that.keys);
   }

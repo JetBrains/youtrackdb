@@ -66,11 +66,9 @@ public class MultiKey {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof MultiKey multiKey)) {
       return false;
     }
-
-    final var multiKey = (MultiKey) o;
 
     if (keys.size() != multiKey.keys.size()) {
       return false;

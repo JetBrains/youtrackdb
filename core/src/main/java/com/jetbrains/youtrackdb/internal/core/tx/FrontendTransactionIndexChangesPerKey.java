@@ -59,10 +59,9 @@ public class FrontendTransactionIndexChangesPerKey {
         return true;
       }
 
-      if (obj == null || obj.getClass() != TransactionIndexEntry.class) {
+      if (!(obj instanceof TransactionIndexEntry other)) {
         return false;
       }
-      final var other = (TransactionIndexEntry) obj;
 
       if (this.value != null) {
         return this.value.equals(other.value);

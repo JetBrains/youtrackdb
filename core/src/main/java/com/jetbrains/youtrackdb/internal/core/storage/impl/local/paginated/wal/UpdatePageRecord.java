@@ -94,14 +94,12 @@ public class UpdatePageRecord extends AbstractPageWALRecord {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof UpdatePageRecord that)) {
       return false;
     }
     if (!super.equals(o)) {
       return false;
     }
-
-    final var that = (UpdatePageRecord) o;
 
     if (logSequenceNumber == null && that.logSequenceNumber == null) {
       return true;

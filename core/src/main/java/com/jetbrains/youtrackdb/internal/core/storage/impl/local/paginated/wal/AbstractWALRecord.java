@@ -118,11 +118,9 @@ public abstract class AbstractWALRecord implements WriteableWALRecord {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof AbstractWALRecord that)) {
       return false;
     }
-
-    var that = (AbstractWALRecord) o;
 
     return Objects.equals(logSequenceNumber, that.logSequenceNumber);
   }

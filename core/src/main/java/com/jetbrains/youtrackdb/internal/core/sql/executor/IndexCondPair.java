@@ -24,11 +24,9 @@ class IndexCondPair {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof IndexCondPair that)) {
       return false;
     }
-
-    var that = (IndexCondPair) o;
 
     if (!Objects.equals(mainCondition, that.mainCondition)) {
       return false;

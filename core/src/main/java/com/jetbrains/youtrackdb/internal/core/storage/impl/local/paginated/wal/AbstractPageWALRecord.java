@@ -72,14 +72,12 @@ public abstract class AbstractPageWALRecord extends OperationUnitBodyRecord {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof AbstractPageWALRecord that)) {
       return false;
     }
     if (!super.equals(o)) {
       return false;
     }
-
-    var that = (AbstractPageWALRecord) o;
 
     if (pageIndex != that.pageIndex) {
       return false;

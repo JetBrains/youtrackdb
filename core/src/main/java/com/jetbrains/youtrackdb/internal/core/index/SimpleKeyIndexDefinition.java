@@ -239,11 +239,9 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof SimpleKeyIndexDefinition that)) {
       return false;
     }
-
-    final var that = (SimpleKeyIndexDefinition) o;
     return Arrays.equals(keyTypes, that.keyTypes);
   }
 

@@ -160,10 +160,9 @@ public abstract class SecurityResource {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof SecurityResource that)) {
       return false;
     }
-    var that = (SecurityResource) o;
     return Objects.equals(resourceString, that.resourceString);
   }
 

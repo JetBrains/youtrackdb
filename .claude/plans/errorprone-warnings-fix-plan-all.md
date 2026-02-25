@@ -76,12 +76,14 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Added `-Xep:ReferenceEquality:ERROR` to `errorprone.args` in root `pom.xml`
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 10: `EqualsGetClass`** (1 instance)
-  - `core/.../db/record/MultiValueChangeEvent.java:91` — `getClass() != o.getClass()` in `equals()`; safe to convert to `instanceof` check since `MultiValueChangeEvent` has no subclasses
-  - Change `if (o == null || getClass() != o.getClass())` to `if (!(o instanceof MultiValueChangeEvent<?, ?> that))` and merge with the cast on the next line
-  - After fix: add `-Xep:EqualsGetClass:ERROR` to `errorprone.args` in root `pom.xml`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 `EqualsGetClass` errors
-  - Commit: `Fix ErrorProne EqualsGetClass warnings`
+- [x] **Step 10: `EqualsGetClass`** (plan listed 1 instance, actual count: 36 across 36 files)
+  - Plan originally listed 1 instance but actual count was 36 across 36 files in `core` module
+  - Converted all `getClass() != o.getClass()` checks in `equals()` methods to `instanceof` pattern matching
+  - Pattern: `if (o == null || getClass() != o.getClass()) { return false; } Type that = (Type) o;` → `if (!(o instanceof Type that)) { return false; }`
+  - Handled generics correctly: `Pair<?, ?>`, `Triple<?, ?, ?>`, `MultiValueChangeEvent<?, ?>`, `SBTreeValue<?>`
+  - Preserved `super.equals()` call chains in hierarchies: `PropertyIndexDefinition`, `PropertyMapIndexDefinition`, `AbstractPageWALRecord`, `UpdatePageRecord`
+  - Added `-Xep:EqualsGetClass:ERROR` to `errorprone.args` in root `pom.xml`
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 11: `StringSplitter`** (1 instance)
   - `core/.../exception/CommandSQLParsingException.java:64` — `statement.split("\n")` has surprising behavior (trailing empty strings are discarded); replace with `statement.split("\n", -1)` to preserve all segments

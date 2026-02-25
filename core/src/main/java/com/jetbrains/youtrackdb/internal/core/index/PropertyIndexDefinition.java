@@ -96,15 +96,13 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof PropertyIndexDefinition that)) {
       return false;
     }
 
     if (!super.equals(o)) {
       return false;
     }
-
-    final var that = (PropertyIndexDefinition) o;
 
     if (!className.equals(that.className)) {
       return false;

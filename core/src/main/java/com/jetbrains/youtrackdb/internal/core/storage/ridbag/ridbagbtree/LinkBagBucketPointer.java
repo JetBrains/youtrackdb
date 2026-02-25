@@ -53,11 +53,9 @@ public class LinkBagBucketPointer {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof LinkBagBucketPointer that)) {
       return false;
     }
-
-    var that = (LinkBagBucketPointer) o;
 
     if (pageIndex != that.pageIndex) {
       return false;

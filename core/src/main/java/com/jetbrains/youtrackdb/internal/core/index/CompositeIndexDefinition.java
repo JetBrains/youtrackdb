@@ -432,11 +432,9 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof CompositeIndexDefinition that)) {
       return false;
     }
-
-    final var that = (CompositeIndexDefinition) o;
 
     if (!className.equals(that.className)) {
       return false;

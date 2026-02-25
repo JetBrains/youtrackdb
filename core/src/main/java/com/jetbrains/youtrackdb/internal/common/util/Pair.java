@@ -103,13 +103,9 @@ public class Pair<K extends Comparable, V>
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
+    if (!(obj instanceof Pair<?, ?> other)) {
       return false;
     }
-    if (getClass() != obj.getClass()) {
-      return false;
-    }
-    var other = (Pair<?, ?>) obj;
     if (key == null) {
       return other.key == null;
     } else {

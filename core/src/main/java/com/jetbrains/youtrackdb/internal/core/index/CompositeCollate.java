@@ -81,11 +81,9 @@ public class CompositeCollate implements Collate {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof CompositeCollate that)) {
       return false;
     }
-
-    final var that = (CompositeCollate) o;
 
     return collates.equals(that.collates);
   }

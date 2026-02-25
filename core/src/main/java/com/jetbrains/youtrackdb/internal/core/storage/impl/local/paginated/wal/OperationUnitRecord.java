@@ -89,11 +89,9 @@ public abstract class OperationUnitRecord extends AbstractWALRecord {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof OperationUnitRecord that)) {
       return false;
     }
-
-    final var that = (OperationUnitRecord) o;
 
     return operationUnitId == that.operationUnitId;
   }
