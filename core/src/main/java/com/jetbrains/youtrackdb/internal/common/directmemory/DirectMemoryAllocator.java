@@ -483,7 +483,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
       return hashCode;
     }
 
-    @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
+    @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass", "ReferenceEquality"})
     @Override
     public boolean equals(Object obj) {
       final var pointer = get();

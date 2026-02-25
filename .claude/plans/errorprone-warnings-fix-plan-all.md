@@ -59,12 +59,22 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Added `-Xep:EmptyBlockTag:ERROR` to `errorprone.args` in root `pom.xml`
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 9: `ReferenceEquality`** (2 instances — both are intentional identity checks, suppress)
-  - `core/.../cache/LocalRecordCache.java:57` — `loadedRecord != record` is an intentional identity check (same cached object instance); add `@SuppressWarnings("ReferenceEquality")` to the method
-  - `core/.../query/live/LiveQueryHookV2.java:257` — `liveQueryOp.originalEntity == entity` is an intentional identity check (same entity object); add `@SuppressWarnings("ReferenceEquality")` to the method
-  - After fix: add `-Xep:ReferenceEquality:ERROR` to `errorprone.args` in root `pom.xml`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 `ReferenceEquality` errors
-  - Commit: `Fix ErrorProne ReferenceEquality warnings`
+- [x] **Step 9: `ReferenceEquality`** (plan listed 2 instances, actual count: 13 across 9 files)
+  - Plan originally listed 2 instances but actual count was 13 across 9 files in `core` module
+  - **Code fixes** (3 files — converted `==`/`!=` to `.equals()` where value equality is correct):
+    - `AnsiLogFormatter.java` — converted 5 `java.util.logging.Level` comparisons from `==` to `.equals()`; also fixed pre-existing bug where duplicate `Level.CONFIG` check (dead code) was changed to `Level.FINE`
+    - `ScriptManager.java:410` — fixed String comparison bug: `words[0] != "("` to `!"(".equals(words[0])`
+    - `BinaryTokenSerializer.java:98` — converted String assert from `==` to `.equals()`
+  - **Suppressions** (7 files — intentional identity checks):
+    - `LocalRecordCache.java` — `updateRecord()`: same cached object instance check
+    - `LiveQueryHookV2.java` — `prevousUpdate()`: same entity object instance check
+    - `RecordAbstract.java` — `incrementDirtyCounterAndRegisterInTx()` and `assertIfAlreadyLoaded()`: same record instance checks
+    - `FrontendTransactionImpl.java` — `addRecordOperation()`: same record/txEntry instance checks
+    - `DirectMemoryAllocator.java` — `TrackedPointerKey.equals()`: identity-based pointer key comparison
+    - `FrontendTransactionIndexChangesList.java` — `getNode()`: same entry instance check
+    - `WeakValueHashMap.java` — `cleanupReference()`: same WeakReference instance check
+  - Added `-Xep:ReferenceEquality:ERROR` to `errorprone.args` in root `pom.xml`
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 10: `EqualsGetClass`** (1 instance)
   - `core/.../db/record/MultiValueChangeEvent.java:91` — `getClass() != o.getClass()` in `equals()`; safe to convert to `instanceof` check since `MultiValueChangeEvent` has no subclasses

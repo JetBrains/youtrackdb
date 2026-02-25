@@ -170,6 +170,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     }
   }
 
+  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same record instance
   private void incrementDirtyCounterAndRegisterInTx() {
     if (processingInCallback) {
       throw new IllegalStateException(
@@ -402,6 +403,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return this;
   }
 
+  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same record instance
   protected boolean assertIfAlreadyLoaded(RID rid) {
     var session = getSession();
 

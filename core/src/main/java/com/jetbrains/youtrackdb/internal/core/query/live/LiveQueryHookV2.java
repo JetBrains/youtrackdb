@@ -252,6 +252,7 @@ public class LiveQueryHookV2 {
   }
 
   @Nullable
+  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same entity object instance
   private static LiveQueryOp prevousUpdate(List<LiveQueryOp> list, EntityImpl entity) {
     for (var liveQueryOp : list) {
       if (liveQueryOp.originalEntity == entity) {

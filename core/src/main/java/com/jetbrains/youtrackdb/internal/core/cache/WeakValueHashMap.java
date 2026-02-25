@@ -83,6 +83,7 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
     }
   }
 
+  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same WeakReference instance
   private void cleanupReference(K key, WeakRefValue<K, V> weakRef) {
     referenceMap.compute(key, (k, v) -> {
       if (v == weakRef) {

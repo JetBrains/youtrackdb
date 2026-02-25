@@ -95,7 +95,7 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
     var output = new DataOutputStream(stream);
     var header = token.getHeader();
     TokenPayload payload = token.getPayload();
-    assert header.getType() == payload.getPayloadType();
+    assert header.getType().equals(payload.getPayloadType());
     output.writeByte(associetedTypes.get(header.getType())); // type
     output.writeByte(associetedKeys.get(header.getKeyId())); // keys
     output.writeByte(associetedAlgorithms.get(header.getAlgorithm())); // algorithm

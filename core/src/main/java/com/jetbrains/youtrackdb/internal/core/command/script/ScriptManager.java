@@ -407,7 +407,7 @@ public class ScriptManager {
                     currentLine.substring(
                         Math.min(pos + "function".length() + 1, currentLine.length())),
                     " \r\n\t");
-            if (words.length > 0 && words[0] != "(") {
+            if (words.length > 0 && !"(".equals(words[0])) {
               lastFunctionName = words[0];
             }
           }

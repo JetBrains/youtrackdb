@@ -473,6 +473,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // Intentional identity checks: same record/txEntry instance
   public void addRecordOperation(RecordAbstract record, byte status) {
     assertOnOwningThread();
     if (readOnly) {
