@@ -25,7 +25,7 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - `MetadataDefault.java` — added `@Override` to `getSchema()` and `getScheduler()`
   - `ImmutableUser.java` — added `@Override` to all 16 methods implementing `SecurityUser` interface
 
-- [ ] **Step 2: `ImmutableEnumChecker`** (1 instance)
+- [x] **Step 2: `ImmutableEnumChecker`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/metrics/Meter.java:37` — add `@SuppressWarnings("ImmutableEnumChecker")` to the `ratioDenominator` field (`BiFunction` is a JDK type that can't be annotated `@Immutable`)
 
 - [ ] **Step 3: `EffectivelyPrivate`** (1 instance)
