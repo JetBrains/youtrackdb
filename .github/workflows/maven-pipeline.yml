@@ -198,6 +198,35 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
           JAVA_TOOL_OPTIONS: '-Djdk.attach.allowAttachSelf=true'
+      - name: Print VMLens Data Race Report
+        if: always()
+        run: |
+          REPORT_DIR="core/target/vmlens-report"
+          if [ -d "$REPORT_DIR" ]; then
+            echo "::group::VMLens Data Race Report"
+            echo "Report files:"
+            find "$REPORT_DIR" -type f | sort
+            echo ""
+            for f in "$REPORT_DIR"/*.html; do
+              [ -f "$f" ] || continue
+              echo "=== $(basename "$f") ==="
+              # Strip HTML tags for readable log output
+              sed 's/<[^>]*>//g; s/&nbsp;/ /g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' "$f" \
+                | sed '/^[[:space:]]*$/d'
+              echo ""
+            done
+            echo "::endgroup::"
+          else
+            echo "No VMLens report directory found at $REPORT_DIR"
+          fi
+      - name: Upload VMLens Report
+        uses: actions/upload-artifact@v4
+        if: "!cancelled()"
+        with:
+          name: vmlens-report-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: 'core/target/vmlens-report/'
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
         if: always()
