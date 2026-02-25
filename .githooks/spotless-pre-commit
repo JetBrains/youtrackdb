@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# Pre-commit hook: runs Spotless formatter on staged Java files.
+# Spotless respects ratchetFrom so only files changed since the baseline are checked.
+# Formatted files are automatically re-staged before the commit proceeds.
+#
+# Skip with: git commit --no-verify
+
+# Check if this is the JetBrains/youtrackdb repository
+REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+if [[ ! "$REMOTE_URL" =~ [/:]JetBrains/youtrackdb(\.git)?$ ]]; then
+    exit 0
+fi
+
+# Check if any Java files are staged
+STAGED_JAVA_FILES=$(git diff --cached --name-only --diff-filter=ACM -- '*.java')
+if [ -z "$STAGED_JAVA_FILES" ]; then
+    exit 0
+fi
+
+# Find the repository root (where pom.xml lives)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# Run Spotless apply to format staged files
+echo "Running Spotless formatter..."
+if ! (cd "$REPO_ROOT" && ./mvnw spotless:apply -q); then
+    echo "Spotless formatting failed. Please check the errors above."
+    exit 1
+fi
+
+# Re-stage any files that Spotless modified
+for file in $STAGED_JAVA_FILES; do
+    if [ -f "$REPO_ROOT/$file" ]; then
+        git add "$REPO_ROOT/$file"
+    fi
+done
+
+exit 0
