@@ -1,0 +1,21 @@
+.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+
+# Environment files with secrets
+.env
+*.env.local
+
+# Local overrides (per-machine or per-run tweaks)
+overrides.yml
+
+# Benchmark outputs/logs
+*.log
+results/
+output/

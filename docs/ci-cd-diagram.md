@@ -8,6 +8,7 @@ flowchart TB
         schedule["Daily Schedule<br/>(2:00 AM UTC)"]
         push_main["Push to main"]
         manual["Manual Dispatch"]
+        benchmark_label["PR Label: benchmark"]
     end
 
     subgraph pr_checks["PR Validation Workflows"]
@@ -69,6 +70,17 @@ flowchart TB
         maven_mirror["Maven Mirror<br/>maven.youtrackdb.io<br/>Reposilite + Caddy (Hetzner)"]
     end
 
+    subgraph benchmark_pipeline["ldbc-snb-benchmark.yml"]
+        direction TB
+        bench_params["Determine Parameters<br/>(ref, SF, trigger type)"]
+        bench_run["Run LDBC SNB Benchmark<br/><i>Self-hosted benchmark runner</i>"]
+        bench_report["Generate Report +<br/>Upload Artifacts"]
+        bench_pr_comment["PR Comment<br/><i>label-triggered only</i>"]
+        bench_params --> bench_run
+        bench_run --> bench_report
+        bench_run -->|" PR trigger "| bench_pr_comment
+    end
+
     subgraph artifacts["Deployed Artifacts"]
         direction TB
         maven_dev["Maven Central<br/>X.Y.Z-dev-SNAPSHOT<br/>X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT"]
@@ -97,6 +109,10 @@ flowchart TB
     main_docker --> docker
 %% Integration triggers main
     it_merge -->|" triggers "| push_main
+%% Benchmark triggers
+    integration_pipeline -->|" workflow_run<br/>(on success) "| benchmark_pipeline
+    benchmark_label --> benchmark_pipeline
+    manual --> benchmark_pipeline
 %% Styling
     classDef trigger fill: #fff, stroke: #1565c0, stroke-width: 2px
     classDef pipeline fill: #fff3e0, stroke: #e65100
@@ -108,9 +124,11 @@ flowchart TB
     class schedule trigger
     class push_main trigger
     class manual trigger
+    class benchmark_label trigger
     class maven_pipeline pipeline
     class integration_pipeline pipeline
     class main_pipeline pipeline
+    class benchmark_pipeline pipeline
     class pr_checks validation
     class maven_dev artifact
     class maven_release artifact
@@ -247,6 +265,28 @@ validating changes before the nightly run or debugging test failures.
 **Note**: Windows tests use `package` goal (unit tests only) instead of `verify` due to disk space
 limitations on GitHub-hosted runners. Full integration tests run on Linux/Hetzner only.
 
+### ldbc-snb-benchmark.yml (PR Label / Manual)
+
+Runs the LDBC Social Network Benchmark (SNB) Interactive workload against YouTrackDB. The benchmark
+uses a two-machine setup: a self-hosted orchestrator runner and a remote database host.
+
+**Trigger Modes**:
+
+| Trigger | Scale Factor | Ref | Condition |
+|---------|-------------|-----|-----------|
+| PR label (`benchmark`) | SF0.1 | PR head | Label present, not from fork |
+| Manual dispatch | User-selected | Any branch | Always |
+
+**Job Flow**:
+1. `benchmark` - Determine parameters (ref, SF, trigger) → checkout → build → deploy → load →
+   validate → benchmark → generate report → upload artifacts
+
+**PR Integration**: When triggered by the `benchmark` label on a PR, results are posted as a sticky
+comment on the PR using the generated step summary.
+
+**Concurrency**: Only one benchmark runs at a time (`cancel-in-progress: false`). Queued runs wait
+for the current one to complete.
+
 ### maven-main-deploy-pipeline.yml (Main Branch)
 
 Triggered by pushes to `main` (typically from the integration tests pipeline merge), this pipeline
@@ -283,6 +323,7 @@ For complete setup and configuration instructions, see [TestFlows Runner Setup](
 | **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main                             | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
 | **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify)                     | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
 | **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker                                | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
+| **ldbc-snb-benchmark.yml**               | PR label, Manual             | Run LDBC SNB benchmark                                           | Self-hosted benchmark runner                        | Benchmark results artifact                                      |
 
 ## PR Quality Gates
 
