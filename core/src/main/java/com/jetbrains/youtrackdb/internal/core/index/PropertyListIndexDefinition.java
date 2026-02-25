@@ -110,23 +110,21 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
-      case ADD: {
-        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-        break;
-      }
-      case REMOVE: {
+      case ADD ->
+          processAdd(
+              createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
+      case REMOVE ->
+          processRemoval(
+              createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+      case UPDATE -> {
         processRemoval(
             createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        break;
+        processAdd(
+            createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
       }
-      case UPDATE: {
-        processRemoval(
-            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-        break;
-      }
-      default:
-        throw new IllegalArgumentException("Invalid change type : " + changeEvent.getChangeType());
+      default ->
+          throw new IllegalArgumentException(
+              "Invalid change type : " + changeEvent.getChangeType());
     }
   }
 

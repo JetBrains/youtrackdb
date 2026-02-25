@@ -35,6 +35,7 @@ public class SQLFunctionFormat extends SQLFunctionAbstract {
     super(NAME, 2, -1);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       Result iCurrentRecord,
@@ -48,6 +49,7 @@ public class SQLFunctionFormat extends SQLFunctionAbstract {
     return String.format((String) iParams[0], args);
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "format(<format>, <arg1> [,<argN>]*)";
   }

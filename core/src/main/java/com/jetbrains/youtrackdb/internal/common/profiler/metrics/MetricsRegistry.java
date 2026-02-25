@@ -130,7 +130,7 @@ public class MetricsRegistry {
 
     private final MetricsGroup mGroup = new MetricsGroup();
 
-    public GlobalMetrics() {
+    GlobalMetrics() {
       CoreMetrics.GLOBAL_METRICS.forEach(globalMetric -> mGroup.init(null, globalMetric));
 
       new MetricsMBean(mGroup, "YouTrackDB global metrics")
@@ -142,7 +142,7 @@ public class MetricsRegistry {
 
     private final MetricsGroup mGroup = new MetricsGroup();
 
-    public DatabaseMetrics(String databaseName) {
+    DatabaseMetrics(String databaseName) {
       CoreMetrics.DATABASE_METRICS.forEach(databaseMetric -> mGroup.init(null, databaseMetric));
 
       new MetricsMBean(mGroup, "Database metrics for " + databaseName)

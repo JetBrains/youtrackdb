@@ -109,14 +109,10 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     while (listIterator.hasPrevious()) {
       final var event = listIterator.previous();
       switch (event.getChangeType()) {
-        case ADD:
-          reverted.remove(event.getKey());
-          break;
-        case REMOVE:
-          reverted.add(event.getOldValue());
-          break;
-        default:
-          throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
+        case ADD -> reverted.remove(event.getKey());
+        case REMOVE -> reverted.add(event.getOldValue());
+        default ->
+            throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
   }

@@ -43,6 +43,7 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
   }
 
   @Nullable
+  @Override
   public Object execute(
       Object iThis,
       final Result iRecord,
@@ -70,10 +71,12 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     }
   }
 
+  @Override
   public boolean aggregateResults() {
     return false;
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "eval(<expression>)";
   }

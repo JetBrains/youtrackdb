@@ -308,6 +308,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     // DO NOTHING THE DELEGATE CLOSE IS MANAGED IN A DIFFERENT CONTEXT
   }
 
+  @Override
   public String toString() {
 
     return delegate.toString();

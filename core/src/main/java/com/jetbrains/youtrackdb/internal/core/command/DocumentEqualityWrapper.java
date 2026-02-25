@@ -15,6 +15,7 @@ public class DocumentEqualityWrapper {
     this.internal = internal;
   }
 
+  @Override
   public boolean equals(Object obj) {
     if (obj instanceof DocumentEqualityWrapper other) {
       return EntityHelper.hasSameContentOf(

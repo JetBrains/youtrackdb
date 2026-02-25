@@ -65,14 +65,15 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
     private Vertex current;
     private Vertex currentRight;
-    public Integer maxDepth;
+    Integer maxDepth;
 
     /**
      * option that decides whether or not to return the edge information
      */
-    public Boolean edge;
+    Boolean edge;
   }
 
+  @Override
   public List<RID> execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -323,6 +324,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return getVerticesAndEdges(srcVertex, direction, (String[]) null);
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "shortestPath(<sourceVertex>, <destinationVertex>, [<direction>, [ <edgeTypeAsString>"
         + " ]])";

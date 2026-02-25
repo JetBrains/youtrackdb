@@ -39,6 +39,7 @@ public class SQLFunctionSet extends SQLFunctionMultiValueAbstract<Set<Object>> {
     super(NAME, 1, -1);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -70,6 +71,7 @@ public class SQLFunctionSet extends SQLFunctionMultiValueAbstract<Set<Object>> {
     return prepareResult(context);
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "set(<value>*)";
   }

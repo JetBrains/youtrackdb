@@ -179,23 +179,18 @@ public class UpdateExecutionPlanner {
     if (ops != null) {
       for (var op : ops) {
         switch (op.getType()) {
-          case SQLUpdateOperations.TYPE_SET:
-            plan.chain(new UpdateSetStep(op.getUpdateItems(), ctx, profilingEnabled));
-            break;
-          case SQLUpdateOperations.TYPE_REMOVE:
-            plan.chain(new UpdateRemoveStep(op.getUpdateRemoveItems(), ctx, profilingEnabled));
-            break;
-          case SQLUpdateOperations.TYPE_MERGE:
-            plan.chain(new UpdateMergeStep(op.getJson(), ctx, profilingEnabled));
-            break;
-          case SQLUpdateOperations.TYPE_CONTENT:
-            plan.chain(new UpdateContentStep(op.getJson(), ctx, profilingEnabled));
-            break;
-          case SQLUpdateOperations.TYPE_PUT:
-          case SQLUpdateOperations.TYPE_INCREMENT:
-          case SQLUpdateOperations.TYPE_ADD:
-            throw new CommandExecutionException(ctx.getDatabaseSession(),
-                "Cannot execute with UPDATE PUT/ADD/INCREMENT new executor: " + op);
+          case SQLUpdateOperations.TYPE_SET ->
+              plan.chain(new UpdateSetStep(op.getUpdateItems(), ctx, profilingEnabled));
+          case SQLUpdateOperations.TYPE_REMOVE ->
+              plan.chain(new UpdateRemoveStep(op.getUpdateRemoveItems(), ctx, profilingEnabled));
+          case SQLUpdateOperations.TYPE_MERGE ->
+              plan.chain(new UpdateMergeStep(op.getJson(), ctx, profilingEnabled));
+          case SQLUpdateOperations.TYPE_CONTENT ->
+              plan.chain(new UpdateContentStep(op.getJson(), ctx, profilingEnabled));
+          case SQLUpdateOperations.TYPE_PUT, SQLUpdateOperations.TYPE_INCREMENT,
+              SQLUpdateOperations.TYPE_ADD ->
+              throw new CommandExecutionException(ctx.getDatabaseSession(),
+                  "Cannot execute with UPDATE PUT/ADD/INCREMENT new executor: " + op);
         }
       }
     }

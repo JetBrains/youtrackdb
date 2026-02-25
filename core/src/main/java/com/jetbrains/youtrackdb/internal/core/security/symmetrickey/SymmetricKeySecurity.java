@@ -258,6 +258,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
     delegate.removeSecurityPolicy(session, role, resource);
   }
 
+  @Override
   public String toString() {
     return delegate.toString();
   }

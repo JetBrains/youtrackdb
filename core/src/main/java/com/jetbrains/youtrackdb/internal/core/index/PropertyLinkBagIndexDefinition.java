@@ -60,17 +60,15 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
-      case ADD: {
-        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-        break;
-      }
-      case REMOVE: {
-        processRemoval(
-            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        break;
-      }
-      default:
-        throw new IllegalArgumentException("Invalid change type : " + changeEvent.getChangeType());
+      case ADD ->
+          processAdd(
+              createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
+      case REMOVE ->
+          processRemoval(
+              createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+      default ->
+          throw new IllegalArgumentException(
+              "Invalid change type : " + changeEvent.getChangeType());
     }
   }
 

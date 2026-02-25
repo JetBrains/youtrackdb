@@ -626,8 +626,8 @@ public class CommandExecutorScript extends CommandExecutorAbstract
       }
       lastResult = result;
       checkIsRecordResultSet(lastResult);
-    } else if (iValue.startsWith("\"") && iValue.endsWith("\"")
-        || iValue.startsWith("'") && iValue.endsWith("'")) {
+    } else if ((iValue.startsWith("\"") && iValue.endsWith("\""))
+        || (iValue.startsWith("'") && iValue.endsWith("'"))) {
       lastResult = new ContextVariableResolver(context).parse(IOUtils.getStringContent(iValue));
       checkIsRecordResultSet(lastResult);
     } else if (iValue.startsWith("(") && iValue.endsWith(")")) {
@@ -693,15 +693,15 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     Object lastResult = null;
 
     if (cmd.equalsIgnoreCase("NULL")
-        || !cmd.isEmpty() && cmd.charAt(0) == '$'
+        || (!cmd.isEmpty() && cmd.charAt(0) == '$')
         || (!cmd.isEmpty() && cmd.charAt(0) == '['
         && cmd.charAt(cmd.length() - 1) == ']')
         || (!cmd.isEmpty() && cmd.charAt(0) == '{' && cmd.charAt(cmd.length() - 1) == '}')
-        || (!cmd.isEmpty() && cmd.charAt(0) == '\"' && cmd.charAt(cmd.length() - 1) == '\"'
-        || !cmd.isEmpty()
+        || (!cmd.isEmpty() && cmd.charAt(0) == '\"' && cmd.charAt(cmd.length() - 1) == '\"')
+        || (!cmd.isEmpty()
         && cmd.charAt(0) == '\'' && cmd.charAt(cmd.length() - 1) == '\'')
         || (!cmd.isEmpty() && cmd.charAt(0) == '(' && cmd.charAt(cmd.length() - 1) == ')')
-        || !cmd.isEmpty() && cmd.charAt(0) == '#') {
+        || (!cmd.isEmpty() && cmd.charAt(0) == '#')) {
       lastResult = getValue(cmd, db);
     } else {
       lastResult = executeCommand(cmd, db);

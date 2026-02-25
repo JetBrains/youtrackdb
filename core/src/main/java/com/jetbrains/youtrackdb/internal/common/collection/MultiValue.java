@@ -67,8 +67,8 @@ public class MultiValue {
         || iType.isArray()
         || Map.class.isAssignableFrom(iType)
         || MultiCollectionIterator.class.isAssignableFrom(iType)
-        || Iterable.class.isAssignableFrom(iType)
-        && !Identifiable.class.isAssignableFrom(iType)
+        || (Iterable.class.isAssignableFrom(iType)
+        && !Identifiable.class.isAssignableFrom(iType))
         || BasicResultSet.class.isAssignableFrom(iType);
   }
 

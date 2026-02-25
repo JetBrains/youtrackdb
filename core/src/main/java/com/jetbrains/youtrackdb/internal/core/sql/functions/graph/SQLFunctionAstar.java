@@ -67,6 +67,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
           1,
           new Comparator<Vertex>() {
 
+            @Override
             public int compare(Vertex nodeA, Vertex nodeB) {
               return Double.compare(fScore.get(nodeA), fScore.get(nodeB));
             }
@@ -76,6 +77,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     super(NAME, 3, 4);
   }
 
+  @Override
   public LinkedList<Vertex> execute(
       final Object iThis,
       final Result iCurrentRecord,
@@ -297,6 +299,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     }
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "astar(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, [<options>]) \n"
         + " // options  : {direction:\"OUT\",edgeTypeNames:[] , vertexAxisNames:[] ,"
@@ -380,34 +383,28 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       double gy = doubleOrDefault(target.getProperty(paramVertexAxisNames[1]), 0);
 
       switch (paramHeuristicFormula) {
-        case MANHATAN:
-          hresult = getManhatanHeuristicCost(nx, ny, gx, gy, paramDFactor);
-          break;
-        case MAXAXIS:
-          hresult = getMaxAxisHeuristicCost(nx, ny, gx, gy, paramDFactor);
-          break;
-        case DIAGONAL:
-          hresult = getDiagonalHeuristicCost(nx, ny, gx, gy, paramDFactor);
-          break;
-        case EUCLIDEAN:
-          hresult = getEuclideanHeuristicCost(nx, ny, gx, gy, paramDFactor);
-          break;
-        case EUCLIDEANNOSQR:
-          hresult = getEuclideanNoSQRHeuristicCost(nx, ny, gx, gy, paramDFactor);
-          break;
-        case CUSTOM:
-          hresult =
-              getCustomHeuristicCost(
-                  paramCustomHeuristicFormula,
-                  paramVertexAxisNames,
-                  paramSourceVertex,
-                  paramDestinationVertex,
-                  node,
-                  parent,
-                  currentDepth,
-                  paramDFactor,
-                  iContext);
-          break;
+        case MANHATAN ->
+            hresult = getManhatanHeuristicCost(nx, ny, gx, gy, paramDFactor);
+        case MAXAXIS ->
+            hresult = getMaxAxisHeuristicCost(nx, ny, gx, gy, paramDFactor);
+        case DIAGONAL ->
+            hresult = getDiagonalHeuristicCost(nx, ny, gx, gy, paramDFactor);
+        case EUCLIDEAN ->
+            hresult = getEuclideanHeuristicCost(nx, ny, gx, gy, paramDFactor);
+        case EUCLIDEANNOSQR ->
+            hresult = getEuclideanNoSQRHeuristicCost(nx, ny, gx, gy, paramDFactor);
+        case CUSTOM ->
+            hresult =
+                getCustomHeuristicCost(
+                    paramCustomHeuristicFormula,
+                    paramVertexAxisNames,
+                    paramSourceVertex,
+                    paramDestinationVertex,
+                    node,
+                    parent,
+                    currentDepth,
+                    paramDFactor,
+                    iContext);
       }
       if (paramTieBreaker) {
         hresult = getTieBreakingHeuristicCost(px, py, sx, sy, gx, gy, hresult);
@@ -438,44 +435,38 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
         }
       }
       switch (paramHeuristicFormula) {
-        case MANHATAN:
-          hresult =
-              getManhatanHeuristicCost(
-                  paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
-          break;
-        case MAXAXIS:
-          hresult =
-              getMaxAxisHeuristicCost(
-                  paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
-          break;
-        case DIAGONAL:
-          hresult =
-              getDiagonalHeuristicCost(
-                  paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
-          break;
-        case EUCLIDEAN:
-          hresult =
-              getEuclideanHeuristicCost(
-                  paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
-          break;
-        case EUCLIDEANNOSQR:
-          hresult =
-              getEuclideanNoSQRHeuristicCost(
-                  paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
-          break;
-        case CUSTOM:
-          hresult =
-              getCustomHeuristicCost(
-                  paramCustomHeuristicFormula,
-                  paramVertexAxisNames,
-                  paramSourceVertex,
-                  paramDestinationVertex,
-                  node,
-                  parent,
-                  currentDepth,
-                  paramDFactor,
-                  iContext);
-          break;
+        case MANHATAN ->
+            hresult =
+                getManhatanHeuristicCost(
+                    paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
+        case MAXAXIS ->
+            hresult =
+                getMaxAxisHeuristicCost(
+                    paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
+        case DIAGONAL ->
+            hresult =
+                getDiagonalHeuristicCost(
+                    paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
+        case EUCLIDEAN ->
+            hresult =
+                getEuclideanHeuristicCost(
+                    paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
+        case EUCLIDEANNOSQR ->
+            hresult =
+                getEuclideanNoSQRHeuristicCost(
+                    paramVertexAxisNames, sList, cList, pList, gList, currentDepth, paramDFactor);
+        case CUSTOM ->
+            hresult =
+                getCustomHeuristicCost(
+                    paramCustomHeuristicFormula,
+                    paramVertexAxisNames,
+                    paramSourceVertex,
+                    paramDestinationVertex,
+                    node,
+                    parent,
+                    currentDepth,
+                    paramDFactor,
+                    iContext);
       }
       if (paramTieBreaker) {
         hresult =

@@ -33,6 +33,7 @@ import javax.annotation.Nullable;
  */
 public abstract class RemoteFetchListener implements FetchListener {
 
+  @Override
   public boolean requireFieldProcessing() {
     return false;
   }
@@ -42,6 +43,7 @@ public abstract class RemoteFetchListener implements FetchListener {
 
   protected abstract void sendRecord(RecordAbstract iLinked);
 
+  @Override
   public void processStandardField(
       DatabaseSessionEmbedded db, EntityImpl iRecord,
       Object iFieldValue,
@@ -53,6 +55,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       throws FetchException {
   }
 
+  @Override
   public void parseLinked(
       DatabaseSessionEmbedded db, EntityImpl iRootRecord,
       Identifiable iLinked,
@@ -62,6 +65,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       throws FetchException {
   }
 
+  @Override
   public void parseLinkedCollectionValue(
       DatabaseSessionEmbedded db, EntityImpl iRootRecord,
       Identifiable iLinked,
@@ -72,6 +76,7 @@ public abstract class RemoteFetchListener implements FetchListener {
   }
 
   @Nullable
+  @Override
   public Object fetchLinkedMapEntry(
       EntityImpl iRoot,
       Object iUserObject,
@@ -88,6 +93,7 @@ public abstract class RemoteFetchListener implements FetchListener {
   }
 
   @Nullable
+  @Override
   public Object fetchLinkedCollectionValue(
       EntityImpl iRoot,
       Object iUserObject,
@@ -102,6 +108,7 @@ public abstract class RemoteFetchListener implements FetchListener {
     return null;
   }
 
+  @Override
   public Object fetchLinked(
       EntityImpl iRoot,
       Object iUserObject,

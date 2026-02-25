@@ -74,8 +74,8 @@ public class ZIPCompressionUtil {
 
         // Validate the name to prevent path traversal
         if (name.contains("..") ||
-            !name.isEmpty() && name.charAt(0) == '/' ||
-            !name.isEmpty() && name.charAt(0) == '\\'
+            (!name.isEmpty() && name.charAt(0) == '/') ||
+            (!name.isEmpty() && name.charAt(0) == '\\')
         ) {
           throw new IOException("Invalid entry name: " + name);
         }
@@ -119,8 +119,8 @@ public class ZIPCompressionUtil {
 
     // Validate the name to prevent path traversal
     if (name.contains("..") ||
-        !name.isEmpty() && name.charAt(0) == '/' ||
-        !name.isEmpty() && name.charAt(0) == '\\'
+        (!name.isEmpty() && name.charAt(0) == '/') ||
+        (!name.isEmpty() && name.charAt(0) == '\\')
     ) {
       throw new IOException("Invalid entry name: " + name);
     }

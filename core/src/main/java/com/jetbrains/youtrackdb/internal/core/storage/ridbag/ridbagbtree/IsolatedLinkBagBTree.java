@@ -80,10 +80,13 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
    */
   void delete(AtomicOperation atomicOperation);
 
+  @Override
   boolean isEmpty(AtomicOperation atomicOperation);
 
+  @Override
   V remove(AtomicOperation atomicOperation, K key) throws IOException;
 
+  @Override
   void loadEntriesMajor(
       K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener,
       AtomicOperation atomicOperation);
@@ -94,6 +97,7 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
       AtomicOperation atomicOperation);
 
   @Nullable
+  @Override
   K firstKey(AtomicOperation atomicOperation);
 
   @Nullable

@@ -184,13 +184,13 @@ public class TraverseContext extends BasicCommandContext {
 
   private abstract static class AbstractMemory implements Memory {
 
-    protected final Deque<TraverseAbstractProcess<?>> deque;
+    final Deque<TraverseAbstractProcess<?>> deque;
 
-    public AbstractMemory() {
+    AbstractMemory() {
       deque = new ArrayDeque<TraverseAbstractProcess<?>>();
     }
 
-    public AbstractMemory(final Memory memory) {
+    AbstractMemory(final Memory memory) {
       deque = new ArrayDeque<TraverseAbstractProcess<?>>(memory.getUnderlying());
     }
 
@@ -222,11 +222,11 @@ public class TraverseContext extends BasicCommandContext {
 
   private static class StackMemory extends AbstractMemory {
 
-    public StackMemory() {
+    StackMemory() {
       super();
     }
 
-    public StackMemory(final Memory memory) {
+    StackMemory(final Memory memory) {
       super(memory);
     }
 
@@ -238,7 +238,7 @@ public class TraverseContext extends BasicCommandContext {
 
   private static class QueueMemory extends AbstractMemory {
 
-    public QueueMemory(final Memory memory) {
+    QueueMemory(final Memory memory) {
       super(memory);
     }
 

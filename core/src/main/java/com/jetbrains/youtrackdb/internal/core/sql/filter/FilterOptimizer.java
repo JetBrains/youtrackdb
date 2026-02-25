@@ -54,14 +54,14 @@ public class FilterOptimizer {
     final var reuseType =
         operator.getIndexReuseType(condition.getLeft(), condition.getRight());
     switch (reuseType) {
-      case INDEX_METHOD:
+      case INDEX_METHOD -> {
         if (isCovered(indexMatch, operator, condition.getLeft(), condition.getRight())
             || isCovered(indexMatch, operator, condition.getRight(), condition.getLeft())) {
           return null;
         }
         return condition;
-
-      case INDEX_INTERSECTION:
+      }
+      case INDEX_INTERSECTION -> {
         if (condition.getLeft() instanceof SQLFilterCondition) {
           condition.setLeft(optimize((SQLFilterCondition) condition.getLeft(), indexMatch));
         }
@@ -77,15 +77,17 @@ public class FilterOptimizer {
           return (SQLFilterCondition) condition.getLeft();
         }
         return condition;
-
-      case INDEX_OPERATOR:
+      }
+      case INDEX_OPERATOR -> {
         if (isCovered(indexMatch, operator, condition.getLeft(), condition.getRight())
             || isCovered(indexMatch, operator, condition.getRight(), condition.getLeft())) {
           return null;
         }
         return condition;
-      default:
+      }
+      default -> {
         return condition;
+      }
     }
   }
 

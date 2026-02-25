@@ -106,9 +106,10 @@ public class StreamableHelper {
 
     final var objectType = in.readByte();
     switch (objectType) {
-      case NULL:
+      case NULL -> {
         return null;
-      case STREAMABLE:
+      }
+      case STREAMABLE -> {
         final var payloadClassName = in.readUTF();
         try {
           if (streamableClassLoader != null) {
@@ -122,8 +123,8 @@ public class StreamableHelper {
               new SerializationException("Cannot unmarshall object from distributed request"), e,
               (String) null);
         }
-        break;
-      case SERIALIZABLE:
+      }
+      case SERIALIZABLE -> {
         final var buffer = new byte[in.readInt()];
         in.readFully(buffer);
         final var mem = new ByteArrayInputStream(buffer);
@@ -152,19 +153,23 @@ public class StreamableHelper {
           ois.close();
           mem.close();
         }
-        break;
-      case STRING:
+      }
+      case STRING -> {
         return in.readUTF();
-      case INTEGER:
+      }
+      case INTEGER -> {
         return in.readInt();
-      case SHORT:
+      }
+      case SHORT -> {
         return in.readShort();
-      case LONG:
+      }
+      case LONG -> {
         return in.readLong();
-      case BOOLEAN:
+      }
+      case BOOLEAN -> {
         return in.readBoolean();
-      default:
-        throw new SerializationException("Object type not supported: " + objectType);
+      }
+      default -> throw new SerializationException("Object type not supported: " + objectType);
     }
     return object;
   }

@@ -213,13 +213,13 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
 
     private final @Nonnull K key;
 
-    public WeakRefValue(
+    WeakRefValue(
         @Nonnull final K key, @Nonnull final V value, final ReferenceQueue<V> queue) {
       super(value, queue);
       this.key = key;
     }
 
-    public boolean equals(Object o) {
+    @Override public boolean equals(Object o) {
       if (this == o) {
         return true;
       }
@@ -232,10 +232,12 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
       return key.equals(that.key);
     }
 
+    @Override
     public int hashCode() {
       return key.hashCode();
     }
 
+    @Override
     public String toString() {
       return WeakValueHashMap.class.getSimpleName() + " {" + "key=" + key + '}';
     }

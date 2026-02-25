@@ -137,109 +137,102 @@ public class ConsoleCommandStream implements CommandStream {
         var symbol = symbol(c);
 
         switch (state) {
-          case TEXT:
+          case TEXT -> {
             switch (symbol) {
-              case LETTER:
-                result.append(c);
-                break;
-              case DOUBLE_QUOTE:
+              case LETTER -> result.append(c);
+              case DOUBLE_QUOTE -> {
                 result.append(c);
                 state = State.DOUBLE_QUOTE_STRING;
-                break;
-              case SINGLE_QUOTE:
+              }
+              case SINGLE_QUOTE -> {
                 result.append(c);
                 state = State.SINGLE_QUOTE_STRING;
-                break;
-              case LEFT_BRACKET:
+              }
+              case LEFT_BRACKET -> {
                 result.append(c);
                 nestingLevel++;
-                break;
-              case RIGHT_BRAKET:
+              }
+              case RIGHT_BRAKET -> {
                 result.append(c);
                 nestingLevel--;
                 if (nestingLevel <= 0 && isControlBlock(result)) {
                   return result.toString().trim();
                 }
-                break;
-              case HYPHEN:
+              }
+              case HYPHEN -> {
                 if (result.toString().trim().length() == 0) {
                   // allow commands only at the beginning of a row
                   state = State.HYPHEN;
                 } else {
                   result.append("-");
                 }
-                break;
-              case POUND:
+              }
+              case POUND -> {
                 if (result.toString().trim().length() == 0) {
                   // otherwise it could just be a RID
                   state = State.SINGLE_LINE_COMMENT;
                 } else {
                   result.append("#");
                 }
-                break;
-              case SLASH:
-                state = State.SLASH;
-                break;
-              case STRING_ESCAPE:
-              case ASTERISK:
-                result.append(c);
-                break;
-              case SEPARATOR:
-              case NEW_LINE:
+              }
+              case SLASH -> state = State.SLASH;
+              case STRING_ESCAPE, ASTERISK -> result.append(c);
+              case SEPARATOR, NEW_LINE -> {
                 if (nestingLevel <= 0) {
                   state = State.TEXT;
                   return result.toString().trim();
                 } else {
                   result.append("\n");
                 }
-                break;
-              case EOF:
+              }
+              case EOF -> {
                 state = State.TEXT;
                 return result.toString().trim();
+              }
             }
-            break;
-
-          case SINGLE_QUOTE_STRING:
+          }
+          case SINGLE_QUOTE_STRING -> {
             if (symbol == Symbol.EOF) {
               return result.toString().trim();
             }
             if (symbol == Symbol.STRING_ESCAPE) {
               state = State.ESCAPING_IN_SINGLE_QUOTE_STRING;
-              break;
+            } else {
+              if (symbol == Symbol.SINGLE_QUOTE) {
+                state = State.TEXT;
+              }
+              result.append(c);
             }
-            if (symbol == Symbol.SINGLE_QUOTE) {
-              state = State.TEXT;
-            }
-            result.append(c);
-            break;
-          case DOUBLE_QUOTE_STRING:
+          }
+          case DOUBLE_QUOTE_STRING -> {
             if (symbol == Symbol.EOF) {
               return result.toString().trim();
             }
             if (symbol == Symbol.STRING_ESCAPE) {
               state = State.ESCAPING_IN_DOUBLE_QUOTE_STRING;
-              break;
+            } else {
+              if (symbol == Symbol.DOUBLE_QUOTE) {
+                state = State.TEXT;
+              }
+              result.append(c);
             }
-            if (symbol == Symbol.DOUBLE_QUOTE) {
-              state = State.TEXT;
-            }
-            result.append(c);
-            break;
-          case SINGLE_LINE_COMMENT:
+          }
+          case SINGLE_LINE_COMMENT -> {
             if (symbol == Symbol.NEW_LINE || symbol == Symbol.EOF) {
               state = State.TEXT;
               return result.toString();
             }
-            break;
-          case MULTI_LINE_COMMENT:
+          }
+          case MULTI_LINE_COMMENT -> {
             if (symbol == Symbol.EOF) {
               return result.toString();
             }
             if (symbol == Symbol.ASTERISK) {
               state = State.CLOSING_ASTERISK;
             }
-            break;
-          case HYPHEN: // found a hyphen, if there is another one, it's a comment
+          }
+          // found a hyphen, if there is another one, it's a comment
+          case HYPHEN -> {
             if (symbol == Symbol.EOF) {
               state = State.TEXT;
               result.append("-");
@@ -252,8 +245,9 @@ public class ConsoleCommandStream implements CommandStream {
               result.append(c);
               state = State.TEXT;
             }
-            break;
-          case SLASH: // found a slash, if there is an asterisk it is a multi-line comment
+          }
+          // found a slash, if there is an asterisk it is a multi-line comment
+          case SLASH -> {
             if (symbol == Symbol.EOF) {
               result.append("/");
               return result.toString().trim();
@@ -265,17 +259,18 @@ public class ConsoleCommandStream implements CommandStream {
               result.append("/");
               result.append(c);
             }
-            break;
-          case CLOSING_ASTERISK: // you are in a multi-line comment and found an asterisk, if there
-            // is a slash it's closing the comment
+          }
+          // you are in a multi-line comment and found an asterisk, if there
+          // is a slash it's closing the comment
+          case CLOSING_ASTERISK -> {
             if (symbol == Symbol.EOF) {
               return result.toString().trim();
             }
             if (symbol == Symbol.SLASH) {
               state = State.TEXT;
             }
-            break;
-          case ESCAPING_IN_SINGLE_QUOTE_STRING:
+          }
+          case ESCAPING_IN_SINGLE_QUOTE_STRING -> {
             if (symbol == Symbol.EOF) {
               result.append('\\');
               return result.toString().trim();
@@ -283,8 +278,8 @@ public class ConsoleCommandStream implements CommandStream {
             result.append('\\');
             result.append(c);
             state = State.SINGLE_QUOTE_STRING;
-            break;
-          case ESCAPING_IN_DOUBLE_QUOTE_STRING:
+          }
+          case ESCAPING_IN_DOUBLE_QUOTE_STRING -> {
             if (symbol == Symbol.EOF) {
               result.append('\\');
               return result.toString().trim();
@@ -292,7 +287,7 @@ public class ConsoleCommandStream implements CommandStream {
             result.append('\\');
             result.append(c);
             state = State.DOUBLE_QUOTE_STRING;
-            break;
+          }
         }
       }
     } catch (IOException e) {

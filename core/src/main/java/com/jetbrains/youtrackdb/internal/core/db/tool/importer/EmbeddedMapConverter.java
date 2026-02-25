@@ -25,7 +25,7 @@ public final class EmbeddedMapConverter extends AbstractCollectionConverter<Map<
         result.put(key, item);
       }
 
-      public void setKey(Object key) {
+      void setKey(Object key) {
         this.key = key.toString();
       }
     }

@@ -137,13 +137,11 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     }
 
     switch (iType) {
-      case EMBEDDEDLIST:
-      case EMBEDDEDSET:
+      case EMBEDDEDLIST, EMBEDDEDSET -> {
         return embeddedCollectionFromStream(session,
             (EntityImpl) iSourceRecord, iType, iLinkedClass, iLinkedType, iValue);
-
-      case LINKSET:
-      case LINKLIST: {
+      }
+      case LINKSET, LINKLIST -> {
         if (iValue.length() == 0) {
           return null;
         }
@@ -160,8 +158,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           return unserializeSet(session, (EntityImpl) iSourceRecord, value);
         }
       }
-
-      case LINKMAP: {
+      case LINKMAP -> {
         if (iValue.length() == 0) {
           return null;
         }
@@ -201,12 +198,11 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
         return map;
       }
-
-      case EMBEDDEDMAP:
+      case EMBEDDEDMAP -> {
         return embeddedMapFromStream(session, (EntityImpl) iSourceRecord, iLinkedType, iValue,
             iName);
-
-      case LINK:
+      }
+      case LINK -> {
         if (iValue.length() > 1) {
           var pos = iValue.indexOf(StringSerializerHelper.CLASS_SEPARATOR);
           if (pos > -1) {
@@ -234,13 +230,14 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         } else {
           return null;
         }
-
-      case EMBEDDED:
+      }
+      case EMBEDDED -> {
         return null;
-      case LINKBAG:
-        throw new UnsupportedOperationException();
-      default:
+      }
+      case LINKBAG -> throw new UnsupportedOperationException();
+      default -> {
         return fieldTypeFromStream(session, (EntityImpl) iSourceRecord, iType, iValue);
+      }
     }
   }
 
@@ -358,7 +355,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     }
 
     switch (iType) {
-      case LINK: {
+      case LINK -> {
         if (!(iValue instanceof Identifiable identifiable)) {
           throw new SerializationException(session,
               "Found an unexpected type during marshalling of a LINK where a Identifiable (RID"
@@ -386,10 +383,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             iRecord.setProperty(iName, link);
           }
         }
-        break;
       }
-
-      case LINKLIST: {
+      case LINKLIST -> {
         iOutput.append(StringSerializerHelper.LIST_BEGIN);
         final EntityLinkListImpl coll;
         final Iterator<Identifiable> it;
@@ -440,10 +435,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         iOutput.append(StringSerializerHelper.LIST_END);
-        break;
       }
-
-      case LINKSET: {
+      case LINKSET -> {
         if (!(iValue instanceof StringWriterSerializable coll)) {
           final Collection<Identifiable> coll;
           // FIRST TIME: CONVERT THE ENTIRE COLLECTION
@@ -462,10 +455,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           // LAZY SET
           coll.toStream(session, iOutput);
         }
-        break;
       }
-
-      case LINKMAP: {
+      case LINKMAP -> {
         iOutput.append(StringSerializerHelper.MAP_BEGIN);
 
         var map = (Map<String, Object>) iValue;
@@ -500,10 +491,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         iOutput.append(StringSerializerHelper.MAP_END);
-        break;
       }
-
-      case EMBEDDED:
+      case EMBEDDED -> {
         if (iValue instanceof DBRecord record) {
           iOutput.append(StringSerializerHelper.EMBEDDED_BEGIN);
           toString(session, record, iOutput, null, true);
@@ -519,28 +508,16 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         } else {
           iOutput.append(iValue.toString());
         }
-        break;
-
-      case EMBEDDEDLIST:
-        embeddedCollectionToStream(
-            session, iOutput, iLinkedClass, iLinkedType, iValue, false);
-        break;
-
-      case EMBEDDEDSET:
-        embeddedCollectionToStream(
-            session, iOutput, iLinkedClass, iLinkedType, iValue, true);
-        break;
-
-      case EMBEDDEDMAP: {
-        embeddedMapToStream(session, iOutput, iLinkedType, iValue);
-        break;
       }
-      case LINKBAG: {
-        throw new UnsupportedOperationException();
-      }
-
-      default:
-        fieldTypeToString(session, iOutput, iType, iValue);
+      case EMBEDDEDLIST ->
+          embeddedCollectionToStream(
+              session, iOutput, iLinkedClass, iLinkedType, iValue, false);
+      case EMBEDDEDSET ->
+          embeddedCollectionToStream(
+              session, iOutput, iLinkedClass, iLinkedType, iValue, true);
+      case EMBEDDEDMAP -> embeddedMapToStream(session, iOutput, iLinkedType, iValue);
+      case LINKBAG -> throw new UnsupportedOperationException();
+      default -> fieldTypeToString(session, iOutput, iType, iValue);
     }
   }
 

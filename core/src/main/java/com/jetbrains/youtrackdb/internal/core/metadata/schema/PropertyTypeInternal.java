@@ -1353,7 +1353,9 @@ public enum PropertyTypeInternal {
   private final String name;
   final int id;
   private final Class<?> javaDefaultType;
+  @SuppressWarnings("ImmutableEnumChecker")
   private final Class<?>[] allowAssignmentFrom;
+  @SuppressWarnings("ImmutableEnumChecker")
   private final Set<PropertyTypeInternal> castable;
 
   PropertyTypeInternal(

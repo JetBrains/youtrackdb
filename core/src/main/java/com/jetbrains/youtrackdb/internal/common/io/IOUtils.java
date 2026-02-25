@@ -318,8 +318,8 @@ public class IOUtils {
     }
 
     return s.length() > 1
-        && (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''
-        || s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"');
+        && ((s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')
+        || (s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"'));
   }
 
   @Nullable
@@ -335,8 +335,8 @@ public class IOUtils {
     }
 
     if (s.length() > 1
-        && (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''
-        || s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"')) {
+        && ((s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')
+        || (s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"'))) {
       return s.substring(1, s.length() - 1);
     }
 

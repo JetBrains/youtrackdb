@@ -454,7 +454,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
    */
   private static class TrackedPointerReference extends WeakReference<Pointer> {
 
-    public final int id;
+    final int id;
     private final Exception stackTrace;
 
     TrackedPointerReference(Pointer referent, ReferenceQueue<? super Pointer> q) {
@@ -499,7 +499,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
 
     private final EnumMap<Intention, ModifiableLong> consumptionMap;
 
-    public ConsumptionMapEvictionIndicator(
+    ConsumptionMapEvictionIndicator(
         Thread referent,
         ReferenceQueue<? super Thread> q,
         EnumMap<Intention, ModifiableLong> consumptionMap) {

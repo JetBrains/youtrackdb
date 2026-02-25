@@ -86,7 +86,7 @@ public class VarIntSerializer {
     while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
       // out.writeByte(((int) value & 0x7F) | 0x80);
       pos = bos.alloc((short) 1);
-      bos.bytes[pos] = (byte) (value & 0x7F | 0x80);
+      bos.bytes[pos] = (byte) ((value & 0x7F) | 0x80);
       value >>>= 7;
     }
     // out.writeByte((int) value & 0x7F);
@@ -105,7 +105,7 @@ public class VarIntSerializer {
   public static void writeUnsignedVarLong(long value, final DataOutput bos) throws IOException {
     while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
       // out.writeByte(((int) value & 0x7F) | 0x80);
-      bos.writeByte((byte) (value & 0x7F | 0x80));
+      bos.writeByte((byte) ((value & 0x7F) | 0x80));
       value >>>= 7;
     }
     // out.writeByte((int) value & 0x7F);

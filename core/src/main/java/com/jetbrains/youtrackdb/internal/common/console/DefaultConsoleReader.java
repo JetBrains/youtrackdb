@@ -35,7 +35,7 @@ public class DefaultConsoleReader implements ConsoleReader {
 
   private static class EraserThread extends SoftThread {
 
-    public EraserThread(String name) {
+    EraserThread(String name) {
       super(name);
     }
 

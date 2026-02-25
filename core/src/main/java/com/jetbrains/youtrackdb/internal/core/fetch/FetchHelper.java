@@ -152,7 +152,7 @@ public class FetchHelper {
 
       fieldValue = record.getProperty(fieldName);
       if (fieldValue == null
-          || !(fieldValue instanceof Identifiable)
+          || (!(fieldValue instanceof Identifiable)
           && (!(fieldValue instanceof Iterable<?>)
           || !((Iterable<?>) fieldValue).iterator().hasNext()
           || ((Iterable<?>) fieldValue).iterator().next() == null)
@@ -166,7 +166,7 @@ public class FetchHelper {
           && (!(fieldValue instanceof Map<?, ?>)
           || ((Map<?, ?>) fieldValue).isEmpty()
           || !(((Map<?, ?>) fieldValue).values().iterator().next()
-          instanceof Identifiable))) {
+          instanceof Identifiable)))) {
         //noinspection UnnecessaryContinue
         continue;
       } else {
@@ -504,11 +504,11 @@ public class FetchHelper {
     if (format.contains("shallow")
         || fieldValue == null
         || (!fetch && fieldValue instanceof Identifiable)
-        || !(fieldValue instanceof Identifiable)
+        || (!(fieldValue instanceof Identifiable)
         && (!fieldValue.getClass().isArray()
         || Array.getLength(fieldValue) == 0
         || !(Array.get(fieldValue, 0) instanceof Identifiable))
-        && !containsIdentifiers(fieldValue)) {
+        && !containsIdentifiers(fieldValue))) {
       fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject, fieldType);
     }
   }
@@ -565,14 +565,14 @@ public class FetchHelper {
     if (format.contains("shallow")
         || fieldValue == null
         || (!fetch && fieldValue instanceof Identifiable)
-        || !(fieldValue instanceof Identifiable)
+        || (!(fieldValue instanceof Identifiable)
         && (!(fieldValue instanceof Iterable<?>)
         || !((Iterable<?>) fieldValue).iterator().hasNext()
         || !(((Iterable<?>) fieldValue).iterator().next() instanceof Identifiable))
         && (!fieldValue.getClass().isArray()
         || Array.getLength(fieldValue) == 0
         || !(Array.get(fieldValue, 0) instanceof Identifiable))
-        && !containsIdentifiers(fieldValue)) {
+        && !containsIdentifiers(fieldValue))) {
       fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject,
           PropertyTypeInternal.convertFromPublicType(fieldType));
       fetchListener.processStandardField(db,

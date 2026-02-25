@@ -42,6 +42,7 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
 
   @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -55,7 +56,7 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
     for (var item : iParams) {
       if (item instanceof Collection<?>) {
         for (var subitem : ((Collection<?>) item)) {
-          if (min == null || subitem != null && ((Comparable) subitem).compareTo(min) < 0) {
+          if (min == null || (subitem != null && ((Comparable) subitem).compareTo(min) < 0)) {
             min = subitem;
           }
         }
@@ -65,7 +66,7 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
           item = converted[0];
           min = converted[1];
         }
-        if (min == null || item != null && ((Comparable) item).compareTo(min) < 0) {
+        if (min == null || (item != null && ((Comparable) item).compareTo(min) < 0)) {
           min = item;
         }
       }
@@ -100,12 +101,14 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
     return min;
   }
 
+  @Override
   public boolean aggregateResults() {
     // LET definitions (contain $current) does not require results aggregation
     return ((configuredParameters.length == 1)
         && !configuredParameters[0].toString().contains("$current"));
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "min(<field> [,<field>*])";
   }

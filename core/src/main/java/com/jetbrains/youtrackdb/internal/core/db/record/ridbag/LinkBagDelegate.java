@@ -68,6 +68,7 @@ public interface LinkBagDelegate
   @Override
   RecordElement getOwner();
 
+  @Override
   String toString();
 
   Stream<RawPair<RID, Change>> getChanges();

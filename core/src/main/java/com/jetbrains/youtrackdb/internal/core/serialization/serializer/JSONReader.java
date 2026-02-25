@@ -227,7 +227,7 @@ public class JSONReader {
           }
         }
 
-        if (c == '\'' || c == '"' && !encodeMode)
+        if (c == '\'' || (c == '"' && !encodeMode))
         // BEGIN OF STRING
         {
           beginStringChar = c;
@@ -344,7 +344,7 @@ public class JSONReader {
           }
         }
 
-        if (c == '\'' || c == '"' && !encodeMode) {
+        if (c == '\'' || (c == '"' && !encodeMode)) {
           // BEGIN OF STRING
           beginStringChar = c;
           lastString = new StringBuilder();

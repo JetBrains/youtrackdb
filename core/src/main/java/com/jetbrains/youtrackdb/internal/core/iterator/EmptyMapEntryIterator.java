@@ -27,15 +27,18 @@ public class EmptyMapEntryIterator<K, V> implements Iterator<Map.Entry<K, V>> {
 
   public static final EmptyMapEntryIterator INSTANCE = new EmptyMapEntryIterator();
 
+  @Override
   public boolean hasNext() {
     return false;
   }
 
   @Nullable
+  @Override
   public Map.Entry<K, V> next() {
     return null;
   }
 
+  @Override
   public void remove() {
   }
 }

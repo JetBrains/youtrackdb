@@ -410,10 +410,12 @@ public class BasicCommandContext implements CommandContext {
       if (System.currentTimeMillis() - executionStartedOn > timeoutMs) {
         // TIMEOUT!
         switch (timeoutStrategy) {
-          case RETURN:
+          case RETURN -> {
             return false;
-          case EXCEPTION:
-            throw new TimeoutException("Command execution timeout exceed (" + timeoutMs + "ms)");
+          }
+          case EXCEPTION ->
+              throw new TimeoutException(
+                  "Command execution timeout exceed (" + timeoutMs + "ms)");
         }
       }
     } else if (parent != null)

@@ -125,14 +125,18 @@ public class FrontendTransactionIndexChangesPerKey {
   public Iterable<TransactionIndexEntry> interpret(Interpretation interpretation) {
     synchronized (this) {
       switch (interpretation) {
-        case Unique:
+        case Unique -> {
           return interpretAsUnique();
-        case Dictionary:
+        }
+        case Dictionary -> {
           return interpretAsDictionary();
-        case NonUnique:
+        }
+        case NonUnique -> {
           return interpretAsNonUnique();
-        default:
-          throw new IllegalStateException("Unexpected interpretation '" + interpretation + "'");
+        }
+        default ->
+            throw new IllegalStateException(
+                "Unexpected interpretation '" + interpretation + "'");
       }
     }
   }

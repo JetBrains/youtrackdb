@@ -62,6 +62,7 @@ public class ImmutableRole implements SecurityRole {
     this.policies = policies;
   }
 
+  @Override
   public boolean allow(
       final Rule.ResourceGeneric resourceGeneric,
       final String resourceSpecific,
@@ -87,6 +88,7 @@ public class ImmutableRole implements SecurityRole {
     return false;
   }
 
+  @Override
   public boolean hasRule(final Rule.ResourceGeneric resourceGeneric, String resourceSpecific) {
     var rule = rules.get(resourceGeneric);
 
@@ -97,6 +99,7 @@ public class ImmutableRole implements SecurityRole {
     return resourceSpecific == null || rule.containsSpecificResource(resourceSpecific);
   }
 
+  @Override
   public SecurityRole addRule(
       DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
@@ -104,6 +107,7 @@ public class ImmutableRole implements SecurityRole {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public SecurityRole grant(
       DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
@@ -111,6 +115,7 @@ public class ImmutableRole implements SecurityRole {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public Role revoke(
       DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,
@@ -161,18 +166,22 @@ public class ImmutableRole implements SecurityRole {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
+  @Override
   public SecurityRole getParentRole() {
     return parentRole;
   }
 
+  @Override
   public void setParentRole(DatabaseSessionEmbedded session, final SecurityRole iParent) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public Set<Rule> getRuleSet() {
     return new HashSet<>(rules.values());
   }

@@ -34,11 +34,11 @@ public class FetchPlan {
 
   private static class FetchPlanLevel {
 
-    public int depthLevelFrom;
-    public int depthLevelTo;
-    public int level;
+    int depthLevelFrom;
+    int depthLevelTo;
+    int level;
 
-    public FetchPlanLevel(final int iFrom, final int iTo, final int iLevel) {
+    FetchPlanLevel(final int iFrom, final int iTo, final int iLevel) {
       depthLevelFrom = iFrom;
       depthLevelTo = iTo;
       level = iLevel;

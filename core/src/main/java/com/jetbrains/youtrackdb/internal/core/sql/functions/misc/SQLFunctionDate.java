@@ -55,6 +55,7 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
   }
 
   @Nullable
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -104,6 +105,7 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
     return false;
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "date([<date-as-string>] [,<format>] [,<timezone>])";
   }

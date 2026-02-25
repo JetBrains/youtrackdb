@@ -1017,7 +1017,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       var bucket = new Bucket(cacheEntry);
       if (iter.getLastLSN() == null
-          || bucket.getLsn().equals(iter.getLastLSN()) && atomicOperation == null) {
+          || (bucket.getLsn().equals(iter.getLastLSN()) && atomicOperation == null)) {
         while (true) {
           var bucketSize = bucket.size();
           if (iter.getItemIndex() >= bucketSize) {
@@ -1152,7 +1152,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       var bucket = new Bucket(cacheEntry);
       if (iter.getLastLSN() == null
-          || bucket.getLsn().equals(iter.getLastLSN()) && atomicOperation == null) {
+          || (bucket.getLsn().equals(iter.getLastLSN()) && atomicOperation == null)) {
         while (true) {
           if (iter.getItemIndex() < 0) {
             iter.setPageIndex((int) bucket.getLeftSibling());

@@ -43,6 +43,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
     super(NAME, 1, -1);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       Result iCurrentRecord,
@@ -81,6 +82,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
     }
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "avg(<field> [,<field>*])";
   }

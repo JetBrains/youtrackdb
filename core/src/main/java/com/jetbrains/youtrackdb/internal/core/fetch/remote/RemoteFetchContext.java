@@ -28,39 +28,47 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
  */
 public class RemoteFetchContext implements FetchContext {
 
+  @Override
   public void onBeforeStandardField(
       Object iFieldValue, String iFieldName, Object iUserObject, PropertyTypeInternal fieldType) {
   }
 
+  @Override
   public void onAfterStandardField(
       Object iFieldValue, String iFieldName, Object iUserObject, PropertyTypeInternal fieldType) {
   }
 
+  @Override
   public void onBeforeMap(DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName,
       final Object iUserObject)
       throws FetchException {
   }
 
+  @Override
   public void onBeforeFetch(EntityImpl iRootRecord) throws FetchException {
   }
 
+  @Override
   public void onBeforeArray(
       DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName, Object iUserObject,
       Identifiable[] iArray)
       throws FetchException {
   }
 
+  @Override
   public void onAfterArray(DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName,
       Object iUserObject)
       throws FetchException {
   }
 
+  @Override
   public void onBeforeDocument(
       DatabaseSessionEmbedded db, EntityImpl iRecord, final EntityImpl entity, String iFieldName,
       final Object iUserObject)
       throws FetchException {
   }
 
+  @Override
   public void onBeforeCollection(
       DatabaseSessionEmbedded db, EntityImpl iRootRecord,
       String iFieldName,
@@ -69,15 +77,18 @@ public class RemoteFetchContext implements FetchContext {
       throws FetchException {
   }
 
+  @Override
   public void onAfterMap(DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName,
       final Object iUserObject)
       throws FetchException {
   }
 
+  @Override
   public void onAfterFetch(DatabaseSessionEmbedded db, EntityImpl iRootRecord)
       throws FetchException {
   }
 
+  @Override
   public void onAfterDocument(
       DatabaseSessionEmbedded db, EntityImpl iRootRecord, final EntityImpl entity,
       String iFieldName,
@@ -85,12 +96,14 @@ public class RemoteFetchContext implements FetchContext {
       throws FetchException {
   }
 
+  @Override
   public void onAfterCollection(DatabaseSessionEmbedded db, EntityImpl iRootRecord,
       String iFieldName,
       final Object iUserObject)
       throws FetchException {
   }
 
+  @Override
   public boolean fetchEmbeddedDocuments() {
     return false;
   }

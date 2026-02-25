@@ -39,11 +39,11 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
 - [x] **Step 5: `OperatorPrecedence`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:4669` — added parentheses around `&&` sub-expression to clarify precedence with `||`
 
-- [ ] **Step 6: Elevate previously-fixed checks to ERROR** (5 checks from steps 1–5)
-  - These checks were fixed in earlier sessions but never elevated to ERROR in `errorprone.args`
-  - Add all 5 to `errorprone.args` in root `pom.xml`: `-Xep:MissingOverride:ERROR -Xep:ImmutableEnumChecker:ERROR -Xep:EffectivelyPrivate:ERROR -Xep:StatementSwitchToExpressionSwitch:ERROR -Xep:OperatorPrecedence:ERROR`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 errors for all 5 checks
-  - Commit: `Elevate previously-fixed ErrorProne checks to ERROR`
+- [x] **Step 6: Elevate previously-fixed checks to ERROR** (5 checks from steps 1–5)
+  - Added all 5 to `errorprone.args` in root `pom.xml`: `-Xep:MissingOverride:ERROR -Xep:ImmutableEnumChecker:ERROR -Xep:EffectivelyPrivate:ERROR -Xep:StatementSwitchToExpressionSwitch:ERROR -Xep:OperatorPrecedence:ERROR`
+  - Original plan vastly underestimated instance counts — actual instances found: 150+ MissingOverride, 30+ EffectivelyPrivate, 60+ StatementSwitchToExpressionSwitch, 30+ OperatorPrecedence, 4 ImmutableEnumChecker
+  - Fixed all additional instances across ~80 files in `core` module
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 7: `InvalidParam`** (1 instance)
   - `core/.../storage/impl/local/AbstractStorage.java:5492` — Javadoc mentions `{@code tsMin}` which ErrorProne confuses with parameter `tsMins`; disambiguate by using `{@code TsMinHolder.tsMin}` or rewording

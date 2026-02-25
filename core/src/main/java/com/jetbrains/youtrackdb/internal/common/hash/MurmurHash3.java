@@ -52,15 +52,15 @@ public class MurmurHash3 {
 
   static void bmix(State state) {
     state.k1 *= state.c1;
-    state.k1 = (state.k1 << 23) | (state.k1 >>> 64 - 23);
+    state.k1 = (state.k1 << 23) | (state.k1 >>> (64 - 23));
     state.k1 *= state.c2;
     state.h1 ^= state.k1;
     state.h1 += state.h2;
 
-    state.h2 = (state.h2 << 41) | (state.h2 >>> 64 - 41);
+    state.h2 = (state.h2 << 41) | (state.h2 >>> (64 - 41));
 
     state.k2 *= state.c2;
-    state.k2 = (state.k2 << 23) | (state.k2 >>> 64 - 23);
+    state.k2 = (state.k2 << 23) | (state.k2 >>> (64 - 23));
     state.k2 *= state.c1;
     state.h2 ^= state.k2;
     state.h2 += state.h1;

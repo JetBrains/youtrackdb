@@ -555,25 +555,26 @@ public class FrontendTransactionImpl implements
           }
 
           switch (txEntry.type) {
-            case RecordOperation.UPDATED:
+            case RecordOperation.UPDATED -> {
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
                     "Invalid operation, record can not be created as it is already updated");
               }
-              break;
-            case RecordOperation.DELETED:
-              throw new IllegalStateException(
-                  "Invalid operation, record can not be updated, created or deleted as it is already deleted");
-            case RecordOperation.CREATED:
+            }
+            case RecordOperation.DELETED ->
+                throw new IllegalStateException(
+                    "Invalid operation, record can not be updated, created or deleted"
+                        + " as it is already deleted");
+            case RecordOperation.CREATED -> {
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
                     "Invalid operation, record can not be created as it is already created");
               }
-              break;
+            }
           }
         }
       } catch (final Exception e) {
@@ -1017,11 +1018,12 @@ public class FrontendTransactionImpl implements
 
     for (var dependency : fieldDependencies) {
       switch (dependency) {
-        case Unknown:
-        case Yes:
+        case Unknown, Yes -> {
           return true;
-        case No:
-          break; // do nothing
+        }
+        case No -> {
+          // do nothing
+        }
       }
     }
 

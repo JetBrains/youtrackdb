@@ -184,7 +184,7 @@ public class ScheduledEvent extends IdentityWrapper {
       this.youTrackDBInternal = youTrackDBInternal;
     }
 
-    public void schedule() {
+    void schedule() {
       synchronized (this) {
         event.nextExecutionId.incrementAndGet();
         var now = new Date();

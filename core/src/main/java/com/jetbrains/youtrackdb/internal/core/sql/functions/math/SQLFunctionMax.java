@@ -42,6 +42,7 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
 
   @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -55,7 +56,7 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
     for (var item : iParams) {
       if (item instanceof Collection<?>) {
         for (var subitem : ((Collection<?>) item)) {
-          if (max == null || subitem != null && ((Comparable) subitem).compareTo(max) > 0) {
+          if (max == null || (subitem != null && ((Comparable) subitem).compareTo(max) > 0)) {
             max = subitem;
           }
         }
@@ -65,7 +66,7 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
           item = converted[0];
           max = converted[1];
         }
-        if (max == null || item != null && ((Comparable) item).compareTo(max) > 0) {
+        if (max == null || (item != null && ((Comparable) item).compareTo(max) > 0)) {
           max = item;
         }
       }
@@ -99,12 +100,14 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
     return max;
   }
 
+  @Override
   public boolean aggregateResults() {
     // LET definitions (contain $current) does not require results aggregation
     return ((configuredParameters.length == 1)
         && !configuredParameters[0].toString().contains("$current"));
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "max(<field> [,<field>*])";
   }

@@ -213,21 +213,26 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
-    switch (changeEvent.getChangeType()) {
-      case ADD:
-        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-        return true;
-      case REMOVE:
+    return switch (changeEvent.getChangeType()) {
+      case ADD -> {
+        processAdd(
+            createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
+        yield true;
+      }
+      case REMOVE -> {
         processRemoval(
             createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        return true;
-      case UPDATE:
+        yield true;
+      }
+      case UPDATE -> {
         processRemoval(
             createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-        return true;
-    }
-    return false;
+        processAdd(
+            createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
+        yield true;
+      }
+      default -> false;
+    };
   }
 
   @Override

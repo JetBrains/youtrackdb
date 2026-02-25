@@ -101,53 +101,33 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       final ByteBuffer buffer, final PropertyTypeInternal type, final Object key,
       BinarySerializerFactory serializerFactory) {
     switch (type) {
-      case BINARY:
+      case BINARY -> {
         final var array = (byte[]) key;
         buffer.putInt(array.length);
         buffer.put(array);
-        return;
-      case BOOLEAN:
-        buffer.put((Boolean) key ? (byte) 1 : 0);
-        return;
-      case BYTE:
-        buffer.put((Byte) key);
-        return;
-      case DATE:
-      case DATETIME:
-        buffer.putLong(((Date) key).getTime());
-        return;
-      case DECIMAL:
+      }
+      case BOOLEAN -> buffer.put((Boolean) key ? (byte) 1 : 0);
+      case BYTE -> buffer.put((Byte) key);
+      case DATE, DATETIME -> buffer.putLong(((Date) key).getTime());
+      case DECIMAL -> {
         final var decimal = (BigDecimal) key;
         buffer.putInt(decimal.scale());
         final var unscaledValue = decimal.unscaledValue().toByteArray();
         buffer.putInt(unscaledValue.length);
         buffer.put(unscaledValue);
-        return;
-      case DOUBLE:
-        buffer.putLong(Double.doubleToLongBits((Double) key));
-        return;
-      case FLOAT:
-        buffer.putInt(Float.floatToIntBits((Float) key));
-        return;
-      case INTEGER:
-        buffer.putInt((Integer) key);
-        return;
-      case LINK:
-        CompactedLinkSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory, (RID) key,
-            buffer);
-        return;
-      case LONG:
-        buffer.putLong((Long) key);
-        return;
-      case SHORT:
-        buffer.putShort((Short) key);
-        return;
-      case STRING:
-        UTF8Serializer.INSTANCE.serializeInByteBufferObject(serializerFactory, (String) key,
-            buffer);
-        return;
-      default:
-        throw new IndexException((String) null, "Unsupported index type " + type);
+      }
+      case DOUBLE -> buffer.putLong(Double.doubleToLongBits((Double) key));
+      case FLOAT -> buffer.putInt(Float.floatToIntBits((Float) key));
+      case INTEGER -> buffer.putInt((Integer) key);
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory, (RID) key,
+              buffer);
+      case LONG -> buffer.putLong((Long) key);
+      case SHORT -> buffer.putShort((Short) key);
+      case STRING ->
+          UTF8Serializer.INSTANCE.serializeInByteBufferObject(serializerFactory, (String) key,
+              buffer);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
     }
   }
 
@@ -207,64 +187,53 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
 
   private static Object deserializeKeyFromByteBuffer(final ByteBuffer buffer,
       final PropertyTypeInternal type, BinarySerializerFactory serializerFactory) {
-    switch (type) {
-      case BINARY:
+    return switch (type) {
+      case BINARY -> {
         final var len = buffer.getInt();
         final var array = new byte[len];
         buffer.get(array);
-        return array;
-      case BOOLEAN:
-        return buffer.get() > 0;
-      case BYTE:
-        return buffer.get();
-      case DATE:
-      case DATETIME:
-        return new Date(buffer.getLong());
-      case DECIMAL:
+        yield array;
+      }
+      case BOOLEAN -> buffer.get() > 0;
+      case BYTE -> buffer.get();
+      case DATE, DATETIME -> new Date(buffer.getLong());
+      case DECIMAL -> {
         final var scale = buffer.getInt();
         final var unscaledValueLen = buffer.getInt();
         final var unscaledValue = new byte[unscaledValueLen];
         buffer.get(unscaledValue);
-        return new BigDecimal(new BigInteger(unscaledValue), scale);
-      case DOUBLE:
-        return Double.longBitsToDouble(buffer.getLong());
-      case FLOAT:
-        return Float.intBitsToFloat(buffer.getInt());
-      case INTEGER:
-        return buffer.getInt();
-      case LINK:
-        return CompactedLinkSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
-            buffer);
-      case LONG:
-        return buffer.getLong();
-      case SHORT:
-        return buffer.getShort();
-      case STRING:
-        return UTF8Serializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, buffer);
-      default:
-        throw new IndexException((String) null, "Unsupported index type " + type);
-    }
+        yield new BigDecimal(new BigInteger(unscaledValue), scale);
+      }
+      case DOUBLE -> Double.longBitsToDouble(buffer.getLong());
+      case FLOAT -> Float.intBitsToFloat(buffer.getInt());
+      case INTEGER -> buffer.getInt();
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
+              buffer);
+      case LONG -> buffer.getLong();
+      case SHORT -> buffer.getShort();
+      case STRING ->
+          UTF8Serializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, buffer);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
   }
 
   private static Object deserializeKeyFromByteBuffer(
       int offset, final ByteBuffer buffer, final PropertyTypeInternal type,
       BinarySerializerFactory serializerFactory) {
-    switch (type) {
-      case BINARY:
+    return switch (type) {
+      case BINARY -> {
         final var len = buffer.getInt(offset);
         offset += Integer.BYTES;
 
         final var array = new byte[len];
         buffer.get(offset, array);
-        return array;
-      case BOOLEAN:
-        return buffer.get(offset) > 0;
-      case BYTE:
-        return buffer.get(offset);
-      case DATE:
-      case DATETIME:
-        return new Date(buffer.getLong(offset));
-      case DECIMAL:
+        yield array;
+      }
+      case BOOLEAN -> buffer.get(offset) > 0;
+      case BYTE -> buffer.get(offset);
+      case DATE, DATETIME -> new Date(buffer.getLong(offset));
+      case DECIMAL -> {
         final var scale = buffer.getInt(offset);
         offset += Integer.BYTES;
 
@@ -274,99 +243,82 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
         final var unscaledValue = new byte[unscaledValueLen];
         buffer.get(offset, unscaledValue);
 
-        return new BigDecimal(new BigInteger(unscaledValue), scale);
-      case DOUBLE:
-        return Double.longBitsToDouble(buffer.getLong(offset));
-      case FLOAT:
-        return Float.intBitsToFloat(buffer.getInt(offset));
-      case INTEGER:
-        return buffer.getInt(offset);
-      case LINK:
-        return CompactedLinkSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
-            offset, buffer);
-      case LONG:
-        return buffer.getLong(offset);
-      case SHORT:
-        return buffer.getShort(offset);
-      case STRING:
-        return UTF8Serializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, offset,
-            buffer);
-      default:
-        throw new IndexException((String) null, "Unsupported index type " + type);
-    }
+        yield new BigDecimal(new BigInteger(unscaledValue), scale);
+      }
+      case DOUBLE -> Double.longBitsToDouble(buffer.getLong(offset));
+      case FLOAT -> Float.intBitsToFloat(buffer.getInt(offset));
+      case INTEGER -> buffer.getInt(offset);
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
+              offset, buffer);
+      case LONG -> buffer.getLong(offset);
+      case SHORT -> buffer.getShort(offset);
+      case STRING ->
+          UTF8Serializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, offset,
+              buffer);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
   }
 
   private static int getKeySizeInByteBuffer(int offset, final ByteBuffer buffer,
       final PropertyTypeInternal type, BinarySerializerFactory serializerFactory) {
-    switch (type) {
-      case BINARY:
+    return switch (type) {
+      case BINARY -> {
         final var len = buffer.getInt(offset);
-        return Integer.BYTES + len;
-      case BOOLEAN, BYTE:
-        return Byte.BYTES;
-      case DATE:
-      case DATETIME, DOUBLE, LONG:
-        return Long.BYTES;
-      case DECIMAL:
+        yield Integer.BYTES + len;
+      }
+      case BOOLEAN, BYTE -> Byte.BYTES;
+      case DATE, DATETIME, DOUBLE, LONG -> Long.BYTES;
+      case DECIMAL -> {
         offset += Integer.BYTES;
         final var unscaledValueLen = buffer.getInt(offset);
-        return 2 * Integer.BYTES + unscaledValueLen;
-      case FLOAT, INTEGER:
-        return Integer.BYTES;
-      case LINK:
-        return CompactedLinkSerializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, offset,
-            buffer);
-      case SHORT:
-        return Short.BYTES;
-      case STRING:
-        return UTF8Serializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
-      default:
-        throw new IndexException((String) null, "Unsupported index type " + type);
-    }
+        yield 2 * Integer.BYTES + unscaledValueLen;
+      }
+      case FLOAT, INTEGER -> Integer.BYTES;
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, offset,
+              buffer);
+      case SHORT -> Short.BYTES;
+      case STRING ->
+          UTF8Serializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
   }
 
   private static Object deserializeKeyFromByteBuffer(
       final int offset, final ByteBuffer buffer, final PropertyTypeInternal type,
       final WALChanges walChanges, BinarySerializerFactory serializerFactory) {
-    switch (type) {
-      case BINARY:
+    return switch (type) {
+      case BINARY -> {
         final var len = walChanges.getIntValue(buffer, offset);
-        return walChanges.getBinaryValue(buffer, offset + IntegerSerializer.INT_SIZE, len);
-      case BOOLEAN:
-        return walChanges.getByteValue(buffer, offset) > 0;
-      case BYTE:
-        return walChanges.getByteValue(buffer, offset);
-      case DATE:
-      case DATETIME:
-        return new Date(walChanges.getLongValue(buffer, offset));
-      case DECIMAL:
+        yield walChanges.getBinaryValue(buffer, offset + IntegerSerializer.INT_SIZE, len);
+      }
+      case BOOLEAN -> walChanges.getByteValue(buffer, offset) > 0;
+      case BYTE -> walChanges.getByteValue(buffer, offset);
+      case DATE, DATETIME -> new Date(walChanges.getLongValue(buffer, offset));
+      case DECIMAL -> {
         final var scale = walChanges.getIntValue(buffer, offset);
         final var unscaledValueLen =
             walChanges.getIntValue(buffer, offset + IntegerSerializer.INT_SIZE);
         final var unscaledValue =
             walChanges.getBinaryValue(
                 buffer, offset + 2 * IntegerSerializer.INT_SIZE, unscaledValueLen);
-        return new BigDecimal(new BigInteger(unscaledValue), scale);
-      case DOUBLE:
-        return Double.longBitsToDouble(walChanges.getLongValue(buffer, offset));
-      case FLOAT:
-        return Float.intBitsToFloat(walChanges.getIntValue(buffer, offset));
-      case INTEGER:
-        return walChanges.getIntValue(buffer, offset);
-      case LINK:
-        return CompactedLinkSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
-            buffer, walChanges, offset);
-      case LONG:
-        return walChanges.getLongValue(buffer, offset);
-      case SHORT:
-        return walChanges.getShortValue(buffer, offset);
-      case STRING:
-        return UTF8Serializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, buffer,
-            walChanges,
-            offset);
-      default:
-        throw new IndexException((String) null, "Unsupported index type " + type);
-    }
+        yield new BigDecimal(new BigInteger(unscaledValue), scale);
+      }
+      case DOUBLE -> Double.longBitsToDouble(walChanges.getLongValue(buffer, offset));
+      case FLOAT -> Float.intBitsToFloat(walChanges.getIntValue(buffer, offset));
+      case INTEGER -> walChanges.getIntValue(buffer, offset);
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
+              buffer, walChanges, offset);
+      case LONG -> walChanges.getLongValue(buffer, offset);
+      case SHORT -> walChanges.getShortValue(buffer, offset);
+      case STRING ->
+          UTF8Serializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, buffer,
+              walChanges,
+              offset);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
   }
 
   @Override

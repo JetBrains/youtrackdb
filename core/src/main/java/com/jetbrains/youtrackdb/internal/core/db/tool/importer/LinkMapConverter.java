@@ -24,7 +24,7 @@ public class LinkMapConverter extends AbstractCollectionConverter<Map<String, Id
         result.put(key, (Identifiable) item);
       }
 
-      public void setKey(Object key) {
+      void setKey(Object key) {
         this.key = key.toString();
       }
     }
