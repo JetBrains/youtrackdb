@@ -3,6 +3,8 @@ name: Block Merge Commits
 on:
   pull_request:
     types: [ opened, synchronize, reopened ]
+  merge_group:
+    types: [ checks_requested ]
 
 jobs:
   check-merges:
@@ -13,7 +15,10 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history to inspect commits
 
+      # Merge queue creates synthetic merge commits; PR commits were already
+      # validated during the pull_request event.
       - name: Check for merge commits in PR
+        if: github.event_name == 'pull_request'
         run: |
           # Get the list of parents for each commit in the PR
           # A merge commit has more than 1 parent
