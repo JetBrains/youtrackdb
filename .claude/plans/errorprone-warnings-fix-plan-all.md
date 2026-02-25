@@ -45,11 +45,12 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Fixed all additional instances across ~80 files in `core` module
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 7: `InvalidParam`** (1 instance)
-  - `core/.../storage/impl/local/AbstractStorage.java:5492` — Javadoc mentions `{@code tsMin}` which ErrorProne confuses with parameter `tsMins`; disambiguate by using `{@code TsMinHolder.tsMin}` or rewording
-  - After fix: add `-Xep:InvalidParam:ERROR` to `errorprone.args` in root `pom.xml`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 `InvalidParam` errors
-  - Commit: `Fix ErrorProne InvalidParam warnings`
+- [x] **Step 7: `InvalidParam`** (3 instances total)
+  - `core/.../storage/impl/local/AbstractStorage.java:5492` — changed `{@code tsMin}` to `{@link TsMinHolder#tsMin}` to disambiguate from parameter `tsMins`
+  - `core/.../storage/cache/chm/readbuffer/Buffer.java:28` — removed stale `@param <E>` tag (interface has no type parameter)
+  - `core/.../storage/cache/chm/readbuffer/BoundedBuffer.java:26` — removed stale `@param <E>` tag (class has no type parameter)
+  - Added `-Xep:InvalidParam:ERROR` to `errorprone.args` in root `pom.xml`
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 8: `EmptyBlockTag`** (3 instances)
   - `core/.../storage/impl/local/FreezableStorageComponent.java:37` — empty `@param db` tag; add description (e.g., "the database session to freeze")

@@ -24,8 +24,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.WTinyLFUPolicy;
  * of elements in either FIFO or LIFO order. Beware that it is the responsibility of the caller to
  * ensure that a consumer has exclusive read access to the buffer. This implementation does
  * <em>not</em> include fail-fast behavior to guard against incorrect consumer usage.
- *
- * @param <E> the type of elements maintained by this buffer
  */
 public interface Buffer {
 

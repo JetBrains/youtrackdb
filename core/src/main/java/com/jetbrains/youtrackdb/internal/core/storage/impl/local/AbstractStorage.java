@@ -5489,9 +5489,9 @@ public abstract class AbstractStorage
 
   /**
    * Computes the global low-water-mark by iterating all registered {@link TsMinHolder}s and
-   * returning the minimum {@code tsMin} value. Entries with {@code Long.MAX_VALUE} represent
-   * idle threads (no active transaction) and are effectively ignored since any real timestamp
-   * will be smaller.
+   * returning the minimum {@link TsMinHolder#tsMin} value. Entries with {@code Long.MAX_VALUE}
+   * represent idle threads (no active transaction) and are effectively ignored since any real
+   * timestamp will be smaller.
    *
    * <p>If no holders are registered (or all are idle), returns {@code Long.MAX_VALUE}.
    */
