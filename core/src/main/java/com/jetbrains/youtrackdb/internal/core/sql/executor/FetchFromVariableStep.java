@@ -139,11 +139,15 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    return ExecutionStepInternal.getIndent(depth, indent)
+    var result = ExecutionStepInternal.getIndent(depth, indent)
         + "+ FETCH FROM VARIABLE\n"
         + ExecutionStepInternal.getIndent(depth, indent)
         + "  "
         + variableName;
+    if (profilingEnabled) {
+      result += " (" + getCostFormatted() + ")";
+    }
+    return result;
   }
 
   @Override
@@ -158,7 +162,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     try {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("variableName") != null) {
-        this.variableName = fromResult.getProperty(variableName);
+        this.variableName = fromResult.getProperty("variableName");
       }
       reset();
     } catch (Exception e) {
