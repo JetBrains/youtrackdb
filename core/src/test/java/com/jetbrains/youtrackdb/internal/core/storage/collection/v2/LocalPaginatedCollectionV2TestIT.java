@@ -293,7 +293,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
     }
 
-    var lastPos = atomicOps().calculateInsideAtomicOperation(
+    atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.getLastPosition(op));
 
     // Browse backward from the end
@@ -1469,7 +1469,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   public void testMvccGetEntriesExcludesRecordsCreatedAfterSnapshot() throws Exception {
     // Start with a known number of records
     var data = new byte[]{1, 2, 3};
-    var pos1 = atomicOps().calculateInsideAtomicOperation(
+    atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
     var readerStarted = new CountDownLatch(1);
