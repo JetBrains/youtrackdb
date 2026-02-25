@@ -272,9 +272,10 @@ Runs on `develop` pushes and PRs:
    # Run unit tests with coverage collection
    ./mvnw clean package -P coverage
 
-   # Check coverage of changed lines against the 85% threshold
+   # Check coverage of changed lines against thresholds (85% line, 70% branch)
    python3 .github/scripts/coverage-gate.py \
-     --threshold 85 \
+     --line-threshold 85 \
+     --branch-threshold 70 \
      --compare-branch origin/develop \
      --coverage-dir .coverage/reports
    ```
