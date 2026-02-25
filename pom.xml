@@ -102,6 +102,7 @@
     <errorprone.version>2.47.0</errorprone.version>
     <nullaway.version>0.13.1</nullaway.version>
     <jspecify.version>1.0.0</jspecify.version>
+    <spotless.version>3.2.1</spotless.version>
   </properties>
 
 
@@ -593,6 +594,35 @@
           <artifactId>docker-maven-plugin</artifactId>
           <version>0.48.0</version>
         </plugin>
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>${spotless.version}</version>
+          <configuration>
+            <ratchetFrom>spotless-baseline</ratchetFrom>
+            <java>
+              <includes>
+                <include>src/main/java/**/*.java</include>
+                <include>src/test/java/**/*.java</include>
+              </includes>
+              <excludes>
+                <exclude>**/internal/core/sql/parser/**</exclude>
+                <exclude>**/src/main/generated/**</exclude>
+                <exclude>**/generated-sources/**</exclude>
+                <exclude>**/generated-test-sources/**</exclude>
+              </excludes>
+              <eclipse>
+                <file>${maven.multiModuleProjectDirectory}/config/eclipse-formatter.xml</file>
+              </eclipse>
+              <importOrder>
+                <order>\#,</order>
+              </importOrder>
+              <removeUnusedImports/>
+              <formatAnnotations/>
+              <toggleOffOn/>
+            </java>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
 
@@ -708,6 +738,19 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>flatten-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>process-sources</phase>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
