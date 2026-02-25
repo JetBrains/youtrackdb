@@ -3,6 +3,8 @@ name: Check Commit Prefix
 on:
   pull_request:
     types: [ opened, edited, synchronize, reopened ]
+  merge_group:
+    types: [ checks_requested ]
 
 permissions:
   contents: read
@@ -15,10 +17,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      # Merge queue creates synthetic merge commits; PR commits were already
+      # validated during the pull_request event.
       - name: Check commit messages for issue prefix
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v8
         with:
           script: |

@@ -3,6 +3,8 @@ name: PR Title Issue Prefix
 on:
   pull_request:
     types: [opened, edited, synchronize]
+  merge_group:
+    types: [ checks_requested ]
 
 permissions:
   contents: read
@@ -13,7 +15,10 @@ jobs:
     name: Add issue prefix to PR title
     runs-on: ubuntu-latest
     steps:
+      # Merge queue does not have a PR title to update; the title was already
+      # validated during the pull_request event.
       - name: Check and update PR title
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v8
         with:
           script: |
