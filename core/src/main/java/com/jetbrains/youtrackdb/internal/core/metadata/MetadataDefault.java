@@ -65,6 +65,7 @@ public class MetadataDefault implements MetadataInternal {
   public void create() throws IOException {
   }
 
+  @Override
   public SchemaProxy getSchema() {
     return schema;
   }
@@ -158,6 +159,7 @@ public class MetadataDefault implements MetadataInternal {
     return sequenceLibrary;
   }
 
+  @Override
   public Scheduler getScheduler() {
     return scheduler;
   }

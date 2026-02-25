@@ -68,6 +68,7 @@ public class ImmutableUser implements SecurityUser {
     }
   }
 
+  @Override
   public SecurityRole allow(
       DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
@@ -95,6 +96,7 @@ public class ImmutableUser implements SecurityUser {
     return role;
   }
 
+  @Override
   @Nullable
   public SecurityRole checkIfAllowed(
       DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
@@ -116,6 +118,7 @@ public class ImmutableUser implements SecurityUser {
     return null;
   }
 
+  @Override
   public boolean isRuleDefined(
       DatabaseSessionEmbedded session, final ResourceGeneric resourceGeneric,
       String resourceSpecific) {
@@ -178,50 +181,62 @@ public class ImmutableUser implements SecurityUser {
     return isRuleDefined(session, resourceGeneric, resourceSpecific);
   }
 
+  @Override
   public boolean checkPassword(DatabaseSessionEmbedded session, final String iPassword) {
     return SecurityManager.checkPassword(iPassword, password);
   }
 
+  @Override
   public String getName(DatabaseSessionEmbedded session) {
     return name;
   }
 
+  @Override
   public SecurityUserImpl setName(DatabaseSessionEmbedded session, final String iName) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public String getPassword(DatabaseSessionEmbedded session) {
     return password;
   }
 
+  @Override
   public SecurityUserImpl setPassword(DatabaseSessionEmbedded session, final String iPassword) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public STATUSES getAccountStatus(DatabaseSessionEmbedded session) {
     return status;
   }
 
+  @Override
   public void setAccountStatus(DatabaseSessionEmbedded session, STATUSES accountStatus) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public Set<ImmutableRole> getRoles() {
     return Collections.unmodifiableSet(roles);
   }
 
+  @Override
   public SecurityUserImpl addRole(DatabaseSessionEmbedded session, final String iRole) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public SecurityUserImpl addRole(DatabaseSessionEmbedded session, final SecurityRole iRole) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean removeRole(DatabaseSessionEmbedded session, final String iRoleName) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean hasRole(DatabaseSessionEmbedded session, final String iRoleName,
       final boolean iIncludeInherited) {
     for (final SecurityRole role : roles) {
