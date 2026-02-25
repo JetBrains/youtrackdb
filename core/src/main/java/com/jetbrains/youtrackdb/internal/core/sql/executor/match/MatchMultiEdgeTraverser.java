@@ -97,8 +97,8 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
 
         var method = sub.getMethod();
         // SQLMatchPathItemFirst uses a function instead of a method
-        if (sub instanceof SQLMatchPathItemFirst) {
-          method = ((SQLMatchPathItemFirst) sub).getFunction().toMethod();
+        if (sub instanceof SQLMatchPathItemFirst sqlMatchPathItemFirst) {
+          method = sqlMatchPathItemFirst.getFunction().toMethod();
         }
 
         if (whileCond != null) {
@@ -164,8 +164,8 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
               x ->
                   matchesCondition(x, filter, iCommandContext))
           .forEach(rightSide::add);
-    } else if (nextSteps instanceof Identifiable) {
-      var res = new ResultInternal(db, (Identifiable) nextSteps);
+    } else if (nextSteps instanceof Identifiable identifiable) {
+      var res = new ResultInternal(db, identifiable);
       if (matchesCondition(res, filter, iCommandContext)) {
         rightSide.add(res);
       }
@@ -174,9 +174,9 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
       if (matchesCondition(res, filter, iCommandContext)) {
         rightSide.add(res);
       }
-    } else if (nextSteps instanceof ResultInternal) {
-      if (matchesCondition((ResultInternal) nextSteps, filter, iCommandContext)) {
-        rightSide.add((ResultInternal) nextSteps);
+    } else if (nextSteps instanceof ResultInternal resultInternal) {
+      if (matchesCondition(resultInternal, filter, iCommandContext)) {
+        rightSide.add(resultInternal);
       }
     } else if (nextSteps instanceof Iterable) {
       for (var step : (Iterable<?>) nextSteps) {
