@@ -28,8 +28,8 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
 - [x] **Step 2: `ImmutableEnumChecker`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/metrics/Meter.java:37` — add `@SuppressWarnings("ImmutableEnumChecker")` to the `ratioDenominator` field (`BiFunction` is a JDK type that can't be annotated `@Immutable`)
 
-- [ ] **Step 3: `EffectivelyPrivate`** (1 instance)
-  - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/metrics/Meter.java:151` — remove `public` from `record()` in private inner class `ThreadLocalMeter`
+- [x] **Step 3: `EffectivelyPrivate`** (1 instance)
+  - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/metrics/Meter.java:152` — removed `public` from `record()` in private inner class `ThreadLocalMeter`
 
 - [ ] **Step 4: `StatementSwitchToExpressionSwitch`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:4464` — convert `switch (txEntry.type)` from `case X: { ... break; }` to arrow-style `case X -> { ... }`
