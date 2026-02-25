@@ -100,17 +100,10 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Added `-Xep:TypeParameterUnusedInFormals:ERROR` to `errorprone.args` in root `pom.xml`
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 13: Switch to `-Werror`, clean up individual flags, disable `NonApiType`**
-  - In `pom.xml` root property `errorprone.args`, replace the current value with:
-    ```
-    -Xplugin:ErrorProne -Werror -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.*|.*/src/test/.*|.*/generated-test-sources/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:RemoveUnusedImports:ERROR -Xep:NonApiType:OFF
-    ```
-  - `-Werror` promotes **all** WARNING-level checks to ERROR (covers 15+ checks at once)
-  - Only two checks need explicit `-Xep:X:ERROR` because they are below WARNING by default:
-    - `NullAway` — third-party plugin, OFF by default
-    - `RemoveUnusedImports` — SUGGESTION level, disabled by default
-  - `-Xep:NonApiType:OFF` disables this check entirely (intentional `TreeMap` usage in `AbstractStorage`)
-  - All previous individual `-Xep:X:ERROR` flags for WARNING-level checks are removed (now redundant under `-Werror`)
-  - Verify: `./mvnw clean compile -DskipTests` — expect 0 ErrorProne errors and 0 warnings
-  - Verify: `./mvnw -pl core clean test` — all core unit tests pass
-  - Commit: `Switch ErrorProne to -Werror and disable NonApiType`
+- [x] **Step 13: Disable `NonApiType` check**
+  - Original plan called for `-Werror` to promote all warnings to errors, but `-Werror` is not a valid ErrorProne flag — it is silently ignored when passed inside the `-Xplugin:ErrorProne` argument string. ErrorProne uses its own severity system (`-Xep:CheckName:ERROR`) and has no blanket "all warnings as errors" flag.
+  - Instead, kept all existing individual `-Xep:CheckName:ERROR` flags and added `-Xep:NonApiType:OFF`
+  - `NonApiType` is disabled project-wide because it flags 23+ instances across 13+ internal implementation files where concrete collection types (`TreeMap`, `ArrayList`, `HashMap`, `HashSet`) are used intentionally
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
+  - Verified: `./mvnw -pl core clean test` — all 6806 tests pass (0 failures, 0 errors)
+  - Commit: `Disable ErrorProne NonApiType check`
