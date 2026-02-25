@@ -81,9 +81,7 @@ public class PatternNode {
     return 1;
   }
 
-  /**
-   * @return `true` if this node was declared with `optional: true`
-   */
+  /** Returns `true` if this node was declared with `optional: true`. */
   public boolean isOptionalNode() {
     return optional;
   }
