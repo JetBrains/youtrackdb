@@ -31,10 +31,12 @@ public class Dictionary<T> {
     index = iIndex;
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends T> RET get(final String iKey) {
     throw new UnsupportedOperationException();
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends T> RET get(final String iKey, final String fetchPlan) {
     throw new UnsupportedOperationException();
   }

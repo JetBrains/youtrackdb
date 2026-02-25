@@ -364,6 +364,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    *                     expression, as in #eval()
    * @return the property value. Null if the property does not exist.
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET> RET getProperty(final @Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
@@ -451,11 +452,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
     };
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyInternal(String name) {
     return getPropertyInternal(name, isLazyLoad());
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyInternal(String name, boolean lazyLoad) {
     return getPropertyAndChooseReturnValue(name, lazyLoad,
         PropertyOperationReturnValue.propertyValue());
@@ -504,6 +507,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return returnValue.choose(entry.type, convertToGraphElement(value));
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
     validatePropertyName(name, false);
@@ -522,6 +526,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
     checkForBinding();
     checkForProperties();
@@ -1490,6 +1495,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return value;
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET> RET removeProperty(@Nonnull final String name) {
     return removePropertyInternal(name, PropertyValidationMode.FULL);
@@ -1500,6 +1506,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET removePropertyInternal(String name, PropertyValidationMode validationMode) {
 
     if (validationMode != PropertyValidationMode.SKIP) {
@@ -4014,7 +4021,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   @Nullable
   private static <RET> RET convertField(
       @Nonnull DatabaseSessionEmbedded session, @Nonnull final EntityImpl entity,

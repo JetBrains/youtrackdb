@@ -1543,6 +1543,7 @@ public class FrontendTransactionImpl implements
     return session.newEmbeddedEntity();
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     checkIfActive();
@@ -1598,6 +1599,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET load(RID recordId) {
     checkIfActive();
@@ -1605,6 +1607,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     checkIfActive();
@@ -1612,6 +1615,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET load(Identifiable identifiable) {
     checkIfActive();
@@ -1632,6 +1636,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
     checkIfActive();

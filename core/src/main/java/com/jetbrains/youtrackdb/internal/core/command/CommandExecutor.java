@@ -39,6 +39,7 @@ public interface CommandExecutor {
    * @return this executor instance for method chaining
    * @see #execute(DatabaseSessionEmbedded, Map) <Object, Object>...)
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandExecutor> RET parse(DatabaseSessionEmbedded session, CommandRequest iRequest);
 
   /**
@@ -57,8 +58,10 @@ public interface CommandExecutor {
    * @param progressListener ProgressListener implementation
    * @return this executor instance for method chaining
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandExecutor> RET setProgressListener(ProgressListener progressListener);
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandExecutor> RET setLimit(int iLimit);
 
   String getFetchPlan();

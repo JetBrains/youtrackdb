@@ -110,6 +110,7 @@ public class EntityHelper {
   }
 
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public static <RET> RET getFieldValue(DatabaseSessionEmbedded db, Object value,
       final String iFieldName) {
     var context = new BasicCommandContext();
@@ -119,7 +120,7 @@ public class EntityHelper {
   }
 
   @Nullable
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   public static <RET> RET getFieldValue(
       DatabaseSessionEmbedded session, Object value, final String iFieldName,
       @Nonnull final CommandContext iContext) {

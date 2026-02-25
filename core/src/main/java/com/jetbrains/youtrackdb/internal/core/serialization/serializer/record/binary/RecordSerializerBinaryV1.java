@@ -526,6 +526,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,

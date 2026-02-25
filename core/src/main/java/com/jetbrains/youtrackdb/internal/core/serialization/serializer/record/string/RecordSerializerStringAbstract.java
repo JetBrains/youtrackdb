@@ -548,6 +548,7 @@ public abstract class RecordSerializerStringAbstract {
     }
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public abstract <T extends DBRecord> T fromString(
       DatabaseSessionEmbedded session, String iContent, RecordAbstract iRecord, String[] iFields);
 
@@ -557,6 +558,7 @@ public abstract class RecordSerializerStringAbstract {
     return toString(db, iRecord, iOutput, iFormat, true);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <T extends DBRecord> T fromString(DatabaseSessionEmbedded session, final String iSource) {
     return fromString(session, iSource, null, null);
   }

@@ -57,6 +57,7 @@ public interface Entity extends DBRecord, Result {
    * @throws IllegalArgumentException if name starts with {@code #Vertex.DIRECTION_OUT_PREFIX} or
    *                                  {@code #Vertex.DIRECTION_IN_PREFIX}.
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET> RET getPropertyOnLoadValue(@Nonnull String name);
 
   @Nullable
@@ -280,6 +281,7 @@ public interface Entity extends DBRecord, Result {
    *
    * @param name the property name
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET> RET removeProperty(@Nonnull String name);
 
   /**

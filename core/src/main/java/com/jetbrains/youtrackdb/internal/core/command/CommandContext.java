@@ -51,6 +51,7 @@ public interface CommandContext {
 
   boolean hasSystemVariable(int id);
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <T> T getSystemVariable(int id);
 
   CommandContext incrementVariable(String getNeighbors);

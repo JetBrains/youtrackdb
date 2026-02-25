@@ -208,6 +208,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
     JSONSerializerJackson.INSTANCE.fromString(getSession(),
         iSource, this);
@@ -221,10 +222,12 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   // Add New API to load record if rid exist
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
     return (RET) JSONSerializerJackson.INSTANCE.fromString(getSession(), iSource, this);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
     final var out = new ByteArrayOutputStream();

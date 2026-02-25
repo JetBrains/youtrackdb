@@ -92,13 +92,13 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Added `-Xep:StringSplitter:ERROR` to `errorprone.args` in root `pom.xml`
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 12: `TypeParameterUnusedInFormals`** (1 instance — intentional API design, suppress)
-  - `core/.../query/BasicResult.java:42` — `<T> T getProperty(String name)` uses a type parameter only in the return type; this is an intentional API convenience pattern (avoids casts at call sites) used across `BasicResult`, `ResultInternal`, and `TraverseResult`
-  - Add `@SuppressWarnings("TypeParameterUnusedInFormals")` to the method in `BasicResult` interface and all overriding implementations (`ResultInternal.java`, `TraverseResult.java`, and `MatchStepUnitTest.java` in tests)
-  - After fix: add `-Xep:TypeParameterUnusedInFormals:ERROR` to `errorprone.args` in root `pom.xml`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 `TypeParameterUnusedInFormals` errors
-  - Note: test code is excluded from ErrorProne via `-XepExcludedPaths`, so only main source files need the suppression
-  - Commit: `Fix ErrorProne TypeParameterUnusedInFormals warnings`
+- [x] **Step 12: `TypeParameterUnusedInFormals`** (plan listed 1 instance, actual count: 45 across 20 files)
+  - Plan originally listed 1 instance but actual count was ~45 methods across 20 files in `core` module
+  - All flagged methods use the convenience-cast pattern (`<T> T getProperty(String name)`, `<RET extends DBRecord> RET load(RID id)`) where the type parameter appears only in the return type — this is intentional API design to avoid casts at call sites
+  - Added `@SuppressWarnings("TypeParameterUnusedInFormals")` to all flagged methods; merged with existing `@SuppressWarnings("unchecked")` where present (4 files)
+  - Files fixed: `BasicResult`, `ResultInternal`, `TraverseResult`, `CommandContext`, `BasicCommandContext`, `CommandExecutor`, `CommandExecutorAbstract`, `CommandRequest`, `CommandRequestAbstract`, `ScriptDocumentDatabaseWrapper`, `Entity`, `Dictionary`, `YTDBStrategyUtil`, `EntityHelper`, `EntityImpl`, `RecordAbstract`, `RecordSerializerBinaryV1`, `RecordSerializerStringAbstract`, `FrontendTransactionImpl`, `FrontendTransactionNoTx`
+  - Added `-Xep:TypeParameterUnusedInFormals:ERROR` to `errorprone.args` in root `pom.xml`
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 13: Switch to `-Werror`, clean up individual flags, disable `NonApiType`**
   - In `pom.xml` root property `errorprone.args`, replace the current value with:

@@ -125,6 +125,7 @@ public interface CommandRequest {
    * @return this command request instance for method chaining
    */
   @Deprecated
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandRequest> RET setFetchPlan(String iFetchPlan);
 
   void setUseCache(boolean iUseCache);

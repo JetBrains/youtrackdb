@@ -99,6 +99,7 @@ public class BasicCommandContext implements CommandContext {
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T> T getSystemVariable(int id) {
     var value = systemVariables.get(id);
