@@ -176,7 +176,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   }
 
   private String addSemicolons(String parserText) {
-    var rows = parserText.split("\n");
+    var rows = parserText.split("\n", -1);
     var builder = new StringBuilder();
     for (var row : rows) {
       row = row.trim();

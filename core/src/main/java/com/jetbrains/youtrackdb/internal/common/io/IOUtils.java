@@ -460,12 +460,12 @@ public class IOUtils {
   }
 
   public static boolean isOsWindows() {
-    var osName = System.getProperty("os.name").split(" ")[0];
+    var osName = System.getProperty("os.name").split(" ", -1)[0];
     return compareStartIgnoreCase(osName, "windows");
   }
 
   public static boolean isOsLinux() {
-    var osName = System.getProperty("os.name").split(" ")[0];
+    var osName = System.getProperty("os.name").split(" ", -1)[0];
     return compareStartIgnoreCase(osName, "linux");
   }
 

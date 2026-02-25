@@ -1376,7 +1376,7 @@ public class JSONSerializerJackson {
         markEmbeddedEntities = false;
 
         if (!stringFormat.isEmpty()) {
-          final var format = stringFormat.split(",");
+          final var format = stringFormat.split(",", -1);
           for (var f : format) {
             switch (f) {
               case "type" -> includeType = true;

@@ -205,7 +205,7 @@ public class SymmetricKey {
    */
   @Nullable
   protected static String separateAlgorithm(final String cipherTransform) {
-    var array = cipherTransform.split("/");
+    var array = cipherTransform.split("/", -1);
 
     if (array.length > 1) {
       return array[0];

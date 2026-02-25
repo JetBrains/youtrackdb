@@ -61,7 +61,7 @@ public class CommandSQLParsingException extends CoreException {
       ParseException e, String statement, Integer line, Integer column) {
     var result = new StringBuilder();
     result.append("Error parsing query:\n");
-    var stmLines = statement.split("\n");
+    var stmLines = statement.split("\n", -1);
     for (var i = 0; i < stmLines.length; i++) {
       result.append(stmLines[i]);
       result.append("\n");

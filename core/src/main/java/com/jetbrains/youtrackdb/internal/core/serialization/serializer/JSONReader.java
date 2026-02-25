@@ -467,7 +467,7 @@ public class JSONReader {
     } else if (collectionString.startsWith(",")) {
       collectionString = collectionString.substring(1);
     }
-    var split = collectionString.split(",");
+    var split = collectionString.split(",", -1);
 
     var i = 0;
     while (i < split.length) {

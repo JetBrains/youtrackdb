@@ -225,7 +225,7 @@ public class SecurityManager {
     }
 
     // SPLIT PARTS
-    final var params = iHash.split(":");
+    final var params = iHash.split(":", -1);
     if (params.length != 3) {
       throw new IllegalArgumentException(
           "Hash does not contain the requested parts: <hash>:<salt>:<iterations>");

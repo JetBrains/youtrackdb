@@ -117,7 +117,7 @@ public enum AnsiCode {
 
                   final var buffer = new StringBuilder();
 
-                  final var codes = code.split(":");
+                  final var codes = code.split(":", -1);
                   for (var i = 0; i < codes.length; ++i) {
                     buffer.append(AnsiCode.valueOf(codes[i].toUpperCase(Locale.ENGLISH)));
                   }

@@ -85,11 +85,12 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Added `-Xep:EqualsGetClass:ERROR` to `errorprone.args` in root `pom.xml`
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 11: `StringSplitter`** (1 instance)
-  - `core/.../exception/CommandSQLParsingException.java:64` — `statement.split("\n")` has surprising behavior (trailing empty strings are discarded); replace with `statement.split("\n", -1)` to preserve all segments
-  - After fix: add `-Xep:StringSplitter:ERROR` to `errorprone.args` in root `pom.xml`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 `StringSplitter` errors
-  - Commit: `Fix ErrorProne StringSplitter warnings`
+- [x] **Step 11: `StringSplitter`** (plan listed 1 instance, actual count: 28 across 20 files)
+  - Plan originally listed 1 instance but actual count was 28 `String.split(String)` and `Pattern.split(CharSequence)` calls across 20 files in `core` module
+  - Added `, -1` as second argument to all flagged `split()` calls to preserve trailing empty strings (making behavior explicit instead of relying on Java's surprising default of silently discarding them)
+  - Files fixed: `CommandSQLParsingException`, `FileUtils`, `IOUtils`, `Native` (3 calls), `AnsiCode`, `YouTrackDBConstants` (3 calls), `CommandExecutorScript`, `JSONSerializerJackson`, `JSONReader`, `FetchPlan` (2 calls), `YTDBVertexPropertyIdJacksonDeserializer`, `YTDBVertexPropertyIdGyroSerializer`, `IndexDefinitionFactory` (2 Pattern.split calls), `SecurityShared`, `SecurityManager`, `SymmetricKey`, `FieldTypesString`, `CartesianProductStep` (2 calls), `GlobalLetQueryStep`, `ParallelExecStep` (2 calls)
+  - Added `-Xep:StringSplitter:ERROR` to `errorprone.args` in root `pom.xml`
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 12: `TypeParameterUnusedInFormals`** (1 instance — intentional API design, suppress)
   - `core/.../query/BasicResult.java:42` — `<T> T getProperty(String name)` uses a type parameter only in the return type; this is an intentional API convenience pattern (avoids casts at call sites) used across `BasicResult`, `ResultInternal`, and `TraverseResult`

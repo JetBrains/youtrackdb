@@ -29,7 +29,7 @@ public class YouTrackDBConstants {
    * @return Major part of YouTrackDB version
    */
   public static int getVersionMajor() {
-    final var versions = properties.getProperty("version").split("\\.");
+    final var versions = properties.getProperty("version").split("\\.", -1);
     if (versions.length == 0) {
       LogManager.instance()
           .error(YouTrackDBConstants.class, "Can not retrieve version information for this build",
@@ -54,7 +54,7 @@ public class YouTrackDBConstants {
    * @return Minor part of YouTrackDB version
    */
   public static int getVersionMinor() {
-    final var versions = properties.getProperty("version").split("\\.");
+    final var versions = properties.getProperty("version").split("\\.", -1);
     if (versions.length < 2) {
       LogManager.instance()
           .error(
@@ -81,7 +81,7 @@ public class YouTrackDBConstants {
    */
   @SuppressWarnings("unused")
   public static int getVersionHotfix() {
-    final var versions = properties.getProperty("version").split("\\.");
+    final var versions = properties.getProperty("version").split("\\.", -1);
     if (versions.length < 3) {
       return 0;
     }

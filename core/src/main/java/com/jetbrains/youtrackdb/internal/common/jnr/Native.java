@@ -412,7 +412,7 @@ public class Native {
           String cgroupData;
           try {
             while ((cgroupData = bufferedCGroupReader.readLine()) != null) {
-              final var cgroupParts = cgroupData.split(":");
+              final var cgroupParts = cgroupData.split(":", -1);
               // we need only memory controller
               if (cgroupParts[1].equals("memory")) {
                 memoryCGroupPath = cgroupParts[2];
@@ -461,7 +461,7 @@ public class Native {
           String fileSystem;
           while ((fileSystem = bufferedMountsReader.readLine()) != null) {
             // file system type \s+ mount point \s+ etc.
-            final var fsParts = fileSystem.split("\\s+");
+            final var fsParts = fileSystem.split("\\s+", -1);
             if (fsParts.length == 0) {
               continue;
             }
@@ -471,7 +471,7 @@ public class Native {
             if (fsType.equals("cgroup")) {
               // get mounting path of cgroup
               final var fsMountingPath = fsParts[1];
-              final var fsPathParts = fsMountingPath.split(File.separator);
+              final var fsPathParts = fsMountingPath.split(File.separator, -1);
               if (fsPathParts[fsPathParts.length - 1].equals("memory")) {
                 memoryCGroupRoot = fsMountingPath;
               }
