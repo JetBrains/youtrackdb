@@ -13,7 +13,7 @@ public class SchemaNotCreatedException extends SchemaException implements HighLe
    * storage exception handling. Please create "copy constructor" for each exception which has
    * current one as a parent.
    *
-   * @param exception
+   * @param exception the original exception to copy
    */
   public SchemaNotCreatedException(SchemaNotCreatedException exception) {
     super(exception);

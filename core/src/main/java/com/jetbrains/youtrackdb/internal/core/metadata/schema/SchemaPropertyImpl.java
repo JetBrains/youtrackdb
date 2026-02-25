@@ -224,7 +224,7 @@ public abstract class SchemaPropertyImpl {
   /**
    * Remove the index on property
    *
-   * @deprecated
+   * @deprecated Use {@link #dropIndexes(DatabaseSessionEmbedded)} instead.
    */
   @Deprecated
   public void dropIndexesInternal(DatabaseSessionEmbedded session) {

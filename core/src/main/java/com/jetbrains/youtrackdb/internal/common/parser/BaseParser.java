@@ -205,7 +205,7 @@ public abstract class BaseParser {
   /**
    * Throws a syntax error exception.
    *
-   * @param dbName
+   * @param dbName Name of the database for error context
    * @param iText  Text about the problem.
    */
   protected abstract void throwSyntaxErrorException(String dbName, final String iText);
@@ -232,7 +232,7 @@ public abstract class BaseParser {
    * parameter. If the parsed word is not enlisted in it a SyntaxError exception is thrown. It
    * returns the word parsed if any.
    *
-   * @param dbName
+   * @param dbName     Name of the database for error context
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed if any, otherwise null
    */
@@ -287,7 +287,7 @@ public abstract class BaseParser {
    * Parses the next word. If no word is found an SyntaxError exception is thrown It returns the
    * word parsed if any.
    *
-   * @param dbName
+   * @param dbName     Name of the database for error context
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed
    */
@@ -301,7 +301,7 @@ public abstract class BaseParser {
    *
    * @param iUpperCase     True if must return UPPERCASE, otherwise false
    * @param iCustomMessage Custom message to include in case of SyntaxError exception
-   * @param dbName
+   * @param dbName         Name of the database for error context
    * @return The word parsed
    */
   protected String parserRequiredWord(final boolean iUpperCase, final String iCustomMessage,
@@ -317,7 +317,7 @@ public abstract class BaseParser {
    * @param iUpperCase     True if must return UPPERCASE, otherwise false
    * @param iCustomMessage Custom message to include in case of SyntaxError exception
    * @param iSeparators    Separator characters
-   * @param dbName
+   * @param dbName         Name of the database for error context
    * @return The word parsed
    */
   protected String parserRequiredWord(
@@ -341,7 +341,7 @@ public abstract class BaseParser {
    * Parses the next word. If no word is found or the parsed word is not present in the word array
    * received as parameter then a SyntaxError exception is thrown.
    *
-   * @param dbName
+   * @param dbName Name of the database for error context
    * @param iWords Array of expected keywords
    */
   protected void parserRequiredKeyword(String dbName, final String... iWords) {
@@ -455,7 +455,7 @@ public abstract class BaseParser {
    * Parses optional keywords between the iWords. If a keyword is found but doesn't match with
    * iWords then a SyntaxError is raised.
    *
-   * @param dbName
+   * @param dbName Name of the database for error context
    * @param iWords Optional words to match as keyword. If at least one is passed, then the check is
    *               made
    * @return true if a keyword was found, otherwise false
@@ -550,7 +550,7 @@ public abstract class BaseParser {
    * Parses the next word.
    *
    * @param iForceUpperCase True if must return UPPERCASE, otherwise false
-   * @param iSeparatorChars
+   * @param iSeparatorChars Characters to use as word separators
    */
   protected String parserNextWord(final boolean iForceUpperCase, final String iSeparatorChars) {
     return parserNextWord(iForceUpperCase, iSeparatorChars, false);
@@ -727,9 +727,9 @@ public abstract class BaseParser {
   /**
    * Check for a separator
    *
-   * @param c
-   * @param iSeparatorChars
-   * @return
+   * @param c               Character to check
+   * @param iSeparatorChars String of separator characters to match against
+   * @return True if the character is a separator, false otherwise
    */
   private boolean parserCheckSeparator(final char c, final String iSeparatorChars) {
     for (var sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {

@@ -76,7 +76,7 @@ public interface SecuritySystem {
   /**
    * Logs to the auditing service, if installed.
    *
-   * @param session
+   * @param session the active database session used for auditing context
    * @param dbName  May be null or empty.
    * @param user    May be null or empty.
    */

@@ -90,8 +90,8 @@ public class Collections {
    * Create a string representation of all objects in the given Iterable. example :
    * [value1,value2,value3]
    *
-   * @param iterable
-   * @return String
+   * @param iterable The iterable whose elements to include in the string
+   * @return String representation of the iterable's elements
    */
   public static String toString(Iterable<?> iterable) {
     final var builder = new StringBuilder(512);

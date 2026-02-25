@@ -333,8 +333,6 @@ public class BasicCommandContext implements CommandContext {
 
   /**
    * Set the inherited context avoiding to copy all the values every time.
-   *
-   * @return
    */
   @Override
   public CommandContext setChild(final CommandContext iContext) {

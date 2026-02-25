@@ -38,7 +38,7 @@ public interface SQLFunction {
   /**
    * Process a record.
    *
-   * @param iThis
+   * @param iThis          the object on which the function is invoked
    * @param iCurrentRecord : current record
    * @param iCurrentResult TODO
    * @param iParams        : function parameters, number is ensured to be within minParams and
@@ -57,7 +57,7 @@ public interface SQLFunction {
   /**
    * Configure the function.
    *
-   * @param configuredParameters
+   * @param configuredParameters the parameters to configure this function with
    */
   void config(Object[] configuredParameters);
 
@@ -131,7 +131,7 @@ public interface SQLFunction {
   /**
    * Called by CommandExecutor, given parameter is the number of results. ??? strange ???
    *
-   * @param iResult
+   * @param iResult the result value to set
    */
   void setResult(Object iResult);
 }

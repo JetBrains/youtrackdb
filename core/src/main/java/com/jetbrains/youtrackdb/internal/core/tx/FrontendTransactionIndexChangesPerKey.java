@@ -545,9 +545,9 @@ public class FrontendTransactionIndexChangesPerKey {
   /**
    * Only needed for old tests, will be removed soon. PLEASE DON'T USE IT
    *
-   * @param iValue
-   * @param iOperation
-   * @return
+   * @param iValue     the identifiable value for the index entry
+   * @param iOperation the operation type (PUT or REMOVE)
+   * @return the newly created transaction index entry
    */
   protected TransactionIndexEntry createEntryInternal(
       final Identifiable iValue, final OPERATION iOperation) {

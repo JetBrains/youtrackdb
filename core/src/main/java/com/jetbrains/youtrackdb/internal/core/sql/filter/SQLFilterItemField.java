@@ -249,7 +249,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
    * get the collate of this expression, based on the fully evaluated field chain starting from the
    * passed object.
    *
-   * @param session
+   * @param session the active database session
    * @param object  the root element (entity?) of this field chain
    * @return the collate, null if no collate is defined
    */

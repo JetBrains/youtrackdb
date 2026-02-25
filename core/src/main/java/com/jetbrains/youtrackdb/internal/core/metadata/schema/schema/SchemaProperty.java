@@ -63,7 +63,7 @@ public interface SchemaProperty {
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
    * yet.
    *
-   * @return
+   * @return the linked class, or null if not set
    */
   SchemaClass getLinkedClass();
 
@@ -179,8 +179,8 @@ public interface SchemaProperty {
    * operations. For massive inserts we suggest to remove the index, make the massive insert and
    * recreate it.
    *
-   * @param iType
-   * @return
+   * @param iType the index type as a string (e.g. "UNIQUE", "NOTUNIQUE")
+   * @return the name of the created index
    */
   String createIndex(final String iType);
 
@@ -196,7 +196,7 @@ public interface SchemaProperty {
    *                   <li>FULLTEXT: Indexes single word for full text search
    *                 </ul>
    * @param metadata the index metadata
-   * @return
+   * @return the name of the created index
    */
   String createIndex(String iType, Map<String, Object> metadata);
 

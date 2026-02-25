@@ -37,7 +37,7 @@ public interface BinarySerializer<T> {
    * Obtain size of the serialized object Size is the amount of bites that required for storing
    * object (for example: for storing integer we need 4 bytes)
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param object            is the object to measure its size
    * @param hints             List of parameters which may be used to choose appropriate
    *                          serialization approach.
@@ -48,7 +48,7 @@ public interface BinarySerializer<T> {
   /**
    * Return size serialized presentation of given object.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param stream            Serialized content.
    * @param startPosition     Position from which serialized presentation of given object is
    *                          stored.
@@ -60,7 +60,7 @@ public interface BinarySerializer<T> {
    * Writes object to the stream starting from the startPosition
    *
    * @param object            is the object to serialize
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param stream            is the stream where object will be written
    * @param hints             List of parameters which may be used to choose appropriate
    *                          serialization approach.
@@ -71,7 +71,7 @@ public interface BinarySerializer<T> {
   /**
    * Reads object from the stream starting from the startPosition
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param stream            is the stream from object will be read
    * @param startPosition     is the position to start reading from
    * @return instance of the deserialized object
@@ -105,7 +105,7 @@ public interface BinarySerializer<T> {
    * Serialized object presentation is platform dependant.
    *
    * @param object            is the object to serialize
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param stream            is the stream where object will be written
    * @param hints             List of parameters which may be used to choose appropriate
    *                          serialization approach.
@@ -118,7 +118,7 @@ public interface BinarySerializer<T> {
    * using {@link #serializeNativeObject(Object, BinarySerializerFactory, byte[], int, Object...)}
    * method.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param stream            is the stream from object will be read
    * @param startPosition     is the position to start reading from
    * @return instance of the deserialized object
@@ -131,7 +131,7 @@ public interface BinarySerializer<T> {
    * {@link #serializeNativeObject(Object, BinarySerializerFactory, byte[], int, Object...)}
    * method.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param stream            Serialized content.
    * @param startPosition     Position from which serialized presentation of given object is
    *                          stored.
@@ -156,7 +156,7 @@ public interface BinarySerializer<T> {
    * buffer start position and value returned by method
    * {@link #getObjectSize(BinarySerializerFactory, Object, Object...)}
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param object            Object to serialize.
    * @param buffer            Buffer which will contain serialized presentation of buffer.
    * @param hints             Type (types in case of composite object) of object.
@@ -177,7 +177,7 @@ public interface BinarySerializer<T> {
    * buffer start position and value returned by method
    * {@link #getObjectSize(BinarySerializerFactory, Object, Object...)}
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param buffer            Buffer which contains serialized presentation of object
    * @return Instance of object serialized in buffer.
    */
@@ -194,7 +194,7 @@ public interface BinarySerializer<T> {
    * object.equals(binarySerializer.deserializeFromByteBufferObject(buffer, 10))
    * </code> Final position of <code>ByteBuffer</code> will NOT be changed during the call.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param offset            offset inside the <code>ByteBuffer</code> from which deserialization
    *                          should be started.
    * @param buffer            Buffer which contains serialized presentation of object
@@ -209,7 +209,7 @@ public interface BinarySerializer<T> {
    * as result of call of {@link #getObjectSize(BinarySerializerFactory, Object, Object...)} on
    * deserialized object.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param buffer            Buffer which contains serialized version of object
    * @return Size of serialized object.
    */
@@ -222,7 +222,7 @@ public interface BinarySerializer<T> {
    *
    * <p>Position of <code>ByteBuffer</code> is not changed after result of the call.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param offset            offset inside the buffer since which object is serialized.
    * @param buffer            Buffer which contains serialized version of object
    * @return Size of serialized object.
@@ -245,7 +245,7 @@ public interface BinarySerializer<T> {
    *
    * <p><code>ByteBuffer</code> position should <b>NOT</b> be changed during call of this method.
    *
-   * @param serializerFactory
+   * @param serializerFactory Factory used to look up serializers for nested types
    * @param buffer            Buffer which will contain serialized changes.
    * @param walChanges        Changes are done during atomic operation.
    * @param offset            Offset of binary presentation of object inside of byte buffer/atomic

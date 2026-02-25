@@ -46,7 +46,7 @@ public interface CommandRequest {
    * <p>Sets the maximum items the command can returns. -1 means no limits.
    *
    * @param iLimit -1 = no limit. 1 to N to limit the result set.
-   * @return
+   * @return this command request instance for method chaining
    */
   @Deprecated
   CommandRequest setLimit(int iLimit);
@@ -55,8 +55,6 @@ public interface CommandRequest {
    * This api is deprecated use sql keyword "TIMEOUT" instead
    *
    * <p>Returns the command timeout. 0 means no timeout.
-   *
-   * @return
    */
   @Deprecated
   long getTimeoutTime();
@@ -65,8 +63,6 @@ public interface CommandRequest {
    * This api is deprecated use sql keyword "TIMEOUT" instead
    *
    * <p>Returns the command timeout strategy between the defined ones.
-   *
-   * @return
    */
   @Deprecated
   TIMEOUT_STRATEGY getTimeoutStrategy();
@@ -77,7 +73,8 @@ public interface CommandRequest {
    * <p>Sets the command timeout. When the command execution time is major than the timeout the
    * command returns
    *
-   * @param timeout
+   * @param timeout  the timeout in milliseconds
+   * @param strategy the strategy to use when the timeout is exceeded
    */
   @Deprecated
   void setTimeout(long timeout, TIMEOUT_STRATEGY strategy);
@@ -124,8 +121,8 @@ public interface CommandRequest {
    *
    * <br>
    *
-   * @param iFetchPlan
-   * @return
+   * @param iFetchPlan the fetch plan string to set
+   * @return this command request instance for method chaining
    */
   @Deprecated
   <RET extends CommandRequest> RET setFetchPlan(String iFetchPlan);

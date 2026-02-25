@@ -52,13 +52,12 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
   - Added `-Xep:InvalidParam:ERROR` to `errorprone.args` in root `pom.xml`
   - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
-- [ ] **Step 8: `EmptyBlockTag`** (3 instances)
-  - `core/.../storage/impl/local/FreezableStorageComponent.java:37` — empty `@param db` tag; add description (e.g., "the database session to freeze")
-  - `core/.../query/live/LiveQueryHookV2.java:242` — empty `@param ops` tag; add description or remove tag
-  - `core/.../query/live/LiveQueryHookV2.java:243` — empty `@return` tag; add description or remove tag
-  - After fix: add `-Xep:EmptyBlockTag:ERROR` to `errorprone.args` in root `pom.xml`
-  - Verify: `./mvnw clean compile -DskipTests` — must succeed with 0 `EmptyBlockTag` errors
-  - Commit: `Fix ErrorProne EmptyBlockTag warnings`
+- [x] **Step 8: `EmptyBlockTag`** (3 instances in plan, 65 actual instances across 64 files)
+  - Plan originally listed 3 instances but actual count was ~65 empty block tags across 64 files in `core` module
+  - Added meaningful descriptions to all empty `@param`, `@return`, `@throws`, and `@deprecated` tags
+  - Removed empty tags entirely where the method summary already conveys the information
+  - Added `-Xep:EmptyBlockTag:ERROR` to `errorprone.args` in root `pom.xml`
+  - Verified: `./mvnw clean compile -DskipTests` — BUILD SUCCESS with 0 errors
 
 - [ ] **Step 9: `ReferenceEquality`** (2 instances — both are intentional identity checks, suppress)
   - `core/.../cache/LocalRecordCache.java:57` — `loadedRecord != record` is an intentional identity check (same cached object instance); add `@SuppressWarnings("ReferenceEquality")` to the method

@@ -57,8 +57,8 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
   /**
    * Search for entry with specific key and return its value.
    *
-   * @param key
-   * @param atomicOperation
+   * @param key             the key to search for
+   * @param atomicOperation the current atomic operation context
    * @return value associated with given key, NULL if no value is associated.
    */
   @Nullable
@@ -69,14 +69,14 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
   /**
    * Deletes all entries from tree.
    *
-   * @param atomicOperation
+   * @param atomicOperation the current atomic operation context
    */
   void clear(AtomicOperation atomicOperation) throws IOException;
 
   /**
    * Deletes whole tree. After this operation tree is no longer usable.
    *
-   * @param atomicOperation
+   * @param atomicOperation the current atomic operation context
    */
   void delete(AtomicOperation atomicOperation);
 

@@ -25,7 +25,7 @@ import java.util.List;
 /**
  * ResultSet interface that extends List interface for retro compatibility.
  *
- * @param <T>
+ * @param <T> the type of elements in this result set
  */
 public interface LegacyResultSet<T> extends List<T>, Externalizable {
 
@@ -42,7 +42,7 @@ public interface LegacyResultSet<T> extends List<T>, Externalizable {
   /**
    * Returns the current size. If the resultset is not yet ready, returns te current size.
    *
-   * @return
+   * @return the number of results currently available
    */
   int currentSize();
 }

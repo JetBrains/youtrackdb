@@ -38,9 +38,9 @@ public interface FetchListener {
   /**
    * Fetch the linked field.
    *
-   * @param iRoot
-   * @param iFieldName
-   * @param iLinked
+   * @param iRoot      the root entity being fetched
+   * @param iFieldName the name of the linked field
+   * @param iLinked    the linked entity to fetch
    * @return null if the fetching must stop, otherwise the current field value
    */
   Object fetchLinked(

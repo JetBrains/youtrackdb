@@ -140,11 +140,11 @@ public class JSONReader {
   /**
    * Reads the next record string from the JSON input, extracting large RID bags separately.
    *
-   * @param maxRidbagSizeLazyImport
+   * @param maxRidbagSizeLazyImport the size threshold above which RID bags are extracted lazily
    * @return a pair containing as a key the parsed record string (with big ridbags emptied), and as
-   * a value the map of big ridbag field names and content
-   * @throws IOException
-   * @throws ParseException
+   *     a value the map of big ridbag field names and content
+   * @throws IOException if an I/O error occurs while reading the JSON input
+   * @throws ParseException if the JSON input is malformed
    */
   @Nullable
   public Pair<String, Map<String, RidSet>> readRecordString(int maxRidbagSizeLazyImport)

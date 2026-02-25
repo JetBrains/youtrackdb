@@ -27,8 +27,8 @@ public interface DatabasePooled {
   /**
    * Reuses current instance.
    *
-   * @param iOwner
-   * @param iAdditionalArgs
+   * @param iOwner          the new owner of this pooled database instance
+   * @param iAdditionalArgs additional arguments for reuse configuration
    */
   void reuse(final Object iOwner, final Object[] iAdditionalArgs);
 

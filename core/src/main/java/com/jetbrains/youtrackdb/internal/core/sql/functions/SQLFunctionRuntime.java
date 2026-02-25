@@ -71,8 +71,8 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
    *
    * @param iCurrentRecord Current record
    * @param iCurrentResult TODO
-   * @param iContext
-   * @return
+   * @param iContext the command context providing access to the database session
+   * @return the function execution result, or null if the function aggregates or filters results
    */
   public Object execute(
       final Object iThis,

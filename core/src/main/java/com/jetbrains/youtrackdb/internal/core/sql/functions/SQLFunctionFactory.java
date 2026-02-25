@@ -39,8 +39,8 @@ public interface SQLFunctionFactory {
    * Create function for the given name. returned function may be a new instance each time or a
    * constant.
    *
-   * @param name
-   * @param session
+   * @param name the function name to create
+   * @param session the current database session
    * @return SQLFunction : created function
    * @throws CommandExecutionException : when function creation fail
    */

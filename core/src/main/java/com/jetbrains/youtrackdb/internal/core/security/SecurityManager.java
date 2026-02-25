@@ -88,8 +88,8 @@ public class SecurityManager {
    *
    * @param iHash     Hash string. Can contain the algorithm as prefix in the format <code>
    *                  {ALGORITHM}-HASH</code>.
-   * @param iPassword
-   * @return
+   * @param iPassword the plaintext password to verify
+   * @return {@code true} if the password matches the hash
    */
   public static boolean checkPassword(final String iPassword, final String iHash) {
     if (iHash.startsWith(HASH_ALGORITHM_PREFIX)) {
@@ -120,7 +120,7 @@ public class SecurityManager {
    *
    * @param iInput            String to hash
    * @param iIncludeAlgorithm Include the algorithm used or not
-   * @return
+   * @return the hashed string, optionally prefixed with the algorithm identifier
    */
   public static String createHash(
       final String iInput, final String iAlgorithm, final boolean iIncludeAlgorithm) {

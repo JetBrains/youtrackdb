@@ -1324,8 +1324,8 @@ public abstract class StringSerializerHelper {
   /**
    * Use IOUtils.getStringContent(iValue) instead.
    *
-   * @param iValue
-   * @return
+   * @param iValue the value to extract string content from
+   * @return the string content without surrounding quotes
    */
   @Deprecated
   public static String getStringContent(final Object iValue) {

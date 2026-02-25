@@ -254,7 +254,7 @@ public abstract class RecordSerializerStringAbstract {
    * starts with # it's a RecordID. Most of the code is equals to getType() but has been copied to
    * speed-up it.
    *
-   * @param db
+   * @param db     the active database session, used for RID resolution
    * @param iValue Value to parse
    * @return The closest type recognized
    */

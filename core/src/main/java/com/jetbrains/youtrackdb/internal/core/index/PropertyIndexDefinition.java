@@ -230,8 +230,8 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    *
-   * @param indexName
-   * @param indexType
+   * @param indexName the name of the index to create
+   * @param indexType the type of the index (e.g. UNIQUE, NOTUNIQUE)
    */
   @Override
   public String toCreateIndexDDL(

@@ -145,7 +145,7 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
    * executes all the script and returns last statement execution step, so that it can be executed
    * from outside
    *
-   * @return
+   * @return the last execution step, which can be used to retrieve the result
    */
   public ExecutionStepInternal executeUntilReturn() {
     if (steps.size() > 0) {
@@ -175,7 +175,7 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
    * executes the whole script and returns last statement ONLY if it's a RETURN, otherwise it
    * returns null;
    *
-   * @return
+   * @return the RETURN statement's execution step, or null if no RETURN was encountered
    */
   @Nullable
   public ExecutionStepInternal executeFull() {

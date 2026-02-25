@@ -268,7 +268,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
   }
 
   /**
-   * @return
+   * @return the boolean value converted from the given object, or null if conversion is not
+   *     possible
    */
   @Nullable
   private Boolean toBoolean(Object fromObject) {
@@ -313,11 +314,12 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
   }
 
   /**
-   * get adjacent vertices and edges
+   * Get adjacent vertices and edges for the given vertex in the specified direction, considering
+   * all edge types.
    *
-   * @param srcVertex
-   * @param direction
-   * @return
+   * @param srcVertex the source vertex to get neighbors from
+   * @param direction the direction to traverse (IN, OUT, or BOTH)
+   * @return a pair of iterables containing the adjacent vertices and the connecting edges
    */
   private static RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
       Vertex srcVertex, Direction direction) {

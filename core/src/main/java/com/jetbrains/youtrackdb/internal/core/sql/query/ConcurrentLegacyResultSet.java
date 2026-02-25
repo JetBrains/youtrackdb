@@ -32,7 +32,7 @@ import java.util.NoSuchElementException;
 /**
  * ResultSet implementation that allows concurrent population.
  *
- * @param <T>
+ * @param <T> the type of elements in this result set
  */
 public class ConcurrentLegacyResultSet<T> implements LegacyResultSet<T> {
 

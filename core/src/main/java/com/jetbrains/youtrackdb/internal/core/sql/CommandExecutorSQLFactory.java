@@ -35,7 +35,7 @@ public interface CommandExecutorSQLFactory {
    * Create command for the given name. returned command may be a new instance each time or a
    * constant.
    *
-   * @param name
+   * @param name the command name to create an executor for
    * @return CommandExecutorSQLAbstract : created command
    * @throws CommandExecutionException : when command creation fail
    */

@@ -60,11 +60,11 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   /**
    * Serialize the link.
    *
-   * @param session
-   * @param buffer
-   * @param iParentRecord
+   * @param session       the active database session
+   * @param buffer        the output writer to serialize into
+   * @param iParentRecord the parent entity owning the link
    * @param iLinked       Can be an instance of RID or a Record<?>
-   * @return
+   * @return the resolved identifiable, or null if the link was null
    */
   @Nullable
   private static Identifiable linkToStream(

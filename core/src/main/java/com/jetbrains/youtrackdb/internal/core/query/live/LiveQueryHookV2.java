@@ -239,8 +239,8 @@ public class LiveQueryHookV2 {
   /**
    * get all the projections that are needed by the live queries. Null means all
    *
-   * @param ops
-   * @return
+   * @param ops the live query operations containing subscriber projection requirements
+   * @return the set of needed projection names, or {@code null} if all projections are needed
    */
   @Nullable
   private static Set<String> calculateProjections(LiveQueryOps ops) {

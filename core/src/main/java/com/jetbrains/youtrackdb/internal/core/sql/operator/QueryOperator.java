@@ -165,8 +165,8 @@ public abstract class QueryOperator {
   /**
    * Default State-less implementation: does not save parameters and just return itself
    *
-   * @param iParams
-   * @return
+   * @param iParams the configuration parameters for this operator
+   * @return the configured operator instance (this instance for stateless operators)
    */
   public QueryOperator configure(final List<String> iParams) {
     return this;
@@ -189,7 +189,7 @@ public abstract class QueryOperator {
   /**
    * Check priority of this operator compare to given operator.
    *
-   * @param other
+   * @param other the operator to compare priority against
    * @return ORDER place of this operator compared to given operator
    */
   public ORDER compare(QueryOperator other) {

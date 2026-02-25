@@ -33,7 +33,7 @@ import java.util.NoSuchElementException;
 /**
  * ResultSet class that implements List interface for retro compatibility.
  *
- * @param <T>
+ * @param <T> the type of elements in this result set
  */
 public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
 

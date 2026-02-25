@@ -69,7 +69,7 @@ public interface SchemaClassInternal extends SchemaClass {
    * <p>All indexes sorted by their count of parameters in ascending order. If there are indexes
    * for the given set of fields in super class they will be taken into account.
    *
-   * @param session
+   * @param session the active database session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
@@ -82,7 +82,7 @@ public interface SchemaClassInternal extends SchemaClass {
    * <p>All indexes sorted by their count of parameters in ascending order. If there are indexes
    * for the given set of fields in super class they will be taken into account.
    *
-   * @param session
+   * @param session the active database session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    * @see #getInvolvedIndexes(DatabaseSessionEmbedded, Collection)
@@ -95,7 +95,7 @@ public interface SchemaClassInternal extends SchemaClass {
    *
    * <p>Indexes that related only to the given class will be returned.
    *
-   * @param session
+   * @param session the active database session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
@@ -104,7 +104,7 @@ public interface SchemaClassInternal extends SchemaClass {
   /**
    * Returns indexes that contain the given fields as their first keys.
    *
-   * @param session
+   * @param session the active database session
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    * @see #getClassInvolvedIndexes(DatabaseSessionEmbedded, Collection)
@@ -116,7 +116,7 @@ public interface SchemaClassInternal extends SchemaClass {
    * fields does not matter. If there are indexes for the given set of fields in super class they
    * will be taken into account.
    *
-   * @param session
+   * @param session the active database session
    * @param fields  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    */
@@ -125,7 +125,7 @@ public interface SchemaClassInternal extends SchemaClass {
   /**
    * Checks whether the given fields are indexed as first key fields in class indexes.
    *
-   * @param session
+   * @param session the active database session
    * @param fields  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    * @see #areIndexed(DatabaseSessionEmbedded, Collection)

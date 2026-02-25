@@ -31,7 +31,7 @@ public interface BinaryComparator {
   /**
    * Compares if two binary values are the same.
    *
-   * @param db
+   * @param db           the active database session
    * @param iFirstValue  First value to compare
    * @param iSecondValue Second value to compare
    * @return true if they match, otherwise false
@@ -41,7 +41,7 @@ public interface BinaryComparator {
   /**
    * Compares two binary values executing also conversion between types.
    *
-   * @param db
+   * @param db      the active database session
    * @param iValue1 First value to compare
    * @param iValue2 Second value to compare
    * @return 0 if they matches, >0 if first value is major than second, <0 in case is minor
@@ -51,8 +51,8 @@ public interface BinaryComparator {
   /**
    * Returns true if the type is binary comparable
    *
-   * @param iType
-   * @return
+   * @param iType the property type to check
+   * @return true if the given type supports binary comparison
    */
   boolean isBinaryComparable(PropertyTypeInternal iType);
 }

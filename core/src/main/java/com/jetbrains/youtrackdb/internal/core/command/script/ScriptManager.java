@@ -564,7 +564,7 @@ public class ScriptManager {
    * Closes the pool for a database. This is called at YouTrackDB shutdown and in case a function
    * has been updated.
    *
-   * @param iDatabaseName
+   * @param iDatabaseName the name of the database whose pool should be closed
    */
   public void close(final String iDatabaseName) {
     final var dbPool = dbManagers.remove(iDatabaseName);
