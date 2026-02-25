@@ -89,7 +89,7 @@ public final class GremlinResultMapper {
   }
 
   /// Resolves a [RID] to [YTDBVertexImpl] or [YTDBStatefulEdgeImpl] via the cached schema.
-  public static Object wrapRid(YTDBGraphInternal graph, ImmutableSchema schema, RID rid) {
+  private static Object wrapRid(YTDBGraphInternal graph, ImmutableSchema schema, RID rid) {
     var cls = schema.getClassByCollectionId(rid.getCollectionId());
 
     if (cls == null) {
