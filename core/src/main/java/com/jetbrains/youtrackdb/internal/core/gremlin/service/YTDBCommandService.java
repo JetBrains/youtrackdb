@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
@@ -123,10 +124,11 @@ public class YTDBCommandService implements Service<Object, Object> {
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    ((YTDBGraphInternal) graph).executeCommand(command, commandParams);
-
-    // Emit a single placeholder so chaining works (Streaming needs an input traverser).
-    return CloseableIterator.of(IteratorUtils.of(true));
+    return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
+      // Emit a single placeholder so chaining works (Streaming needs an input traverser).
+      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(true));
+      case SqlCommandExecutionResult.Results r -> r.iterator();
+    };
   }
 
   @Override
@@ -141,9 +143,10 @@ public class YTDBCommandService implements Service<Object, Object> {
         .getGraph()
         .orElseThrow(() -> new IllegalStateException("Graph is not available"));
 
-    ((YTDBGraphInternal) graph).executeCommand(command, commandParams);
-
-    // Pass through the input traverser for Streaming mode
-    return CloseableIterator.of(IteratorUtils.of(in.get()));
+    return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
+      // Pass through the input traverser for Streaming mode
+      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(in.get()));
+      case SqlCommandExecutionResult.Results r -> r.iterator();
+    };
   }
 }

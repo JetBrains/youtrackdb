@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -17,5 +18,5 @@ public interface YTDBGraphInternal extends YTDBGraph {
   @Nullable
   <R> R computeSchemaCode(Function<DatabaseSessionEmbedded, R> code);
 
-  void executeCommand(String command, Map<?, ?> params);
+  SqlCommandExecutionResult executeCommand(String sqlCommand, Map<?, ?> params);
 }

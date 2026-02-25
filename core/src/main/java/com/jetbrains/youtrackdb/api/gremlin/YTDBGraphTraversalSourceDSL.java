@@ -17,6 +17,7 @@ import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
@@ -121,8 +122,9 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @param command The SQL command to execute.
   /// @return A traversal that can be chained with other steps.
   public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command) {
-    return (YTDBGraphTraversal<Object, Object>) call(
-        YTDBCommandService.SQL_COMMAND_NAME, Map.of(
+    return call(
+        YTDBCommandService.SQL_COMMAND_NAME,
+        Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, Map.of()
         )
@@ -139,12 +141,26 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   public YTDBGraphTraversal<Object, Object> sqlCommand(@Nonnull String command,
       @Nonnull Object... keyValues) {
     var arguments = processKeyValueArguments(keyValues);
-    return (YTDBGraphTraversal<Object, Object>) call(
-        YTDBCommandService.SQL_COMMAND_NAME, Map.of(
+    return call(
+        YTDBCommandService.SQL_COMMAND_NAME,
+        Map.of(
             YTDBCommandService.COMMAND, command,
             YTDBCommandService.ARGUMENTS, arguments
         )
     );
+  }
+
+  /// Override required because the {@code GremlinDslProcessor} does not generate a
+  /// {@code call()} override in the traversal source. Without this, {@code call()} resolves
+  /// to {@link GraphTraversalSource#call(String, Map)} which returns a
+  /// {@code DefaultGraphTraversal} instead of {@code YTDBGraphTraversal}.
+  @Override
+  public <S> YTDBGraphTraversal<S, S> call(String service, Map params) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.call, service, params);
+    var traversal = new DefaultYTDBGraphTraversal<>(clone);
+    return (YTDBGraphTraversal<S, S>) traversal.asAdmin()
+        .addStep(new CallStep<>(traversal, true, service, params));
   }
 
   private static Map<Object, Object> processKeyValueArguments(@Nonnull Object[] keyValues) {
