@@ -4462,7 +4462,7 @@ public abstract class AbstractStorage
     var db = frontendTransaction.getDatabaseSession();
 
     switch (txEntry.type) {
-      case RecordOperation.CREATED: {
+      case RecordOperation.CREATED -> {
         final byte[] stream;
         try {
           stream = serializer.toStream(frontendTransaction.getDatabaseSession(), rec);
@@ -4500,9 +4500,8 @@ public abstract class AbstractStorage
                   collection);
           rec.setVersion(updatedVersion);
         }
-        break;
       }
-      case RecordOperation.UPDATED: {
+      case RecordOperation.UPDATED -> {
         final byte[] stream;
         try {
           stream = serializer.toStream(frontendTransaction.getDatabaseSession(), rec);
@@ -4523,17 +4522,14 @@ public abstract class AbstractStorage
                 rec.getRecordType(),
                 collection);
         rec.setVersion(version);
-        break;
       }
-      case RecordOperation.DELETED: {
+      case RecordOperation.DELETED -> {
         if (rec instanceof EntityImpl entity) {
           LinkBagDeleter.deleteAllRidBags(entity, frontendTransaction);
         }
         doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(), collection);
-        break;
       }
-      default:
-        throw new StorageException(name, "Unknown record operation " + txEntry.type);
+      default -> throw new StorageException(name, "Unknown record operation " + txEntry.type);
     }
 
     // RESET TRACKING

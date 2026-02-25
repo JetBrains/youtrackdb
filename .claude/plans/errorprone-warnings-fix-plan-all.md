@@ -31,7 +31,7 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
 - [x] **Step 3: `EffectivelyPrivate`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/metrics/Meter.java:152` — removed `public` from `record()` in private inner class `ThreadLocalMeter`
 
-- [ ] **Step 4: `StatementSwitchToExpressionSwitch`** (1 instance)
+- [x] **Step 4: `StatementSwitchToExpressionSwitch`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:4464` — convert `switch (txEntry.type)` from `case X: { ... break; }` to arrow-style `case X -> { ... }`
 
 - [ ] **Step 5: `OperatorPrecedence`** (1 instance)
