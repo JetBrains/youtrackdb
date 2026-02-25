@@ -4666,7 +4666,7 @@ public abstract class AbstractStorage
           recordsProcessed++;
 
           final var currentTime = System.currentTimeMillis();
-          if (reportBatchSize > 0 && recordsProcessed % reportBatchSize == 0
+          if ((reportBatchSize > 0 && recordsProcessed % reportBatchSize == 0)
               || currentTime - lastReportTime > WAL_RESTORE_REPORT_INTERVAL) {
             final var additionalArgs =
                 new Object[]{recordsProcessed, walRecord.getLsn(), writeAheadLog.end()};

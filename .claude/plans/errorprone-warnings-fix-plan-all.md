@@ -34,8 +34,8 @@ The project has 11 ErrorProne checks already elevated to ERROR. There are 11 rem
 - [x] **Step 4: `StatementSwitchToExpressionSwitch`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:4464` — convert `switch (txEntry.type)` from `case X: { ... break; }` to arrow-style `case X -> { ... }`
 
-- [ ] **Step 5: `OperatorPrecedence`** (1 instance)
-  - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:4673` — add parentheses: `(reportBatchSize > 0 && recordsProcessed % reportBatchSize == 0) || ...`
+- [x] **Step 5: `OperatorPrecedence`** (1 instance)
+  - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:4669` — added parentheses around `&&` sub-expression to clarify precedence with `||`
 
 - [ ] **Step 6: `InvalidParam`** (1 instance)
   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java:5496` — disambiguate Javadoc `{@code tsMin}` from parameter `tsMins` (use `{@code holder.tsMin}` or `{@code TsMinHolder.tsMin}`)
