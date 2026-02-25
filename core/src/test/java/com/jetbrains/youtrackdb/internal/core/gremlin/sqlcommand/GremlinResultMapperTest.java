@@ -291,6 +291,22 @@ public class GremlinResultMapperTest extends GraphBaseTest {
 
     Assert.assertTrue(results.isEmpty());
   }
+  
+  @Test
+  public void shouldMapParameterizedSqlCommand() {
+    session.getSchema().createVertexClass("Person");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    var results = graph.traversal()
+        .sqlCommand("SELECT FROM Person WHERE name = :name", "name", "Alice")
+        .toList();
+
+    Assert.assertEquals(1, results.size());
+    var vertex = (Vertex) results.getFirst();
+    Assert.assertEquals("Alice", vertex.value("name"));
+  }
 
   private List<Object> sqlCommand(String sql) {
     return graph.traversal().sqlCommand(sql).toList();
