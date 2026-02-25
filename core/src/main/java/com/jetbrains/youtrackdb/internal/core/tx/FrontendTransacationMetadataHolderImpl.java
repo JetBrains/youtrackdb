@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
@@ -33,7 +34,8 @@ public class FrontendTransacationMetadataHolderImpl implements FrontendTransacat
       output.writeInt(status.length);
       output.write(status, 0, status.length);
     } catch (IOException e) {
-      e.printStackTrace();
+      LogManager.instance()
+          .error(this, "Error writing transaction metadata", e);
     }
     return outputStream.toByteArray();
   }
@@ -50,7 +52,10 @@ public class FrontendTransacationMetadataHolderImpl implements FrontendTransacat
       return new FrontendTransacationMetadataHolderImpl(
           new CountDownLatch(0), txId, FrontendTransactionSequenceStatus.read(status));
     } catch (IOException e) {
-      e.printStackTrace();
+      LogManager.instance()
+          .error(
+              FrontendTransacationMetadataHolderImpl.class,
+              "Error reading transaction metadata", e);
     }
 
     return null;

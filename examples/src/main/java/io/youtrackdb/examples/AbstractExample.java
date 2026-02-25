@@ -12,6 +12,7 @@ import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
 import org.apache.tinkerpop.shaded.jackson.core.JsonProcessingException;
 
 public class AbstractExample {
+  @SuppressWarnings("SystemOut") // Example code uses System.out for demonstration output
   public static void ytdManipulationExample(@Nonnull YouTrackDB ytdb)
       throws JsonProcessingException {
     //Create the database with demo data to play with it

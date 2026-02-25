@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
-import org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.apache.tinkerpop.gremlin.structure.service.Service.ServiceFactory;

@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.api;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedSystemRole;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;

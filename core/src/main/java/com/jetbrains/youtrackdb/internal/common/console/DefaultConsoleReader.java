@@ -40,7 +40,11 @@ public class DefaultConsoleReader implements ConsoleReader {
     }
 
     @Override
-    @SuppressWarnings({"checkstyle:AvoidEscapedUnicodeCharacters", "checkstyle:IllegalTokenText"})
+    @SuppressWarnings({
+        "checkstyle:AvoidEscapedUnicodeCharacters",
+        "checkstyle:IllegalTokenText",
+        "SystemOut"
+    })
     protected void execute() throws Exception {
       System.out.print("\u0008*");
       try {
@@ -63,6 +67,7 @@ public class DefaultConsoleReader implements ConsoleReader {
 
   @Nullable
   @Override
+  @SuppressWarnings("SystemOut")
   public String readPassword() {
     if (System.console() == null)
     // IDE

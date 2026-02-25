@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
-import org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin;
 import org.apache.tinkerpop.gremlin.server.Context;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings;
@@ -133,7 +132,7 @@ public final class YTDBSessionOpProcessor extends YTDBAbstractOpProcessor {
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     sessions.values().forEach(session -> session.manualKill(false));
   }
 

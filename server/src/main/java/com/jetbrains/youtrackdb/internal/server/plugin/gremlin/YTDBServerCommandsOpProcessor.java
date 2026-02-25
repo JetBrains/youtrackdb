@@ -72,7 +72,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
   }
 
   private static void createSystemUser(Context ctx) throws OpProcessorException {
@@ -226,7 +226,7 @@ public final class YTDBServerCommandsOpProcessor implements OpProcessor {
     ctx.writeAndFlush(ResponseMessage.build(msg).code(ResponseStatusCode.SUCCESS).create());
   }
 
-  private static String getExpectedUUID(RequestMessage msg) throws OpProcessorException {
+  private static String getExpectedUUID(RequestMessage msg) {
     var args = msg.getArgs();
     return (String) args.get(RemoteProtocolConstants.EXPECTED_UUID_PARAMETER);
   }

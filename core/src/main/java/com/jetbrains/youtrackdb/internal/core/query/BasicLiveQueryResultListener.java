@@ -1,9 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import java.util.Map;
 import javax.annotation.Nonnull;
 
 /// Interface that is used to notify about changes in the database. Records that are monitored are

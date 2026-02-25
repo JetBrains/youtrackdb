@@ -154,6 +154,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -372,6 +373,7 @@ public abstract class AbstractStorage
 
   @Override
   @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public Storage getUnderlying() {
     return this;
   }
@@ -567,7 +569,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private static TreeMap<String, FrontendTransactionIndexChanges> getSortedIndexOperations(
+  private static SortedMap<String, FrontendTransactionIndexChanges> getSortedIndexOperations(
       final FrontendTransaction clientTx) {
     return new TreeMap<>(clientTx.getIndexOperations());
   }
@@ -788,9 +790,7 @@ public abstract class AbstractStorage
   @SuppressWarnings("unused")
   protected abstract byte[] getIv();
 
-  /**
-   * @inheritDoc
-   */
+  /** {@inheritDoc} */
   @Override
   public final String getCreatedAtVersion() {
     return configuration.getCreatedAtVersion();
@@ -1864,6 +1864,7 @@ public abstract class AbstractStorage
    * @param allocated           true if the operation is pre-allocated commit
    * @return The list of operations applied by the transaction
    */
+  @SuppressWarnings("IdentityHashMapUsage")
   protected List<RecordOperation> commit(
       final FrontendTransactionImpl frontendTransaction, final boolean allocated) {
     // XXX: At this moment, there are two implementations of the commit method. One for regular
@@ -2100,19 +2101,17 @@ public abstract class AbstractStorage
     assert !(changes.key instanceof RID orid) || orid.isPersistent();
     for (var op : index.interpretTxKeyChanges(changes)) {
       switch (op.getOperation()) {
-        case PUT:
-          index.doPut(session, this, changes.key, op.getValue().getIdentity());
-          break;
-        case REMOVE:
+        case PUT -> index.doPut(session, this, changes.key, op.getValue().getIdentity());
+        case REMOVE -> {
           if (op.getValue() != null) {
             index.doRemove(session, this, changes.key, op.getValue().getIdentity());
           } else {
             index.doRemove(this, changes.key, session);
           }
-          break;
-        case CLEAR:
+        }
+        case CLEAR -> {
           // SHOULD NEVER BE THE CASE HANDLE BY cleared FLAG
-          break;
+        }
       }
     }
   }
@@ -3315,9 +3314,7 @@ public abstract class AbstractStorage
     }
   }
 
-  /**
-   * @inheritDoc
-   */
+  /** {@inheritDoc} */
   @Override
   public final void pageIsBroken(final String fileName, final long pageIndex) {
     LogManager.instance()
@@ -3343,6 +3340,7 @@ public abstract class AbstractStorage
   }
 
   @Override
+  @SuppressWarnings("FutureReturnValueIgnored")
   public final void requestCheckpoint() {
     try {
       if (!walVacuumInProgress.get() && walVacuumInProgress.compareAndSet(false, true)) {
@@ -4233,20 +4231,17 @@ public abstract class AbstractStorage
       final StorageCollection collection) {
     final var stringValue = Optional.ofNullable(value).map(Object::toString).orElse(null);
     switch (attribute) {
-      case NAME:
+      case NAME -> {
         Objects.requireNonNull(stringValue);
 
         final var oldName = collection.getName();
         collection.setCollectionName(stringValue);
         collectionMap.remove(oldName.toLowerCase(Locale.ROOT));
         collectionMap.put(stringValue.toLowerCase(Locale.ROOT), collection);
-        break;
-      case CONFLICTSTRATEGY:
-        collection.setRecordConflictStrategy(stringValue);
-        break;
-      default:
-        throw new IllegalArgumentException(
-            "Runtime change of attribute '" + attribute + "' is not supported");
+      }
+      case CONFLICTSTRATEGY -> collection.setRecordConflictStrategy(stringValue);
+      default -> throw new IllegalArgumentException(
+          "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
     ((CollectionBasedStorageConfiguration) configuration)
@@ -4879,7 +4874,8 @@ public abstract class AbstractStorage
     return ridsPerCollection;
   }
 
-  private static void lockIndexes(final TreeMap<String, FrontendTransactionIndexChanges> indexes,
+  private static void lockIndexes(
+      final SortedMap<String, FrontendTransactionIndexChanges> indexes,
       AtomicOperation atomicOperation) {
     for (final var changes : indexes.values()) {
       changes.getIndex().acquireAtomicExclusiveLock(atomicOperation);

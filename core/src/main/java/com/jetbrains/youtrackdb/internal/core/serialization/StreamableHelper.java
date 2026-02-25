@@ -133,7 +133,7 @@ public class StreamableHelper {
               new ObjectInputStream(mem) {
                 @Override
                 protected Class<?> resolveClass(ObjectStreamClass desc)
-                    throws IOException, ClassNotFoundException {
+                    throws ClassNotFoundException {
                   return streamableClassLoader.loadClass(desc.getName());
                 }
               };

@@ -34,6 +34,7 @@ public abstract class SLF4JLogManager {
    * @param exception      the exception to log
    * @param additionalArgs additional arguments to format the message
    */
+  @SuppressWarnings("SystemOut") // Fallback to System.err when the logging subsystem itself fails
   public void log(
       @Nonnull Object requester,
       @Nullable String dbName,

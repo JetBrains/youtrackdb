@@ -102,6 +102,7 @@
     <errorprone.version>2.47.0</errorprone.version>
     <nullaway.version>0.13.1</nullaway.version>
     <jspecify.version>1.0.0</jspecify.version>
+    <errorprone.args>-Xplugin:ErrorProne -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.*|.*/src/test/.*|.*/generated-test-sources/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR -Xep:StringCaseLocaleUsage:ERROR -Xep:PatternMatchingInstanceof:ERROR -Xep:UnusedVariable:ERROR -Xep:UnnecessaryParentheses:ERROR -Xep:MixedMutabilityReturnType:ERROR -Xep:SystemOut:ERROR -Xep:CheckedExceptionNotThrown:ERROR -Xep:RemoveUnusedImports:ERROR</errorprone.args>
   </properties>
 
 
@@ -408,7 +409,7 @@
               <arg>-XDcompilePolicy=simple</arg>
               <arg>--should-stop=ifError=FLOW</arg>
               <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
-              <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR -Xep:StringCaseLocaleUsage:ERROR -Xep:PatternMatchingInstanceof:ERROR -Xep:UnusedVariable:ERROR -Xep:UnnecessaryParentheses:ERROR -Xep:MixedMutabilityReturnType:ERROR</arg>
+              <arg>${errorprone.args}</arg>
             </compilerArgs>
             <annotationProcessorPaths>
               <path>

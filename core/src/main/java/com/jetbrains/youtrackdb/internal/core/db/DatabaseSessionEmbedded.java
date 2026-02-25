@@ -126,7 +126,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycle
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
@@ -146,6 +145,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -420,9 +420,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  /**
-   * {@inheritDoc}
-   */
   public void internalCreate(YouTrackDBConfigImpl config, SharedContext ctx) {
     storage.setRecordSerializer(serializer.toString(), serializer.getCurrentVersion());
     storage.setProperty(SQLStatement.CUSTOM_STRICT_SQL, "true");
@@ -486,29 +483,29 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     final var stringValue = IOUtils.getStringContent(iValue != null ? iValue.toString() : null);
     final var storage = this.storage;
     switch (iAttribute) {
-      case DATEFORMAT:
+      case DATEFORMAT -> {
         if (stringValue == null) {
           throw new IllegalArgumentException("date format is null");
         }
 
-        // CHECK FORMAT
-        new SimpleDateFormat(stringValue).format(new Date());
+        // Validate format by formatting the current instant
+        new SimpleDateFormat(stringValue).format(Date.from(Instant.now()));
 
         storage.setDateFormat(stringValue);
-        break;
+      }
 
-      case DATE_TIME_FORMAT:
+      case DATE_TIME_FORMAT -> {
         if (stringValue == null) {
           throw new IllegalArgumentException("date format is null");
         }
 
-        // CHECK FORMAT
-        new SimpleDateFormat(stringValue).format(new Date());
+        // Validate format by formatting the current instant
+        new SimpleDateFormat(stringValue).format(Date.from(Instant.now()));
 
         storage.setDateTimeFormat(stringValue);
-        break;
+      }
 
-      case TIMEZONE:
+      case TIMEZONE -> {
         if (stringValue == null) {
           throw new IllegalArgumentException("Timezone can't be null");
         }
@@ -520,22 +517,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         }
 
         storage.setTimeZone(timeZoneValue);
-        break;
+      }
 
-      case LOCALE_COUNTRY:
-        storage.setLocaleCountry(stringValue);
-        break;
+      case LOCALE_COUNTRY -> storage.setLocaleCountry(stringValue);
 
-      case LOCALE_LANGUAGE:
-        storage.setLocaleLanguage(stringValue);
-        break;
+      case LOCALE_LANGUAGE -> storage.setLocaleLanguage(stringValue);
 
-      case CHARSET:
-        storage.setCharset(stringValue);
-        break;
-      default:
-        throw new IllegalArgumentException(
-            "Option '" + iAttribute + "' not supported on alter database");
+      case CHARSET -> storage.setCharset(stringValue);
+
+      default -> throw new IllegalArgumentException(
+          "Option '" + iAttribute + "' not supported on alter database");
     }
   }
 
@@ -1784,9 +1775,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void checkSecurity(
       final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
@@ -1816,9 +1804,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void checkSecurity(
       final ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1836,9 +1821,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void checkSecurity(
       final ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1943,9 +1925,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return this;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public long countCollectionElements(int iCollectionId, boolean countTombstones) {
     assert assertIfNotActive();
 
@@ -1960,9 +1939,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.count(this, iCollectionId, countTombstones);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     assert assertIfNotActive();
 
@@ -1976,9 +1952,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.count(this, iCollectionIds, countTombstones);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public long countCollectionElements(final String iCollectionName) {
     assert assertIfNotActive();
 
@@ -2134,83 +2107,27 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getTimeZone();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void freeze(final boolean throwException) {
     assert assertIfNotActive();
 
     checkOpenness();
 
-    if (!(storage instanceof FreezableStorageComponent)) {
-      LogManager.instance()
-          .error(
-              this,
-              "Only local paginated storage supports freeze. If you are using remote client please"
-                  + " use OServerAdmin instead",
-              null);
-
-      return;
-    }
-
-    freezeDurationMetric.timed(() -> {
-      final var storage = getFreezableStorage();
-      if (storage != null) {
-        storage.freeze(this, throwException);
-      }
-    });
+    freezeDurationMetric.timed(() -> storage.freeze(this, throwException));
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void freeze() {
     assert assertIfNotActive();
     freeze(false);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void release() {
     assert assertIfNotActive();
 
     checkOpenness();
 
-    if (!(storage instanceof FreezableStorageComponent)) {
-      LogManager.instance()
-          .error(
-              this,
-              "Only local paginated storage supports release. If you are using remote client please"
-                  + " use OServerAdmin instead",
-              null);
-      return;
-    }
-
-    releaseDurationMetric.timed(() -> {
-      final var storage = getFreezableStorage();
-      if (storage != null) {
-        storage.release(this);
-      }
-    });
+    releaseDurationMetric.timed(() -> storage.release(this));
   }
 
-  @Nullable
-  private FreezableStorageComponent getFreezableStorage() {
-    var s = storage;
-    if (s instanceof FreezableStorageComponent) {
-      return s;
-    } else {
-      LogManager.instance()
-          .error(
-              this, "Storage of type " + s.getType() + " does not support freeze operation", null);
-      return null;
-    }
-  }
-
-  /**
-   * {@inheritDoc}
-   */
   public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
     return storage.getLinkCollectionsBtreeCollectionManager();
@@ -2393,32 +2310,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public static byte getRecordType() {
     return recordType;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public long countCollectionElements(final int[] iCollectionIds) {
     assert assertIfNotActive();
     return countCollectionElements(iCollectionIds, false);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public long countCollectionElements(final int iCollectionId) {
     assert assertIfNotActive();
     return countCollectionElements(iCollectionId, false);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public MetadataDefault getMetadata() {
     assert assertIfNotActive();
     checkOpenness();
@@ -2426,41 +2331,26 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return metadata;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public boolean isRetainRecords() {
     assert assertIfNotActive();
     return retainRecords;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public DatabaseSessionEmbedded setRetainRecords(boolean retainRecords) {
     assert assertIfNotActive();
     this.retainRecords = retainRecords;
     return this;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void setStatus(final STATUS status) {
     assert assertIfNotActive();
     this.status = status;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void setInternal(final ATTRIBUTES iAttribute, final Object iValue) {
     set(iAttribute, iValue);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public SecurityUser getCurrentUser() {
     assert assertIfNotActive();
 
@@ -2479,9 +2369,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return user.getName(this);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void setUser(final SecurityUser user) {
     assert assertIfNotActive();
     if (user instanceof SecurityUserImpl) {
@@ -2521,28 +2408,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @SuppressWarnings({"unused", "SameReturnValue"})
   public boolean isMVCC() {
     assert assertIfNotActive();
     return true;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @SuppressWarnings({"unused", "MethodMayBeStatic"})
   public DatabaseSessionEmbedded setMVCC(boolean mvcc) {
     throw new UnsupportedOperationException();
   }
 
-  /**
-   * {@inheritDoc}
-   *
-   * @return
-   */
   public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
 
@@ -2555,9 +2431,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return iHookImpl;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
 
@@ -2568,9 +2441,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public LocalRecordCache getLocalCache() {
     return localCache;
   }
@@ -2592,9 +2462,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  /**
-   * {@inheritDoc}
-   */
   public List<RecordHook> getHooks() {
     assert assertIfNotActive();
 
@@ -2665,17 +2532,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public boolean isValidationEnabled() {
     assert assertIfNotActive();
     return (Boolean) get(ATTRIBUTES_INTERNAL.VALIDATION);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void setValidationEnabled(final boolean iEnabled) {
     assert assertIfNotActive();
     set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
@@ -2839,7 +2700,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
 
   @Nonnull
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"}) // Intentional convenience cast API
   public <RET extends DBRecord> RET load(final RID recordId) {
     assert assertIfNotActive();
 
@@ -2998,6 +2859,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newInstance(Entity.DEFAULT_CLASS_NAME);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals") // Intentional convenience cast API
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     assert assertIfNotActive();
 
@@ -3055,17 +2917,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  /**
-   * {@inheritDoc}
-   */
   public RecordIteratorClass browseClass(final @Nonnull String className) {
     assert assertIfNotActive();
     return browseClass(className, true);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public RecordIteratorClass browseClass(
       final @Nonnull String className, final boolean iPolymorphic) {
     return browseClass(className, iPolymorphic, true);
@@ -3097,9 +2953,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         true, true);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
       final String iCollectionName) {
     assert assertIfNotActive();
@@ -3110,9 +2963,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new RecordIteratorCollection<>(this, getCollectionIdByName(iCollectionName), true);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public Iterable<SessionListener> getListeners() {
     assert assertIfNotActive();
     return getListenersCopy();
@@ -3192,9 +3042,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return (totalOnDb + addedInTx) - deletedInTx;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public Map<RID, RID> commit() {
     assert assertIfNotActive();
 
@@ -3296,9 +3143,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   public void rollback() {
     assert assertIfNotActive();
 
@@ -3371,6 +3215,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * Use #activateOnCurrentThread instead.
    */
   @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public void setCurrentDatabaseInThreadLocal() {
     activateOnCurrentThread();
   }
@@ -3407,8 +3252,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     final var collectionIdClass =
         metadata.getImmutableSchemaSnapshot().getClassByCollectionId(rid.getCollectionId());
-    if (recordClass == null && collectionIdClass != null
-        || collectionIdClass == null && recordClass != null
+    if ((recordClass == null && collectionIdClass != null)
+        || (collectionIdClass == null && recordClass != null)
         || (recordClass != null && !recordClass.equals(collectionIdClass))) {
       throw new IllegalArgumentException(
           "Record saved into collection '"
@@ -4207,7 +4052,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private void updateOppositeLinks(@Nonnull EntityImpl entity, String propertyName,
-      HashMap<RecordIdInternal, int[]> linksToUpdateMap) {
+      Map<RecordIdInternal, int[]> linksToUpdateMap) {
     var oppositeLinkBagPropertyName = EntityImpl.getOppositeLinkBagPropertyName(propertyName);
     for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
       var oppositeLink = entitiesToUpdate.getKey();
@@ -4266,7 +4111,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private static void decrementLinkCounter(@Nonnull RecordIdInternal recordId,
-      @Nonnull HashMap<RecordIdInternal, int[]> linksToUpdateMap) {
+      @Nonnull Map<RecordIdInternal, int[]> linksToUpdateMap) {
     linksToUpdateMap.compute(
         recordId,
         (key, value) -> {
@@ -4283,7 +4128,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private static void incrementLinkCounter(@Nonnull RecordIdInternal recordId,
-      @Nonnull HashMap<RecordIdInternal, int[]> linksToUpdateMap) {
+      @Nonnull Map<RecordIdInternal, int[]> linksToUpdateMap) {
     linksToUpdateMap.compute(
         recordId,
         (key, value) -> {
@@ -4297,7 +4142,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private static void addToLinksContainer(Object value,
-      HashMap<RecordIdInternal, int[]> links) {
+      Map<RecordIdInternal, int[]> links) {
     if (value == null) {
       return;
     }
@@ -4338,7 +4183,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private static void subtractFromLinksContainer(Object value,
-      HashMap<RecordIdInternal, int[]> links) {
+      Map<RecordIdInternal, int[]> links) {
     if (value == null) {
       return;
     }
@@ -4492,6 +4337,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     try {
       return load(recordId);
