@@ -37,6 +37,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   }
 
   /**
+   * Returns true if the corresponding execution plan is present in the cache.
+   *
    * @param statement a GQL statement
    * @return true if the corresponding execution plan is present in the cache
    */
@@ -101,6 +103,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   }
 
   /**
+   * Returns the cached execution plan for the given GQL statement, or null if not found.
+   *
    * @param statement a GQL query string
    * @param ctx       execution context
    * @return the corresponding execution plan from cache, or null if not found

@@ -4,7 +4,8 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -87,12 +88,14 @@ public class GqlMatchStatement implements GqlStatement {
       if (p.alias() == null || p.alias().isBlank()) {
         anonymousCounter++;
       }
-      pattern.addNode(alias);
+      var node = new PatternNode();
+      node.alias = alias;
+      pattern.aliasToNode.put(alias, node);
       aliasClasses.put(alias, effectiveType(p.label()));
     }
 
     var commandContext = new BasicCommandContext(ctx.session());
-    var planner = new MatchExecutionPlanner(pattern, aliasClasses, null, null);
+    var planner = new MatchExecutionPlanner(pattern, aliasClasses);
     var sqlPlan = planner.createExecutionPlan(commandContext, false);
 
     return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);

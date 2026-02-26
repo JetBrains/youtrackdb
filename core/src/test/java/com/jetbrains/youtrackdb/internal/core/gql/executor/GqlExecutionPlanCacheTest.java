@@ -300,9 +300,6 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     var tx = graphInternal.tx();
     tx.readWrite();
     try {
-      var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
-
       // Small capacity: after overfill the first entry should be evicted (Guava eviction is best-effort)
       var cache = new GqlExecutionPlanCache(
           GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());

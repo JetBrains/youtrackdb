@@ -490,52 +490,6 @@ public class PatternTest extends ParserTestAbstract {
     }
   }
 
-  @Test
-  public void addNode_singleAlias() {
-    var pattern = new Pattern();
-    pattern.addNode("x");
-    Assert.assertEquals(1, pattern.getAliasToNode().size());
-    Assert.assertNotNull(pattern.getAliasToNode().get("x"));
-    Assert.assertEquals("x", pattern.getAliasToNode().get("x").alias);
-    Assert.assertEquals(0, pattern.getNumOfEdges());
-  }
-
-  @Test
-  public void addNode_multipleDistinct() {
-    var pattern = new Pattern();
-    pattern.addNode("a");
-    pattern.addNode("b");
-    pattern.addNode("c");
-    Assert.assertEquals(3, pattern.getAliasToNode().size());
-  }
-
-  @Test
-  public void addNode_nullAlias_ignored() {
-    var pattern = new Pattern();
-    pattern.addNode(null);
-    Assert.assertTrue(pattern.getAliasToNode().isEmpty());
-  }
-
-  @Test
-  public void addNode_duplicateAlias_ignored() {
-    var pattern = new Pattern();
-    pattern.addNode("dup");
-    pattern.addNode("dup");
-    Assert.assertEquals(1, pattern.getAliasToNode().size());
-  }
-
-  @Test
-  public void addNode_preservesInsertionOrder() {
-    var pattern = new Pattern();
-    pattern.addNode("z");
-    pattern.addNode("a");
-    pattern.addNode("m");
-    var keys = pattern.getAliasToNode().keySet().stream().toList();
-    Assert.assertEquals("z", keys.get(0));
-    Assert.assertEquals("a", keys.get(1));
-    Assert.assertEquals("m", keys.get(2));
-  }
-
   private CommandContext getContext() {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);

@@ -5,7 +5,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -279,9 +280,10 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   private static GqlExecutionPlan buildSqlPlan(
       DatabaseSessionEmbedded session, String alias, String className) {
     var pattern = new Pattern();
-    pattern.addNode(alias);
-    var planner = new MatchExecutionPlanner(
-        pattern, Map.of(alias, className), null, null);
+    var node = new PatternNode();
+    node.alias = alias;
+    pattern.aliasToNode.put(alias, node);
+    var planner = new MatchExecutionPlanner(pattern, Map.of(alias, className));
     var sqlPlan = planner.createExecutionPlan(new BasicCommandContext(session), false);
     return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
   }
