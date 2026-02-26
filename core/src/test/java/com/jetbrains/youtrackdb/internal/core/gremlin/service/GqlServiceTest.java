@@ -11,18 +11,18 @@ import org.junit.Test;
 
 /**
  * End-to-end tests for GqlService verifying:
- * - single binding returns correct Vertex with label and properties
+ * - single binding returns Map with Vertex
  * - multiple vertices all returned with correct properties
  * - multiple patterns produce Map projection with cartesian product
- * - anonymous alias returns Vertex (single binding)
+ * - anonymous alias returns Map with Vertex
  * - streaming mode
  * - error paths (non-existent class, empty query)
  * - Factory: all parameter parsing branches, type, name, requirements
  */
-@SuppressWarnings("resource")
+@SuppressWarnings({"resource", "unchecked"})
 public class GqlServiceTest extends GraphBaseTest {
 
-  // ── Single binding: verify vertex content ──
+  // ── Single binding: returns Map with vertex ──
 
   @Test
   public void execute_singleVertex_returnsVertexWithCorrectProperties() {
@@ -32,8 +32,8 @@ public class GqlServiceTest extends GraphBaseTest {
     var results = graph.traversal().gql("MATCH (a:GqlSvcPerson)").toList();
 
     Assert.assertEquals(1, results.size());
-    Assert.assertTrue(results.getFirst() instanceof Vertex);
-    var v = (Vertex) results.getFirst();
+    var map = (Map<String, Object>) results.getFirst();
+    var v = (Vertex) map.get("a");
     Assert.assertEquals("GqlSvcPerson", v.label());
     Assert.assertEquals("Alice", v.property("name").value());
     Assert.assertEquals(30, v.property("age").value());
@@ -52,7 +52,8 @@ public class GqlServiceTest extends GraphBaseTest {
 
     Assert.assertEquals(3, results.size());
     var species = results.stream()
-        .map(r -> ((Vertex) r).property("species").value().toString())
+        .map(r -> ((Vertex) ((Map<String, Object>) r).get("a"))
+            .property("species").value().toString())
         .sorted()
         .toList();
     Assert.assertEquals(List.of("Cat", "Dog", "Parrot"), species);
@@ -97,7 +98,7 @@ public class GqlServiceTest extends GraphBaseTest {
     }
   }
 
-  // ── Anonymous alias: single binding returns Vertex ──
+  // ── Anonymous alias: returns Map with generated alias ──
 
   @Test
   public void execute_withoutAlias_returnsVertexWithProperties() {
@@ -107,8 +108,10 @@ public class GqlServiceTest extends GraphBaseTest {
     var results = graph.traversal().gql("MATCH (:GqlSvcItem)").toList();
 
     Assert.assertEquals(1, results.size());
-    Assert.assertTrue(results.getFirst() instanceof Vertex);
-    Assert.assertEquals("Widget", ((Vertex) results.getFirst()).property("name").value());
+    Assert.assertTrue(results.getFirst() instanceof Map);
+    var map = (Map<String, Object>) results.getFirst();
+    var v = (Vertex) map.values().iterator().next();
+    Assert.assertEquals("Widget", v.property("name").value());
   }
 
   // ── gql() with arguments ──
@@ -120,7 +123,7 @@ public class GqlServiceTest extends GraphBaseTest {
 
     var list = graph.traversal().gql("MATCH (a:GqlSvcArg)", Map.of()).toList();
     Assert.assertEquals(1, list.size());
-    Assert.assertTrue(list.getFirst() instanceof Vertex);
+    Assert.assertTrue(list.getFirst() instanceof Map);
   }
 
   // ── Streaming mode ──

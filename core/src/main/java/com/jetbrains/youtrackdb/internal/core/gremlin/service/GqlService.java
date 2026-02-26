@@ -2,11 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.gql.executor.ResultToGremlinConverter;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.GremlinResultMapper;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Map;
 import java.util.Objects;
@@ -20,9 +20,9 @@ import javax.annotation.Nullable;
 
 /// TinkerPop service for executing GQL (Graph Query Language) queries.
 ///
-/// Executes GQL queries using the unified MATCH planner/engine. Results are kept as {@link Result}
-/// internally; when returning to Gremlin they are converted: single vertex → Gremlin vertex,
-/// single edge → Gremlin edge, projection (multiple bindings) → Map, else UnsupportedOperationException.
+/// Executes GQL queries using the unified MATCH planner/engine. Results are converted
+/// via [GremlinResultMapper]: each {@link Result} row becomes a Map whose values are
+/// Gremlin vertices, edges, or plain values.
 ///
 /// Supports both Start and Streaming execution modes to allow chaining.
 public class GqlService implements Service<Object, Object> {
@@ -126,7 +126,8 @@ public class GqlService implements Service<Object, Object> {
 
       // 5. Execute and return streaming result (Result rows converted to Gremlin types at read time)
       stream = Objects.requireNonNull(executionPlan).start();
-      return new GqlResultIterator(stream, executionPlan, graph, session);
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      return new GqlResultIterator(stream, executionPlan, graph, schema);
     } catch (Exception e) {
       if (stream != null) {
         stream.close();
@@ -139,11 +140,12 @@ public class GqlService implements Service<Object, Object> {
   }
 
   /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption.
-  /// Keeps results as Result internally; converts to Gremlin types (vertex, edge, or Map) when read.
+  /// Converts internal Result rows to Gremlin types (vertex, edge, Map) via
+  /// the shared [GremlinResultMapper] used by both GQL and YQL services.
   private record GqlResultIterator(@Nullable GqlExecutionStream stream,
                                    GqlExecutionPlan plan,
                                    YTDBGraphInternal graph,
-                                   DatabaseSessionEmbedded session) implements
+                                   ImmutableSchema schema) implements
       CloseableIterator<Object> {
 
     @Override
@@ -165,7 +167,7 @@ public class GqlService implements Service<Object, Object> {
       try {
         var raw = Objects.requireNonNull(stream).next();
         if (raw instanceof Result result) {
-          return ResultToGremlinConverter.toGremlin(result, graph, session);
+          return GremlinResultMapper.toGremlinValue(graph, schema, result);
         }
         return raw;
       } catch (Exception e) {
