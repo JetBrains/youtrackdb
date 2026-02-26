@@ -206,9 +206,9 @@ public class YouTrackDBServer {
     if (contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP)) {
       LogManager.instance().info(this, "Dumping environment after server startup...");
-      @SuppressWarnings("SystemOut") // dumpConfiguration API requires a PrintStream
-      var out = System.out;
-      GlobalConfiguration.dumpConfiguration(out);
+      var baos = new java.io.ByteArrayOutputStream();
+      GlobalConfiguration.dumpConfiguration(new java.io.PrintStream(baos));
+      LogManager.instance().info(this, "%s", baos);
     }
 
     databaseDirectory =
