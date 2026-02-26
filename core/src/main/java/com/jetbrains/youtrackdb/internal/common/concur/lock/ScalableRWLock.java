@@ -286,6 +286,9 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     final var newEntry = new ReadersEntry(state);
     // Register cleanup before the entry is reachable from the ThreadLocal, so that when the
     // thread dies and the entry becomes phantom-reachable, the Cleaner removes the state.
+    // If the thread dies between entry.set() and readersStateList.add(), the Cleaner fires
+    // a harmless no-op remove() because the state is still SRWL_STATE_NOT_READING and was
+    // never added to the list, so no writer can spin on it.
     CLEANER.register(newEntry,
         new CleanupAction(readersStateList, readersStateArrayRef, state));
     entry.set(newEntry);

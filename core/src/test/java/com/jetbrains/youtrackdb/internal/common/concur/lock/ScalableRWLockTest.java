@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.concur.lock;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
@@ -36,13 +37,15 @@ public class ScalableRWLockTest {
     assertTrue("Reader thread should acquire the lock",
         readLockAcquired.await(5, TimeUnit.SECONDS));
     readerThread.join(5_000);
-    assertTrue("Reader thread should have terminated", !readerThread.isAlive());
+    assertFalse("Reader thread should have terminated", readerThread.isAlive());
 
     // Null the thread reference so the ThreadLocal (and thus ReadersEntry) become unreachable
     //noinspection UnusedAssignment
     readerThread = null;
 
     // Trigger GC to make the Cleaner run. Retry a few times since GC is non-deterministic.
+    // Note: this may be flaky on unusual GC configurations (e.g. Epsilon GC or very large heaps)
+    // where System.gc() is a no-op. With the default G1 collector on JDK 21+, it is reliable.
     for (int i = 0; i < 50; i++) {
       System.gc();
       Thread.sleep(100);
@@ -113,8 +116,8 @@ public class ScalableRWLockTest {
 
     // Give the writer a moment to attempt acquisition — it should be blocked
     Thread.sleep(200);
-    assertTrue("Writer should be blocked while reader holds the lock",
-        !writerAcquired.get());
+    assertFalse("Writer should be blocked while reader holds the lock",
+        writerAcquired.get());
 
     // Release the read lock — writer should now proceed
     lock.sharedUnlock();
