@@ -31,7 +31,7 @@ public class BonsaiTreeRepair {
     final var edgeClass = schema.getClass("E");
     if (edgeClass != null) {
       final var processedVertexes = new HashMap<String, Set<RID>>();
-      final var countEdges = db.countClass(edgeClass.getName());
+      final var countEdges = db.approximateCountClass(edgeClass.getName());
 
       message(outputListener, countEdges + " will be processed.");
       long counter = 0;

@@ -69,9 +69,6 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
 
   private static List<Result> toResult(DatabaseSessionEmbedded db,
       Collection<? extends StorageCollection> collectionInstances) {
-    var transaction = db.getActiveTransaction();
-    var atomicOperation = transaction.getAtomicOperation();
-
     List<Result> result = new ArrayList<>();
     if (collectionInstances != null) {
       for (var collection : collectionInstances) {
@@ -79,7 +76,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
         item.setProperty("name", collection.getName());
         item.setProperty("fileName", collection.getFileName());
         item.setProperty("id", collection.getId());
-        item.setProperty("entries", collection.getEntries(atomicOperation));
+        item.setProperty("entries", collection.getApproximateRecordsCount());
         item.setProperty(
             "conflictStrategy",
             collection.getRecordConflictStrategy() == null

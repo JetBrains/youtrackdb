@@ -94,7 +94,7 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
 
   private void checkCollection(
       DatabaseSessionEmbedded session, int collectionId, Index index, List<String> fields) {
-    var totRecordsForCollection = this.session.countCollectionElements(collectionId);
+    var totRecordsForCollection = this.session.getApproximateCollectionCount(collectionId);
     var collectionName = this.session.getCollectionNameById(collectionId);
 
     var totSteps = 5;

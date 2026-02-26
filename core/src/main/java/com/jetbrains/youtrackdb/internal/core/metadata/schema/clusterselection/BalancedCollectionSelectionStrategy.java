@@ -49,7 +49,7 @@ public class BalancedCollectionSelectionStrategy implements CollectionSelectionS
       var min = Long.MAX_VALUE;
 
       for (var collection : collections) {
-        final var count = session.countCollectionElements(collection);
+        final var count = session.getApproximateCollectionCount(collection);
         if (count < min) {
           min = count;
           smallerCollectionId = collection;

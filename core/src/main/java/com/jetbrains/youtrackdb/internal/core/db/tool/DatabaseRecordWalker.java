@@ -56,7 +56,7 @@ public class DatabaseRecordWalker {
 
       session.begin();
       final var collectionId = session.getCollectionIdByName(collectionName);
-      final var collectionSize = session.countCollectionElements(collectionId);
+      final var collectionSize = session.getApproximateCollectionCount(collectionId);
 
       var positions = storage.ceilingPhysicalPositions(
           session, collectionId, new PhysicalPosition(0), Integer.MAX_VALUE);

@@ -76,7 +76,7 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
 
   private String optimizeEdges(DatabaseSessionEmbedded db) {
     long transformed = 0;
-    final var totalEdges = db.countClass("E");
+    final var totalEdges = db.approximateCountClass("E");
     long browsedEdges = 0;
     long lastLapBrowsed = 0;
     var lastLapTime = System.currentTimeMillis();

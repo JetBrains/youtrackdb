@@ -360,13 +360,9 @@ public abstract class IndexAbstract implements Index {
       long entityNum = 0;
       long entitiesTotal = 0;
 
-      session.begin();
-      try {
-        for (final var collection : collectionsToIndex) {
-          entitiesTotal += storage.count(session, storage.getCollectionIdByName(collection));
-        }
-      } finally {
-        session.rollback();
+      for (final var collection : collectionsToIndex) {
+        entitiesTotal += storage.getApproximateRecordsCount(
+            storage.getCollectionIdByName(collection));
       }
 
       if (iProgressListener != null) {
