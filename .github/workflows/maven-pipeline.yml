@@ -209,6 +209,17 @@ jobs:
           large_files: true
           comment_mode: off
           check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v6
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Upload Coverage Data
         uses: actions/upload-artifact@v6
         if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
@@ -257,6 +268,17 @@ jobs:
           large_files: true
           comment_mode: off
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v6
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ------------------------------------------------------------------
   # JOB 3: COVERAGE GATE

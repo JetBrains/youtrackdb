@@ -118,6 +118,17 @@ jobs:
           large_files: true
           comment_mode: off
           check_name: Integration Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v6
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-integration-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
 
   test-windows:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
@@ -164,6 +175,17 @@ jobs:
           large_files: true
           comment_mode: off
           check_name: Integration Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v6
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-integration-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
 
   merge-to-main:
     name: Merge develop into main
