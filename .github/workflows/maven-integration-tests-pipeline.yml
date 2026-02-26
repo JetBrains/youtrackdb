@@ -80,10 +80,10 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
-            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/amd64'
             java_arch: x64
           - arch: arm
-            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/arm64/v8'
             java_arch: aarch64
     steps:
       - name: Checkout Source Code
