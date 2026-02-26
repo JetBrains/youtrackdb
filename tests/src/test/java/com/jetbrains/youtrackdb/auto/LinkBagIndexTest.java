@@ -768,12 +768,14 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 2. Verify all 4 RIDs (2 edges + 2 targets) are in the index.
     final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     Assert.assertEquals(index.size(session), 4);
 
     var expectedKeys = Set.of(
         edge1.getIdentity(), target1.getIdentity(),
         edge2.getIdentity(), target2.getIdentity());
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
@@ -781,6 +783,7 @@ public class LinkBagIndexTest extends BaseDBTest {
             "Unexpected key found: " + key);
       }
     }
+    session.commit();
   }
 
   /**
@@ -804,12 +807,14 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 2. Verify the index contains 3 keys: single1 + edge1 + target1.
     final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     Assert.assertEquals(index.size(session), 3);
 
     var expectedKeys = Set.of(
         single1.getIdentity(),
         edge1.getIdentity(), target1.getIdentity());
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
@@ -817,6 +822,7 @@ public class LinkBagIndexTest extends BaseDBTest {
             "Unexpected key found: " + key);
       }
     }
+    session.commit();
   }
 
   /**
@@ -846,12 +852,14 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 3. Verify the index has 3 keys: single1 + edge1 + target1.
     final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     Assert.assertEquals(index.size(session), 3);
 
     var expectedKeys = Set.of(
         single1.getIdentity(),
         edge1.getIdentity(), target1.getIdentity());
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
@@ -859,6 +867,7 @@ public class LinkBagIndexTest extends BaseDBTest {
             "Unexpected key found: " + key);
       }
     }
+    session.commit();
   }
 
   /**
@@ -893,12 +902,14 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 3. Verify the index has 3 keys: single1 + edge1 + target1.
     final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     Assert.assertEquals(index.size(session), 3);
 
     var expectedKeys = Set.of(
         single1.getIdentity(),
         edge1.getIdentity(), target1.getIdentity());
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
@@ -906,6 +917,7 @@ public class LinkBagIndexTest extends BaseDBTest {
             "Unexpected key found: " + key);
       }
     }
+    session.commit();
   }
 
   /**
@@ -935,15 +947,18 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 3. Verify the index contains only the lightweight entry.
     final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keyStream(ato)) {
       var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         Assert.assertEquals(key.getIdentity(), single1.getIdentity());
       }
     }
+    session.commit();
   }
 
   /**
@@ -965,7 +980,9 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 2. Verify both RIDs are indexed.
     final var index = getIndex("ridBagVertexIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.commit();
 
     // 3. Replace the ridBag with an empty one and commit.
     session.begin();
@@ -975,7 +992,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
     // 4. Verify the index is empty.
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.commit();
   }
 
   /**
@@ -997,7 +1016,9 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     // 2. Verify both RIDs are indexed.
     final var index = getIndex("ridBagVertexIndex");
+    session.begin();
     Assert.assertEquals(index.size(session), 2);
+    session.commit();
 
     // 3. Delete the vertex (which also deletes its edges) and commit.
     session.begin();
@@ -1005,7 +1026,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
     // 4. Verify the index is empty.
+    session.begin();
     Assert.assertEquals(index.size(session), 0);
+    session.commit();
   }
 
 }

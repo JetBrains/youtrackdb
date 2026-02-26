@@ -621,7 +621,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       btreeRecordsSpliterator = btreeSpliterator(atomicOperation);
     }
 
-    public void removed(RID rid) {
+    void removed(RID rid) {
       if (currentPair != null && rid.equals(currentPair.primaryRid()) && currentCounter > 0) {
         currentCounter--;
       }

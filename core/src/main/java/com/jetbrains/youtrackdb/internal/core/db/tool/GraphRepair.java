@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageRecoverEventListener;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
