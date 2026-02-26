@@ -47,7 +47,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrows
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
 import java.util.ArrayList;
