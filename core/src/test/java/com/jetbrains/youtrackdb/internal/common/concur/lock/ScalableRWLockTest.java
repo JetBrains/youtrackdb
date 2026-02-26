@@ -95,12 +95,10 @@ public class ScalableRWLockTest {
   public void testWriterBlocksWhileReaderHoldsLock() throws Exception {
     final var lock = new ScalableRWLock();
     final var writerAcquired = new AtomicBoolean(false);
-    final var readerReady = new CountDownLatch(1);
     final var writerStarted = new CountDownLatch(1);
 
     // Acquire read lock on the main thread
     lock.sharedLock();
-    readerReady.countDown();
 
     // Spawn a writer thread that tries to acquire the write lock
     var writerThread = new Thread(() -> {

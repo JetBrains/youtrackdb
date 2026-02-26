@@ -131,23 +131,34 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Cleanup action registered with the {@link Cleaner}. Captures only the lock and the
-   * {@link AtomicInteger} state — must NOT reference the {@link ReadersEntry} itself, otherwise
-   * the entry would never become phantom-reachable and cleanup would never run.
+   * Cleanup action registered with the {@link Cleaner}. Captures only the specific fields needed
+   * for cleanup — must NOT reference the {@link ReadersEntry} itself (otherwise the entry would
+   * never become phantom-reachable) nor the {@link ScalableRWLock} instance (otherwise the
+   * lock's {@link ThreadLocal} would keep the entry reachable, creating a memory leak in
+   * long-lived thread pools).
    */
   private static class CleanupAction implements Runnable {
 
-    private final ScalableRWLock lock;
+    private final ConcurrentLinkedQueue<AtomicInteger> readersStateList;
+    private final AtomicReference<AtomicInteger[]> readersStateArrayRef;
     private final AtomicInteger state;
 
-    CleanupAction(ScalableRWLock lock, AtomicInteger state) {
-      this.lock = lock;
+    CleanupAction(
+        ConcurrentLinkedQueue<AtomicInteger> readersStateList,
+        AtomicReference<AtomicInteger[]> readersStateArrayRef,
+        AtomicInteger state) {
+      this.readersStateList = readersStateList;
+      this.readersStateArrayRef = readersStateArrayRef;
       this.state = state;
     }
 
     @Override
     public void run() {
-      lock.removeState(state);
+      readersStateList.remove(state);
+      readersStateArrayRef.set(null);
+      // Paranoia: just in case someone forgot to call sharedUnlock()
+      // and there is a Writer waiting on that state
+      state.set(SRWL_STATE_NOT_READING);
     }
   }
 
@@ -265,20 +276,6 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Removes a reader's state from the queue. Called by the {@link CleanupAction} when a
-   * {@link ReadersEntry} becomes unreachable (e.g. after the owning thread terminates).
-   *
-   * @param state The reader's state that we wish to remove from the ConcurrentLinkedQueue
-   */
-  void removeState(AtomicInteger state) {
-    readersStateList.remove(state);
-    readersStateArrayRef.set(null);
-    // Paranoia: just in case someone forgot to call sharedUnlock()
-    // and there is a Writer waiting on that state
-    state.set(SRWL_STATE_NOT_READING);
-  }
-
-  /**
    * Creates a new ReadersEntry instance for the current thread and its associated AtomicInteger to
    * store the state of the Reader
    *
@@ -289,7 +286,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     final var newEntry = new ReadersEntry(state);
     // Register cleanup before the entry is reachable from the ThreadLocal, so that when the
     // thread dies and the entry becomes phantom-reachable, the Cleaner removes the state.
-    CLEANER.register(newEntry, new CleanupAction(this, state));
+    CLEANER.register(newEntry,
+        new CleanupAction(readersStateList, readersStateArrayRef, state));
     entry.set(newEntry);
     readersStateList.add(state);
     readersStateArrayRef.set(null);
