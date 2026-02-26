@@ -82,7 +82,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     gqlStatementCache =
         new GqlStatementCache(
             storage
-                .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
 
@@ -96,7 +95,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     gqlExecutionPlanCache =
         new GqlExecutionPlanCache(
             storage
-                .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
     this.registerListener(gqlExecutionPlanCache);
