@@ -34,6 +34,8 @@ public final class PaginatedCollectionStateV2 extends DurablePage {
   private static final int RECORDS_SIZE_OFFSET = NEXT_FREE_POSITION;
   private static final int SIZE_OFFSET = RECORDS_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
   private static final int FILE_SIZE_OFFSET = SIZE_OFFSET + IntegerSerializer.INT_SIZE;
+  private static final int APPROXIMATE_RECORDS_COUNT_OFFSET =
+      FILE_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
 
   public PaginatedCollectionStateV2(CacheEntry cacheEntry) {
     super(cacheEntry);
@@ -45,5 +47,13 @@ public final class PaginatedCollectionStateV2 extends DurablePage {
 
   public int getFileSize() {
     return getIntValue(FILE_SIZE_OFFSET);
+  }
+
+  public void setApproximateRecordsCount(long count) {
+    setLongValue(APPROXIMATE_RECORDS_COUNT_OFFSET, count);
+  }
+
+  public long getApproximateRecordsCount() {
+    return getLongValue(APPROXIMATE_RECORDS_COUNT_OFFSET);
   }
 }

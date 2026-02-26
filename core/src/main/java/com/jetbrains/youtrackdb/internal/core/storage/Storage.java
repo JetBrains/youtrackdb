@@ -142,6 +142,19 @@ public interface Storage {
 
   long count(DatabaseSessionEmbedded session, int[] iCollectionIds, boolean countTombstones);
 
+  /**
+   * Returns the approximate number of records in the given collection. The count is maintained
+   * incrementally on each create/delete and is O(1) to read (no page scan). Under snapshot
+   * isolation the value reflects the latest committed state, so concurrent readers whose snapshots
+   * lag behind may observe a slightly stale count.
+   *
+   * @param collectionId the numeric identifier of the collection
+   * @return the approximate record count
+   * @throws com.jetbrains.youtrackdb.internal.core.exception.StorageException if the collection
+   *     does not exist
+   */
+  long getApproximateRecordsCount(int collectionId);
+
   AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session, RecordIdInternal identity,
       String fieldName, RID rid);
 

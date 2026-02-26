@@ -111,6 +111,8 @@ public interface StorageCollection {
 
   long getEntries(AtomicOperation atomicOperation);
 
+  long getApproximateRecordsCount();
+
   long getFirstPosition(AtomicOperation atomicOperation) throws IOException;
 
   long getLastPosition(AtomicOperation atomicOperation) throws IOException;

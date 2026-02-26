@@ -8,7 +8,9 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.LocalPaginatedCollectionAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
@@ -1614,5 +1616,265 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var result = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.getPhysicalPosition(pos, op));
     Assert.assertNull("getPhysicalPosition should return null for deleted record", result);
+  }
+
+  // --- Approximate records count tests ---
+
+  // Verifies that a newly created collection starts with an approximate records count of zero.
+  @Test
+  public void testApproximateRecordsCountInitiallyZero() throws IOException {
+    var collection = new PaginatedCollectionV2("approxCountZeroTest", storage);
+    collection.configure(200, "approxCountZeroTest");
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
+
+    Assert.assertEquals(0L, collection.getApproximateRecordsCount());
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
+  }
+
+  // Verifies that the approximate records count increases by one for each record created.
+  @Test
+  public void testApproximateRecordsCountAfterCreate() throws IOException {
+    var collection = new PaginatedCollectionV2("approxCountCreateTest", storage);
+    collection.configure(201, "approxCountCreateTest");
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
+
+    var recordCount = 10;
+    for (var i = 0; i < recordCount; i++) {
+      atomicOps().executeInsideAtomicOperation(
+          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+    }
+
+    Assert.assertEquals(recordCount, collection.getApproximateRecordsCount());
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
+  }
+
+  // Verifies that the approximate records count decreases after records are deleted.
+  @Test
+  public void testApproximateRecordsCountAfterDelete() throws IOException {
+    var collection = new PaginatedCollectionV2("approxCountDeleteTest", storage);
+    collection.configure(202, "approxCountDeleteTest");
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
+
+    // Create 5 records, keeping track of their positions
+    var positions = new ArrayList<PhysicalPosition>();
+    for (var i = 0; i < 5; i++) {
+      var pos = atomicOps().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+      positions.add(pos);
+    }
+    Assert.assertEquals(5L, collection.getApproximateRecordsCount());
+
+    // Delete 2 records
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(0).collectionPosition));
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(2).collectionPosition));
+
+    Assert.assertEquals(3L, collection.getApproximateRecordsCount());
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
+  }
+
+  // Verifies that getApproximateRecordsCount() matches getEntries() when there are no
+  // concurrent transactions (both should reflect the same committed state).
+  @Test
+  public void testApproximateRecordsCountConsistentWithGetEntries() throws IOException {
+    var collection = new PaginatedCollectionV2("approxCountConsistencyTest", storage);
+    collection.configure(203, "approxCountConsistencyTest");
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
+
+    // Create records
+    var positions = new ArrayList<PhysicalPosition>();
+    for (var i = 0; i < 8; i++) {
+      var pos = atomicOps().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+      positions.add(pos);
+    }
+
+    // Delete some records
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(1).collectionPosition));
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(4).collectionPosition));
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(7).collectionPosition));
+
+    // Both counts should match: 8 created - 3 deleted = 5
+    long approxCount = collection.getApproximateRecordsCount();
+    long entries = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.getEntries(op));
+
+    Assert.assertEquals(
+        "Approximate count should match getEntries when no concurrent transactions",
+        entries, approxCount);
+    Assert.assertEquals(5L, approxCount);
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
+  }
+
+  // --- Storage-layer and session-layer approximate count accessor tests ---
+
+  /**
+   * Finds the StorageCollection registered in the storage for the given collection ID.
+   * Used by tests that need to call low-level collection methods on a collection created
+   * through the session/storage layer (addCollection).
+   */
+  private StorageCollection findRegisteredCollection(int collectionId) {
+    return storage.getCollectionInstances().stream()
+        .filter(c -> c.getId() == collectionId)
+        .findFirst().orElseThrow();
+  }
+
+  // Verifies that AbstractStorage.getApproximateRecordsCount() returns the correct count for a
+  // collection that has been created through the storage layer and had records added/removed.
+  @Test
+  public void testStorageGetApproximateRecordsCount() throws IOException {
+    var collectionName = "approxCountStorageTest";
+    var collectionId = databaseDocumentTx.addCollection(collectionName);
+
+    // Newly created collection should report zero
+    Assert.assertEquals(0L, storage.getApproximateRecordsCount(collectionId));
+
+    // Create 5 records through the low-level collection API
+    var positions = new ArrayList<PhysicalPosition>();
+    for (var i = 0; i < 5; i++) {
+      var pos = atomicOps().calculateInsideAtomicOperation(op -> {
+        var c = findRegisteredCollection(collectionId);
+        return c.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op);
+      });
+      positions.add(pos);
+    }
+
+    Assert.assertEquals(5L, storage.getApproximateRecordsCount(collectionId));
+
+    // Delete 2 records
+    atomicOps().executeInsideAtomicOperation(
+        op -> findRegisteredCollection(collectionId)
+            .deleteRecord(op, positions.get(0).collectionPosition));
+    atomicOps().executeInsideAtomicOperation(
+        op -> findRegisteredCollection(collectionId)
+            .deleteRecord(op, positions.get(3).collectionPosition));
+
+    Assert.assertEquals(3L, storage.getApproximateRecordsCount(collectionId));
+
+    databaseDocumentTx.dropCollection(collectionName);
+  }
+
+  // Verifies that AbstractStorage.getApproximateRecordsCount() throws StorageException for a
+  // collection ID that does not exist.
+  @Test(expected = StorageException.class)
+  public void testStorageGetApproximateRecordsCountNonExistentCollection() {
+    storage.getApproximateRecordsCount(9999);
+  }
+
+  // Verifies that DatabaseSessionEmbedded.getApproximateCollectionCount(int) returns the correct
+  // count through the session layer, including security checks.
+  @Test
+  public void testSessionGetApproximateCollectionCountById() throws IOException {
+    var collectionName = "approxCountSessionByIdTest";
+    var collectionId = databaseDocumentTx.addCollection(collectionName);
+
+    Assert.assertEquals(0L, databaseDocumentTx.getApproximateCollectionCount(collectionId));
+
+    // Create 3 records
+    for (var i = 0; i < 3; i++) {
+      atomicOps().executeInsideAtomicOperation(
+          op -> findRegisteredCollection(collectionId)
+              .createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+    }
+
+    Assert.assertEquals(3L, databaseDocumentTx.getApproximateCollectionCount(collectionId));
+
+    databaseDocumentTx.dropCollection(collectionName);
+  }
+
+  // Verifies that DatabaseSessionEmbedded.getApproximateCollectionCount(String) returns the
+  // correct count when looked up by collection name.
+  @Test
+  public void testSessionGetApproximateCollectionCountByName() throws IOException {
+    var collectionName = "approxCountSessionByNameTest";
+    var collectionId = databaseDocumentTx.addCollection(collectionName);
+
+    Assert.assertEquals(0L,
+        databaseDocumentTx.getApproximateCollectionCount(collectionName));
+
+    // Create 4 records
+    var positions = new ArrayList<PhysicalPosition>();
+    for (var i = 0; i < 4; i++) {
+      var pos = atomicOps().calculateInsideAtomicOperation(op -> {
+        var c = findRegisteredCollection(collectionId);
+        return c.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op);
+      });
+      positions.add(pos);
+    }
+
+    Assert.assertEquals(4L,
+        databaseDocumentTx.getApproximateCollectionCount(collectionName));
+
+    // Delete 1 record and verify the count is updated
+    atomicOps().executeInsideAtomicOperation(
+        op -> findRegisteredCollection(collectionId)
+            .deleteRecord(op, positions.get(1).collectionPosition));
+
+    Assert.assertEquals(3L,
+        databaseDocumentTx.getApproximateCollectionCount(collectionName));
+
+    databaseDocumentTx.dropCollection(collectionName);
+  }
+
+  // Verifies that DatabaseSessionEmbedded.getApproximateCollectionCount(String) throws
+  // IllegalArgumentException for a non-existent collection name.
+  @Test(expected = IllegalArgumentException.class)
+  public void testSessionGetApproximateCollectionCountByNameNonExistent() {
+    databaseDocumentTx.getApproximateCollectionCount("nonExistentCollection_xyz");
+  }
+
+  // Verifies that DatabaseSessionEmbedded.getApproximateCollectionCount(int) throws
+  // IllegalArgumentException for a collection ID that does not map to any known collection.
+  @Test(expected = IllegalArgumentException.class)
+  public void testSessionGetApproximateCollectionCountByIdNonExistent() {
+    databaseDocumentTx.getApproximateCollectionCount(9999);
+  }
+
+  // Verifies that the approximate records count survives a close/reopen cycle by checking that
+  // the persistent value on the state page is loaded back into the volatile field on open().
+  @Test
+  public void testApproximateRecordsCountPersistenceRoundTrip() throws IOException {
+    var collection = new PaginatedCollectionV2("approxCountRoundTripTest", storage);
+    collection.configure(210, "approxCountRoundTripTest");
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
+
+    // Create 7 records
+    var positions = new ArrayList<PhysicalPosition>();
+    for (var i = 0; i < 7; i++) {
+      var pos = atomicOps().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+      positions.add(pos);
+    }
+
+    // Delete 2 records so the count is 5
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(2).collectionPosition));
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.deleteRecord(op, positions.get(5).collectionPosition));
+
+    Assert.assertEquals(5L, collection.getApproximateRecordsCount());
+
+    // Close and reopen — the count must be reloaded from the state page
+    collection.close();
+    atomicOps().executeInsideAtomicOperation(op -> collection.open(op));
+
+    Assert.assertEquals(
+        "Approximate count must survive close/reopen",
+        5L, collection.getApproximateRecordsCount());
+
+    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
   }
 }

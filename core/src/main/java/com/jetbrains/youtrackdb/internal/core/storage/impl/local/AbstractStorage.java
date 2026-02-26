@@ -1432,6 +1432,37 @@ public abstract class AbstractStorage
   }
 
   @Override
+  public final long getApproximateRecordsCount(final int collectionId) {
+    try {
+      if (collectionId < 0) {
+        throw new StorageException(name,
+            "Collection Id " + collectionId + " is invalid in database '" + name + "'");
+      }
+
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+
+        if (collectionId >= collections.size() || collections.get(collectionId) == null) {
+          throw new StorageException(name,
+              "Collection with id " + collectionId + " does not exist in database '"
+                  + name + "'");
+        }
+
+        return collections.get(collectionId).getApproximateRecordsCount();
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final RuntimeException ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (final Error ee) {
+      throw logAndPrepareForRethrow(ee, false);
+    } catch (final Throwable t) {
+      throw logAndPrepareForRethrow(t, false);
+    }
+  }
+
+  @Override
   public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds) {
     return count(session, iCollectionIds, false);
   }
