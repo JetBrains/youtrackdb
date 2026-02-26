@@ -59,6 +59,7 @@ public class SignalHandler implements sun.misc.SignalHandler {
   }
 
   @Override
+  @SuppressWarnings("SystemOut") // Signal handler dumps diagnostics to stdout by design
   public void handle(final Signal signal) {
     LogManager.instance().warn(this, "Received signal: %s", signal);
 

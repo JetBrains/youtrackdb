@@ -671,12 +671,14 @@ public class CommandExecutorScript extends CommandExecutorAbstract
 
   private void executeConsoleOutput(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.output ".length()).trim();
-    System.out.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
+    LogManager.instance()
+        .info(this, "%s", getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
   private void executeConsoleError(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.error ".length()).trim();
-    System.err.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
+    LogManager.instance()
+        .error(this, "%s", null, getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
   @Nullable

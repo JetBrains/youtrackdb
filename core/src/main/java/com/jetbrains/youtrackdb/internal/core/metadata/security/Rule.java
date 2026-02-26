@@ -259,7 +259,7 @@ public class Rule implements Serializable {
       currentValue = Role.PERMISSION_NONE;
     } else {
       currentValue = ac.byteValue();
-      currentValue &= ~(byte) operation;
+      currentValue = (byte) (currentValue & ~(byte) operation);
     }
     return currentValue;
   }

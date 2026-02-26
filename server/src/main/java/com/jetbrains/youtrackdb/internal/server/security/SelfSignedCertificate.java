@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.server.security;
 
-import java.io.IOException;
 import java.math.BigInteger;
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
@@ -168,7 +167,7 @@ public class SelfSignedCertificate {
       this.certificate =
           generateSelfSignedCertificate(
               this.keyPair, this.validity, this.ownerFDN, this.certificateSN);
-    } catch (CertificateException | IOException | NoSuchAlgorithmException e) {
+    } catch (CertificateException e) {
       throw new RuntimeException(e);
     }
   }
@@ -176,7 +175,7 @@ public class SelfSignedCertificate {
   @SuppressWarnings("JavaUtilDate")
   public static X509Certificate generateSelfSignedCertificate(
       KeyPair keyPair, int validity, String ownerFDN, BigInteger certSN)
-      throws CertificateException, IOException, NoSuchAlgorithmException {
+      throws CertificateException {
 
     X500Name owner;
     owner = new X500Name(ownerFDN);

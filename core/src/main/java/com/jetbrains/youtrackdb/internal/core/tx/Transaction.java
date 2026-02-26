@@ -156,6 +156,7 @@ public interface Transaction {
 
   EmbeddedEntity newEmbeddedEntity();
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <T extends DBRecord> T createOrLoadRecordFromJson(String json);
 
   Entity createOrLoadEntityFromJson(String json);
@@ -240,6 +241,7 @@ public interface Transaction {
    * @throws RecordNotFoundException if record does not exist in database
    */
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET load(RID recordId);
 
   /**
@@ -250,12 +252,15 @@ public interface Transaction {
    * @return The loaded entity or <code>null</code> if entity does not exist.
    */
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET loadOrNull(RID recordId);
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET load(Identifiable identifiable);
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET loadOrNull(Identifiable identifiable);
 
   /**

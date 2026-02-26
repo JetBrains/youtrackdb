@@ -277,7 +277,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       registerEngines();
 
       if (GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP.getValueAsBoolean()) {
-        GlobalConfiguration.dumpConfiguration(System.out);
+        dumpConfigurationToLog();
       }
 
       active = true;
@@ -337,6 +337,15 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     addShutdownHandler(new ShutdownYouTrackDBInstancesHandler());
     addShutdownHandler(new ShutdownPendingThreadsHandler());
     addShutdownHandler(new ShutdownCallListenersHandler());
+  }
+
+  /**
+   * Dumps the global configuration to the log at INFO level.
+   */
+  private void dumpConfigurationToLog() {
+    var baos = new java.io.ByteArrayOutputStream();
+    GlobalConfiguration.dumpConfiguration(new java.io.PrintStream(baos));
+    LogManager.instance().info(this, "%s", baos);
   }
 
   /**

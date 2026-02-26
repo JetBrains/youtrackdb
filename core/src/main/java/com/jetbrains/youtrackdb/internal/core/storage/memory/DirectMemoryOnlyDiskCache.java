@@ -36,7 +36,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -397,7 +396,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void replaceFileId(long fileId, long newFileId) throws IOException {
+  public void replaceFileId(long fileId, long newFileId) {
     throw new UnsupportedOperationException();
   }
 

@@ -29,7 +29,7 @@ public class CompositeException extends RuntimeException {
     this.causes.addAll(causes);
   }
 
-  @SuppressWarnings("CallToPrintStackTrace")
+  @SuppressWarnings({"CallToPrintStackTrace", "SystemOut"})
   @Override
   public void printStackTrace() {
     if (causes.isEmpty()) {

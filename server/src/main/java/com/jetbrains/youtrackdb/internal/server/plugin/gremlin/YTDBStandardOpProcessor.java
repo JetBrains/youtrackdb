@@ -41,7 +41,7 @@ public final class YTDBStandardOpProcessor extends YTDBAbstractOpProcessor {
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     // do nothing = no resources to release
   }
 

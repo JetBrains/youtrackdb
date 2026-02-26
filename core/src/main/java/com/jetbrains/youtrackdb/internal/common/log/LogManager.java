@@ -53,6 +53,7 @@ public class LogManager extends SLF4JLogManager {
   }
 
 
+  @SuppressWarnings("SystemOut") // Fallback to System.err when logging subsystem fails
   public static void installCustomFormatter() {
     final var installCustomFormatter =
         Boolean.parseBoolean(

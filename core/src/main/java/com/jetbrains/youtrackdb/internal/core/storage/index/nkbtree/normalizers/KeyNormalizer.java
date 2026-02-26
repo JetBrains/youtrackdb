@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.nkbtree.normalizers;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.io.ByteArrayOutputStream;
@@ -65,7 +66,8 @@ public class KeyNormalizer {
       }
       normalizedKeyStream.write(keyNormalizer.execute(key, decompositon));
     } catch (final IOException e) {
-      e.printStackTrace();
+      LogManager.instance()
+          .error(this, "Error normalizing composite key", e);
     }
   }
 }

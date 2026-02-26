@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -70,7 +69,7 @@ public class SecurityManager {
   }
 
   public static String createHash(final String iInput, String iAlgorithm)
-      throws NoSuchAlgorithmException, UnsupportedEncodingException {
+      throws NoSuchAlgorithmException {
     if (iAlgorithm == null) {
       iAlgorithm = HASH_ALGORITHM;
     }

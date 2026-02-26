@@ -84,7 +84,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
+  public void create(AtomicOperation atomicOperation, IndexEngineData data) {
     try {
       final var sbTypes = calculateTypes(data.getKeyTypes());
       svTree.create(

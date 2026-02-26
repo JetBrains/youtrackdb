@@ -64,7 +64,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
+  public void create(AtomicOperation atomicOperation, IndexEngineData data) {
     @SuppressWarnings("unchecked") var keySerializer =
         (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     try {

@@ -129,7 +129,7 @@ public class YouTrackDBServer {
 
   @SuppressWarnings("unused")
   public static YouTrackDBServer startFromFileConfig(String config)
-      throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
+      throws ClassNotFoundException, InstantiationException, IllegalAccessException {
     var server = new YouTrackDBServer(false);
     server.startup(config);
     if (!server.activate()) {
@@ -205,8 +205,10 @@ public class YouTrackDBServer {
 
     if (contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP)) {
-      System.out.println("Dumping environment after server startup...");
-      GlobalConfiguration.dumpConfiguration(System.out);
+      LogManager.instance().info(this, "Dumping environment after server startup...");
+      var baos = new java.io.ByteArrayOutputStream();
+      GlobalConfiguration.dumpConfiguration(new java.io.PrintStream(baos));
+      LogManager.instance().info(this, "%s", baos);
     }
 
     databaseDirectory =

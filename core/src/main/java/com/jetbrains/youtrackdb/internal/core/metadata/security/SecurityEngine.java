@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
@@ -387,7 +388,8 @@ public class SecurityEngine {
 
       return cache.get(predicateString);
     } catch (Exception e) {
-      System.out.println("Error parsing predicate: " + predicateString);
+      LogManager.instance()
+          .error(SecurityEngine.class, "Error parsing predicate: %s", e, predicateString);
       throw e;
     }
   }

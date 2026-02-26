@@ -162,7 +162,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     @Override
-    public void lockInterruptibly() throws java.lang.InterruptedException {
+    public void lockInterruptibly() {
       // Not supported
       throw new UnsupportedOperationException();
     }
@@ -203,7 +203,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     @Override
-    public void lockInterruptibly() throws java.lang.InterruptedException {
+    public void lockInterruptibly() {
       // Not supported
       throw new UnsupportedOperationException();
     }

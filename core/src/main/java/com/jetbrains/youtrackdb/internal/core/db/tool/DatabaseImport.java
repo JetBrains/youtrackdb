@@ -147,8 +147,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   public DatabaseImport(
       final DatabaseSessionEmbedded database,
       final InputStream inputStream,
-      final CommandOutputListener outputListener)
-      throws IOException {
+      final CommandOutputListener outputListener) {
     super(database, "streaming", outputListener);
     validateSessionImpl();
     collectionToCollectionMapping.defaultReturnValue(COLLECTION_NOT_FOUND_VALUE);

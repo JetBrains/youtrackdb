@@ -25,12 +25,12 @@ public class ServerMain {
 
   private static YouTrackDBServer instance;
 
-  public static YouTrackDBServer create() throws Exception {
+  public static YouTrackDBServer create() {
     instance = new YouTrackDBServer();
     return instance;
   }
 
-  public static YouTrackDBServer create(boolean shutdownEngineOnExit) throws Exception {
+  public static YouTrackDBServer create(boolean shutdownEngineOnExit) {
     instance = new YouTrackDBServer(shutdownEngineOnExit);
     return instance;
   }

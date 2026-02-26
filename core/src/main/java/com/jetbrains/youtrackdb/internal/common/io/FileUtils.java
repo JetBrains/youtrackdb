@@ -190,8 +190,7 @@ public class FileUtils {
           rootPath,
           new SimpleFileVisitor<Path>() {
             @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                throws IOException {
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
               if (!onlyDirs) {
                 if (file != null && file.toFile() != null && file.toFile().exists()) {
                   file.toFile().delete();
@@ -201,8 +200,7 @@ public class FileUtils {
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc)
-                throws IOException {
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
               if (dir != null && dir.toFile() != null && dir.toFile().exists()) {
                 dir.toFile().delete();
               }

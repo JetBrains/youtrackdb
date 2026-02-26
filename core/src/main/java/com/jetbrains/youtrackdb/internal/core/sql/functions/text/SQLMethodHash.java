@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
 import com.jetbrains.youtrackdb.internal.core.sql.method.misc.AbstractSQLMethod;
-import java.io.UnsupportedEncodingException;
 import java.security.NoSuchAlgorithmException;
 import javax.annotation.Nullable;
 
@@ -63,10 +62,6 @@ public class SQLMethodHash extends AbstractSQLMethod {
           new CommandExecutionException(iContext.getDatabaseSession(),
               "hash(): algorithm '" + algorithm + "' is not supported"),
           e, iContext.getDatabaseSession());
-    } catch (UnsupportedEncodingException e) {
-      throw BaseException.wrapException(
-          new CommandExecutionException(iContext.getDatabaseSession(),
-              "hash(): encoding 'UTF-8' is not supported"), e, iContext.getDatabaseSession());
     }
   }
 }

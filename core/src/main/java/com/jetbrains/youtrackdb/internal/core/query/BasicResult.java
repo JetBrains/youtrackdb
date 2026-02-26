@@ -1,17 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
-import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;

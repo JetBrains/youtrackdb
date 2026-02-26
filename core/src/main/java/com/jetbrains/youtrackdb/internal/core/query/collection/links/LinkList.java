@@ -1,12 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.query.collection.links;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
-import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.util.List;
 import java.util.RandomAccess;
 
