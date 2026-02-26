@@ -558,50 +558,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
-  /**
-   * updates old and new vertices connected to an edge after out/in update on the edge itself
-   */
-  public static void changeVertexEdgePointers(
-      DatabaseSessionEmbedded db, EntityImpl edge,
-      Identifiable prevInVertex,
-      Identifiable currentInVertex,
-      Identifiable prevOutVertex,
-      Identifiable currentOutVertex) {
-    var edgeClass = edge.getSchemaClassName();
-
-    if (currentInVertex != prevInVertex) {
-      changeVertexEdgePointersOneDirection(db,
-          edge, prevInVertex, currentInVertex, edgeClass, Direction.IN);
-    }
-    if (currentOutVertex != prevOutVertex) {
-      changeVertexEdgePointersOneDirection(db,
-          edge, prevOutVertex, currentOutVertex, edgeClass, Direction.OUT);
-    }
-  }
-
-  private static void changeVertexEdgePointersOneDirection(
-      DatabaseSessionEmbedded db, EntityImpl edge,
-      Identifiable prevInVertex,
-      Identifiable currentInVertex,
-      String edgeClass,
-      Direction direction) {
-    if (prevInVertex != null) {
-      var inFieldName = Vertex.getEdgeLinkFieldName(direction, edgeClass);
-      var transaction1 = db.getActiveTransaction();
-      var prevRecord = transaction1.<EntityImpl>load(prevInVertex);
-
-      var prevLink = prevRecord.getPropertyInternal(inFieldName);
-      if (prevLink != null) {
-        removeVertexLink(prevRecord, inFieldName, prevLink, edgeClass, edge);
-      }
-
-      var transaction = db.getActiveTransaction();
-      var currentRecord = transaction.<EntityImpl>load(currentInVertex);
-      createLink(db, currentRecord, edge, inFieldName);
-
-    }
-  }
-
   @Nullable
   private static String[] resolveAliases(Schema schema, String[] labels) {
     if (labels == null) {
@@ -643,10 +599,38 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   /**
-   * Creates a link between a vertices and a Graph Element.
+   * Creates a lightweight link between a vertex and the opposite vertex.
+   * For lightweight edges, both primary and secondary RIDs in the LinkBag point to the same
+   * opposite vertex (i.e. RidPair(vertexRid, vertexRid)). This overload should only be used
+   * for lightweight edges; for heavyweight edges use the 5-parameter overload that accepts
+   * separate primary (edge record) and secondary (opposite vertex) identifiables.
+   *
+   * @see #createLink(DatabaseSessionEmbedded, EntityImpl, Identifiable, Identifiable, String)
    */
   public static void createLink(
       DatabaseSessionEmbedded session, final EntityImpl fromVertex, final Identifiable to,
+      final String fieldName) {
+    createLink(session, fromVertex, to, to, fieldName);
+  }
+
+  /**
+   * Creates a link between a vertex and a graph element, storing both primary and secondary
+   * RIDs in the LinkBag. For heavyweight edges, the primary RID is the edge record and the
+   * secondary RID is the opposite vertex (i.e. RidPair(edgeRid, oppositeVertexRid)).
+   * For lightweight edges, both RIDs point to the same opposite vertex.
+   *
+   * @param session the database session
+   * @param fromVertex the vertex to add the link to
+   * @param primaryIdentifiable the primary identifiable to store (edge record for heavyweight,
+   *     opposite vertex for lightweight)
+   * @param secondaryIdentifiable the secondary identifiable (opposite vertex)
+   * @param fieldName the edge field name (e.g. "out_E" or "in_E")
+   * @see #createLink(DatabaseSessionEmbedded, EntityImpl, Identifiable, String)
+   */
+  public static void createLink(
+      DatabaseSessionEmbedded session, final EntityImpl fromVertex,
+      final Identifiable primaryIdentifiable,
+      final Identifiable secondaryIdentifiable,
       final String fieldName) {
     final Object out;
     var outType = fromVertex.getPropertyTypeInternal(fieldName);
@@ -667,16 +651,16 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
             || (prop != null
             && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
-          coll.add(to);
+          coll.add(primaryIdentifiable);
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
         } else if (propType == null || propType == PropertyType.LINKBAG) {
           final var bag = new LinkBag(fromVertex.getSession());
-          bag.add(to.getIdentity());
+          bag.add(primaryIdentifiable.getIdentity(), secondaryIdentifiable.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
         } else if (propType == PropertyType.LINK) {
-          out = to;
+          out = primaryIdentifiable;
           outType = PropertyTypeInternal.LINK;
         } else {
           throw new DatabaseException(session.getDatabaseName(),
@@ -686,6 +670,12 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         }
       }
       case Identifiable foundId -> {
+        // This case handles conversion from a single Identifiable to a collection.
+        // In normal edge creation flow this branch is not reached because the first edge
+        // creates a LinkBag directly (when propType is null or LINKBAG). It can only be
+        // reached if the property was manually set to a single Identifiable externally.
+        // The existing foundId is added as lightweight (primary == secondary) since we
+        // have no secondary RID information for the pre-existing entry.
         if (prop != null && propType == PropertyType.LINK) {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
@@ -697,13 +687,13 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
             prop.getCustom("ordered"))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
           coll.add(foundId);
-          coll.add(to);
+          coll.add(primaryIdentifiable);
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
         } else {
           final var bag = new LinkBag(fromVertex.getSession());
           bag.add(foundId.getIdentity());
-          bag.add(to.getIdentity());
+          bag.add(primaryIdentifiable.getIdentity(), secondaryIdentifiable.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
         }
@@ -712,13 +702,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         // ADD THE LINK TO THE COLLECTION
         out = null;
         var transaction = session.getActiveTransaction();
-        bag.add(transaction.load(to).getIdentity());
+        bag.add(
+            transaction.load(primaryIdentifiable).getIdentity(),
+            secondaryIdentifiable.getIdentity());
       }
       case Collection<?> ignored -> {
         // USE THE FOUND COLLECTION
         out = null;
         //noinspection unchecked
-        ((Collection<Identifiable>) found).add(to);
+        ((Collection<Identifiable>) found).add(primaryIdentifiable);
       }
       default -> throw new DatabaseException(session.getDatabaseName(),
           "Relationship content is invalid on field " + fieldName + ". Found: " + found);

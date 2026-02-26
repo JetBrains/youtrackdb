@@ -1035,7 +1035,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     EntityImpl outEntity;
     EntityImpl inEntity;
 
-    var outEntityModified = false;
     if (getTransactionInternal().isDeletedInTx(toVertex.getIdentity())) {
       throw new RecordNotFoundException(getDatabaseName(),
           toVertex.getIdentity(), "The vertex " + toVertex.getIdentity() + " has been deleted");
@@ -1070,29 +1069,25 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     final var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, className);
 
     if (createLightweightEdge) {
+      // Lightweight edges: both primary and secondary RIDs point to the opposite vertex
       var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      var transaction2 = getActiveTransaction();
-      var transaction3 = getActiveTransaction();
-      VertexEntityImpl.createLink(this, transaction3.load(toVertex), transaction2.load(inVertex),
-          outFieldName);
-      var transaction = getActiveTransaction();
-      var transaction1 = getActiveTransaction();
-      VertexEntityImpl.createLink(this, transaction1.load(inVertex), transaction.load(toVertex),
-          inFieldName);
+      var tx = getActiveTransaction();
+      VertexEntityImpl.createLink(this, tx.load(toVertex), tx.load(inVertex), outFieldName);
+      tx = getActiveTransaction();
+      VertexEntityImpl.createLink(this, tx.load(inVertex), tx.load(toVertex), inFieldName);
       edge = lightWeightEdge;
     } else {
+      // Heavyweight edges: primary RID is the edge record, secondary RID is the opposite vertex
       var statefulEdge = newStatefulEdgeInternal(className);
-      var transaction = getActiveTransaction();
-      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, transaction.load(toVertex));
+      var tx = getActiveTransaction();
+      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, tx.load(toVertex));
       statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
 
-      if (!outEntityModified) {
-        // OUT-VERTEX ---> IN-VERTEX/EDGE
-        VertexEntityImpl.createLink(this, outEntity, statefulEdge, outFieldName);
-      }
+      // OUT-VERTEX ---> edge record as primary, IN-VERTEX as secondary
+      VertexEntityImpl.createLink(this, outEntity, statefulEdge, inEntity, outFieldName);
 
-      // IN-VERTEX ---> OUT-VERTEX/EDGE
-      VertexEntityImpl.createLink(this, inEntity, statefulEdge, inFieldName);
+      // IN-VERTEX ---> edge record as primary, OUT-VERTEX as secondary
+      VertexEntityImpl.createLink(this, inEntity, statefulEdge, outEntity, inFieldName);
       edge = statefulEdge;
     }
     // OK
