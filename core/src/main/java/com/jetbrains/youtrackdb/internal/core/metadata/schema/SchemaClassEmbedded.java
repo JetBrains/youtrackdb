@@ -586,10 +586,15 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   private void tryDropCollection(DatabaseSessionEmbedded session, final int collectionId) {
-    if (name.toLowerCase(Locale.ENGLISH).equals(session.getCollectionNameById(collectionId))) {
+    var collectionName = session.getCollectionNameById(collectionId);
+    if (name.toLowerCase(Locale.ENGLISH).equals(collectionName)) {
       // DROP THE DEFAULT COLLECTION CALLED WITH THE SAME NAME ONLY IF EMPTY
-      if (session.computeInTxInternal(
-          tx -> session.countCollectionElements(collectionId)) == 0) {
+      // O(1) emptiness check via iterator instead of O(n) count
+      if (session.computeInTxInternal(tx -> {
+        try (var iter = session.browseCollection(collectionName)) {
+          return !iter.hasNext();
+        }
+      })) {
         session.dropCollectionInternal(collectionId);
       }
     }
