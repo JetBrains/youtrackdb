@@ -211,7 +211,19 @@ public class TsMinHolderTest {
 
     if (weakRef.get() == null) {
       // GC collected the holder — the WeakHashMap should have evicted it.
-      // Access the set to trigger WeakHashMap's internal expungeStaleEntries().
+      // On some JVMs (JDK 25+), reference-queue enqueueing happens asynchronously
+      // after the GC pause, so WeakHashMap.expungeStaleEntries() may not see the
+      // stale entry immediately. Poll until the queue is drained.
+      for (int i = 0; i < 50 && tsMins.size() != 1; i++) {
+        System.gc();
+        try {
+          //noinspection BusyWait
+          Thread.sleep(10);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          break;
+        }
+      }
       assertThat(tsMins).hasSize(1);
       assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(500L);
     }
