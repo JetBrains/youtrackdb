@@ -14,9 +14,11 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -334,6 +336,343 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(edgeRid, inPair.primaryRid());
     assertEquals(outRid, inPair.secondaryRid());
     assertFalse(inPair.isLightweight());
+
+    tx.commit();
+  }
+
+  // --- getVertices() optimization tests ---
+
+  /**
+   * Verifies that getVertices(OUT) on a heavyweight edge returns the correct opposite
+   * vertex directly from the LinkBag secondary RID, without loading the edge record.
+   */
+  @Test
+  public void testGetVerticesOutReturnsOppositeVertexForHeavyweightEdge() {
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
+
+    var vertices = loadedOut.getVertices(Direction.OUT, "HeavyEdge");
+    var iter = vertices.iterator();
+    assertTrue("Should have at least one adjacent vertex", iter.hasNext());
+    var adjacent = iter.next();
+    assertEquals(
+        "Adjacent vertex should be the target (in) vertex",
+        inVertex.getIdentity(), adjacent.getIdentity());
+    assertFalse("Should have exactly one adjacent vertex", iter.hasNext());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices(OUT) on a lightweight edge returns the correct opposite
+   * vertex. Lightweight edges store the same vertex RID as both primary and secondary.
+   */
+  @Test
+  public void testGetVerticesOutReturnsOppositeVertexForLightweightEdge() {
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
+
+    var vertices = loadedOut.getVertices(Direction.OUT, "LightEdge");
+    var iter = vertices.iterator();
+    assertTrue("Should have at least one adjacent vertex", iter.hasNext());
+    var adjacent = iter.next();
+    assertEquals(
+        "Adjacent vertex should be the target (in) vertex",
+        inVertex.getIdentity(), adjacent.getIdentity());
+    assertFalse("Should have exactly one adjacent vertex", iter.hasNext());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices(IN) returns the source vertex for a heavyweight edge.
+   */
+  @Test
+  public void testGetVerticesInReturnsSourceVertexForHeavyweightEdge() {
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedIn = tx.load(inVertex.getIdentity()).asVertex();
+
+    var vertices = loadedIn.getVertices(Direction.IN, "HeavyEdge");
+    var iter = vertices.iterator();
+    assertTrue("Should have at least one adjacent vertex", iter.hasNext());
+    var adjacent = iter.next();
+    assertEquals(
+        "Adjacent vertex should be the source (out) vertex",
+        outVertex.getIdentity(), adjacent.getIdentity());
+    assertFalse("Should have exactly one adjacent vertex", iter.hasNext());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that label filtering works correctly: getVertices(OUT, "HeavyEdge") should
+   * only return vertices connected via HeavyEdge, not via LightEdge.
+   */
+  @Test
+  public void testGetVerticesWithLabelFilteringReturnsOnlyMatchingEdgeClass() {
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var heavyTarget = tx.newVertex("TestVertex");
+    var lightTarget = tx.newVertex("TestVertex");
+
+    outVertex.addStateFulEdge(heavyTarget, "HeavyEdge");
+    outVertex.addLightWeightEdge(lightTarget, "LightEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
+
+    // Only request HeavyEdge vertices
+    var heavyVertices = loadedOut.getVertices(Direction.OUT, "HeavyEdge");
+    var iter = heavyVertices.iterator();
+    assertTrue(iter.hasNext());
+    assertEquals(heavyTarget.getIdentity(), iter.next().getIdentity());
+    assertFalse("Should have only 1 vertex for HeavyEdge", iter.hasNext());
+
+    // Only request LightEdge vertices
+    var lightVertices = loadedOut.getVertices(Direction.OUT, "LightEdge");
+    iter = lightVertices.iterator();
+    assertTrue(iter.hasNext());
+    assertEquals(lightTarget.getIdentity(), iter.next().getIdentity());
+    assertFalse("Should have only 1 vertex for LightEdge", iter.hasNext());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices(BOTH) returns vertices from both outgoing and incoming
+   * directions for heavyweight edges.
+   */
+  @Test
+  public void testGetVerticesBothReturnsVerticesFromBothDirections() {
+    var tx = session.begin();
+
+    var vertexA = tx.newVertex("TestVertex");
+    var vertexB = tx.newVertex("TestVertex");
+    var vertexC = tx.newVertex("TestVertex");
+
+    // A --HeavyEdge--> B, C --HeavyEdge--> A
+    vertexA.addStateFulEdge(vertexB, "HeavyEdge");
+    vertexC.addStateFulEdge(vertexA, "HeavyEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedA = tx.load(vertexA.getIdentity()).asVertex();
+
+    // Direction.BOTH should return both B (outgoing) and C (incoming)
+    Set<RID> adjacentRids = new HashSet<>();
+    for (var v : loadedA.getVertices(Direction.BOTH, "HeavyEdge")) {
+      adjacentRids.add(v.getIdentity());
+    }
+
+    assertEquals("Should have 2 adjacent vertices", 2, adjacentRids.size());
+    assertTrue(
+        "Should contain outgoing target B",
+        adjacentRids.contains(vertexB.getIdentity()));
+    assertTrue(
+        "Should contain incoming source C",
+        adjacentRids.contains(vertexC.getIdentity()));
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices works correctly when a vertex has both heavyweight
+   * and lightweight edges, and returns all adjacent vertices when no label filter
+   * is applied.
+   */
+  @Test
+  public void testGetVerticesWithMixedEdgeTypesReturnsAllAdjacentVertices() {
+    var tx = session.begin();
+
+    var center = tx.newVertex("TestVertex");
+    var heavyTarget = tx.newVertex("TestVertex");
+    var lightTarget = tx.newVertex("TestVertex");
+
+    center.addStateFulEdge(heavyTarget, "HeavyEdge");
+    center.addLightWeightEdge(lightTarget, "LightEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedCenter = tx.load(center.getIdentity()).asVertex();
+
+    // No label filter: should return vertices from both edge types
+    Set<RID> adjacentRids = new HashSet<>();
+    for (var v : loadedCenter.getVertices(Direction.OUT)) {
+      adjacentRids.add(v.getIdentity());
+    }
+
+    assertEquals("Should have 2 adjacent vertices", 2, adjacentRids.size());
+    assertTrue(
+        "Should contain heavyweight target",
+        adjacentRids.contains(heavyTarget.getIdentity()));
+    assertTrue(
+        "Should contain lightweight target",
+        adjacentRids.contains(lightTarget.getIdentity()));
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices(OUT) returns all correct vertices when multiple
+   * heavyweight edges connect a single source to multiple targets.
+   */
+  @Test
+  public void testGetVerticesOutWithMultipleHeavyweightEdges() {
+    var tx = session.begin();
+
+    var center = tx.newVertex("TestVertex");
+    var target1 = tx.newVertex("TestVertex");
+    var target2 = tx.newVertex("TestVertex");
+    var target3 = tx.newVertex("TestVertex");
+
+    center.addStateFulEdge(target1, "HeavyEdge");
+    center.addStateFulEdge(target2, "HeavyEdge");
+    center.addStateFulEdge(target3, "HeavyEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedCenter = tx.load(center.getIdentity()).asVertex();
+
+    Set<RID> adjacentRids = new HashSet<>();
+    for (var v : loadedCenter.getVertices(Direction.OUT, "HeavyEdge")) {
+      adjacentRids.add(v.getIdentity());
+    }
+
+    assertEquals("Should have 3 adjacent vertices", 3, adjacentRids.size());
+    assertTrue(adjacentRids.contains(target1.getIdentity()));
+    assertTrue(adjacentRids.contains(target2.getIdentity()));
+    assertTrue(adjacentRids.contains(target3.getIdentity()));
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices returns an empty iterable when a vertex has no
+   * edges at all. Exercises the empty-iterables path in getVerticesOptimized.
+   */
+  @Test
+  public void testGetVerticesReturnsEmptyWhenNoEdgesExist() {
+    var tx = session.begin();
+
+    var loneVertex = tx.newVertex("TestVertex");
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(loneVertex.getIdentity()).asVertex();
+
+    assertFalse(
+        "Vertex with no edges should yield empty OUT vertices",
+        loaded.getVertices(Direction.OUT).iterator().hasNext());
+    assertFalse(
+        "Vertex with no edges should yield empty IN vertices",
+        loaded.getVertices(Direction.IN).iterator().hasNext());
+    assertFalse(
+        "Vertex with no edges should yield empty BOTH vertices",
+        loaded.getVertices(Direction.BOTH).iterator().hasNext());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that after deleting a heavyweight edge, getVertices no longer
+   * returns the previously connected vertex.
+   */
+  @Test
+  public void testGetVerticesAfterEdgeDeletionReturnsEmpty() {
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+
+    tx.commit();
+
+    // Delete the edge in a new transaction
+    tx = session.begin();
+    var loadedEdge = tx.load(edge.getIdentity()).asStatefulEdge();
+    loadedEdge.delete();
+    tx.commit();
+
+    // Verify getVertices returns nothing
+    tx = session.begin();
+    var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
+    var loadedIn = tx.load(inVertex.getIdentity()).asVertex();
+
+    assertFalse(
+        "After edge deletion, outgoing vertex should have no adjacent vertices",
+        loadedOut.getVertices(Direction.OUT, "HeavyEdge").iterator().hasNext());
+    assertFalse(
+        "After edge deletion, incoming vertex should have no adjacent vertices",
+        loadedIn.getVertices(Direction.IN, "HeavyEdge").iterator().hasNext());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that a self-loop heavyweight edge (where outVertex == inVertex)
+   * is correctly handled by getVertices in all directions.
+   */
+  @Test
+  public void testGetVerticesWithSelfLoopHeavyweightEdge() {
+    var tx = session.begin();
+
+    var vertex = tx.newVertex("TestVertex");
+    vertex.addStateFulEdge(vertex, "HeavyEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(vertex.getIdentity()).asVertex();
+
+    // OUT should return the vertex itself
+    var outIter = loaded.getVertices(Direction.OUT, "HeavyEdge").iterator();
+    assertTrue("Self-loop OUT should have one vertex", outIter.hasNext());
+    assertEquals(vertex.getIdentity(), outIter.next().getIdentity());
+    assertFalse(outIter.hasNext());
+
+    // IN should return the vertex itself
+    var inIter = loaded.getVertices(Direction.IN, "HeavyEdge").iterator();
+    assertTrue("Self-loop IN should have one vertex", inIter.hasNext());
+    assertEquals(vertex.getIdentity(), inIter.next().getIdentity());
+    assertFalse(inIter.hasNext());
+
+    // BOTH should return the vertex twice (once for OUT, once for IN)
+    int count = 0;
+    for (var v : loaded.getVertices(Direction.BOTH, "HeavyEdge")) {
+      assertEquals(vertex.getIdentity(), v.getIdentity());
+      count++;
+    }
+    assertEquals("Self-loop BOTH should yield 2 entries", 2, count);
 
     tx.commit();
   }

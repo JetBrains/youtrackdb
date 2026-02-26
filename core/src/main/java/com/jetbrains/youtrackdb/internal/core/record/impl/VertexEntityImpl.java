@@ -14,13 +14,13 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -140,9 +140,64 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       return IterableUtils.chainedIterable(
           getVertices(Direction.OUT, type), getVertices(Direction.IN, type));
     } else {
-      var edges = getEdgesInternal(direction, type);
-      return new BidirectionalLinksIterable<>(edges, direction);
+      return getVerticesOptimized(direction, type);
     }
+  }
+
+  /**
+   * Optimized vertex traversal that loads vertices directly from LinkBag secondary RIDs
+   * when possible, avoiding the intermediate edge record load. Falls back to the
+   * edge-based path for non-LinkBag property types (Identifiable, EntityLinkSetImpl,
+   * EntityLinkListImpl).
+   */
+  private Iterable<Vertex> getVerticesOptimized(Direction direction, String[] labels) {
+    var resolved = resolveEdgeProperties(direction, labels);
+    var schema = resolved.schema();
+    labels = resolved.labels();
+    var propertyNames = resolved.propertyNames();
+
+    var iterables = new ArrayList<Iterable<Vertex>>(propertyNames.size());
+    for (var fieldName : propertyNames) {
+      final var connection = getConnection(schema, direction, fieldName, labels);
+      if (connection == null) {
+        continue;
+      }
+
+      var fieldValue = getPropertyInternal(fieldName);
+      if (fieldValue != null) {
+        switch (fieldValue) {
+          case LinkBag bag ->
+              iterables.add(new VertexFromLinkBagIterable(bag, session));
+          case Identifiable identifiable -> {
+            var coll = Collections.singleton(identifiable);
+            var edges = new EdgeIterable(
+                this, connection, labels, session, coll, 1, coll);
+            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+          }
+          case EntityLinkSetImpl set -> {
+            var edges = new EdgeIterable(
+                this, connection, labels, session, set, -1, set);
+            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+          }
+          case EntityLinkListImpl list -> {
+            var edges = new EdgeIterable(
+                this, connection, labels, session, list, -1, list);
+            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+          }
+          default -> throw new IllegalArgumentException(
+              "Unsupported property type: " + getPropertyType(fieldName));
+        }
+      }
+    }
+
+    if (iterables.size() == 1) {
+      return iterables.getFirst();
+    } else if (iterables.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    //noinspection unchecked
+    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
   @Override
@@ -293,15 +348,28 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         (Iterable) getEdgesInternal(direction, linkNames));
   }
 
-  private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
-      String[] labels) {
+  /**
+   * Holds the resolved schema, labels, and property names needed to iterate edges
+   * or vertices from a vertex's edge properties.
+   */
+  private record ResolvedEdgeProperties(
+      Schema schema, String[] labels, Collection<String> propertyNames) {
+  }
+
+  /**
+   * Resolves the schema, alias labels, and property names for edge traversal.
+   * This shared logic is used by both {@link #getEdgesInternal} and
+   * {@link #getVerticesOptimized}.
+   */
+  private ResolvedEdgeProperties resolveEdgeProperties(
+      Direction direction, String[] labels) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     labels = resolveAliases(schema, labels);
 
     Collection<String> propertyNames = null;
     if (labels != null && labels.length > 0) {
-      var toLoadPropertyNames = getAllPossibleEdgePropertyNames(schema, direction, EdgeType.BOTH,
-          labels);
+      var toLoadPropertyNames = getAllPossibleEdgePropertyNames(
+          schema, direction, EdgeType.BOTH, labels);
 
       if (toLoadPropertyNames != null) {
         deserializeProperties(toLoadPropertyNames.toArray(new String[]{}));
@@ -312,6 +380,16 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     if (propertyNames == null) {
       propertyNames = calculatePropertyNames(false, true);
     }
+
+    return new ResolvedEdgeProperties(schema, labels, propertyNames);
+  }
+
+  private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
+      String[] labels) {
+    var resolved = resolveEdgeProperties(direction, labels);
+    var schema = resolved.schema();
+    labels = resolved.labels();
+    var propertyNames = resolved.propertyNames();
 
     var iterables = new ArrayList<Iterable<EdgeInternal>>(propertyNames.size());
     for (var fieldName : propertyNames) {
