@@ -45,11 +45,9 @@ public class PageDataVerificationError {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof PageDataVerificationError that)) {
       return false;
     }
-
-    var that = (PageDataVerificationError) o;
 
     if (incorrectCheckSum != that.incorrectCheckSum) {
       return false;

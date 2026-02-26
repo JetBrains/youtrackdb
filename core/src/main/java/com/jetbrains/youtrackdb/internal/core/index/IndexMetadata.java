@@ -85,11 +85,9 @@ public class IndexMetadata {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof IndexMetadata that)) {
       return false;
     }
-
-    final var that = (IndexMetadata) o;
 
     if (!Objects.equals(algorithm, that.algorithm)) {
       return false;

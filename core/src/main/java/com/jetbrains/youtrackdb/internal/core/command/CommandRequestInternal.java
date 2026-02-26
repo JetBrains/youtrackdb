@@ -46,7 +46,7 @@ public interface CommandRequestInternal extends CommandRequest {
   /**
    * Communicate to a listener if the result set is an record based or anything else
    *
-   * @param recordResultSet
+   * @param recordResultSet true if the result set contains records, false otherwise
    */
   void setRecordResultSet(boolean recordResultSet);
 

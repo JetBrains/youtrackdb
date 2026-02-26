@@ -4462,7 +4462,7 @@ public abstract class AbstractStorage
     var db = frontendTransaction.getDatabaseSession();
 
     switch (txEntry.type) {
-      case RecordOperation.CREATED: {
+      case RecordOperation.CREATED -> {
         final byte[] stream;
         try {
           stream = serializer.toStream(frontendTransaction.getDatabaseSession(), rec);
@@ -4500,9 +4500,8 @@ public abstract class AbstractStorage
                   collection);
           rec.setVersion(updatedVersion);
         }
-        break;
       }
-      case RecordOperation.UPDATED: {
+      case RecordOperation.UPDATED -> {
         final byte[] stream;
         try {
           stream = serializer.toStream(frontendTransaction.getDatabaseSession(), rec);
@@ -4523,17 +4522,14 @@ public abstract class AbstractStorage
                 rec.getRecordType(),
                 collection);
         rec.setVersion(version);
-        break;
       }
-      case RecordOperation.DELETED: {
+      case RecordOperation.DELETED -> {
         if (rec instanceof EntityImpl entity) {
           LinkBagDeleter.deleteAllRidBags(entity, frontendTransaction);
         }
         doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(), collection);
-        break;
       }
-      default:
-        throw new StorageException(name, "Unknown record operation " + txEntry.type);
+      default -> throw new StorageException(name, "Unknown record operation " + txEntry.type);
     }
 
     // RESET TRACKING
@@ -4670,7 +4666,7 @@ public abstract class AbstractStorage
           recordsProcessed++;
 
           final var currentTime = System.currentTimeMillis();
-          if (reportBatchSize > 0 && recordsProcessed % reportBatchSize == 0
+          if ((reportBatchSize > 0 && recordsProcessed % reportBatchSize == 0)
               || currentTime - lastReportTime > WAL_RESTORE_REPORT_INTERVAL) {
             final var additionalArgs =
                 new Object[]{recordsProcessed, walRecord.getLsn(), writeAheadLog.end()};
@@ -5493,9 +5489,9 @@ public abstract class AbstractStorage
 
   /**
    * Computes the global low-water-mark by iterating all registered {@link TsMinHolder}s and
-   * returning the minimum {@code tsMin} value. Entries with {@code Long.MAX_VALUE} represent
-   * idle threads (no active transaction) and are effectively ignored since any real timestamp
-   * will be smaller.
+   * returning the minimum {@link TsMinHolder#tsMin} value. Entries with {@code Long.MAX_VALUE}
+   * represent idle threads (no active transaction) and are effectively ignored since any real
+   * timestamp will be smaller.
    *
    * <p>If no holders are registered (or all are idle), returns {@code Long.MAX_VALUE}.
    */

@@ -217,6 +217,6 @@ public abstract class YTDBElementImpl implements YTDBElement {
   private static boolean keyIgnored(Entity entity, String key) {
     return key == null || key.isEmpty() ||
         key.charAt(0) == INTERNAL_PREFIX ||
-        entity.isStatefulEdge() && EDGE_LINK_FIELDS.contains(key);
+        (entity.isStatefulEdge() && EDGE_LINK_FIELDS.contains(key));
   }
 }

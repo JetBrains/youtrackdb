@@ -38,7 +38,7 @@ public class RidSet implements Set<RID> {
   }
 
   /**
-   * @param bucketSize
+   * @param bucketSize the maximum size of each internal bucket array
    */
   public RidSet(int bucketSize) {
     maxArraySize = bucketSize;

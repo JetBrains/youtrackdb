@@ -40,6 +40,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
   }
 
   @Nullable
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -91,6 +92,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     return distance;
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "distance(<field-x>,<field-y>,<x-value>,<y-value>[,<unit>])";
   }

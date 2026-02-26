@@ -49,7 +49,7 @@ public class BidirectionalLinksIterable<T extends Entity> implements Iterable<T>
 
   @Override
   public boolean isSizeable() {
-    return links == null || links instanceof Sizeable sizeable && sizeable.isSizeable()
+    return links == null || (links instanceof Sizeable sizeable && sizeable.isSizeable())
         || links instanceof Collection<?>;
   }
 }

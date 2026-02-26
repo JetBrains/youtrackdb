@@ -44,6 +44,7 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
   }
 
   @Nullable
+  @Override
   public Object execute(
       Object iThis,
       Result iCurrentRecord,

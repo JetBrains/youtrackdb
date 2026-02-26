@@ -75,7 +75,7 @@ public class StringParser {
         } else if (nextChar == 'f') {
           buffer.append(stringBeginChar == ' ' ? "\f" : "\\\f");
           i++;
-        } else if (stringBeginChar != ' ' && nextChar == '\'' || nextChar == '"') {
+        } else if (stringBeginChar != ' ' && (nextChar == '\'' || nextChar == '"')) {
           buffer.append('\\');
           buffer.append(nextChar);
           i++;

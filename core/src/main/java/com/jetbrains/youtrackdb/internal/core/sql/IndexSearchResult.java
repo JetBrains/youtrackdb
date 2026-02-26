@@ -139,11 +139,9 @@ public class IndexSearchResult {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof IndexSearchResult that)) {
       return false;
     }
-
-    var that = (IndexSearchResult) o;
 
     if (containsNullValues != that.containsNullValues) {
       return false;

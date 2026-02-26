@@ -90,7 +90,7 @@ public class IndexDefinitionFactory {
    * @return extracted property name
    */
   public static String extractFieldName(final String fieldDefinition) {
-    var fieldNameParts = FILED_NAME_PATTERN.split(fieldDefinition);
+    var fieldNameParts = FILED_NAME_PATTERN.split(fieldDefinition, -1);
     if (fieldNameParts.length == 0) {
       throw new IllegalArgumentException(
           "Illegal field name format, should be '<property> [by key|value]' but was '"
@@ -248,7 +248,7 @@ public class IndexDefinitionFactory {
 
   private static PropertyMapIndexDefinition.INDEX_BY extractMapIndexSpecifier(
       final String fieldName) {
-    final var fieldNameParts = FILED_NAME_PATTERN.split(fieldName);
+    final var fieldNameParts = FILED_NAME_PATTERN.split(fieldName, -1);
     if (fieldNameParts.length == 1) {
       return PropertyMapIndexDefinition.INDEX_BY.KEY;
     }

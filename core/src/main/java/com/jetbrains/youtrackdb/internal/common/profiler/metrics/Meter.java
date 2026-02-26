@@ -34,6 +34,7 @@ class Meter {
 
     private final boolean collectTotal; // whether we collect total number of events
     private final boolean collectRealTime; // whether we are interested in measuring current time
+    @SuppressWarnings("ImmutableEnumChecker") // BiFunction is a JDK functional interface
     private final BiFunction<Bucket, Long, Long> ratioDenominator;
 
     Mode(boolean collectTotal, boolean collectRealTime,
@@ -148,7 +149,7 @@ class Meter {
     private long localSuccess;
     private long localTotal;
 
-    public void record(long success, long total) {
+    void record(long success, long total) {
       // accumulating the data
       localSuccess += success;
       localTotal += total;

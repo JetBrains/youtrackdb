@@ -478,6 +478,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T> T getProperty(@Nonnull String name) {
     assert checkSession();

@@ -19,7 +19,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
    * execution contains less than N elements, then the result will contain them all, next result(s)
    * will contain zero elements
    *
-   * @return
+   * @return an execution stream containing the result elements
    */
   ExecutionStream start();
 

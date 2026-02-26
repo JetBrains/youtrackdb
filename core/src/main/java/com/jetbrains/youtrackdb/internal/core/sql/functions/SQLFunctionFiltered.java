@@ -31,7 +31,7 @@ public interface SQLFunctionFiltered extends SQLFunction {
   /**
    * Process a record.
    *
-   * @param iThis
+   * @param iThis            the object on which the function is invoked
    * @param iCurrentRecord   : current record
    * @param iCurrentResult   TODO
    * @param iParams          : function parameters, number is ensured to be within minParams and

@@ -39,6 +39,7 @@ public interface BasicResult {
   ///
   /// @see #getResult(String)
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <T> T getProperty(@Nonnull String name);
 
   /// Returns `boolean` property value associated with [PropertyType#BOOLEAN] type contained in

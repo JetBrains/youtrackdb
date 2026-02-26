@@ -87,132 +87,120 @@ public abstract class StringSerializerHelper {
       iType = PropertyTypeInternal.EMBEDDED;
     }
 
-    switch (iType) {
-      case STRING:
+    return switch (iType) {
+      case STRING -> {
         if (iValue instanceof String s) {
-          return decode(IOUtils.getStringContent(s));
+          yield decode(IOUtils.getStringContent(s));
         }
-        return iValue.toString();
-
-      case INTEGER: {
+        yield iValue.toString();
+      }
+      case INTEGER -> {
         if (iValue instanceof Integer) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Integer.parseInt(valueString);
+        yield Integer.parseInt(valueString);
       }
-
-      case BOOLEAN: {
+      case BOOLEAN -> {
         if (iValue instanceof Boolean) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Boolean.parseBoolean(valueString);
+        yield Boolean.parseBoolean(valueString);
       }
-
-      case DECIMAL: {
+      case DECIMAL -> {
         if (iValue instanceof BigDecimal) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return new BigDecimal(valueString);
+        yield new BigDecimal(valueString);
       }
-
-      case FLOAT: {
+      case FLOAT -> {
         if (iValue instanceof Float) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Float.parseFloat(valueString);
+        yield Float.parseFloat(valueString);
       }
-
-      case LONG: {
+      case LONG -> {
         if (iValue instanceof Long) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Long.parseLong(valueString);
+        yield Long.parseLong(valueString);
       }
-
-      case DOUBLE: {
+      case DOUBLE -> {
         if (iValue instanceof Double) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Double.parseDouble(valueString);
+        yield Double.parseDouble(valueString);
       }
-
-      case SHORT: {
+      case SHORT -> {
         if (iValue instanceof Short) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Short.parseShort(valueString);
+        yield Short.parseShort(valueString);
       }
-
-      case BYTE: {
+      case BYTE -> {
         if (iValue instanceof Byte) {
-          return iValue;
+          yield iValue;
         }
         final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
-          return null;
+          yield null;
         }
-        return Byte.parseByte(valueString);
+        yield Byte.parseByte(valueString);
       }
-
-      case BINARY:
-        return getBinaryContent(iValue);
-
-      case DATE:
-      case DATETIME:
+      case BINARY -> getBinaryContent(iValue);
+      case DATE, DATETIME -> {
         if (iValue instanceof Date) {
-          return iValue;
+          yield iValue;
         }
-        return new Date(Long.parseLong(IOUtils.getStringContent(iValue)));
-
-      case LINK:
+        yield new Date(Long.parseLong(IOUtils.getStringContent(iValue)));
+      }
+      case LINK -> {
         if (iValue instanceof RID) {
-          return iValue.toString();
+          yield iValue.toString();
         } else if (iValue instanceof String s) {
-          return RecordIdInternal.fromString(s, false);
+          yield RecordIdInternal.fromString(s, false);
         } else {
-          return ((DBRecord) iValue).getIdentity().toString();
+          yield ((DBRecord) iValue).getIdentity().toString();
         }
-
-      case EMBEDDED:
-        // EMBEDDED
-        return null;
-      case EMBEDDEDMAP:
+      }
+      // EMBEDDED
+      case EMBEDDED -> null;
+      case EMBEDDEDMAP -> {
         // RECORD
         final var value = (String) iValue;
-        return RecordSerializerCSVAbstract.embeddedMapFromStream(db,
+        yield RecordSerializerCSVAbstract.embeddedMapFromStream(db,
             entity, null, value, null);
-    }
-
-    throw new IllegalArgumentException(
-        "Type " + iType + " does not support converting value: " + iValue);
+      }
+      default -> throw new IllegalArgumentException(
+          "Type " + iType + " does not support converting value: " + iValue);
+    };
   }
 
   public static String smartTrim(
@@ -782,7 +770,7 @@ public abstract class StringSerializerHelper {
           insideLinkPart = 0;
         }
 
-        if ((c == '"' || c == '`' || iStringSeparatorExtended && c == '\'') && !encodeMode) {
+        if ((c == '"' || c == '`' || (iStringSeparatorExtended && c == '\'')) && !encodeMode) {
           // START STRING
           stringBeginChar = c;
         }
@@ -807,7 +795,7 @@ public abstract class StringSerializerHelper {
         }
       } else {
         // INSIDE A STRING
-        if ((c == '"' || c == '`' || iStringSeparatorExtended && c == '\'') && !encodeMode) {
+        if ((c == '"' || c == '`' || (iStringSeparatorExtended && c == '\'')) && !encodeMode) {
           // CLOSE THE STRING ?
           if (stringBeginChar == c) {
             // SAME CHAR AS THE BEGIN OF THE STRING: CLOSE IT AND PUSH
@@ -1336,8 +1324,8 @@ public abstract class StringSerializerHelper {
   /**
    * Use IOUtils.getStringContent(iValue) instead.
    *
-   * @param iValue
-   * @return
+   * @param iValue the value to extract string content from
+   * @return the string content without surrounding quotes
    */
   @Deprecated
   public static String getStringContent(final Object iValue) {
@@ -1358,8 +1346,8 @@ public abstract class StringSerializerHelper {
       return bytes;
     } else if (iValue instanceof String s) {
       if (s.length() > 1
-          && (s.charAt(0) == BINARY_BEGINEND && s.charAt(s.length() - 1) == BINARY_BEGINEND)
-          || (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''))
+          && ((s.charAt(0) == BINARY_BEGINEND && s.charAt(s.length() - 1) == BINARY_BEGINEND)
+          || (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')))
       // @COMPATIBILITY 1.0rc7-SNAPSHOT ' TO SUPPORT OLD DATABASES
       {
         s = s.substring(1, s.length() - 1);
@@ -1397,8 +1385,8 @@ public abstract class StringSerializerHelper {
   public static String removeQuotationMarks(final String iValue) {
     if (iValue != null
         && iValue.length() > 1
-        && (iValue.charAt(0) == '\'' && iValue.charAt(iValue.length() - 1) == '\''
-        || iValue.charAt(0) == '"' && iValue.charAt(iValue.length() - 1) == '"')) {
+        && ((iValue.charAt(0) == '\'' && iValue.charAt(iValue.length() - 1) == '\'')
+        || (iValue.charAt(0) == '"' && iValue.charAt(iValue.length() - 1) == '"'))) {
       return iValue.substring(1, iValue.length() - 1);
     }
 

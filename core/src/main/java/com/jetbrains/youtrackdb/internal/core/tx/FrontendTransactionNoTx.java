@@ -169,6 +169,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     throw new UnsupportedOperationException("not supported in no tx mode");
@@ -215,12 +216,14 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET load(RID recordId) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     throw new UnsupportedOperationException("not supported in no tx mode");
@@ -540,12 +543,14 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET load(Identifiable identifiable) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
     throw new UnsupportedOperationException("not supported in no tx mode");

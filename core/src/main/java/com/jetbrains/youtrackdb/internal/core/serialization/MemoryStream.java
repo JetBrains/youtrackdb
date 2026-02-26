@@ -170,9 +170,8 @@ public class MemoryStream extends OutputStream {
   /**
    * Append byte[] to the stream.
    *
-   * @param iContent
+   * @param iContent the byte array to append to the stream
    * @return The begin offset of the appended content
-   * @throws IOException
    */
   public int set(final byte[] iContent) {
     if (iContent == null) {

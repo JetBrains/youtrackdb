@@ -35,12 +35,12 @@ class ScalingThreadPoolExecutor extends ThreadPoolExecutorWithLogging {
 
     private volatile boolean maxPoolReached = false;
 
-    public ScalingQueue(int targetCapacity) {
+    ScalingQueue(int targetCapacity) {
       super(); // Don't limit actual queue - capacity is used to signal ThreadPoolExecutor to grow
       this.targetCapacity = targetCapacity;
     }
 
-    public ScalingQueue(int targetCapacity, int maxQueueCapacity) {
+    ScalingQueue(int targetCapacity, int maxQueueCapacity) {
       super(maxQueueCapacity);
       if (targetCapacity >= maxQueueCapacity) {
         throw new IllegalArgumentException("Target capacity must be less than max queue capacity");
@@ -64,7 +64,7 @@ class ScalingThreadPoolExecutor extends ThreadPoolExecutorWithLogging {
       return super.offer(r);
     }
 
-    protected void safeOffer(Runnable r) {
+    void safeOffer(Runnable r) {
       // On unbounded/target queue, will always succeed immediately. For bounded, may block.
       try {
         super.put(r);
@@ -74,7 +74,7 @@ class ScalingThreadPoolExecutor extends ThreadPoolExecutorWithLogging {
       }
     }
 
-    protected void setMaxPoolReached(boolean maxPoolReached) {
+    void setMaxPoolReached(boolean maxPoolReached) {
       this.maxPoolReached = maxPoolReached;
     }
   }

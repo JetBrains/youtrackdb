@@ -79,8 +79,8 @@ public class TraversePath {
 
   private abstract static class PathItem {
 
-    protected final PathItem parentItem;
-    protected final int depth;
+    final PathItem parentItem;
+    final int depth;
 
     private PathItem(PathItem parentItem, int depth) {
       this.parentItem = parentItem;

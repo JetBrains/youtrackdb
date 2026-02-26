@@ -22,8 +22,6 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * A striped, non-blocking, bounded buffer.
- *
- * @param <E> the type of elements maintained by this buffer
  */
 public final class BoundedBuffer extends StripedBuffer {
   /*

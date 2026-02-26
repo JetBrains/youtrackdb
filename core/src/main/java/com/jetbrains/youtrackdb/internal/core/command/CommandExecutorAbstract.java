@@ -60,6 +60,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
     return progressListener;
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends CommandExecutor> RET setProgressListener(
       final ProgressListener progressListener) {
@@ -71,6 +72,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
     return limit;
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends CommandExecutor> RET setLimit(final int iLimit) {
     this.limit = iLimit;

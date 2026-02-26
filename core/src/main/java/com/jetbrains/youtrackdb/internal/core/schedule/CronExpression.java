@@ -246,8 +246,8 @@ public final class CronExpression implements Serializable, Cloneable {
 
   private class ValueSet {
 
-    public int value;
-    public int pos;
+    int value;
+    int pos;
   }
 
   /**
@@ -991,28 +991,16 @@ public final class CronExpression implements Serializable, Cloneable {
     var max = -1;
     if (stopAt < startAt) {
       switch (type) {
-        case SECOND:
-          max = 60;
-          break;
-        case MINUTE:
-          max = 60;
-          break;
-        case HOUR:
-          max = 24;
-          break;
-        case MONTH:
-          max = 12;
-          break;
-        case DAY_OF_WEEK:
-          max = 7;
-          break;
-        case DAY_OF_MONTH:
-          max = 31;
-          break;
-        case YEAR:
-          throw new IllegalArgumentException("Start year must be less than stop year");
-        default:
-          throw new IllegalArgumentException("Unexpected type encountered");
+        case SECOND -> max = 60;
+        case MINUTE -> max = 60;
+        case HOUR -> max = 24;
+        case MONTH -> max = 12;
+        case DAY_OF_WEEK -> max = 7;
+        case DAY_OF_MONTH -> max = 31;
+        case YEAR ->
+            throw new IllegalArgumentException("Start year must be less than stop year");
+        default ->
+            throw new IllegalArgumentException("Unexpected type encountered");
       }
       stopAt += max;
     }
@@ -1528,32 +1516,43 @@ public final class CronExpression implements Serializable, Cloneable {
   private int getLastDayOfMonth(int monthNum, int year) {
 
     switch (monthNum) {
-      case 1:
+      case 1 -> {
         return 31;
-      case 2:
+      }
+      case 2 -> {
         return isLeapYear(year) ? 29 : 28;
-      case 3:
+      }
+      case 3 -> {
         return 31;
-      case 4:
+      }
+      case 4 -> {
         return 30;
-      case 5:
+      }
+      case 5 -> {
         return 31;
-      case 6:
+      }
+      case 6 -> {
         return 30;
-      case 7:
+      }
+      case 7 -> {
         return 31;
-      case 8:
+      }
+      case 8 -> {
         return 31;
-      case 9:
+      }
+      case 9 -> {
         return 30;
-      case 10:
+      }
+      case 10 -> {
         return 31;
-      case 11:
+      }
+      case 11 -> {
         return 30;
-      case 12:
+      }
+      case 12 -> {
         return 31;
-      default:
-        throw new IllegalArgumentException("Illegal month number: " + monthNum);
+      }
+      default -> throw new IllegalArgumentException("Illegal month number: " + monthNum);
     }
   }
 

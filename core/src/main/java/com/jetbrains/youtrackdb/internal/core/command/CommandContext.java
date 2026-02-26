@@ -51,6 +51,7 @@ public interface CommandContext {
 
   boolean hasSystemVariable(int id);
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <T> T getSystemVariable(int id);
 
   CommandContext incrementVariable(String getNeighbors);
@@ -68,7 +69,7 @@ public interface CommandContext {
    *
    * @param iName  Metric's name
    * @param iValue delta to add or subtract
-   * @return
+   * @return the updated metric value, or -1 if metrics are not being recorded
    */
   long updateMetric(String iName, long iValue);
 
@@ -98,7 +99,7 @@ public interface CommandContext {
   /**
    * Merges a context with current one.
    *
-   * @param iContext
+   * @param iContext the context to merge into this one
    */
   void merge(CommandContext iContext);
 

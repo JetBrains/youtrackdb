@@ -34,12 +34,15 @@ public enum SequenceOrderType {
 
   public static SequenceOrderType fromValue(byte val) {
     switch (val) {
-      case (byte) 1:
+      case (byte) 1 -> {
         return ORDER_POSITIVE;
-      case (byte) 2:
+      }
+      case (byte) 2 -> {
         return ORDER_NEGATIVE;
-      default:
+      }
+      default -> {
         return ORDER_POSITIVE;
+      }
     }
   }
 }

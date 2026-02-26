@@ -129,8 +129,7 @@ public class DefaultIndexFactory implements IndexFactory {
     }
 
     switch (storageType) {
-      case "memory":
-      case "disk":
+      case "memory", "disk" -> {
         var realStorage = (AbstractStorage) storage;
         if (data.getAlgorithm().equals(BTREE_ALGORITHM)) {
           if (data.isMultivalue()) {
@@ -145,12 +144,10 @@ public class DefaultIndexFactory implements IndexFactory {
         } else {
           throw new IllegalStateException("Invalid name of algorithm :'" + "'");
         }
-        break;
-      case "remote":
-        indexEngine = new RemoteIndexEngine(data.getIndexId(), data.getName());
-        break;
-      default:
-        throw new IndexException(storage.getName(), "Unsupported storage type: " + storageType);
+      }
+      case "remote" -> indexEngine = new RemoteIndexEngine(data.getIndexId(), data.getName());
+      default ->
+          throw new IndexException(storage.getName(), "Unsupported storage type: " + storageType);
     }
 
     return indexEngine;

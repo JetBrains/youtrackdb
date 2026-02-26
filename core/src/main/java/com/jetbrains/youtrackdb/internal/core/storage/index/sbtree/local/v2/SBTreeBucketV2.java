@@ -300,7 +300,7 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
    * Obtains the value stored under the given entry index in this bucket.
    *
    * @param entryIndex        the value entry index.
-   * @param serializerFactory
+   * @param serializerFactory the factory used to determine serialized object sizes
    * @return the obtained value.
    */
   public SBTreeValue<V> getValue(

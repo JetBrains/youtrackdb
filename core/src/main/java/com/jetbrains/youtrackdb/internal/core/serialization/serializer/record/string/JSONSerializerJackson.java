@@ -660,14 +660,14 @@ public class JSONSerializerJackson {
       final var isEdge = entity.isEdge();
 
       final var isGraphField = readAllowGraphStructure && (
-          isVertex && (
+          (isVertex && (
               fieldName.startsWith(Vertex.DIRECTION_IN_PREFIX) ||
                   fieldName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
-          ) ||
-              isEdge && (
+          )) ||
+              (isEdge && (
                   fieldName.equals(Edge.DIRECTION_IN) ||
                       fieldName.equals(Edge.DIRECTION_OUT)
-              )
+              ))
       );
 
       final var value = parseValue(session, entity, jsonParser, type, schemaProperty);
@@ -1376,7 +1376,7 @@ public class JSONSerializerJackson {
         markEmbeddedEntities = false;
 
         if (!stringFormat.isEmpty()) {
-          final var format = stringFormat.split(",");
+          final var format = stringFormat.split(",", -1);
           for (var f : format) {
             switch (f) {
               case "type" -> includeType = true;

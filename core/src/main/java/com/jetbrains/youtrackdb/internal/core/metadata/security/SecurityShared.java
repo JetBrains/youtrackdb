@@ -1160,7 +1160,7 @@ public class SecurityShared implements SecurityInternal {
 
   private static Map<ResourceGeneric, Rule> mapPermission(GlobalUser user) {
     Map<Rule.ResourceGeneric, Rule> rules = new HashMap<Rule.ResourceGeneric, Rule>();
-    var strings = user.getResources().split(",");
+    var strings = user.getResources().split(",", -1);
 
     for (var string : strings) {
       var generic = Rule.mapLegacyResourceToGenericResource(string);

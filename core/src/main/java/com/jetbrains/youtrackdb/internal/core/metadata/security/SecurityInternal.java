@@ -60,7 +60,7 @@ public interface SecurityInternal {
    * @param role     the role
    * @param resource the string representation of the security resource, eg.
    *                 "database.class.Person"
-   * @return
+   * @return the security policy assigned to the role for the given resource, or null if none
    */
   SecurityPolicy getSecurityPolicy(DatabaseSessionEmbedded session, SecurityRole role,
       String resource);
@@ -83,7 +83,7 @@ public interface SecurityInternal {
    *
    * @param session the session to a DB where the policy has to be created
    * @param name    the policy name
-   * @return
+   * @return the newly created empty security policy
    */
   SecurityPolicyImpl createSecurityPolicy(DatabaseSessionEmbedded session, String name);
 

@@ -92,7 +92,7 @@ public class FieldTypesString {
   public static Map<String, Character> loadFieldTypesV0(
       Map<String, Character> fieldTypes, final String fieldValueAsString) {
     // LOAD THE FIELD TYPE MAP
-    final var fieldTypesParts = fieldValueAsString.split(",");
+    final var fieldTypesParts = fieldValueAsString.split(",", -1);
     if (fieldTypesParts.length > 0) {
       if (fieldTypes == null) {
         fieldTypes = new HashMap<>();

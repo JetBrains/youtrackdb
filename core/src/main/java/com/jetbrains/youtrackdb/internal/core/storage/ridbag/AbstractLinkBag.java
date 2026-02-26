@@ -503,7 +503,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     private long savedNewModificationsCount = newModificationsCount;
     private long savedLocalChangesModificationsCount = localChangesModificationsCount;
 
-    public MergingSpliterator() {
+    MergingSpliterator() {
       initNewEntriesSpliterator();
       initLocalChangesSpliterator();
       initBTreeRecordsSpliterator();
@@ -598,7 +598,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       btreeRecordsSpliterator = btreeSpliterator(atomicOperation);
     }
 
-    public void removed(RID rid) {
+    void removed(RID rid) {
       if (rid.equals(currentRid) && currentCounter > 0) {
         currentCounter--;
       }
@@ -668,7 +668,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         btreeRecordsSpliterator = null;
       }
 
-      assert btreeRid == null && btreeCounter == 0 || btreeCounter > 0;
+      assert (btreeRid == null && btreeCounter == 0) || btreeCounter > 0;
     }
 
     private void nextLocalEntree() {
@@ -730,7 +730,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     private RID nextRid;
     private RID currentRid;
 
-    public EnhancedIterator() {
+    EnhancedIterator() {
       spliterator = new MergingSpliterator();
       spliterator.tryAdvance(rid -> nextRid = rid);
     }

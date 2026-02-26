@@ -66,7 +66,7 @@ public class ParallelExecStep extends AbstractExecutionStep {
       var currentPlan = subExecutionPlans.get(subExecutionPlans.size() - 1 - i);
       var partial = currentPlan.prettyPrint(0, indent);
 
-      var partials = partial.split("\n");
+      var partials = partial.split("\n", -1);
       blockSizes[subExecutionPlans.size() - 1 - i] = partials.length + 2;
       result.insert(0, "+-------------------------\n");
       for (var j = 0; j < partials.length; j++) {
@@ -89,7 +89,7 @@ public class ParallelExecStep extends AbstractExecutionStep {
 
   private String addArrows(String input, int[] blockSizes) {
     var result = new StringBuilder();
-    var rows = input.split("\n");
+    var rows = input.split("\n", -1);
     var rowNum = 0;
     for (var block = 0; block < blockSizes.length; block++) {
       var blockSize = blockSizes[block];

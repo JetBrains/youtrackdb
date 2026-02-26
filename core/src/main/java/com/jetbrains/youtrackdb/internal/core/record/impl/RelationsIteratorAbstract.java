@@ -102,8 +102,8 @@ public abstract class RelationsIteratorAbstract<E extends Entity, L extends Rela
 
   @Override
   public boolean isSizeable() {
-    return size > -1 || iterator instanceof Sizeable iSizeable && iSizeable.isSizeable()
-        || multiValue instanceof Sizeable mSizable && mSizable.isSizeable()
+    return size > -1 || (iterator instanceof Sizeable iSizeable && iSizeable.isSizeable())
+        || (multiValue instanceof Sizeable mSizable && mSizable.isSizeable())
         || multiValue instanceof Collection<?>;
   }
 

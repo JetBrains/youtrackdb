@@ -63,8 +63,8 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
    *
    * @param iCurrentRecord Current record
    * @param iCurrentResult TODO
-   * @param iContext
-   * @return
+   * @param iContext       the command execution context
+   * @return the result of executing the method, or null if the input is null
    */
   @Nullable
   public Object execute(

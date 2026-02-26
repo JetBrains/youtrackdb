@@ -41,6 +41,7 @@ public class SQLFunctionDistinct extends SQLFunctionAbstract {
   }
 
   @Nullable
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -62,6 +63,7 @@ public class SQLFunctionDistinct extends SQLFunctionAbstract {
     return true;
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "distinct(<field>)";
   }

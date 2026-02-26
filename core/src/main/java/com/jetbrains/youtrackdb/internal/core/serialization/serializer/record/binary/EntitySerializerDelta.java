@@ -188,18 +188,16 @@ public class EntitySerializerDelta {
     var count = VarIntSerializer.readAsLong(bytes);
     while (count-- > 0) {
       switch (deserializeByte(bytes)) {
-        case CREATED, REPLACED:
-          deserializeFullEntry(session, bytes, toFill);
-          break;
-        case CHANGED:
-          deserializeDeltaEntry(session, bytes, toFill);
-          break;
-        case REMOVED:
+        case CREATED, REPLACED -> deserializeFullEntry(session, bytes, toFill);
+        case CHANGED -> deserializeDeltaEntry(session, bytes, toFill);
+        case REMOVED -> {
           var property = readString(bytes);
           if (toFill != null) {
             toFill.removePropertyInternal(property);
           }
-          break;
+        }
+        default -> {
+        }
       }
     }
   }
@@ -220,37 +218,29 @@ public class EntitySerializerDelta {
   private void deserializeDeltaValue(DatabaseSessionEmbedded session, BytesContainer bytes,
       PropertyTypeInternal type, Object toUpdate) {
     switch (type) {
-      case EMBEDDEDLIST:
-        //noinspection unchecked
-        deserializeDeltaEmbeddedList(session, bytes, (EntityEmbeddedListImpl<Object>) toUpdate);
-        break;
-      case EMBEDDEDSET:
-        //noinspection unchecked
-        deserializeDeltaEmbeddedSet(session, bytes, (EntityEmbeddedSetImpl<Object>) toUpdate);
-        break;
-      case EMBEDDEDMAP:
-        //noinspection unchecked
-        deserializeDeltaEmbeddedMap(session, bytes, (EntityEmbeddedMapImpl<Object>) toUpdate);
-        break;
-      case EMBEDDED:
+      case EMBEDDEDLIST ->
+          //noinspection unchecked
+          deserializeDeltaEmbeddedList(session, bytes, (EntityEmbeddedListImpl<Object>) toUpdate);
+      case EMBEDDEDSET ->
+          //noinspection unchecked
+          deserializeDeltaEmbeddedSet(session, bytes, (EntityEmbeddedSetImpl<Object>) toUpdate);
+      case EMBEDDEDMAP ->
+          //noinspection unchecked
+          deserializeDeltaEmbeddedMap(session, bytes, (EntityEmbeddedMapImpl<Object>) toUpdate);
+      case EMBEDDED -> {
         var transaction = session.getActiveTransaction();
         deserializeDelta(session, bytes, transaction.load(((DBRecord) toUpdate)));
-        break;
-      case LINKLIST:
-        deserializeDeltaLinkList(session, bytes, (EntityLinkListImpl) toUpdate);
-        break;
-      case LINKSET:
-        deserializeDeltaLinkSet(session, bytes, (EntityLinkSetImpl) toUpdate);
-        break;
-      case LINKMAP:
-        deserializeDeltaLinkMap(session, bytes, (EntityLinkMapIml) toUpdate);
-        break;
-      case LINKBAG:
-        deserializeDeltaLinkBag(session, bytes, (LinkBag) toUpdate);
-        break;
-      default:
-        throw new SerializationException(session.getDatabaseName(),
-            "delta not supported for type:" + type);
+      }
+      case LINKLIST ->
+          deserializeDeltaLinkList(session, bytes, (EntityLinkListImpl) toUpdate);
+      case LINKSET ->
+          deserializeDeltaLinkSet(session, bytes, (EntityLinkSetImpl) toUpdate);
+      case LINKMAP ->
+          deserializeDeltaLinkMap(session, bytes, (EntityLinkMapIml) toUpdate);
+      case LINKBAG ->
+          deserializeDeltaLinkBag(session, bytes, (LinkBag) toUpdate);
+      default -> throw new SerializationException(session.getDatabaseName(),
+          "delta not supported for type:" + type);
     }
   }
 
@@ -260,28 +250,27 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var key = readString(bytes);
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.put(key, link);
           }
-          break;
         }
-        case REPLACED: {
+        case REPLACED -> {
           var key = readString(bytes);
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.put(key, link);
           }
-          break;
         }
-        case REMOVED: {
+        case REMOVED -> {
           var key = readString(bytes);
           if (toUpdate != null) {
             toUpdate.remove(key);
           }
-          break;
+        }
+        default -> {
         }
       }
     }
@@ -294,22 +283,21 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.add(link);
           }
-          break;
         }
-        case REPLACED: {
-          break;
+        case REPLACED -> {
         }
-        case REMOVED: {
+        case REMOVED -> {
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.remove(link);
           }
-          break;
+        }
+        default -> {
         }
       }
     }
@@ -322,27 +310,26 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.add(link);
           }
-          break;
         }
-        case REPLACED: {
+        case REPLACED -> {
           var position = VarIntSerializer.readAsLong(bytes);
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.set((int) position, link);
           }
-          break;
         }
-        case REMOVED: {
+        case REMOVED -> {
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.remove(link);
           }
-          break;
+        }
+        default -> {
         }
       }
     }
@@ -354,22 +341,21 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.add(link);
           }
-          break;
         }
-        case REPLACED: {
-          break;
+        case REPLACED -> {
         }
-        case REMOVED: {
+        case REMOVED -> {
           var link = readOptimizedLink(session, bytes);
           if (toUpdate != null) {
             toUpdate.remove(link);
           }
-          break;
+        }
+        default -> {
         }
       }
     }
@@ -381,7 +367,7 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var key = readString(bytes);
           var type = readNullableType(bytes);
           Object value;
@@ -393,9 +379,8 @@ public class EntitySerializerDelta {
           if (toUpdate != null) {
             toUpdate.put(key, value);
           }
-          break;
         }
-        case REPLACED: {
+        case REPLACED -> {
           var key = readString(bytes);
           var type = readNullableType(bytes);
           Object value;
@@ -407,14 +392,15 @@ public class EntitySerializerDelta {
           if (toUpdate != null) {
             toUpdate.put(key, value);
           }
-          break;
         }
-        case REMOVED:
+        case REMOVED -> {
           var key = readString(bytes);
           if (toUpdate != null) {
             toUpdate.remove(key);
           }
-          break;
+        }
+        default -> {
+        }
       }
     }
     var nestedChanges = VarIntSerializer.readAsLong(bytes);
@@ -439,7 +425,7 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var type = readNullableType(bytes);
           Object value;
           if (type != null) {
@@ -450,11 +436,9 @@ public class EntitySerializerDelta {
           if (toUpdate != null) {
             toUpdate.add(value);
           }
-          break;
         }
-        case REPLACED:
-          assert false : "this can't ever happen";
-        case REMOVED:
+        case REPLACED, REMOVED -> {
+          assert change != REPLACED : "this can't ever happen";
           var type = readNullableType(bytes);
           Object value;
           if (type != null) {
@@ -465,7 +449,9 @@ public class EntitySerializerDelta {
           if (toUpdate != null) {
             toUpdate.remove(value);
           }
-          break;
+        }
+        default -> {
+        }
       }
     }
     var nestedChanges = VarIntSerializer.readAsLong(bytes);
@@ -495,7 +481,7 @@ public class EntitySerializerDelta {
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
       switch (change) {
-        case CREATED: {
+        case CREATED -> {
           var type = readNullableType(bytes);
           Object value;
           if (type != null) {
@@ -506,9 +492,8 @@ public class EntitySerializerDelta {
           if (toUpdate != null) {
             toUpdate.add(value);
           }
-          break;
         }
-        case REPLACED: {
+        case REPLACED -> {
           var pos = VarIntSerializer.readAsLong(bytes);
           var type = readNullableType(bytes);
           Object value;
@@ -520,14 +505,14 @@ public class EntitySerializerDelta {
           if (toUpdate != null) {
             toUpdate.set((int) pos, value);
           }
-          break;
         }
-        case REMOVED: {
+        case REMOVED -> {
           var pos = VarIntSerializer.readAsLong(bytes);
           if (toUpdate != null) {
             toUpdate.remove((int) pos);
           }
-          break;
+        }
+        default -> {
         }
       }
     }
@@ -622,35 +607,25 @@ public class EntitySerializerDelta {
       DatabaseSessionEmbedded session, BytesContainer bytes, Object value,
       PropertyTypeInternal type) {
     switch (type) {
-      case EMBEDDEDLIST:
-        serializeDeltaEmbeddedList(session, bytes, (EntityEmbeddedListImpl<?>) value);
-        break;
-      case EMBEDDEDSET:
-        //noinspection unchecked
-        serializeDeltaEmbeddedSet(session, bytes, (EntityEmbeddedSetImpl<Object>) value);
-        break;
-      case EMBEDDEDMAP:
-        //noinspection unchecked
-        serializeDeltaEmbeddedMap(session, bytes, (EntityEmbeddedMapImpl<Object>) value);
-        break;
-      case EMBEDDED:
-        serializeDelta(session, bytes, (EntityImpl) value);
-        break;
-      case LINKLIST:
-        serializeDeltaLinkList(session, bytes, (EntityLinkListImpl) value);
-        break;
-      case LINKSET:
-        serializeDeltaLinkSet(session, bytes, (EntityLinkSetImpl) value);
-        break;
-      case LINKMAP:
-        serializeDeltaLinkMap(session, bytes, (EntityLinkMapIml) value);
-        break;
-      case LINKBAG:
-        serializeDeltaLinkBag(session, bytes, (LinkBag) value);
-        break;
-      default:
-        throw new SerializationException(session.getDatabaseName(),
-            "delta not supported for type:" + type);
+      case EMBEDDEDLIST ->
+          serializeDeltaEmbeddedList(session, bytes, (EntityEmbeddedListImpl<?>) value);
+      case EMBEDDEDSET ->
+          //noinspection unchecked
+          serializeDeltaEmbeddedSet(session, bytes, (EntityEmbeddedSetImpl<Object>) value);
+      case EMBEDDEDMAP ->
+          //noinspection unchecked
+          serializeDeltaEmbeddedMap(session, bytes, (EntityEmbeddedMapImpl<Object>) value);
+      case EMBEDDED -> serializeDelta(session, bytes, (EntityImpl) value);
+      case LINKLIST ->
+          serializeDeltaLinkList(session, bytes, (EntityLinkListImpl) value);
+      case LINKSET ->
+          serializeDeltaLinkSet(session, bytes, (EntityLinkSetImpl) value);
+      case LINKMAP ->
+          serializeDeltaLinkMap(session, bytes, (EntityLinkMapIml) value);
+      case LINKBAG ->
+          serializeDeltaLinkBag(session, bytes, (LinkBag) value);
+      default -> throw new SerializationException(session.getDatabaseName(),
+          "delta not supported for type:" + type);
     }
   }
 
@@ -663,17 +638,16 @@ public class EntitySerializerDelta {
     for (var event :
         timeline.getMultiValueChangeEvents()) {
       switch (event.getChangeType()) {
-        case ADD:
+        case ADD -> {
           serializeByte(bytes, CREATED);
           writeOptimizedLink(session, bytes, event.getValue());
-          break;
-        case UPDATE:
-          throw new UnsupportedOperationException(
-              "update do not happen in sets, it will be like and add");
-        case REMOVE:
+        }
+        case UPDATE -> throw new UnsupportedOperationException(
+            "update do not happen in sets, it will be like and add");
+        case REMOVE -> {
           serializeByte(bytes, REMOVED);
           writeOptimizedLink(session, bytes, event.getOldValue());
-          break;
+        }
       }
     }
   }
@@ -688,17 +662,16 @@ public class EntitySerializerDelta {
     for (var event :
         timeline.getMultiValueChangeEvents()) {
       switch (event.getChangeType()) {
-        case ADD:
+        case ADD -> {
           serializeByte(bytes, CREATED);
           writeOptimizedLink(session, bytes, event.getValue());
-          break;
-        case UPDATE:
-          throw new UnsupportedOperationException(
-              "update do not happen in sets, it will be like and add");
-        case REMOVE:
+        }
+        case UPDATE -> throw new UnsupportedOperationException(
+            "update do not happen in sets, it will be like and add");
+        case REMOVE -> {
           serializeByte(bytes, REMOVED);
           writeOptimizedLink(session, bytes, event.getOldValue());
-          break;
+        }
       }
     }
   }
@@ -711,19 +684,19 @@ public class EntitySerializerDelta {
     for (var event :
         timeline.getMultiValueChangeEvents()) {
       switch (event.getChangeType()) {
-        case ADD:
+        case ADD -> {
           serializeByte(bytes, CREATED);
           writeOptimizedLink(session, bytes, event.getValue());
-          break;
-        case UPDATE:
+        }
+        case UPDATE -> {
           serializeByte(bytes, REPLACED);
           VarIntSerializer.write(bytes, event.getKey().longValue());
           writeOptimizedLink(session, bytes, event.getValue());
-          break;
-        case REMOVE:
+        }
+        case REMOVE -> {
           serializeByte(bytes, REMOVED);
           writeOptimizedLink(session, bytes, event.getOldValue());
-          break;
+        }
       }
     }
   }
@@ -736,20 +709,20 @@ public class EntitySerializerDelta {
     for (var event :
         timeline.getMultiValueChangeEvents()) {
       switch (event.getChangeType()) {
-        case ADD:
+        case ADD -> {
           serializeByte(bytes, CREATED);
           writeString(bytes, event.getKey());
           writeOptimizedLink(session, bytes, event.getValue());
-          break;
-        case UPDATE:
+        }
+        case UPDATE -> {
           serializeByte(bytes, REPLACED);
           writeString(bytes, event.getKey());
           writeOptimizedLink(session, bytes, event.getValue());
-          break;
-        case REMOVE:
+        }
+        case REMOVE -> {
           serializeByte(bytes, REMOVED);
           writeString(bytes, event.getKey());
-          break;
+        }
       }
     }
   }
@@ -762,7 +735,7 @@ public class EntitySerializerDelta {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
       for (var event : timeline.getMultiValueChangeEvents()) {
         switch (event.getChangeType()) {
-          case ADD: {
+          case ADD -> {
             serializeByte(bytes, CREATED);
             writeString(bytes, event.getKey());
             if (event.getValue() != null) {
@@ -772,9 +745,8 @@ public class EntitySerializerDelta {
             } else {
               writeNullableType(bytes, null);
             }
-            break;
           }
-          case UPDATE: {
+          case UPDATE -> {
             serializeByte(bytes, REPLACED);
             writeString(bytes, event.getKey());
             if (event.getValue() != null) {
@@ -784,12 +756,11 @@ public class EntitySerializerDelta {
             } else {
               writeNullableType(bytes, null);
             }
-            break;
           }
-          case REMOVE:
+          case REMOVE -> {
             serializeByte(bytes, REMOVED);
             writeString(bytes, event.getKey());
-            break;
+          }
         }
       }
     } else {
@@ -798,11 +769,11 @@ public class EntitySerializerDelta {
     var count =
         value.values().stream()
             .filter(
-                (v) -> v instanceof TrackedMultiValue<?, ?> trackedMultiValue &&
-                    trackedMultiValue.isTransactionModified()
-                    || v instanceof EntityImpl entity
+                (v) -> (v instanceof TrackedMultiValue<?, ?> trackedMultiValue
+                    && trackedMultiValue.isTransactionModified())
+                    || (v instanceof EntityImpl entity
                     && entity.isEmbedded()
-                    && entity.isDirty())
+                    && entity.isDirty()))
             .count();
     VarIntSerializer.write(bytes, count);
     for (var singleEntry : value.entrySet()) {
@@ -834,7 +805,7 @@ public class EntitySerializerDelta {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
       for (var event : timeline.getMultiValueChangeEvents()) {
         switch (event.getChangeType()) {
-          case ADD: {
+          case ADD -> {
             serializeByte(bytes, CREATED);
             if (event.getValue() != null) {
               var type = PropertyTypeInternal.getTypeByValue(event.getValue());
@@ -843,9 +814,8 @@ public class EntitySerializerDelta {
             } else {
               writeNullableType(bytes, null);
             }
-            break;
           }
-          case UPDATE: {
+          case UPDATE -> {
             serializeByte(bytes, REPLACED);
             VarIntSerializer.write(bytes, event.getKey().longValue());
             if (event.getValue() != null) {
@@ -855,12 +825,10 @@ public class EntitySerializerDelta {
             } else {
               writeNullableType(bytes, null);
             }
-            break;
           }
-          case REMOVE: {
+          case REMOVE -> {
             serializeByte(bytes, REMOVED);
             VarIntSerializer.write(bytes, event.getKey().longValue());
-            break;
           }
         }
       }
@@ -870,11 +838,11 @@ public class EntitySerializerDelta {
     var count =
         value.stream()
             .filter(
-                (v) -> v instanceof TrackedMultiValue<?, ?> trackedMultiValue
-                    && trackedMultiValue.isTransactionModified()
-                    || v instanceof EntityImpl entity
+                (v) -> (v instanceof TrackedMultiValue<?, ?> trackedMultiValue
+                    && trackedMultiValue.isTransactionModified())
+                    || (v instanceof EntityImpl entity
                     && entity.isEmbedded()
-                    && entity.isDirty())
+                    && entity.isDirty()))
             .count();
     VarIntSerializer.write(bytes, count);
     for (var i = 0; i < value.size(); i++) {
@@ -906,7 +874,7 @@ public class EntitySerializerDelta {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
       for (var event : timeline.getMultiValueChangeEvents()) {
         switch (event.getChangeType()) {
-          case ADD: {
+          case ADD -> {
             serializeByte(bytes, CREATED);
             if (event.getValue() != null) {
               var type = PropertyTypeInternal.getTypeByValue(event.getValue());
@@ -915,12 +883,10 @@ public class EntitySerializerDelta {
             } else {
               writeNullableType(bytes, null);
             }
-            break;
           }
-          case UPDATE:
-            throw new UnsupportedOperationException(
-                "update do not happen in sets, it will be like and add");
-          case REMOVE: {
+          case UPDATE -> throw new UnsupportedOperationException(
+              "update do not happen in sets, it will be like and add");
+          case REMOVE -> {
             serializeByte(bytes, REMOVED);
             if (event.getOldValue() != null) {
               var type = PropertyTypeInternal.getTypeByValue(event.getOldValue());
@@ -929,7 +895,6 @@ public class EntitySerializerDelta {
             } else {
               writeNullableType(bytes, null);
             }
-            break;
           }
         }
       }
@@ -939,11 +904,11 @@ public class EntitySerializerDelta {
     var count =
         value.stream()
             .filter(
-                (v) -> v instanceof TrackedMultiValue<?, ?> trackedMultiValue
-                    && trackedMultiValue.isTransactionModified()
-                    || v instanceof EntityImpl entity
+                (v) -> (v instanceof TrackedMultiValue<?, ?> trackedMultiValue
+                    && trackedMultiValue.isTransactionModified())
+                    || (v instanceof EntityImpl entity
                     && entity.isEmbedded()
-                    && entity.isDirty())
+                    && entity.isDirty()))
             .count();
     VarIntSerializer.write(bytes, count);
     var i = 0;
@@ -1019,42 +984,36 @@ public class EntitySerializerDelta {
       DatabaseSessionEmbedded session, final BytesContainer bytes, Object value,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType) {
-    var pointer = 0;
     switch (type) {
-      case INTEGER:
-      case LONG:
-      case SHORT:
-        VarIntSerializer.write(bytes, ((Number) value).longValue());
-        break;
-      case STRING:
-        writeString(bytes, value.toString());
-        break;
-      case DOUBLE:
+      case INTEGER, LONG, SHORT ->
+          VarIntSerializer.write(bytes, ((Number) value).longValue());
+      case STRING -> writeString(bytes, value.toString());
+      case DOUBLE -> {
         var dg = Double.doubleToLongBits((Double) value);
-        pointer = bytes.alloc(LongSerializer.LONG_SIZE);
+        var pointer = bytes.alloc(LongSerializer.LONG_SIZE);
         LongSerializer.serializeLiteral(dg, bytes.bytes, pointer);
-        break;
-      case FLOAT:
+      }
+      case FLOAT -> {
         var fg = Float.floatToIntBits((Float) value);
-        pointer = bytes.alloc(IntegerSerializer.INT_SIZE);
+        var pointer = bytes.alloc(IntegerSerializer.INT_SIZE);
         IntegerSerializer.serializeLiteral(fg, bytes.bytes, pointer);
-        break;
-      case BYTE:
-        pointer = bytes.alloc(1);
+      }
+      case BYTE -> {
+        var pointer = bytes.alloc(1);
         bytes.bytes[pointer] = (Byte) value;
-        break;
-      case BOOLEAN:
-        pointer = bytes.alloc(1);
+      }
+      case BOOLEAN -> {
+        var pointer = bytes.alloc(1);
         bytes.bytes[pointer] = ((Boolean) value) ? (byte) 1 : (byte) 0;
-        break;
-      case DATETIME:
+      }
+      case DATETIME -> {
         if (value instanceof Long longVal) {
           VarIntSerializer.write(bytes, longVal);
         } else {
           VarIntSerializer.write(bytes, ((Date) value).getTime());
         }
-        break;
-      case DATE:
+      }
+      case DATE -> {
         long dateValue;
         if (value instanceof Long longVal) {
           dateValue = longVal;
@@ -1065,8 +1024,8 @@ public class EntitySerializerDelta {
             convertDayToTimezone(
                 DateHelper.getDatabaseTimeZone(session), TimeZone.getTimeZone("GMT"), dateValue);
         VarIntSerializer.write(bytes, dateValue / MILLISEC_PER_DAY);
-        break;
-      case EMBEDDED:
+      }
+      case EMBEDDED -> {
         if (value instanceof EntitySerializable entitySerializable) {
           var cur = entitySerializable.toEntity(session);
           cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
@@ -1075,53 +1034,46 @@ public class EntitySerializerDelta {
           var transaction = session.getActiveTransaction();
           serialize(session, transaction.load(((DBRecord) value)), bytes);
         }
-        break;
-      case EMBEDDEDSET:
-      case EMBEDDEDLIST:
+      }
+      case EMBEDDEDSET, EMBEDDEDLIST -> {
         if (value.getClass().isArray()) {
           writeEmbeddedCollection(session, bytes, Arrays.asList(MultiValue.array(value)),
               linkedType);
         } else {
           writeEmbeddedCollection(session, bytes, (Collection<?>) value, linkedType);
         }
-        break;
-      case DECIMAL:
+      }
+      case DECIMAL -> {
         var decimalValue = (BigDecimal) value;
-        pointer = bytes.alloc(
+        var pointer = bytes.alloc(
             DecimalSerializer.INSTANCE.getObjectSize(session.getSerializerFactory(), decimalValue));
         DecimalSerializer.INSTANCE.serialize(decimalValue, session.getSerializerFactory(),
             bytes.bytes, pointer);
-        break;
-      case BINARY:
-        writeBinary(bytes, (byte[]) value);
-        break;
-      case LINKSET:
-        writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
-        break;
-      case LINKLIST:
+      }
+      case BINARY -> writeBinary(bytes, (byte[]) value);
+      case LINKSET -> writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
+      case LINKLIST -> {
         @SuppressWarnings("unchecked")
         var ridCollection = (Collection<Identifiable>) value;
         writeLinkCollection(session, bytes, ridCollection);
-        break;
-      case LINK:
-        if (!(value instanceof Identifiable)) {
+      }
+      case LINK -> {
+        if (!(value instanceof Identifiable identifiable)) {
           throw new ValidationException(session.getDatabaseName(),
               "Value '" + value + "' is not a Identifiable");
         }
 
-        writeOptimizedLink(session, bytes, (Identifiable) value);
-        break;
-      case LINKMAP:
-        //noinspection unchecked
-        writeLinkMap(session, bytes, (Map<Object, Identifiable>) value);
-        break;
-      case EMBEDDEDMAP:
-        //noinspection unchecked
-        writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
-        break;
-      case LINKBAG:
-        writeLinkBag(session, bytes, (LinkBag) value);
-        break;
+        writeOptimizedLink(session, bytes, identifiable);
+      }
+      case LINKMAP ->
+          //noinspection unchecked
+          writeLinkMap(session, bytes, (Map<Object, Identifiable>) value);
+      case EMBEDDEDMAP ->
+          //noinspection unchecked
+          writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
+      case LINKBAG -> writeLinkBag(session, bytes, (LinkBag) value);
+      default -> {
+      }
     }
   }
 
@@ -1214,41 +1166,23 @@ public class EntitySerializerDelta {
       RecordElement owner) {
     Object value = null;
     switch (type) {
-      case INTEGER:
-        value = VarIntSerializer.readAsInteger(bytes);
-        break;
-      case LONG:
-        value = VarIntSerializer.readAsLong(bytes);
-        break;
-      case SHORT:
-        value = VarIntSerializer.readAsShort(bytes);
-        break;
-      case STRING:
-        value = readString(bytes);
-        break;
-      case DOUBLE:
-        value = Double.longBitsToDouble(readLong(bytes));
-        break;
-      case FLOAT:
-        value = Float.intBitsToFloat(readInteger(bytes));
-        break;
-      case BYTE:
-        value = readByte(bytes);
-        break;
-      case BOOLEAN:
-        value = readByte(bytes) == 1;
-        break;
-      case DATETIME:
-        value = new Date(VarIntSerializer.readAsLong(bytes));
-        break;
-      case DATE:
+      case INTEGER -> value = VarIntSerializer.readAsInteger(bytes);
+      case LONG -> value = VarIntSerializer.readAsLong(bytes);
+      case SHORT -> value = VarIntSerializer.readAsShort(bytes);
+      case STRING -> value = readString(bytes);
+      case DOUBLE -> value = Double.longBitsToDouble(readLong(bytes));
+      case FLOAT -> value = Float.intBitsToFloat(readInteger(bytes));
+      case BYTE -> value = readByte(bytes);
+      case BOOLEAN -> value = readByte(bytes) == 1;
+      case DATETIME -> value = new Date(VarIntSerializer.readAsLong(bytes));
+      case DATE -> {
         var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
         savedTime =
             convertDayToTimezone(
                 TimeZone.getTimeZone("GMT"), DateHelper.getDatabaseTimeZone(session), savedTime);
         value = new Date(savedTime);
-        break;
-      case EMBEDDED:
+      }
+      case EMBEDDED -> {
         value = new EmbeddedEntityImpl(session);
         deserialize(session, (EntityImpl) value, bytes);
         if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
@@ -1264,45 +1198,29 @@ public class EntitySerializerDelta {
         } else {
           ((EntityImpl) value).setOwner(owner);
         }
-
-        break;
-      case EMBEDDEDSET:
-        value = readEmbeddedSet(session, bytes, owner);
-
-        break;
-      case EMBEDDEDLIST:
-        value = readEmbeddedList(session, bytes, owner);
-        break;
-      case LINKSET:
-        value = readLinkSet(session, bytes);
-        break;
-      case LINKLIST:
-        value = readLinkList(session, bytes, owner);
-        break;
-      case BINARY:
-        value = readBinary(bytes);
-        break;
-      case LINK:
-        value = readOptimizedLink(session, bytes);
-        break;
-      case LINKMAP:
-        value = readLinkMap(session, bytes, owner);
-        break;
-      case EMBEDDEDMAP:
-        value = readEmbeddedMap(session, bytes, owner);
-        break;
-      case DECIMAL:
+      }
+      case EMBEDDEDSET -> value = readEmbeddedSet(session, bytes, owner);
+      case EMBEDDEDLIST -> value = readEmbeddedList(session, bytes, owner);
+      case LINKSET -> value = readLinkSet(session, bytes);
+      case LINKLIST -> value = readLinkList(session, bytes, owner);
+      case BINARY -> value = readBinary(bytes);
+      case LINK -> value = readOptimizedLink(session, bytes);
+      case LINKMAP -> value = readLinkMap(session, bytes, owner);
+      case EMBEDDEDMAP -> value = readEmbeddedMap(session, bytes, owner);
+      case DECIMAL -> {
         value = DecimalSerializer.INSTANCE.deserialize(session.getSerializerFactory(), bytes.bytes,
             bytes.offset);
         bytes.skip(
             DecimalSerializer.INSTANCE.getObjectSize(session.getSerializerFactory(), bytes.bytes,
                 bytes.offset));
-        break;
-      case LINKBAG:
+      }
+      case LINKBAG -> {
         var bag = readLinkBag(session, bytes);
         bag.setOwner(owner);
         value = bag;
-        break;
+      }
+      default -> {
+      }
     }
     return value;
   }

@@ -42,6 +42,7 @@ public class SQLFunctionUnionAll extends SQLFunctionMultiValueAbstract<Collectio
     super(NAME, 1, -1);
   }
 
+  @Override
   public Object execute(
       final Object iThis,
       final Result iCurrentRecord,
@@ -84,6 +85,7 @@ public class SQLFunctionUnionAll extends SQLFunctionMultiValueAbstract<Collectio
     }
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "unionAll(<field>*)";
   }

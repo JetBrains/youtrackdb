@@ -30,7 +30,7 @@ public interface EntityPropertiesVisitor {
   /**
    * Visits currently processed field.
    *
-   * @param db
+   * @param db         the current database session
    * @param type       Filed type. May be null if absent in DB schema.
    * @param linkedType Linked type in case collection is processed. May be null if absent in DB
    *                   schema.

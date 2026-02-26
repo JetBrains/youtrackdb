@@ -224,7 +224,7 @@ public abstract class SchemaPropertyImpl {
   /**
    * Remove the index on property
    *
-   * @deprecated
+   * @deprecated Use {@link #dropIndexes(DatabaseSessionEmbedded)} instead.
    */
   @Deprecated
   public void dropIndexesInternal(DatabaseSessionEmbedded session) {
@@ -441,48 +441,29 @@ public abstract class SchemaPropertyImpl {
     final var stringValue = iValue != null ? iValue.toString() : null;
 
     switch (attribute) {
-      case LINKEDCLASS:
-        setLinkedClass(session,
-            session.getSharedContext().getSchema().getClass(stringValue));
-        break;
-      case LINKEDTYPE:
+      case LINKEDCLASS ->
+          setLinkedClass(session,
+              session.getSharedContext().getSchema().getClass(stringValue));
+      case LINKEDTYPE -> {
         if (stringValue == null) {
           setLinkedType(session, null);
         } else {
           setLinkedType(session, PropertyTypeInternal.valueOf(stringValue));
         }
-        break;
-      case MIN:
-        setMin(session, stringValue);
-        break;
-      case MANDATORY:
-        setMandatory(session, Boolean.parseBoolean(stringValue));
-        break;
-      case READONLY:
-        setReadonly(session, Boolean.parseBoolean(stringValue));
-        break;
-      case MAX:
-        setMax(session, stringValue);
-        break;
-      case DEFAULT:
-        setDefaultValue(session, stringValue);
-        break;
-      case NAME:
-        setName(session, stringValue);
-        break;
-      case NOTNULL:
-        setNotNull(session, Boolean.parseBoolean(stringValue));
-        break;
-      case REGEXP:
-        setRegexp(session, stringValue);
-        break;
-      case TYPE:
-        setType(session, PropertyTypeInternal.valueOf(stringValue.toUpperCase(Locale.ENGLISH)));
-        break;
-      case COLLATE:
-        setCollate(session, stringValue);
-        break;
-      case CUSTOM:
+      }
+      case MIN -> setMin(session, stringValue);
+      case MANDATORY -> setMandatory(session, Boolean.parseBoolean(stringValue));
+      case READONLY -> setReadonly(session, Boolean.parseBoolean(stringValue));
+      case MAX -> setMax(session, stringValue);
+      case DEFAULT -> setDefaultValue(session, stringValue);
+      case NAME -> setName(session, stringValue);
+      case NOTNULL -> setNotNull(session, Boolean.parseBoolean(stringValue));
+      case REGEXP -> setRegexp(session, stringValue);
+      case TYPE ->
+          setType(session,
+              PropertyTypeInternal.valueOf(stringValue.toUpperCase(Locale.ENGLISH)));
+      case COLLATE -> setCollate(session, stringValue);
+      case CUSTOM -> {
         var indx = stringValue != null ? stringValue.indexOf('=') : -1;
         if (indx < 0) {
           if ("clear".equalsIgnoreCase(stringValue)) {
@@ -503,10 +484,8 @@ public abstract class SchemaPropertyImpl {
             setCustom(session, customName, customValue);
           }
         }
-        break;
-      case DESCRIPTION:
-        setDescription(session, stringValue);
-        break;
+      }
+      case DESCRIPTION -> setDescription(session, stringValue);
     }
   }
 

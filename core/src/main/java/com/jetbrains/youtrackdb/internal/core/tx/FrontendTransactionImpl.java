@@ -473,6 +473,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // Intentional identity checks: same record/txEntry instance
   public void addRecordOperation(RecordAbstract record, byte status) {
     assertOnOwningThread();
     if (readOnly) {
@@ -555,25 +556,26 @@ public class FrontendTransactionImpl implements
           }
 
           switch (txEntry.type) {
-            case RecordOperation.UPDATED:
+            case RecordOperation.UPDATED -> {
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
                     "Invalid operation, record can not be created as it is already updated");
               }
-              break;
-            case RecordOperation.DELETED:
-              throw new IllegalStateException(
-                  "Invalid operation, record can not be updated, created or deleted as it is already deleted");
-            case RecordOperation.CREATED:
+            }
+            case RecordOperation.DELETED ->
+                throw new IllegalStateException(
+                    "Invalid operation, record can not be updated, created or deleted"
+                        + " as it is already deleted");
+            case RecordOperation.CREATED -> {
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
                     "Invalid operation, record can not be created as it is already created");
               }
-              break;
+            }
           }
         }
       } catch (final Exception e) {
@@ -1017,11 +1019,12 @@ public class FrontendTransactionImpl implements
 
     for (var dependency : fieldDependencies) {
       switch (dependency) {
-        case Unknown:
-        case Yes:
+        case Unknown, Yes -> {
           return true;
-        case No:
-          break; // do nothing
+        }
+        case No -> {
+          // do nothing
+        }
       }
     }
 
@@ -1540,6 +1543,7 @@ public class FrontendTransactionImpl implements
     return session.newEmbeddedEntity();
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     checkIfActive();
@@ -1595,6 +1599,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET load(RID recordId) {
     checkIfActive();
@@ -1602,6 +1607,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     checkIfActive();
@@ -1609,6 +1615,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nonnull
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET load(Identifiable identifiable) {
     checkIfActive();
@@ -1629,6 +1636,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
     checkIfActive();

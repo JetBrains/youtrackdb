@@ -199,7 +199,7 @@ public abstract class DatabasePoolBase extends Thread {
   /**
    * Don't call it directly but use database.close().
    *
-   * @param iDatabase
+   * @param iDatabase the database session to release back to the pool
    */
   public void release(final DatabaseSessionEmbedded iDatabase) {
     if (dbPool != null) {

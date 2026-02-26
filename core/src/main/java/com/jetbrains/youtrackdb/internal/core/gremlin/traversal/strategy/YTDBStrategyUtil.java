@@ -12,7 +12,7 @@ public final class YTDBStrategyUtil {
   private YTDBStrategyUtil() {
   }
 
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   public static <T> @Nullable T getConfigValue(
       YTDBQueryConfigParam param, Admin<?, ?> traversal
   ) {

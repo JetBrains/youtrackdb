@@ -165,11 +165,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return true;
       }
 
-      if (o == null || getClass() != o.getClass()) {
+      if (!(o instanceof WeakHashSetValueHolder that)) {
         return false;
       }
-
-      var that = (WeakHashSetValueHolder) o;
 
       if (hashCode != that.hashCode) {
         return false;

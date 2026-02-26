@@ -46,15 +46,15 @@ public class AnsiLogFormatter extends LogFormatter {
     buffer.append("}");
 
     if (AnsiCode.isSupportsColors()) {
-      if (level == SEVERE) {
+      if (SEVERE.equals(level)) {
         buffer.append("$ANSI{red ");
-      } else if (level == Level.WARNING) {
+      } else if (Level.WARNING.equals(level)) {
         buffer.append("$ANSI{yellow ");
-      } else if (level == Level.INFO) {
+      } else if (Level.INFO.equals(level)) {
         buffer.append("$ANSI{green ");
-      } else if (level == Level.CONFIG) {
+      } else if (Level.CONFIG.equals(level)) {
         buffer.append("$ANSI{green ");
-      } else if (level == Level.CONFIG) {
+      } else if (Level.FINE.equals(level)) {
         buffer.append("$ANSI{white ");
       }
     }

@@ -25,7 +25,7 @@ public class YTDBVertexPropertyIdGyroSerializer extends Serializer<YTDBVertexPro
   @Override
   public YTDBVertexPropertyId read(Kryo kryo, Input input, Class<YTDBVertexPropertyId> aClass) {
     var value = input.readString();
-    var parts = value.split(":");
+    var parts = value.split(":", -1);
     var collectionId = Integer.parseInt(parts[0]);
     var collectionPosition = Long.parseLong(parts[1]);
     var key = parts[2];

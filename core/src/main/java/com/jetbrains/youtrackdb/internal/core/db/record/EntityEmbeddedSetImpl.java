@@ -224,14 +224,10 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     while (listIterator.hasPrevious()) {
       final var event = listIterator.previous();
       switch (event.getChangeType()) {
-        case ADD:
-          reverted.remove(event.getKey());
-          break;
-        case REMOVE:
-          reverted.add(event.getOldValue());
-          break;
-        default:
-          throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
+        case ADD -> reverted.remove(event.getKey());
+        case REMOVE -> reverted.add(event.getOldValue());
+        default ->
+            throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
   }
@@ -271,12 +267,12 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
 
   @Override
   public boolean isModified() {
-    return dirty || tracker.isEnabled() && tracker.isChanged();
+    return dirty || (tracker.isEnabled() && tracker.isChanged());
   }
 
   @Override
   public boolean isTransactionModified() {
-    return transactionDirty || tracker.isEnabled() && tracker.isTxChanged();
+    return transactionDirty || (tracker.isEnabled() && tracker.isTxChanged());
   }
 
   @Override

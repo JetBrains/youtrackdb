@@ -13,6 +13,7 @@ public class StringCacheKey {
     this.len = len;
   }
 
+  @Override
   public int hashCode() {
     var h = hash;
     if (h == 0 && len > 0) {

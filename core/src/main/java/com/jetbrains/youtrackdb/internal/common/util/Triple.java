@@ -78,13 +78,9 @@ public class Triple<K extends Comparable<K>, V extends Comparable<V>, SV>
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
+    if (!(obj instanceof Triple<?, ?, ?> other)) {
       return false;
     }
-    if (getClass() != obj.getClass()) {
-      return false;
-    }
-    var other = (Triple<?, ?, ?>) obj;
     if (key == null) {
       return other.key == null;
     } else {

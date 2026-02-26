@@ -49,6 +49,7 @@ public class SQLFunctionSysdate extends SQLFunctionAbstract {
     now = new Date();
   }
 
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -75,6 +76,7 @@ public class SQLFunctionSysdate extends SQLFunctionAbstract {
     return false;
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "sysdate([<format>] [,<timezone>])";
   }

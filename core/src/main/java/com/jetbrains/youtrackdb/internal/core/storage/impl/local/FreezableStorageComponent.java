@@ -34,7 +34,7 @@ public interface FreezableStorageComponent {
    * modifications in storage should wait till {@link #release(DatabaseSessionEmbedded)} method will
    * be called. This method will wait till all ongoing modifications will be finished.
    *
-   * @param db
+   * @param db             the database session to freeze
    * @param throwException If <code>true</code> {@link ModificationOperationProhibitedException}
    *                       exception will be thrown on call of methods that requires storage
    *                       modification. Otherwise other threads will wait for

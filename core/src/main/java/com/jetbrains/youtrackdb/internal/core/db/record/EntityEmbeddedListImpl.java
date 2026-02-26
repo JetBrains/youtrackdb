@@ -243,17 +243,11 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     while (listIterator.hasPrevious()) {
       final var event = listIterator.previous();
       switch (event.getChangeType()) {
-        case ADD:
-          reverted.remove(event.getKey().intValue());
-          break;
-        case REMOVE:
-          reverted.add(event.getKey(), event.getOldValue());
-          break;
-        case UPDATE:
-          reverted.set(event.getKey(), event.getOldValue());
-          break;
-        default:
-          throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
+        case ADD -> reverted.remove(event.getKey().intValue());
+        case REMOVE -> reverted.add(event.getKey(), event.getOldValue());
+        case UPDATE -> reverted.set(event.getKey(), event.getOldValue());
+        default ->
+            throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
   }
@@ -313,12 +307,12 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
 
   @Override
   public boolean isModified() {
-    return dirty || tracker.isEnabled() && tracker.isChanged();
+    return dirty || (tracker.isEnabled() && tracker.isChanged());
   }
 
   @Override
   public boolean isTransactionModified() {
-    return transactionDirty || tracker.isEnabled() && tracker.isTxChanged();
+    return transactionDirty || (tracker.isEnabled() && tracker.isTxChanged());
   }
 
   @Override

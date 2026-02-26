@@ -72,11 +72,9 @@ public abstract class IdentityWrapper implements Identifiable {
 
   @Override
   public boolean equals(Object o) {
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof IdentityWrapper that)) {
       return false;
     }
-
-    var that = (IdentityWrapper) o;
     return rid.equals(that.rid);
   }
 

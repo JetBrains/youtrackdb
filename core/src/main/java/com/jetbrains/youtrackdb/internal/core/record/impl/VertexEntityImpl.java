@@ -414,16 +414,12 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
 
       switch (direction) {
-        case OUT:
-          result.add(DIRECTION_OUT_PREFIX + className);
-          break;
-        case IN:
-          result.add(DIRECTION_IN_PREFIX + className);
-          break;
-        case BOTH:
+        case OUT -> result.add(DIRECTION_OUT_PREFIX + className);
+        case IN -> result.add(DIRECTION_IN_PREFIX + className);
+        case BOTH -> {
           result.add(DIRECTION_OUT_PREFIX + className);
           result.add(DIRECTION_IN_PREFIX + className);
-          break;
+        }
       }
     }
 
@@ -776,7 +772,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     } else if (edgeProp instanceof LinkBag linkBag) {
       linkBag.remove(edgeId.getIdentity());
     } else if (
-        edgeProp instanceof Identifiable identifiable && identifiable.getIdentity().equals(edgeId)
+        (edgeProp instanceof Identifiable identifiable && identifiable.getIdentity().equals(edgeId))
             || edge.isLightweight()) {
       vertex.removePropertyInternal(edgeField);
     } else {

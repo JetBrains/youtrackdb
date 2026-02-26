@@ -155,7 +155,7 @@ public class FileUtils {
   }
 
   public static void createDirectoryTree(final String iFileName) {
-    final var fileDirectories = iFileName.split("/");
+    final var fileDirectories = iFileName.split("/", -1);
     for (var i = 0; i < fileDirectories.length - 1; ++i) {
       new File(fileDirectories[i]).mkdir();
     }

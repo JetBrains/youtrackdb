@@ -201,10 +201,12 @@ public class ScriptDocumentDatabaseWrapper {
     return DatabaseSessionEmbedded.getRecordType();
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends DBRecord> RET load(RID iRecordId) {
     return session.load(iRecordId);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends DBRecord> RET load(final String iRidAsString) {
     return session.load(RecordIdInternal.fromString(iRidAsString, false));
   }

@@ -25,10 +25,9 @@ public class SecurityResourceCollection extends SecurityResource {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof SecurityResourceCollection that)) {
       return false;
     }
-    var that = (SecurityResourceCollection) o;
     return Objects.equals(collectionName, that.collectionName);
   }
 

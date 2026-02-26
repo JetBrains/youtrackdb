@@ -47,11 +47,9 @@ public class LogSequenceNumber implements Comparable<LogSequenceNumber> {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof LogSequenceNumber that)) {
       return false;
     }
-
-    var that = (LogSequenceNumber) o;
 
     if (segment != that.segment) {
       return false;

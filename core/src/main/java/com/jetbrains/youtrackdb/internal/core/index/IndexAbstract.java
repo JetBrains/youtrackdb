@@ -754,11 +754,9 @@ public abstract class IndexAbstract implements Index {
       if (this == o) {
         return true;
       }
-      if (o == null || getClass() != o.getClass()) {
+      if (!(o instanceof IndexAbstract that)) {
         return false;
       }
-
-      final var that = (IndexAbstract) o;
 
       return im.getName().equals(that.im.getName());
     } finally {

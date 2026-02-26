@@ -38,6 +38,7 @@ public class SQLFunctionFirst extends SQLFunctionConfigurableAbstract {
     super(NAME, 1, 1);
   }
 
+  @Override
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -57,6 +58,7 @@ public class SQLFunctionFirst extends SQLFunctionConfigurableAbstract {
     return value;
   }
 
+  @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
     return "first(<field>)";
   }

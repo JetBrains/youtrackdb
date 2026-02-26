@@ -318,8 +318,8 @@ public class IOUtils {
     }
 
     return s.length() > 1
-        && (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''
-        || s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"');
+        && ((s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')
+        || (s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"'));
   }
 
   @Nullable
@@ -335,8 +335,8 @@ public class IOUtils {
     }
 
     if (s.length() > 1
-        && (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''
-        || s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"')) {
+        && ((s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')
+        || (s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"'))) {
       return s.substring(1, s.length() - 1);
     }
 
@@ -460,12 +460,12 @@ public class IOUtils {
   }
 
   public static boolean isOsWindows() {
-    var osName = System.getProperty("os.name").split(" ")[0];
+    var osName = System.getProperty("os.name").split(" ", -1)[0];
     return compareStartIgnoreCase(osName, "windows");
   }
 
   public static boolean isOsLinux() {
-    var osName = System.getProperty("os.name").split(" ")[0];
+    var osName = System.getProperty("os.name").split(" ", -1)[0];
     return compareStartIgnoreCase(osName, "linux");
   }
 

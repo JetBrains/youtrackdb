@@ -48,7 +48,7 @@ public class DefaultCollateFactory implements CollateFactory {
   /**
    * Returns the requested collate
    *
-   * @param name
+   * @param name the name of the collate to retrieve
    */
   @Override
   public Collate getCollate(final String name) {

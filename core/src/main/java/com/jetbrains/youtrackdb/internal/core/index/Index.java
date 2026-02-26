@@ -60,7 +60,7 @@ public interface Index extends Comparable<Index> {
   /**
    * Gets the set of records associated with the passed key.
    *
-   * @param session
+   * @param session the database session
    * @param key     The key to search
    * @return The Record set if found, otherwise an empty Set
    * @deprecated Use {@link Index#getRids(DatabaseSessionEmbedded, Object)} instead, but only as
@@ -72,7 +72,7 @@ public interface Index extends Comparable<Index> {
   /**
    * Inserts a new entry in the index. The behaviour depends by the index implementation.
    *
-   * @param transaction
+   * @param transaction the current transaction
    * @param key         Entry's key
    * @param value       Entry's value as Identifiable instance
    * @return The index instance itself to allow in chain calls
@@ -82,7 +82,7 @@ public interface Index extends Comparable<Index> {
   /**
    * Removes an entry by its key.
    *
-   * @param transaction
+   * @param transaction the current transaction
    * @param key         The entry's key to remove
    * @return True if the entry has been found and removed, otherwise false
    */
@@ -250,7 +250,7 @@ public interface Index extends Comparable<Index> {
   /**
    * Returns stream which presents subset of index data between passed in keys.
    *
-   * @param session
+   * @param session       the database session
    * @param fromKey       Lower border of index data.
    * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
    * @param toKey         Upper border of index data.
@@ -266,7 +266,7 @@ public interface Index extends Comparable<Index> {
   /**
    * Returns stream which presents data associated with passed in keys.
    *
-   * @param session
+   * @param session      the database session
    * @param keys         Keys data of which should be returned.
    * @param ascSortOrder Flag which determines whether data iterated by stream should be in
    *                     ascending or descending order.
@@ -280,7 +280,7 @@ public interface Index extends Comparable<Index> {
    * Returns stream which presents subset of data which associated with key which is greater than
    * passed in key.
    *
-   * @param session
+   * @param session       the database session
    * @param fromKey       Lower border of index data.
    * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
    * @param ascOrder      Flag which determines whether data iterated by stream should be in
@@ -295,7 +295,7 @@ public interface Index extends Comparable<Index> {
    * Returns stream which presents subset of data which associated with key which is less than
    * passed in key.
    *
-   * @param session
+   * @param session     the database session
    * @param toKey       Upper border of index data.
    * @param toInclusive Indicates Indicates whether upper border should be inclusive or exclusive.
    * @param ascOrder    Flag which determines whether data iterated by stream should be in ascending

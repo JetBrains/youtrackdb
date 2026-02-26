@@ -61,32 +61,18 @@ public abstract class RecordSerializerStringAbstract {
     }
 
     switch (iType) {
-      case STRING:
-      case INTEGER:
-      case BOOLEAN:
-      case FLOAT:
-      case DECIMAL:
-      case LONG:
-      case DOUBLE:
-      case SHORT:
-      case BYTE:
-      case BINARY:
-      case DATE:
-      case DATETIME:
-      case LINK:
+      case STRING, INTEGER, BOOLEAN, FLOAT, DECIMAL, LONG, DOUBLE, SHORT, BYTE, BINARY, DATE,
+          DATETIME, LINK -> {
         return simpleValueFromStream(session, iValue, iType);
-
-      case EMBEDDED: {
+      }
+      case EMBEDDED -> {
         // EMBEDED RECORD
         return null;
       }
-
-      case EMBEDDEDSET:
-      case EMBEDDEDLIST: {
+      case EMBEDDEDSET, EMBEDDEDLIST -> {
         return null;
       }
-
-      case EMBEDDEDMAP: {
+      case EMBEDDEDMAP -> {
         final var value = (String) iValue;
         return RecordSerializerCSVAbstract.embeddedMapFromStream(session,
             entity, null, value, null);
@@ -119,77 +105,21 @@ public abstract class RecordSerializerStringAbstract {
     }
 
     switch (iType) {
-      case STRING:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case BOOLEAN:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case INTEGER:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case FLOAT:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case DECIMAL:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case LONG:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case DOUBLE:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case SHORT:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case BYTE:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case BINARY:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case DATE:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case DATETIME:
-        simpleValueToStream(session, iBuffer, iType, iValue);
-        break;
-
-      case LINK:
+      case STRING, BOOLEAN, INTEGER, FLOAT, DECIMAL, LONG, DOUBLE, SHORT, BYTE, BINARY, DATE,
+          DATETIME -> simpleValueToStream(session, iBuffer, iType, iValue);
+      case LINK -> {
         if (iValue instanceof RecordIdInternal) {
           iBuffer.append(iValue.toString());
         } else {
           iBuffer.append(((Identifiable) iValue).getIdentity().toString());
         }
-        break;
-
-      case EMBEDDEDSET:
-        break;
-
-      case EMBEDDEDLIST:
-        break;
-
-      case EMBEDDEDMAP:
-        break;
-
-      case EMBEDDED:
-        break;
-
-      default:
-        throw new IllegalArgumentException(
-            "Type " + iType + " not supported to convert value: " + iValue);
+      }
+      case EMBEDDEDSET, EMBEDDEDLIST, EMBEDDEDMAP, EMBEDDED -> {
+        // no-op
+      }
+      default ->
+          throw new IllegalArgumentException(
+              "Type " + iType + " not supported to convert value: " + iValue);
     }
   }
 
@@ -324,7 +254,7 @@ public abstract class RecordSerializerStringAbstract {
    * starts with # it's a RecordID. Most of the code is equals to getType() but has been copied to
    * speed-up it.
    *
-   * @param db
+   * @param db     the active database session, used for RID resolution
    * @param iValue Value to parse
    * @return The closest type recognized
    */
@@ -456,72 +386,71 @@ public abstract class RecordSerializerStringAbstract {
   public static Object simpleValueFromStream(DatabaseSessionEmbedded db, final Object iValue,
       final PropertyTypeInternal iType) {
     switch (iType) {
-      case STRING:
+      case STRING -> {
         if (iValue instanceof String) {
           final var s = IOUtils.getStringContent(iValue);
           return StringSerializerHelper.decode(s);
         }
         return iValue.toString();
-
-      case INTEGER:
+      }
+      case INTEGER -> {
         if (iValue instanceof Integer) {
           return iValue;
         }
         return Integer.valueOf(iValue.toString());
-
-      case BOOLEAN:
+      }
+      case BOOLEAN -> {
         if (iValue instanceof Boolean) {
           return iValue;
         }
         return Boolean.valueOf(iValue.toString());
-
-      case FLOAT:
+      }
+      case FLOAT -> {
         if (iValue instanceof Float) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case DECIMAL:
+      }
+      case DECIMAL -> {
         if (iValue instanceof BigDecimal) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case LONG:
+      }
+      case LONG -> {
         if (iValue instanceof Long) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case DOUBLE:
+      }
+      case DOUBLE -> {
         if (iValue instanceof Double) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case SHORT:
+      }
+      case SHORT -> {
         if (iValue instanceof Short) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case BYTE:
+      }
+      case BYTE -> {
         if (iValue instanceof Byte) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case BINARY:
+      }
+      case BINARY -> {
         return StringSerializerHelper.getBinaryContent(iValue);
-
-      case DATE:
-      case DATETIME:
+      }
+      case DATE, DATETIME -> {
         if (iValue instanceof Date) {
           return iValue;
         }
         return convertValue(db, (String) iValue, iType);
-
-      case LINK:
+      }
+      case LINK -> {
         if (iValue instanceof RID) {
           return iValue.toString();
         } else if (iValue instanceof String s) {
@@ -529,6 +458,7 @@ public abstract class RecordSerializerStringAbstract {
         } else {
           return ((DBRecord) iValue).getIdentity().toString();
         }
+      }
     }
 
     throw new IllegalArgumentException("Type " + iType + " is not simple type.");
@@ -541,46 +471,37 @@ public abstract class RecordSerializerStringAbstract {
       return;
     }
     switch (iType) {
-      case STRING:
+      case STRING -> {
         iBuffer.append('"');
         iBuffer.append(StringSerializerHelper.encode(iValue.toString()));
         iBuffer.append('"');
-        break;
-
-      case BOOLEAN, INTEGER:
-        iBuffer.append(iValue.toString());
-        break;
-
-      case FLOAT:
+      }
+      case BOOLEAN, INTEGER -> iBuffer.append(iValue.toString());
+      case FLOAT -> {
         iBuffer.append(iValue.toString());
         iBuffer.append('f');
-        break;
-
-      case DECIMAL:
+      }
+      case DECIMAL -> {
         if (iValue instanceof BigDecimal bigDecimal) {
           iBuffer.append(bigDecimal.toPlainString());
         } else {
           iBuffer.append(iValue.toString());
         }
         iBuffer.append('c');
-        break;
-
-      case LONG:
+      }
+      case LONG -> {
         iBuffer.append(iValue.toString());
         iBuffer.append('l');
-        break;
-
-      case DOUBLE:
+      }
+      case DOUBLE -> {
         iBuffer.append(iValue.toString());
         iBuffer.append('d');
-        break;
-
-      case SHORT:
+      }
+      case SHORT -> {
         iBuffer.append(iValue.toString());
         iBuffer.append('s');
-        break;
-
-      case BYTE:
+      }
+      case BYTE -> {
         if (iValue instanceof Character character) {
           iBuffer.append(character);
         } else if (iValue instanceof String s) {
@@ -589,9 +510,8 @@ public abstract class RecordSerializerStringAbstract {
           iBuffer.append(iValue.toString());
         }
         iBuffer.append('b');
-        break;
-
-      case BINARY:
+      }
+      case BINARY -> {
         iBuffer.append(StringSerializerHelper.BINARY_BEGINEND);
         if (iValue instanceof Byte b) {
           iBuffer.append(
@@ -600,9 +520,8 @@ public abstract class RecordSerializerStringAbstract {
           iBuffer.append(Base64.getEncoder().encodeToString((byte[]) iValue));
         }
         iBuffer.append(StringSerializerHelper.BINARY_BEGINEND);
-        break;
-
-      case DATE:
+      }
+      case DATE -> {
         if (iValue instanceof Date date) {
           // RESET HOURS, MINUTES, SECONDS AND MILLISECONDS
           final var calendar = DateHelper.getDatabaseCalendar(session);
@@ -617,19 +536,19 @@ public abstract class RecordSerializerStringAbstract {
           iBuffer.append(iValue.toString());
         }
         iBuffer.append('a');
-        break;
-
-      case DATETIME:
+      }
+      case DATETIME -> {
         if (iValue instanceof Date date) {
           iBuffer.append(String.valueOf(date.getTime()));
         } else {
           iBuffer.append(iValue.toString());
         }
         iBuffer.append('t');
-        break;
+      }
     }
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public abstract <T extends DBRecord> T fromString(
       DatabaseSessionEmbedded session, String iContent, RecordAbstract iRecord, String[] iFields);
 
@@ -639,6 +558,7 @@ public abstract class RecordSerializerStringAbstract {
     return toString(db, iRecord, iOutput, iFormat, true);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <T extends DBRecord> T fromString(DatabaseSessionEmbedded session, final String iSource) {
     return fromString(session, iSource, null, null);
   }

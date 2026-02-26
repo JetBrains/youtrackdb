@@ -137,7 +137,7 @@ public abstract class CommandRequestAbstract
   }
 
   @Override
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   public <RET extends CommandRequest> RET setFetchPlan(String fetchPlan) {
     this.fetchPlan = fetchPlan;
     return (RET) this;

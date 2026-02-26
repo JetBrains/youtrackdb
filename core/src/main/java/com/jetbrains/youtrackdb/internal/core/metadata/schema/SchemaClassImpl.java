@@ -722,10 +722,9 @@ public abstract class SchemaClassImpl {
     if (this == obj) {
       return true;
     }
-    if (obj == null || getClass() != obj.getClass()) {
+    if (!(obj instanceof SchemaClassImpl other)) {
       return false;
     }
-    var other = (SchemaClassImpl) obj;
 
     return Objects.equals(name, other.name);
   }
@@ -858,20 +857,13 @@ public abstract class SchemaClassImpl {
     final var isNull = stringValue == null || stringValue.equalsIgnoreCase("NULL");
 
     switch (attribute) {
-      case NAME:
-        setName(session, decodeClassName(stringValue));
-        break;
-      case SUPERCLASSES:
-        setSuperClassesByNames(session
-            , stringValue != null ? Arrays.asList(PATTERN.split(stringValue)) : null);
-        break;
-      case STRICT_MODE:
-        setStrictMode(session, Boolean.parseBoolean(stringValue));
-        break;
-      case ABSTRACT:
-        setAbstract(session, Boolean.parseBoolean(stringValue));
-        break;
-      case CUSTOM:
+      case NAME -> setName(session, decodeClassName(stringValue));
+      case SUPERCLASSES ->
+          setSuperClassesByNames(session
+              , stringValue != null ? Arrays.asList(PATTERN.split(stringValue)) : null);
+      case STRICT_MODE -> setStrictMode(session, Boolean.parseBoolean(stringValue));
+      case ABSTRACT -> setAbstract(session, Boolean.parseBoolean(stringValue));
+      case CUSTOM -> {
         var indx = stringValue != null ? stringValue.indexOf('=') : -1;
         if (indx < 0) {
           if (isNull || "clear".equalsIgnoreCase(stringValue)) {
@@ -892,10 +884,8 @@ public abstract class SchemaClassImpl {
             setCustom(session, customName, customValue);
           }
         }
-        break;
-      case DESCRIPTION:
-        setDescription(session, stringValue);
-        break;
+      }
+      case DESCRIPTION -> setDescription(session, stringValue);
     }
   }
 
@@ -1314,10 +1304,7 @@ public abstract class SchemaClassImpl {
         while (res.hasNext()) {
           var item = res.next();
           switch (type) {
-            case EMBEDDEDLIST:
-            case LINKLIST:
-            case EMBEDDEDSET:
-            case LINKSET:
+            case EMBEDDEDLIST, LINKLIST, EMBEDDEDSET, LINKSET -> {
               Collection<?> emb = item.getProperty(propertyName);
               emb.stream()
                   .filter(x -> !matchesType(db, x, linkedClass))
@@ -1336,9 +1323,8 @@ public abstract class SchemaClassImpl {
                                 + ". Fix those records and change the schema again. "
                                 + x);
                       });
-              break;
-            case EMBEDDED:
-            case LINK:
+            }
+            case EMBEDDED, LINK -> {
               var elem = item.getProperty(propertyName);
               if (!matchesType(db, elem, linkedClass)) {
                 throw new SchemaException(db.getDatabaseName(),
@@ -1352,7 +1338,7 @@ public abstract class SchemaClassImpl {
                         + linkedClass.getName()
                         + ". Fix those records and change the schema again!");
               }
-              break;
+            }
           }
         }
       }

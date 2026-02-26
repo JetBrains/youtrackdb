@@ -109,6 +109,7 @@ public class SecurityProxy implements Security {
     return security.getAllRoles(session);
   }
 
+  @Override
   public String toString() {
     return security.toString();
   }

@@ -87,33 +87,14 @@ public abstract class EntityHookAbstract implements RecordHook {
     }
 
     switch (iType) {
-      case READ:
-        onEntityRead(entity);
-        break;
-
-      case BEFORE_CREATE:
-        onBeforeEntityCreate(entity);
-        break;
-      case AFTER_CREATE:
-        onAfterEntityCreate(entity);
-        break;
-
-      case BEFORE_UPDATE:
-        onBeforeEntityUpdate(entity);
-        break;
-      case AFTER_UPDATE:
-        onAfterEntityUpdate(entity);
-        break;
-
-      case BEFORE_DELETE:
-        onBeforeEntityDelete(entity);
-        break;
-      case AFTER_DELETE:
-        onAfterEntityDelete(entity);
-        break;
-
-      default:
-        throw new IllegalStateException("Hook method " + iType + " is not managed");
+      case READ -> onEntityRead(entity);
+      case BEFORE_CREATE -> onBeforeEntityCreate(entity);
+      case AFTER_CREATE -> onAfterEntityCreate(entity);
+      case BEFORE_UPDATE -> onBeforeEntityUpdate(entity);
+      case AFTER_UPDATE -> onAfterEntityUpdate(entity);
+      case BEFORE_DELETE -> onBeforeEntityDelete(entity);
+      case AFTER_DELETE -> onAfterEntityDelete(entity);
+      default -> throw new IllegalStateException("Hook method " + iType + " is not managed");
     }
   }
 

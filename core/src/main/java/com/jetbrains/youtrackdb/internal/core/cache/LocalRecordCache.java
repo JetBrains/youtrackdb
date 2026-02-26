@@ -44,6 +44,7 @@ public class LocalRecordCache extends AbstractRecordCache {
    *
    * @param record  record that should be cached
    */
+  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same cached object instance
   public void updateRecord(final RecordAbstract record, DatabaseSessionEmbedded session) {
     assert !record.isUnloaded();
     var rid = record.getIdentity();

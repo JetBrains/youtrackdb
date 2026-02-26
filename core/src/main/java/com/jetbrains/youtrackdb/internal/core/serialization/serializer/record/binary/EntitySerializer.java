@@ -62,9 +62,10 @@ public interface EntitySerializer {
   /**
    * Returns the array of field names with no values.
    *
-   * @param session
-   * @param reference TODO
-   * @param embedded
+   * @param session   the active database session
+   * @param reference the entity whose serialized bytes are being read
+   * @param iBytes    the byte container holding the serialized entity data
+   * @param embedded  true if the entity is serialized in embedded mode
    */
   String[] getFieldNames(DatabaseSessionEmbedded session, EntityImpl reference,
       BytesContainer iBytes, boolean embedded);

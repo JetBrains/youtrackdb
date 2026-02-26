@@ -67,8 +67,8 @@ public class MultiValue {
         || iType.isArray()
         || Map.class.isAssignableFrom(iType)
         || MultiCollectionIterator.class.isAssignableFrom(iType)
-        || Iterable.class.isAssignableFrom(iType)
-        && !Identifiable.class.isAssignableFrom(iType)
+        || (Iterable.class.isAssignableFrom(iType)
+        && !Identifiable.class.isAssignableFrom(iType))
         || BasicResultSet.class.isAssignableFrom(iType);
   }
 
@@ -443,8 +443,8 @@ public class MultiValue {
    * single values.
    *
    * @param iObject MultiValue where to add value(s)
-   * @param iToAdd  Single value, array of values or collections of values. Map are not supported.
-   * @return
+   * @param iToAdd Single value, array of values or collections of values. Map are not supported.
+   * @return The modified multi-value object with the added value(s)
    */
   public static Object add(final Object iObject, final Object iToAdd) {
     if (iObject != null) {
@@ -554,9 +554,9 @@ public class MultiValue {
    * @param iObject         MultiValue where to add value(s)
    * @param iToRemove       Single value, array of values or collections of values. Map are not
    *                        supported.
-   * @param iAllOccurrences True if the all occurrences must be removed or false of only the first
-   *                        one (Like java.util.Collection.remove())
-   * @return
+   * @param iAllOccurrences True if the all occurrences must be removed or false of only the
+   *                        first one (Like java.util.Collection.remove())
+   * @return The modified multi-value object with the value(s) removed
    */
   public static Object remove(Object iObject, Object iToRemove, final boolean iAllOccurrences) {
     if (iObject != null) {

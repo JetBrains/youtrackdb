@@ -34,11 +34,11 @@ public class FetchPlan {
 
   private static class FetchPlanLevel {
 
-    public int depthLevelFrom;
-    public int depthLevelTo;
-    public int level;
+    int depthLevelFrom;
+    int depthLevelTo;
+    int level;
 
-    public FetchPlanLevel(final int iFrom, final int iTo, final int iLevel) {
+    FetchPlanLevel(final int iFrom, final int iTo, final int iLevel) {
       depthLevelFrom = iFrom;
       depthLevelTo = iTo;
       level = iLevel;
@@ -126,7 +126,7 @@ public class FetchPlan {
     final var value = fetchPlan.get(ANY_WILDCARD);
     final Integer defDepthLevel = value.level;
 
-    final var fpParts = iFieldPath.split("\\.");
+    final var fpParts = iFieldPath.split("\\.", -1);
 
     for (var fpLevel : fetchPlan.entrySet()) {
       final var fpLevelKey = fpLevel.getKey();
@@ -190,7 +190,7 @@ public class FetchPlan {
   }
 
   public boolean has(final String iFieldPath, final int iCurrentLevel) {
-    final var fpParts = iFieldPath.split("\\.");
+    final var fpParts = iFieldPath.split("\\.", -1);
 
     for (var fpLevel : fetchPlan.entrySet()) {
       final var fpLevelKey = fpLevel.getKey();

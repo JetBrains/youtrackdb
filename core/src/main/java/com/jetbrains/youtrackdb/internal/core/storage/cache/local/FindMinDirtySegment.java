@@ -4,13 +4,10 @@ import java.util.concurrent.Callable;
 
 final class FindMinDirtySegment implements Callable<Long> {
 
-  /**
-   *
-   */
   private final WOWCache cache;
 
   /**
-   * @param WOWCache
+   * @param WOWCache the cache instance to find the minimum dirty segment in
    */
   FindMinDirtySegment(WOWCache WOWCache) {
     cache = WOWCache;

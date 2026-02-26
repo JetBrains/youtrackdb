@@ -54,10 +54,9 @@ public record FrontendTransactionSequenceStatus(long[] status) {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof FrontendTransactionSequenceStatus that)) {
       return false;
     }
-    var that = (FrontendTransactionSequenceStatus) o;
     return Arrays.equals(status, that.status);
   }
 

@@ -18,7 +18,7 @@ public class YTDBVertexPropertyIdJacksonDeserializer extends StdDeserializer<YTD
   public YTDBVertexPropertyId deserialize(JsonParser jsonParser,
       DeserializationContext deserializationContext) throws IOException {
     var value = deserializationContext.readValue(jsonParser, String.class);
-    var parts = value.split(":");
+    var parts = value.split(":", -1);
     var collectionId = Integer.parseInt(parts[0]);
     var collectionPosition = Long.parseLong(parts[1]);
     var key = parts[2];

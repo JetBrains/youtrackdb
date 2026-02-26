@@ -66,16 +66,19 @@ public interface IndexDefinition extends IndexCallback {
   /**
    * {@inheritDoc}
    */
+  @Override
   boolean equals(Object index);
 
   /**
    * {@inheritDoc}
    */
+  @Override
   int hashCode();
 
   /**
    * {@inheritDoc}
    */
+  @Override
   String toString();
 
   /**

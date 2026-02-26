@@ -110,6 +110,7 @@ public class EntityHelper {
   }
 
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public static <RET> RET getFieldValue(DatabaseSessionEmbedded db, Object value,
       final String iFieldName) {
     var context = new BasicCommandContext();
@@ -119,7 +120,7 @@ public class EntityHelper {
   }
 
   @Nullable
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   public static <RET> RET getFieldValue(
       DatabaseSessionEmbedded session, Object value, final String iFieldName,
       @Nonnull final CommandContext iContext) {
@@ -274,8 +275,8 @@ public class EntityHelper {
                   null, session);
             }
 
-            if (fieldValue == null && !conditionFieldValue.equals("null")
-                || fieldValue != null && !fieldValue.equals(conditionFieldValue)) {
+            if ((fieldValue == null && !conditionFieldValue.equals("null"))
+                || (fieldValue != null && !fieldValue.equals(conditionFieldValue))) {
               value = null;
             }
           }
@@ -374,8 +375,8 @@ public class EntityHelper {
                   null, session);
             }
 
-            if (fieldValue == null && !conditionFieldValue.equals("null")
-                || fieldValue != null && !fieldValue.equals(conditionFieldValue)) {
+            if ((fieldValue == null && !conditionFieldValue.equals("null"))
+                || (fieldValue != null && !fieldValue.equals(conditionFieldValue))) {
               value = null;
             }
           }
@@ -1285,7 +1286,7 @@ public class EntityHelper {
       Object otherValue,
       DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper) {
-    if (myValue == null && otherValue != null || myValue != null && otherValue == null) {
+    if ((myValue == null && otherValue != null) || (myValue != null && otherValue == null)) {
       return false;
     }
 
@@ -1293,8 +1294,8 @@ public class EntityHelper {
       return true;
     }
 
-    if (myValue.getClass().isArray() && !otherValue.getClass().isArray()
-        || !myValue.getClass().isArray() && otherValue.getClass().isArray()) {
+    if ((myValue.getClass().isArray() && !otherValue.getClass().isArray())
+        || (!myValue.getClass().isArray() && otherValue.getClass().isArray())) {
       return false;
     }
 

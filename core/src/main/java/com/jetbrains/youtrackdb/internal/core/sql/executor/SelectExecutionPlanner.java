@@ -686,7 +686,7 @@ public class SelectExecutionPlanner {
       Set<String> allAliases, SQLOrderBy orderBy) {
     List<SQLProjectionItem> result = new ArrayList<>();
     var nextAliasCount = 0;
-    if (orderBy != null && orderBy.getItems() != null || !orderBy.getItems().isEmpty()) {
+    if ((orderBy != null && orderBy.getItems() != null) || !orderBy.getItems().isEmpty()) {
       for (var item : orderBy.getItems()) {
         if (!allAliases.contains(item.getAlias())) {
           var newProj = new SQLProjectionItem(-1);

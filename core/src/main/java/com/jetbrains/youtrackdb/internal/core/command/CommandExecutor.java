@@ -34,19 +34,20 @@ public interface CommandExecutor {
    * Parse the request. Once parsed the command can be executed multiple times by using the
    * execute() method.
    *
-   * @param session
+   * @param session  the database session to use
    * @param iRequest Command request implementation.
-   * @return
+   * @return this executor instance for method chaining
    * @see #execute(DatabaseSessionEmbedded, Map) <Object, Object>...)
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandExecutor> RET parse(DatabaseSessionEmbedded session, CommandRequest iRequest);
 
   /**
    * Execute the requested command parsed previously.
    *
-   * @param session
-   * @param iArgs Optional variable arguments to pass to the command.
-   * @return
+   * @param session the database session to use
+   * @param iArgs   Optional variable arguments to pass to the command.
+   * @return the command execution result
    * @see #parse(DatabaseSessionEmbedded, CommandRequest)
    */
   Object execute(DatabaseSessionEmbedded session, final Map<Object, Object> iArgs);
@@ -55,10 +56,12 @@ public interface CommandExecutor {
    * Set the listener invoked while the command is executing.
    *
    * @param progressListener ProgressListener implementation
-   * @return
+   * @return this executor instance for method chaining
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandExecutor> RET setProgressListener(ProgressListener progressListener);
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends CommandExecutor> RET setLimit(int iLimit);
 
   String getFetchPlan();
@@ -82,7 +85,7 @@ public interface CommandExecutor {
   /**
    * Returns the security operation type use to check about security.
    *
-   * @return
+   * @return the security operation type constant
    * @see Role PERMISSION_*
    */
   int getSecurityOperationType();

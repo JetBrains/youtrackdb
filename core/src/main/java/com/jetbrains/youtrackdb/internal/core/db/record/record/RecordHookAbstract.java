@@ -74,33 +74,13 @@ public abstract class RecordHookAbstract implements RecordHook {
   public void onTrigger(@Nonnull final TYPE iType,
       @Nonnull final DBRecord record) {
     switch (iType) {
-      case READ:
-        onRecordRead(record);
-        break;
-
-      case BEFORE_CREATE:
-        onBeforeRecordCreate(record);
-        break;
-
-      case AFTER_CREATE:
-        onAfterRecordCreate(record);
-        break;
-
-      case BEFORE_UPDATE:
-        onBeforeRecordUpdate(record);
-        break;
-
-      case AFTER_UPDATE:
-        onAfterRecordUpdate(record);
-        break;
-
-      case BEFORE_DELETE:
-        onBeforeRecordDelete(record);
-        break;
-
-      case AFTER_DELETE:
-        onAfterRecordDelete(record);
-        break;
+      case READ -> onRecordRead(record);
+      case BEFORE_CREATE -> onBeforeRecordCreate(record);
+      case AFTER_CREATE -> onAfterRecordCreate(record);
+      case BEFORE_UPDATE -> onBeforeRecordUpdate(record);
+      case AFTER_UPDATE -> onAfterRecordUpdate(record);
+      case BEFORE_DELETE -> onBeforeRecordDelete(record);
+      case AFTER_DELETE -> onAfterRecordDelete(record);
     }
   }
 }

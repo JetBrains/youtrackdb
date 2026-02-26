@@ -201,7 +201,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   public boolean sourceIsParsedByProperties() {
-    return super.sourceIsParsedByProperties() || properties != null && !properties.isEmpty();
+    return super.sourceIsParsedByProperties() || (properties != null && !properties.isEmpty());
   }
 
   @Nullable
@@ -364,6 +364,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    *                     expression, as in #eval()
    * @return the property value. Null if the property does not exist.
    */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET> RET getProperty(final @Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
@@ -451,11 +452,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
     };
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyInternal(String name) {
     return getPropertyInternal(name, isLazyLoad());
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyInternal(String name, boolean lazyLoad) {
     return getPropertyAndChooseReturnValue(name, lazyLoad,
         PropertyOperationReturnValue.propertyValue());
@@ -504,6 +507,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return returnValue.choose(entry.type, convertToGraphElement(value));
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
     validatePropertyName(name, false);
@@ -522,6 +526,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
     checkForBinding();
     checkForProperties();
@@ -1490,6 +1495,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return value;
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET> RET removeProperty(@Nonnull final String name) {
     return removePropertyInternal(name, PropertyValidationMode.FULL);
@@ -1500,6 +1506,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET removePropertyInternal(String name, PropertyValidationMode validationMode) {
 
     if (validationMode != PropertyValidationMode.SKIP) {
@@ -1625,10 +1632,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (propertyValue != null && type != null) {
       // CHECK TYPE
       switch (type) {
-        case LINK:
-          validateLink(schema, session, p, propertyValue, false);
-          break;
-        case LINKLIST:
+        case LINK -> validateLink(schema, session, p, propertyValue, false);
+        case LINKLIST -> {
           if (!(propertyValue instanceof EntityLinkListImpl)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1637,8 +1642,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + propertyValue);
           }
           validateLinkCollection(session, schema, p, (Collection<Object>) propertyValue, entry);
-          break;
-        case LINKSET:
+        }
+        case LINKSET -> {
           if (!(propertyValue instanceof EntityLinkSetImpl)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1647,8 +1652,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + propertyValue);
           }
           validateLinkCollection(session, schema, p, (Collection<Object>) propertyValue, entry);
-          break;
-        case LINKMAP:
+        }
+        case LINKMAP -> {
           if (!(propertyValue instanceof EntityLinkMapIml)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1658,9 +1663,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           validateLinkCollection(session, schema, p, ((Map<?, Object>) propertyValue).values(),
               entry);
-          break;
-
-        case LINKBAG:
+        }
+        case LINKBAG -> {
           if (!(propertyValue instanceof LinkBag)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1669,11 +1673,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + propertyValue);
           }
           validateLinkCollection(session, schema, p, (Iterable<Object>) propertyValue, entry);
-          break;
-        case EMBEDDED:
-          validateEmbedded(session, p, propertyValue);
-          break;
-        case EMBEDDEDLIST:
+        }
+        case EMBEDDED -> validateEmbedded(session, p, propertyValue);
+        case EMBEDDEDLIST -> {
           if (!(propertyValue instanceof EntityEmbeddedListImpl<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1693,8 +1695,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
               }
             }
           }
-          break;
-        case EMBEDDEDSET:
+        }
+        case EMBEDDEDSET -> {
           if (!(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1713,8 +1715,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
               }
             }
           }
-          break;
-        case EMBEDDEDMAP:
+        }
+        case EMBEDDEDMAP -> {
           if (!(propertyValue instanceof EntityEmbeddedMapImpl<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1733,7 +1735,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
               }
             }
           }
-          break;
+        }
+        default -> {
+          // other types don't need validation
+        }
       }
     }
 
@@ -1742,45 +1747,35 @@ public class EntityImpl extends RecordAbstract implements Entity {
       final var min = p.getMin();
       if (p.getMinComparable().compareTo(propertyValue) > 0) {
         switch (p.getType()) {
-          case STRING:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains fewer characters than "
-                    + min
-                    + " requested");
-          case DATE:
-          case DATETIME:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains the date "
-                    + propertyValue
-                    + " which precedes the first acceptable date ("
-                    + min
-                    + ")");
-          case BINARY:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains fewer bytes than "
-                    + min
-                    + " requested");
-          case EMBEDDEDLIST:
-          case EMBEDDEDSET:
-          case LINKLIST:
-          case LINKSET:
-          case EMBEDDEDMAP:
-          case LINKMAP:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains fewer items than "
-                    + min
-                    + " requested");
-          default:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '" + p.getFullName() + "' is less than " + min);
+          case STRING -> throw new ValidationException(session.getDatabaseName(),
+              "The property '"
+                  + p.getFullName()
+                  + "' contains fewer characters than "
+                  + min
+                  + " requested");
+          case DATE, DATETIME -> throw new ValidationException(session.getDatabaseName(),
+              "The property '"
+                  + p.getFullName()
+                  + "' contains the date "
+                  + propertyValue
+                  + " which precedes the first acceptable date ("
+                  + min
+                  + ")");
+          case BINARY -> throw new ValidationException(session.getDatabaseName(),
+              "The property '"
+                  + p.getFullName()
+                  + "' contains fewer bytes than "
+                  + min
+                  + " requested");
+          case EMBEDDEDLIST, EMBEDDEDSET, LINKLIST, LINKSET, EMBEDDEDMAP, LINKMAP ->
+              throw new ValidationException(session.getDatabaseName(),
+                  "The property '"
+                      + p.getFullName()
+                      + "' contains fewer items than "
+                      + min
+                      + " requested");
+          default -> throw new ValidationException(session.getDatabaseName(),
+              "The property '" + p.getFullName() + "' is less than " + min);
         }
       }
     }
@@ -1789,45 +1784,35 @@ public class EntityImpl extends RecordAbstract implements Entity {
       final var max = p.getMax();
       if (p.getMaxComparable().compareTo(propertyValue) < 0) {
         switch (p.getType()) {
-          case STRING:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains more characters than "
-                    + max
-                    + " requested");
-          case DATE:
-          case DATETIME:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains the date "
-                    + propertyValue
-                    + " which is after the last acceptable date ("
-                    + max
-                    + ")");
-          case BINARY:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains more bytes than "
-                    + max
-                    + " requested");
-          case EMBEDDEDLIST:
-          case EMBEDDEDSET:
-          case LINKLIST:
-          case LINKSET:
-          case EMBEDDEDMAP:
-          case LINKMAP:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '"
-                    + p.getFullName()
-                    + "' contains more items than "
-                    + max
-                    + " requested");
-          default:
-            throw new ValidationException(session.getDatabaseName(),
-                "The property '" + p.getFullName() + "' is greater than " + max);
+          case STRING -> throw new ValidationException(session.getDatabaseName(),
+              "The property '"
+                  + p.getFullName()
+                  + "' contains more characters than "
+                  + max
+                  + " requested");
+          case DATE, DATETIME -> throw new ValidationException(session.getDatabaseName(),
+              "The property '"
+                  + p.getFullName()
+                  + "' contains the date "
+                  + propertyValue
+                  + " which is after the last acceptable date ("
+                  + max
+                  + ")");
+          case BINARY -> throw new ValidationException(session.getDatabaseName(),
+              "The property '"
+                  + p.getFullName()
+                  + "' contains more bytes than "
+                  + max
+                  + " requested");
+          case EMBEDDEDLIST, EMBEDDEDSET, LINKLIST, LINKSET, EMBEDDEDMAP, LINKMAP ->
+              throw new ValidationException(session.getDatabaseName(),
+                  "The property '"
+                      + p.getFullName()
+                      + "' contains more items than "
+                      + max
+                      + " requested");
+          default -> throw new ValidationException(session.getDatabaseName(),
+              "The property '" + p.getFullName() + "' is greater than " + max);
         }
       }
     }
@@ -1843,7 +1828,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         var simple =
             propertyValue != null ? PropertyTypeInternal.isSimpleValueType(propertyValue)
                 : PropertyTypeInternal.isSimpleValueType(orgVal);
-        if (simple || propertyValue != null && orgVal == null || propertyValue == null
+        if (simple || (propertyValue != null && orgVal == null) || propertyValue == null
             || !Objects.deepEquals(propertyValue, orgVal)) {
           throw new ValidationException(session.getDatabaseName(),
               "The property '"
@@ -1866,8 +1851,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
             value.getTimeLine().getMultiValueChangeEvents();
         for (var object : event) {
           if (object.getChangeType() == ChangeType.ADD
-              || object.getChangeType() == ChangeType.UPDATE
-              && object.getValue() != null) {
+              || (object.getChangeType() == ChangeType.UPDATE
+              && object.getValue() != null)) {
             validateLink(schema, db, property, object.getValue(), true);
           }
         }
@@ -2307,45 +2292,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
 
       switch (type) {
-        case LINKLIST: {
-          updateLinkListFromMapValue(value, propertyName);
-          break;
-        }
-        case LINKSET: {
-          updateLinkSetFromMapValue(value, propertyName);
-          break;
-        }
-        case LINKBAG: {
-          updateLinkBagFromMapValue(value, session, propertyName);
-          break;
-        }
-        case LINKMAP: {
-          updateLinkMapFromMapValue(value, propertyName);
-          break;
-        }
-        case EMBEDDEDLIST: {
-          updateEmbeddedListFromMapValue(session, value, propertyName);
-          break;
-        }
-        case EMBEDDEDSET: {
-          updateEmbeddedSetFromMapValue(session, value, propertyName);
-          break;
-        }
-        case EMBEDDEDMAP: {
-          updateEmbeddedMapFromMapValue(session, value, propertyName);
-          break;
-        }
-        case EMBEDDED: {
-          updateEmbeddedFromMapValue(value, session, propertyName);
-          break;
-        }
-        case null: {
-          updatePropertyFromNonTypedMapValue(value, session, propertyName);
-          break;
-        }
-        default: {
-          setPropertyInternal(propertyName, value);
-        }
+        case LINKLIST -> updateLinkListFromMapValue(value, propertyName);
+        case LINKSET -> updateLinkSetFromMapValue(value, propertyName);
+        case LINKBAG -> updateLinkBagFromMapValue(value, session, propertyName);
+        case LINKMAP -> updateLinkMapFromMapValue(value, propertyName);
+        case EMBEDDEDLIST -> updateEmbeddedListFromMapValue(session, value, propertyName);
+        case EMBEDDEDSET -> updateEmbeddedSetFromMapValue(session, value, propertyName);
+        case EMBEDDEDMAP -> updateEmbeddedMapFromMapValue(session, value, propertyName);
+        case EMBEDDED -> updateEmbeddedFromMapValue(value, session, propertyName);
+        case null -> updatePropertyFromNonTypedMapValue(value, session, propertyName);
+        default -> setPropertyInternal(propertyName, value);
       }
     }
   }
@@ -2437,45 +2393,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
       var type = property != null ? property.getType() : null;
 
       switch (type) {
-        case LINKLIST: {
-          updateLinkListFromMapValue(entry.getValue(), key);
-          break;
-        }
-        case LINKSET: {
-          updateLinkSetFromMapValue(entry.getValue(), key);
-          break;
-        }
-        case LINKBAG: {
-          updateLinkBagFromMapValue(entry.getValue(), session, key);
-          break;
-        }
-        case LINKMAP: {
-          updateLinkMapFromMapValue(entry.getValue(), key);
-          break;
-        }
-        case EMBEDDEDLIST: {
-          updateEmbeddedListFromMapValue(session, entry.getValue(), key);
-          break;
-        }
-        case EMBEDDEDSET: {
-          updateEmbeddedSetFromMapValue(session, entry.getValue(), key);
-          break;
-        }
-        case EMBEDDEDMAP: {
-          updateEmbeddedMapFromMapValue(session, entry.getValue(), key);
-          break;
-        }
-        case EMBEDDED: {
-          updateEmbeddedFromMapValue(entry.getValue(), session, key);
-          break;
-        }
-        case null: {
-          updatePropertyFromNonTypedMapValue(entry.getValue(), session, key);
-          break;
-        }
-        default: {
-          setPropertyInternal(key, entry.getValue());
-        }
+        case LINKLIST -> updateLinkListFromMapValue(entry.getValue(), key);
+        case LINKSET -> updateLinkSetFromMapValue(entry.getValue(), key);
+        case LINKBAG -> updateLinkBagFromMapValue(entry.getValue(), session, key);
+        case LINKMAP -> updateLinkMapFromMapValue(entry.getValue(), key);
+        case EMBEDDEDLIST -> updateEmbeddedListFromMapValue(session, entry.getValue(), key);
+        case EMBEDDEDSET -> updateEmbeddedSetFromMapValue(session, entry.getValue(), key);
+        case EMBEDDEDMAP -> updateEmbeddedMapFromMapValue(session, entry.getValue(), key);
+        case EMBEDDED -> updateEmbeddedFromMapValue(entry.getValue(), session, key);
+        case null -> updatePropertyFromNonTypedMapValue(entry.getValue(), session, key);
+        default -> setPropertyInternal(key, entry.getValue());
       }
     }
   }
@@ -3656,63 +3583,63 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
 
         switch (propertyType) {
-          case EMBEDDEDLIST:
+          case EMBEDDEDLIST -> {
             if (propertyValue instanceof List<?>
                 && !(propertyValue instanceof EntityEmbeddedListImpl<?>)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
                       + propertyValue.getClass());
             }
-            break;
-          case EMBEDDEDSET:
+          }
+          case EMBEDDEDSET -> {
             if (propertyValue instanceof Set<?>
                 && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
                       + propertyValue.getClass());
-
             }
-            break;
-          case EMBEDDEDMAP:
+          }
+          case EMBEDDEDMAP -> {
             if (propertyValue instanceof Map<?, ?>
                 && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
                       + propertyValue.getClass());
             }
-            break;
-          case LINKLIST:
+          }
+          case LINKLIST -> {
             if (propertyValue instanceof List<?>
                 && !(propertyValue instanceof EntityLinkListImpl)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
                       + propertyValue.getClass());
             }
-            break;
-          case LINKSET:
+          }
+          case LINKSET -> {
             if (propertyValue instanceof Set<?> && !(propertyValue instanceof EntityLinkSetImpl)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
                       + propertyValue.getClass());
             }
-            break;
-          case LINKMAP:
+          }
+          case LINKMAP -> {
             if (propertyValue instanceof Map<?, ?>
                 && !(propertyValue instanceof EntityLinkMapIml)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be LinkMap but is "
                       + propertyValue.getClass());
             }
-            break;
-          case LINKBAG:
+          }
+          case LINKBAG -> {
             if (!(propertyValue instanceof LinkBag)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
                       + propertyValue.getClass());
             }
-            break;
-          default:
-            break;
+          }
+          default -> {
+            // other types don't need collection type validation
+          }
         }
       }
     } finally {
@@ -4094,7 +4021,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   @Nullable
   private static <RET> RET convertField(
       @Nonnull DatabaseSessionEmbedded session, @Nonnull final EntityImpl entity,

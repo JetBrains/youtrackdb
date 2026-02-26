@@ -320,19 +320,19 @@ public class YTDBGraphQueryBuilder {
       this.schema = schema;
     }
 
-    public boolean classExists(String name) {
+    boolean classExists(String name) {
       return schema.existsClass(name);
     }
 
     /// Return true if `superClass` is a super class of `childClass`.
-    public boolean isSuperClassOf(String superClass, String childClass) {
+    boolean isSuperClassOf(String superClass, String childClass) {
       return getSuperClassesFor(childClass).contains(superClass);
     }
 
     /// Select the child class of the two provided classes. If classOne and classTwo are the same
     /// class, then just return this class. If the two provided classes have a parent-child
     /// relationship, then return the child class. Return empty optional otherwise.
-    public Optional<String> selectChild(String classOne, String classTwo) {
+    Optional<String> selectChild(String classOne, String classTwo) {
       if (classOne.equals(classTwo)) {
         return Optional.of(classOne);
       } else if (isSuperClassOf(classOne, classTwo)) {

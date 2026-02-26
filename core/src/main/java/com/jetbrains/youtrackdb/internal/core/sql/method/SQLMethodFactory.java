@@ -36,7 +36,7 @@ public interface SQLMethodFactory {
    * Create method for the given name. returned method may be a new instance each time or a
    * constant.
    *
-   * @param name
+   * @param name the method name to create
    * @return SQLMethod : created method
    * @throws CommandExecutionException : when method creation fail
    */

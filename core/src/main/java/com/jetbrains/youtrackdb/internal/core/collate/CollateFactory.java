@@ -37,7 +37,7 @@ public interface CollateFactory {
   /**
    * Returns the requested collate
    *
-   * @param name
+   * @param name the name of the collate to retrieve
    */
   Collate getCollate(String name);
 }

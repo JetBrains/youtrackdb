@@ -40,7 +40,7 @@ public interface Scheduler {
   /**
    * Removes a scheduled event.
    *
-   * @param session
+   * @param session   the active database session
    * @param eventName Event's name
    */
   void removeEvent(DatabaseSessionEmbedded session, String eventName);
@@ -53,7 +53,7 @@ public interface Scheduler {
   /**
    * Returns all the scheduled events.
    *
-   * @return
+   * @return a map of event names to their scheduled event definitions
    */
   Map<String, ScheduledEvent> getEvents();
 

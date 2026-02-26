@@ -412,17 +412,10 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
     while (listIterator.hasPrevious()) {
       final var event = listIterator.previous();
       switch (event.getChangeType()) {
-        case ADD:
-          reverted.remove(event.getKey());
-          break;
-        case REMOVE:
-          reverted.put(event.getKey(), event.getOldValue());
-          break;
-        case UPDATE:
-          reverted.put(event.getKey(), event.getOldValue());
-          break;
-        default:
-          throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
+        case ADD -> reverted.remove(event.getKey());
+        case REMOVE, UPDATE -> reverted.put(event.getKey(), event.getOldValue());
+        default ->
+            throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
   }
@@ -640,12 +633,12 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
 
   @Override
   public boolean isModified() {
-    return dirty || tracker.isEnabled() && tracker.isChanged();
+    return dirty || (tracker.isEnabled() && tracker.isChanged());
   }
 
   @Override
   public boolean isTransactionModified() {
-    return transactionDirty || tracker.isEnabled() && tracker.isTxChanged();
+    return transactionDirty || (tracker.isEnabled() && tracker.isTxChanged());
   }
 
   @Override

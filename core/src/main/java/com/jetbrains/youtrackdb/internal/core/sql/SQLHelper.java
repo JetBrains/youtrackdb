@@ -122,9 +122,9 @@ public class SQLHelper {
       return iValue;
     }
 
-    if (iValue.charAt(0) == '\'' && iValue.charAt(iValue.length() - 1) == '\''
-        || iValue.charAt(0) == '\"'
-        && iValue.charAt(iValue.length() - 1) == '\"')
+    if ((iValue.charAt(0) == '\'' && iValue.charAt(iValue.length() - 1) == '\'')
+        || (iValue.charAt(0) == '\"'
+        && iValue.charAt(iValue.length() - 1) == '\"'))
     // STRING
     {
       fieldValue = IOUtils.getStringContent(iValue);
@@ -447,7 +447,7 @@ public class SQLHelper {
       }
       case String string -> {
         final var s = string.trim();
-        if (iRecord != null & !s.isEmpty()
+        if ((iRecord != null & !s.isEmpty())
             && !IOUtils.isStringContent(iObject)
             && !Character.isDigit(s.charAt(0)))
         // INTERPRETS IT

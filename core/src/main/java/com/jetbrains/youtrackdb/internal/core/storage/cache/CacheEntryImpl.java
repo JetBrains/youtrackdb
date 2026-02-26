@@ -291,11 +291,9 @@ public class CacheEntryImpl implements CacheEntry {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof CacheEntryImpl that)) {
       return false;
     }
-
-    var that = (CacheEntryImpl) o;
     return this.pageKey.equals(that.pageKey);
   }
 

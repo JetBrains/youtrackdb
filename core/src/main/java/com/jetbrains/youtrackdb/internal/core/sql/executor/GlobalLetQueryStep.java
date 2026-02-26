@@ -106,7 +106,7 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
   }
 
   private String box(String spaces, String s) {
-    var rows = s.split("\n");
+    var rows = s.split("\n", -1);
     var result = new StringBuilder();
     result.append(spaces);
     result.append("+-------------------------\n");

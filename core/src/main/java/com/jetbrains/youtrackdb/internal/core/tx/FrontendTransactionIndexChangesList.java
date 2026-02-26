@@ -443,6 +443,7 @@ public class FrontendTransactionIndexChangesList
     return Optional.empty();
   }
 
+  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same entry instance
   public Optional<Node> getNode(TransactionIndexEntry entry) {
     var rid = entry.getValue() == null ? null : entry.getValue().getIdentity();
     var list = ridToNodes.get(rid);

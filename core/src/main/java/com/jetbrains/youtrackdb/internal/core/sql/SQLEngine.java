@@ -462,20 +462,12 @@ public class SQLEngine {
             for (final var cb : operators) {
               if (ca != cb) {
                 switch (ca.compare(cb)) {
-                  case BEFORE:
-                    pairs.add(new Pair(ca, cb));
-                    break;
-                  case AFTER:
-                    pairs.add(new Pair(cb, ca));
-                    break;
+                  case BEFORE -> pairs.add(new Pair(ca, cb));
+                  case AFTER -> pairs.add(new Pair(cb, ca));
                 }
                 switch (cb.compare(ca)) {
-                  case BEFORE:
-                    pairs.add(new Pair(cb, ca));
-                    break;
-                  case AFTER:
-                    pairs.add(new Pair(ca, cb));
-                    break;
+                  case BEFORE -> pairs.add(new Pair(cb, ca));
+                  case AFTER -> pairs.add(new Pair(ca, cb));
                 }
               }
             }

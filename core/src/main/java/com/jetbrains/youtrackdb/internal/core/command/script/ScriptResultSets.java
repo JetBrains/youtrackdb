@@ -14,17 +14,13 @@ public class ScriptResultSets {
 
   /**
    * Empty result set
-   *
-   * @return
    */
   public static ScriptResultSet empty(DatabaseSessionEmbedded db) {
     return new ScriptResultSet(db, Collections.EMPTY_LIST.iterator(), null);
   }
 
   /**
-   * Result set with a single result;
-   *
-   * @return
+   * Result set with a single result.
    */
   public static ScriptResultSet singleton(DatabaseSessionEmbedded db, Object entity,
       ScriptTransformer transformer) {

@@ -148,7 +148,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
     private final Result nextItem;
     private final DatabaseSessionEmbedded db;
 
-    public ChainStep(CommandContext ctx, Result nextItem, DatabaseSessionEmbedded db) {
+    ChainStep(CommandContext ctx, Result nextItem, DatabaseSessionEmbedded db) {
       super(ctx, FilterNotMatchPatternStep.this.profilingEnabled);
       this.nextItem = nextItem;
       this.db = db;

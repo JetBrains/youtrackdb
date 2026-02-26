@@ -55,7 +55,7 @@ public abstract class RelationsIterable<E extends Entity, L extends Relation<E>>
 
   @Override
   public boolean isSizeable() {
-    return size >= 0 || iterable instanceof Sizeable sizeable && sizeable.isSizeable()
+    return size >= 0 || (iterable instanceof Sizeable sizeable && sizeable.isSizeable())
         || iterable instanceof Collection<?>;
   }
 }

@@ -17,6 +17,7 @@ public class TraverseResult extends ResultInternal {
     super(db, element);
   }
 
+  @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T> T getProperty(@Nonnull String name) {
     assert session == null || session.assertIfNotActive();

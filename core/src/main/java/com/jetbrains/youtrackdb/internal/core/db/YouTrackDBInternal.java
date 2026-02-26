@@ -44,7 +44,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param directoryPath base path where the database are hosted
    * @param config        configuration for the specific factory for the list of option
    *                      {@see GlobalConfiguration}
-   * @param serverMode
+   * @param serverMode whether the factory should operate in server mode
    * @return a new embedded databases factory
    */
   static YouTrackDBInternalEmbedded embedded(
