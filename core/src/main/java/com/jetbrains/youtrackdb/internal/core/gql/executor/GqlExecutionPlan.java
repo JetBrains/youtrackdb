@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -10,7 +11,7 @@ import javax.annotation.Nullable;
 /// Execution plan for GQL queries.
 ///
 /// Wraps an [InternalExecutionPlan] produced by the unified YQL
-/// [com.jetbrains.youtrackdb.internal.core.sql.executor.MatchExecutionPlanner],
+/// [com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner],
 /// adapting its [ExecutionStream] to [GqlExecutionStream].
 /// Future GQL features (WHERE, RETURN, edge traversal) extend the shared IR and planner,
 /// not this class.
@@ -35,10 +36,19 @@ public class GqlExecutionPlan {
   }
 
   /// Start execution and return a stream of results.
-  public GqlExecutionStream start() {
+  ///
+  /// The session parameter rebinds the underlying plan's context to the caller's
+  /// current session and activates it on the current thread.  This is essential for
+  /// cached plans whose context still references a session from a previous request
+  /// (potentially on a different thread).
+  /// Pass null only for empty plans (no underlying SQL plan).
+  public GqlExecutionStream start(@Nullable DatabaseSessionEmbedded session) {
     if (sqlPlan == null) {
       return GqlExecutionStream.empty();
     }
+    Objects.requireNonNull(session, "session required for non-empty plan");
+    sqlPlan.getContext().setDatabaseSession(session);
+    session.activateOnCurrentThread();
     var stream = sqlPlan.start();
     return new SqlStreamAdapter(stream, sqlPlan.getContext());
   }

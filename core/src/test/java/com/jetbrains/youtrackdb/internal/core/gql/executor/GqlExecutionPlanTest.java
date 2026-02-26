@@ -29,7 +29,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
   @Test
   public void emptyPlan_start_returnsEmptyStream() {
     var plan = GqlExecutionPlan.empty();
-    var stream = plan.start();
+    var stream = plan.start(null);
     Assert.assertNotNull(stream);
     Assert.assertFalse(stream.hasNext());
   }
@@ -50,7 +50,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     var plan = GqlExecutionPlan.empty();
     var copy = plan.copy();
     Assert.assertNotSame(plan, copy);
-    Assert.assertFalse(copy.start().hasNext());
+    Assert.assertFalse(copy.start(null).hasNext());
   }
 
   // ── Factory ──
@@ -79,7 +79,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "a", "EPStart");
-      var stream = gqlPlan.start();
+      var stream = gqlPlan.start(session);
       Assert.assertTrue(stream.hasNext());
       var raw = stream.next();
       Assert.assertTrue(raw instanceof Result);
@@ -104,7 +104,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "x", "EPMulti");
-      var stream = gqlPlan.start();
+      var stream = gqlPlan.start(session);
       var count = 0;
       while (stream.hasNext()) {
         Assert.assertNotNull(stream.next());
@@ -130,13 +130,13 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "a", "EPReset");
 
-      var s1 = gqlPlan.start();
+      var s1 = gqlPlan.start(session);
       Assert.assertTrue(s1.hasNext());
       s1.next();
       Assert.assertFalse(s1.hasNext());
 
       gqlPlan.reset();
-      var s2 = gqlPlan.start();
+      var s2 = gqlPlan.start(session);
       Assert.assertTrue(s2.hasNext());
       s2.next();
       Assert.assertFalse(s2.hasNext());
@@ -161,7 +161,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       var copy = gqlPlan.copy();
       Assert.assertNotSame(gqlPlan, copy);
 
-      var stream = copy.start();
+      var stream = copy.start(session);
       Assert.assertTrue(stream.hasNext());
       stream.next();
       Assert.assertFalse(stream.hasNext());
@@ -202,7 +202,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "a", "EPExhaust");
-      var stream = gqlPlan.start();
+      var stream = gqlPlan.start(session);
       Assert.assertTrue(stream.hasNext());
       stream.next();
       Assert.assertFalse(stream.hasNext());
@@ -224,7 +224,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "a", "EPHasClose");
-      var stream = gqlPlan.start();
+      var stream = gqlPlan.start(session);
       stream.close();
       Assert.assertFalse(stream.hasNext());
       gqlPlan.close();
@@ -245,7 +245,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "a", "EPNextClose");
-      var stream = gqlPlan.start();
+      var stream = gqlPlan.start(session);
       stream.close();
       stream.next();
     } finally {
@@ -265,7 +265,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "a", "EPIdem");
-      var stream = gqlPlan.start();
+      var stream = gqlPlan.start(session);
       stream.close();
       stream.close();
       Assert.assertFalse(stream.hasNext());

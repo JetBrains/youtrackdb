@@ -38,7 +38,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
-      var stream = plan.start();
+      var stream = plan.start(null);
       Assert.assertFalse(stream.hasNext());
     } finally {
       ((YTDBGraphInternal) graph).tx().commit();
@@ -57,7 +57,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
-      var stream = plan.start();
+      var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
       var row = (Result) stream.next();
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
@@ -79,7 +79,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
-      var stream = plan.start();
+      var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
       var row = (Result) stream.next();
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
@@ -100,7 +100,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
-      var stream = plan.start();
+      var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
       var row = (Result) stream.next();
       Assert.assertTrue(row.getPropertyNames().contains("myAlias"));
@@ -123,7 +123,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
-      var stream = plan.start();
+      var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
       var row = (Result) stream.next();
       var names = row.getPropertyNames();
@@ -148,7 +148,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
-      var stream = plan.start();
+      var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
       var row = (Result) stream.next();
       Assert.assertTrue(row.getPropertyNames().contains("x"));
@@ -172,7 +172,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           List.of(new GqlMatchVisitor.NodePattern("x", null)));
       var plan = statement.createExecutionPlan(ctx, false);
       Assert.assertNotNull(plan);
-      var stream = plan.start();
+      var stream = plan.start(session);
       while (stream.hasNext()) {
         stream.next();
       }

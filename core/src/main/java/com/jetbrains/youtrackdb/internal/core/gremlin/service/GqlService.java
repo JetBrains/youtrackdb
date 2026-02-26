@@ -114,7 +114,6 @@ public class GqlService implements Service<Object, Object> {
       var graphTx = graph.tx();
       Objects.requireNonNull(graphTx).readWrite();
       var session = graphTx.getDatabaseSession();
-      session.activateOnCurrentThread();
 
       // 2. Get the query statement (from cache if available)
       var statement = GqlPlanner.getStatement(query, session);
@@ -125,8 +124,8 @@ public class GqlService implements Service<Object, Object> {
       // 4. Create execution plan from statement
       executionPlan = Objects.requireNonNull(statement).createExecutionPlan(executionCtx);
 
-      // 5. Execute and return streaming result (Result rows converted to Gremlin types at read time)
-      stream = Objects.requireNonNull(executionPlan).start();
+      // 5. Execute: rebind session (cached plans may reference a stale session)
+      stream = Objects.requireNonNull(executionPlan).start(session);
       var schema = session.getMetadata().getImmutableSchemaSnapshot();
       return new GqlResultIterator(stream, executionPlan, graph, schema);
     } catch (Exception e) {
