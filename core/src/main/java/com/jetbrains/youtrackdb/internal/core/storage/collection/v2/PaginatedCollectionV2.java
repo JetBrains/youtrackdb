@@ -47,7 +47,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrows
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -91,6 +90,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private StorageCollection.Meters meters = Meters.NOOP;
 
   private volatile int id;
+  private volatile long approximateRecordsCount;
   private long fileId;
   private RecordConflictStrategy recordConflictStrategy;
 
@@ -209,6 +209,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           try {
             fileId = openFile(atomicOperation, getFullName());
             collectionPositionMap.open(atomicOperation);
+
+            // Load the persistent approximate records count into the volatile field.
+            try (final var stateCacheEntry =
+                loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
+              final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+              approximateRecordsCount = state.getApproximateRecordsCount();
+            }
+
             if (freeSpaceMap.exists(atomicOperation)) {
               freeSpaceMap.open(atomicOperation);
             } else {
@@ -410,6 +418,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         collectionPosition,
         new PositionEntry(nextPageIndex, nextPageOffset, newRecordVersion),
         atomicOperation);
+
+    incrementApproximateRecordsCount(atomicOperation);
 
     return createPhysicalPosition(recordType, collectionPosition, newRecordVersion);
   }
@@ -1024,6 +1034,30 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     keepPreviousRecordVersion(collectionPosition, recordVersion, atomicOperation, positionEntry);
 
     collectionPositionMap.remove(collectionPosition, recordVersion, atomicOperation);
+
+    decrementApproximateRecordsCount(atomicOperation);
+  }
+
+  private void incrementApproximateRecordsCount(AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var stateCacheEntry =
+        loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
+      final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+      final var count = state.getApproximateRecordsCount();
+      state.setApproximateRecordsCount(count + 1);
+      approximateRecordsCount = count + 1;
+    }
+  }
+
+  private void decrementApproximateRecordsCount(AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var stateCacheEntry =
+        loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
+      final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+      final var count = state.getApproximateRecordsCount();
+      state.setApproximateRecordsCount(count - 1);
+      approximateRecordsCount = count - 1;
+    }
   }
 
   @Override
@@ -1323,6 +1357,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
+  public long getApproximateRecordsCount() {
+    return approximateRecordsCount;
+  }
+
+  @Override
   public long getFirstPosition(AtomicOperation atomicOperation) throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
@@ -1610,6 +1649,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final var paginatedCollectionState =
           new PaginatedCollectionStateV2(stateEntry);
       paginatedCollectionState.setFileSize(0);
+      paginatedCollectionState.setApproximateRecordsCount(0);
+      approximateRecordsCount = 0;
     } finally {
       stateEntry.close();
     }

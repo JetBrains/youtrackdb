@@ -1966,6 +1966,55 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.count(this, collectionId);
   }
 
+  /**
+   * Returns the approximate number of records in the collection identified by its numeric ID. The
+   * count is maintained incrementally on each create/delete and is O(1) to read. Under snapshot
+   * isolation the value reflects the latest committed state, so it may be slightly stale for
+   * concurrent readers.
+   *
+   * @param collectionId the numeric identifier of the collection
+   * @return the approximate record count
+   * @throws IllegalArgumentException if the collection does not exist
+   */
+  public long getApproximateCollectionCount(final int collectionId) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+
+    final var name = getCollectionNameById(collectionId);
+    if (name == null) {
+      throw new IllegalArgumentException(
+          "Collection with id " + collectionId + " was not found");
+    }
+    checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
+
+    return storage.getApproximateRecordsCount(collectionId);
+  }
+
+  /**
+   * Returns the approximate number of records in the named collection. The count is maintained
+   * incrementally on each create/delete and is O(1) to read. Under snapshot isolation the value
+   * reflects the latest committed state, so it may be slightly stale for concurrent readers.
+   *
+   * @param collectionName the name of the collection
+   * @return the approximate record count
+   * @throws IllegalArgumentException if the collection does not exist
+   */
+  public long getApproximateCollectionCount(final String collectionName) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+
+    checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ, collectionName);
+
+    final var collectionId = getCollectionIdByName(collectionName);
+    if (collectionId < 0) {
+      throw new IllegalArgumentException(
+          "Collection '" + collectionName + "' was not found");
+    }
+    return storage.getApproximateRecordsCount(collectionId);
+  }
+
   public void dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
 

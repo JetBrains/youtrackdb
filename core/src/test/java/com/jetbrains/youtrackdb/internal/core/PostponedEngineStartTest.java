@@ -348,6 +348,11 @@ public class PostponedEngineStartTest {
         }
 
         @Override
+        public long getApproximateRecordsCount(int collectionId) {
+          throw new UnsupportedOperationException();
+        }
+
+        @Override
         public AbsoluteChange getLinkBagCounter(DatabaseSessionEmbedded session,
             RecordIdInternal identity,
             String fieldName, RID rid) {
