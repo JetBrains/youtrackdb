@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.ref.WeakReference;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -211,7 +210,19 @@ public class TsMinHolderTest {
 
     if (weakRef.get() == null) {
       // GC collected the holder — the WeakHashMap should have evicted it.
-      // Access the set to trigger WeakHashMap's internal expungeStaleEntries().
+      // On some JVMs (JDK 25+), reference-queue enqueueing happens asynchronously
+      // after the GC pause, so WeakHashMap.expungeStaleEntries() may not see the
+      // stale entry immediately. Yield the CPU so the ReferenceHandler thread can
+      // drain the queue.
+      for (int i = 0; i < 50 && tsMins.size() != 1; i++) {
+        try {
+          //noinspection BusyWait
+          Thread.sleep(10);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          break;
+        }
+      }
       assertThat(tsMins).hasSize(1);
       assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(500L);
     }
