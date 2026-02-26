@@ -2015,6 +2015,28 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getApproximateRecordsCount(collectionId);
   }
 
+  /**
+   * Returns the sum of approximate record counts across the given collection IDs. Each individual
+   * count is O(1) to read. Security checks are assumed to be done upstream (via {@code
+   * SchemaClassImpl.readableCollections()}).
+   *
+   * @param collectionIds the numeric identifiers of the collections
+   * @return the total approximate record count across all collections
+   */
+  public long getApproximateCollectionElementsCount(final int[] collectionIds) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+
+    long total = 0;
+    for (var collectionId : collectionIds) {
+      if (collectionId > -1) {
+        total += storage.getApproximateRecordsCount(collectionId);
+      }
+    }
+    return total;
+  }
+
   public void dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
 
@@ -3047,23 +3069,73 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     var totalOnDb = cls.countImpl(iPolymorphic, this);
+    return adjustCountForTransaction(totalOnDb, cls.getName(), iPolymorphic);
+  }
 
+  /**
+   * Returns the approximate number of records for the named class, including subclasses.
+   */
+  public long approximateCountClass(final String className) {
+    assert assertIfNotActive();
+    return approximateCountClass(className, true);
+  }
+
+  /**
+   * Returns the approximate number of records for the named class, optionally including subclasses.
+   * Uses the O(1) approximate record count from the storage layer, adjusted for any pending
+   * transaction operations (creates/deletes).
+   */
+  public long approximateCountClass(final String className, final boolean isPolymorphic) {
+    assert assertIfNotActive();
+
+    final var cls =
+        (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class '" + className + "' not found in database");
+    }
+
+    return approximateCountClass(cls, isPolymorphic);
+  }
+
+  private long approximateCountClass(
+      final SchemaImmutableClass cls, final boolean isPolymorphic) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+
+    var totalOnDb = cls.approximateCountImpl(isPolymorphic, this);
+    return adjustCountForTransaction(totalOnDb, cls.getName(), isPolymorphic);
+  }
+
+  /**
+   * Adjusts a base record count for uncommitted transaction operations. Scans the active
+   * transaction's pending record operations and increments/decrements the count for any
+   * creates/deletes that match the given class (polymorphically or exactly, as requested).
+   *
+   * @param baseCount    the committed record count (exact or approximate)
+   * @param className    the class name to match
+   * @param isPolymorphic whether to include subclass records in the adjustment
+   * @return the adjusted count reflecting pending transaction state
+   */
+  private long adjustCountForTransaction(
+      long baseCount, String className, boolean isPolymorphic) {
     long deletedInTx = 0;
     long addedInTx = 0;
-    var className = cls.getName();
     if (getTransactionInternal().isActive()) {
       for (var op : getTransactionInternal().getRecordOperationsInternal()) {
         if (op.type == RecordOperation.DELETED) {
           final DBRecord rec = op.record;
           if (rec instanceof EntityImpl entity) {
             var schemaClass = entity.getImmutableSchemaClass(this);
-            if (iPolymorphic) {
-              if (schemaClass.isSubClassOf(className)) {
-                deletedInTx++;
-              }
-            } else {
-              if (schemaClass != null && className.equals(schemaClass.getName())) {
-                deletedInTx++;
+            if (schemaClass != null) {
+              if (isPolymorphic) {
+                if (schemaClass.isSubClassOf(className)) {
+                  deletedInTx++;
+                }
+              } else {
+                if (className.equals(schemaClass.getName())) {
+                  deletedInTx++;
+                }
               }
             }
           }
@@ -3073,7 +3145,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           if (rec instanceof EntityImpl entity) {
             var schemaClass = entity.getImmutableSchemaClass(this);
             if (schemaClass != null) {
-              if (iPolymorphic) {
+              if (isPolymorphic) {
                 if (schemaClass.isSubClassOf(className)) {
                   addedInTx++;
                 }
@@ -3088,7 +3160,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
 
-    return (totalOnDb + addedInTx) - deletedInTx;
+    return (baseCount + addedInTx) - deletedInTx;
   }
 
   public Map<RID, RID> commit() {

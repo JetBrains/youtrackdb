@@ -1679,7 +1679,7 @@ public class SelectExecutionPlanner {
     }
 
     var session = ctx.getDatabaseSession();
-    if (clazz.count(session, false) != 0 || clazz.getSubclasses().isEmpty()
+    if (clazz.approximateCount(session, false) != 0 || clazz.getSubclasses().isEmpty()
         || isDiamondHierarchy(clazz)) {
       return false;
     }
@@ -1745,7 +1745,7 @@ public class SelectExecutionPlanner {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Cannot find class " + targetClass);
       }
-      if (clazz.count(session, false) != 0
+      if (clazz.approximateCount(session, false) != 0
           || clazz.getSubclasses().isEmpty()
           || isDiamondHierarchy(clazz)) {
         return null;

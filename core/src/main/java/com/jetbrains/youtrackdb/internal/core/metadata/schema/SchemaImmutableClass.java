@@ -387,6 +387,17 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return session.countClass(name, isPolymorphic);
   }
 
+  @Override
+  public long approximateCount(DatabaseSessionEmbedded session) {
+    return approximateCount(session, true);
+  }
+
+  @Override
+  public long approximateCount(DatabaseSessionEmbedded session, boolean isPolymorphic) {
+    assert session.assertIfNotActive();
+    return session.approximateCountClass(name, isPolymorphic);
+  }
+
   public long countImpl(boolean isPolymorphic, DatabaseSessionEmbedded session) {
     assert session.assertIfNotActive();
 
@@ -398,6 +409,20 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
     return session
         .countCollectionElements(SchemaClassImpl.readableCollections(session, collectionIds, name));
+  }
+
+  public long approximateCountImpl(boolean isPolymorphic, DatabaseSessionEmbedded session) {
+    assert session.assertIfNotActive();
+
+    if (isPolymorphic) {
+      return session
+          .getApproximateCollectionElementsCount(
+              SchemaClassImpl.readableCollections(session, polymorphicCollectionIds, name));
+    }
+
+    return session
+        .getApproximateCollectionElementsCount(
+            SchemaClassImpl.readableCollections(session, collectionIds, name));
   }
 
   @Override
