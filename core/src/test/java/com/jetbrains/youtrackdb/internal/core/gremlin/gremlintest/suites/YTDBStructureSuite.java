@@ -13,7 +13,6 @@ import org.apache.tinkerpop.gremlin.structure.GraphTest;
 import org.apache.tinkerpop.gremlin.structure.PropertyTest;
 import org.apache.tinkerpop.gremlin.structure.SerializationTest;
 import org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest;
-import org.apache.tinkerpop.gremlin.structure.TransactionTest;
 import org.apache.tinkerpop.gremlin.structure.VariablesTest;
 import org.apache.tinkerpop.gremlin.structure.VertexPropertyTest;
 import org.apache.tinkerpop.gremlin.structure.VertexTest;
@@ -79,7 +78,7 @@ public class YTDBStructureSuite extends AbstractGremlinSuite {
       ReferenceVertexTest.class,
       SerializationTest.class,
       StarGraphTest.class,
-      TransactionTest.class,
+      YTDBTransactionStructureTest.class, // overridden: replaced bare spin-loop with CountDownLatch
       TransactionMultiThreadedTest.class,
       VertexTest.class,
 
