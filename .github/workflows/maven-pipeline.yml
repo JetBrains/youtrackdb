@@ -451,12 +451,12 @@ jobs:
       - name: Compile Test Classes
         if: steps.changes.outputs.skip != 'true'
         run: |
-          # clean is required: the Gremlin DSL annotation files are checked
-          # into git and the annotation processor cannot overwrite them via
-          # the Filer API ("Attempt to reopen a file").  clean removes them
-          # so the processor can generate them fresh.
+          # -am (--also-make) builds reactor dependencies (e.g.
+          # gremlin-annotations) from source so the annotation processor
+          # matches the branch code, avoiding "Attempt to recreate a file"
+          # errors when the remotely deployed SNAPSHOT is stale.
           ./mvnw -s .github/workflows/settings.xml \
-            -pl ${{ steps.changes.outputs.modules }} \
+            -pl ${{ steps.changes.outputs.modules }} -am \
             clean test-compile -B
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
@@ -469,11 +469,9 @@ jobs:
         run: |
           # Integration tests (*IT, *IntegrationTest) are excluded via the
           # mutation-testing Maven profile so PIT runs only with unit tests.
-          # clean is needed again: PIT's @Execute(phase=TEST_COMPILE) forks
-          # a new lifecycle that re-triggers annotation processing; the
-          # generated files from the previous step must be removed first.
+          # -am builds reactor dependencies from source (see above).
           ./mvnw -s .github/workflows/settings.xml \
-            -pl ${{ steps.changes.outputs.modules }} \
+            -pl ${{ steps.changes.outputs.modules }} -am \
             clean org.pitest:pitest-maven:mutationCoverage \
             -P mutation-testing \
             -DtargetClasses=${{ steps.changes.outputs.classes }} -B
