@@ -114,6 +114,7 @@ public class GqlService implements Service<Object, Object> {
       var graphTx = graph.tx();
       Objects.requireNonNull(graphTx).readWrite();
       var session = graphTx.getDatabaseSession();
+      session.activateOnCurrentThread();
 
       // 2. Get the query statement (from cache if available)
       var statement = GqlPlanner.getStatement(query, session);
