@@ -19,7 +19,7 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
   }
 
 
-  public EmbeddedLinkBag(@Nonnull List<RawPair<RID, Change>> changes,
+  public EmbeddedLinkBag(@Nonnull List<RawPair<RID, AbsoluteChange>> changes,
       @Nonnull DatabaseSessionEmbedded session, int size, int counterMaxValue) {
     super(session, size, counterMaxValue);
     localChanges.fillAllSorted(changes);
@@ -91,12 +91,8 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
 
 
   @Override
-  protected int getAbsoluteValue(RID rid) {
-    var change = localChanges.getChange(rid);
-    if (change == null) {
-      return 0;
-    }
-    return change.getValue();
+  protected AbsoluteChange getAbsoluteChange(RID rid) {
+    return localChanges.getChange(rid);
   }
 
   @Override

@@ -10,31 +10,31 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface BagChangesContainer extends Iterable<RawPair<RID, Change>> {
+public interface BagChangesContainer extends Iterable<RawPair<RID, AbsoluteChange>> {
   @Nullable
-  Change getChange(RID rid);
+  AbsoluteChange getChange(RID rid);
 
-  void putChange(RID rid, Change change);
+  void putChange(RID rid, AbsoluteChange change);
 
-  void fillAllSorted(Collection<? extends RawPair<RID, Change>> changes);
+  void fillAllSorted(Collection<? extends RawPair<RID, AbsoluteChange>> changes);
 
   int size();
 
   @Nonnull
   @Override
-  Spliterator<RawPair<RID, Change>> spliterator();
+  Spliterator<RawPair<RID, AbsoluteChange>> spliterator();
 
   @Nonnull
-  Spliterator<RawPair<RID, Change>> spliterator(RID after);
+  Spliterator<RawPair<RID, AbsoluteChange>> spliterator(RID after);
 
   @Nonnull
-  default Stream<RawPair<RID, Change>> stream() {
+  default Stream<RawPair<RID, AbsoluteChange>> stream() {
     return StreamSupport.stream(spliterator(), false);
   }
 
   @Nonnull
   @Override
-  default Iterator<RawPair<RID, Change>> iterator() {
+  default Iterator<RawPair<RID, AbsoluteChange>> iterator() {
     return stream().iterator();
   }
 

@@ -317,8 +317,13 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.rollback();
   }
 
+  /**
+   * Verify that adding a lightweight entry to a persisted LinkBag via direct API
+   * correctly adds the new key to the index while preserving existing entries.
+   */
   public void testIndexRidBagUpdateAddItem() {
 
+    // 1. Create a document with a LinkBag containing two lightweight entries and commit.
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
 
@@ -334,11 +339,13 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Load the document from storage and add a third entry via direct API.
     session.begin();
     EntityImpl loaded = session.load(document.getIdentity());
     loaded.<LinkBag>getProperty("ridBag").add(docThree.getIdentity());
     session.commit();
 
+    // 3. Verify the index contains all three keys.
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
 
@@ -549,8 +556,13 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.rollback();
   }
 
+  /**
+   * Verify that removing a lightweight entry from a persisted LinkBag via direct API
+   * correctly removes the key from the index while preserving remaining entries.
+   */
   public void testIndexRidBagUpdateRemoveItem() {
 
+    // 1. Create a document with a LinkBag containing two lightweight entries and commit.
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
 
@@ -565,11 +577,13 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Load from storage and remove one entry via direct API.
     session.begin();
     EntityImpl loaded = session.load(document.getIdentity());
     loaded.<LinkBag>getProperty("ridBag").remove(docTwo.getIdentity());
     session.commit();
 
+    // 3. Verify the index contains only the remaining key.
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
 
@@ -731,7 +745,13 @@ public class LinkBagIndexTest extends BaseDBTest {
 
   }
 
+  /**
+   * Verify that committing a vertex LinkBag with double-sided RidPair entries
+   * (edge RID + target vertex RID) indexes both the primary and secondary RIDs.
+   */
   public void testIndexRidBagWithPairsOnVertex() {
+    // 1. Create a vertex with two heavyweight edges and populate ridBag
+    //    with double-sided pairs (edgeRid, targetVertexRid).
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
@@ -746,6 +766,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Verify all 4 RIDs (2 edges + 2 targets) are in the index.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 4);
 
@@ -762,7 +783,12 @@ public class LinkBagIndexTest extends BaseDBTest {
     }
   }
 
+  /**
+   * Verify that a vertex LinkBag containing both a lightweight entry (single RID)
+   * and a double-sided RidPair entry indexes all three RIDs correctly.
+   */
   public void testIndexRidBagWithMixedSingleAndPairOnVertex() {
+    // 1. Create a vertex ridBag with one lightweight entry and one double-sided pair.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
@@ -776,6 +802,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Verify the index contains 3 keys: single1 + edge1 + target1.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 3);
 
@@ -792,7 +819,12 @@ public class LinkBagIndexTest extends BaseDBTest {
     }
   }
 
+  /**
+   * Verify that incrementally adding a double-sided RidPair entry to a persisted
+   * vertex LinkBag indexes both the primary and secondary RIDs via change tracking.
+   */
   public void testIndexRidBagUpdateAddPairItemOnVertex() {
+    // 1. Create a vertex with a lightweight-only ridBag and commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
@@ -805,12 +837,14 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Load from storage, add a double-sided pair entry, and commit.
     session.begin();
     EntityImpl loaded = session.load(vertex.getIdentity());
     loaded.<LinkBag>getProperty("ridBag")
         .add(edge1.getIdentity(), target1.getIdentity());
     session.commit();
 
+    // 3. Verify the index has 3 keys: single1 + edge1 + target1.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 3);
 
@@ -827,7 +861,12 @@ public class LinkBagIndexTest extends BaseDBTest {
     }
   }
 
+  /**
+   * Same as {@link #testIndexRidBagUpdateAddPairItemOnVertex()} but the add
+   * operation is wrapped in a try/catch transaction block to verify commit safety.
+   */
   public void testIndexRidBagUpdateAddPairItemOnVertexInTx() {
+    // 1. Create a vertex with a lightweight-only ridBag and commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
@@ -840,6 +879,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Add a double-sided pair in a guarded transaction block.
     try {
       session.begin();
       EntityImpl loaded = session.load(vertex.getIdentity());
@@ -851,6 +891,7 @@ public class LinkBagIndexTest extends BaseDBTest {
       throw e;
     }
 
+    // 3. Verify the index has 3 keys: single1 + edge1 + target1.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 3);
 
@@ -867,7 +908,12 @@ public class LinkBagIndexTest extends BaseDBTest {
     }
   }
 
+  /**
+   * Verify that removing a double-sided RidPair entry from a persisted vertex
+   * LinkBag removes both the primary and secondary RIDs from the index.
+   */
   public void testIndexRidBagUpdateRemovePairItemOnVertex() {
+    // 1. Create a vertex ridBag with one lightweight and one pair entry, commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
@@ -881,11 +927,13 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Load from storage and remove the pair entry by its primary RID.
     session.begin();
     EntityImpl loaded = session.load(vertex.getIdentity());
     loaded.<LinkBag>getProperty("ridBag").remove(edge1.getIdentity());
     session.commit();
 
+    // 3. Verify the index contains only the lightweight entry.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 1);
 
@@ -898,7 +946,12 @@ public class LinkBagIndexTest extends BaseDBTest {
     }
   }
 
+  /**
+   * Verify that replacing a vertex LinkBag containing a double-sided RidPair entry
+   * with an empty LinkBag removes all index entries (both primary and secondary RIDs).
+   */
   public void testIndexRidBagReplaceWithEmptyOnVertex() {
+    // 1. Create a vertex with a pair-only ridBag and commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
@@ -910,19 +963,27 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Verify both RIDs are indexed.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 2);
 
+    // 3. Replace the ridBag with an empty one and commit.
     session.begin();
     var activeTx = session.getActiveTransaction();
     var loaded = (EntityImpl) activeTx.load(vertex);
     loaded.setProperty("ridBag", new LinkBag(session));
     session.commit();
 
+    // 4. Verify the index is empty.
     Assert.assertEquals(index.size(session), 0);
   }
 
+  /**
+   * Verify that deleting a vertex whose LinkBag contains a double-sided RidPair
+   * entry removes all index entries (both primary and secondary RIDs).
+   */
   public void testIndexRidBagRemoveVertexWithPairs() {
+    // 1. Create a vertex with a pair-only ridBag and commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
@@ -934,13 +995,16 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Verify both RIDs are indexed.
     final var index = getIndex("ridBagVertexIndex");
     Assert.assertEquals(index.size(session), 2);
 
+    // 3. Delete the vertex (which also deletes its edges) and commit.
     session.begin();
     session.execute("DELETE VERTEX " + vertex.getIdentity()).close();
     session.commit();
 
+    // 4. Verify the index is empty.
     Assert.assertEquals(index.size(session), 0);
   }
 

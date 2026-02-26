@@ -138,7 +138,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected int getAbsoluteValue(RID rid) {
+  protected AbsoluteChange getAbsoluteChange(RID rid) {
     final var tree = loadTree();
     LinkBagValue oldValue;
 
@@ -148,7 +148,14 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
       oldValue = tree.get(rid, atomicOperation);
     }
 
-    int oldCounter = oldValue != null ? oldValue.counter() : 0;
+    if (oldValue == null) {
+      var change = localChanges.getChange(rid);
+      return change;
+    }
+
+    int oldCounter = oldValue.counter();
+    var secondaryRid = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        oldValue.secondaryCollectionId(), oldValue.secondaryPosition());
 
     final var change = localChanges.getChange(rid);
 
@@ -160,7 +167,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
               newValue - oldCounter) +
               " entries were removed.");
     }
-    return newValue;
+    return new AbsoluteChange(newValue, secondaryRid);
 
   }
 

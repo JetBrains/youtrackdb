@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.SimpleMultiValueTracker;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.Collection;
@@ -54,7 +54,7 @@ public interface LinkBagDelegate
   @Override
   String toString();
 
-  Stream<RawPair<RID, Change>> getChanges();
+  Stream<RawPair<RID, AbsoluteChange>> getChanges();
 
   SimpleMultiValueTracker<RID, RID> getTracker();
 

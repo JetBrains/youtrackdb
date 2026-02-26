@@ -46,10 +46,10 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   protected static final class NewEntryValue {
     int counter;
-    @Nullable
+    @Nonnull
     RID secondaryRid;
 
-    NewEntryValue(int counter, @Nullable RID secondaryRid) {
+    NewEntryValue(int counter, @Nonnull RID secondaryRid) {
       this.counter = counter;
       this.secondaryRid = secondaryRid;
     }
@@ -128,28 +128,30 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   @Override
-  public boolean add(RID primaryRid, RID secondaryRid) {
+  public boolean add(@Nonnull RID primaryRid, @Nonnull RID secondaryRid) {
     if (primaryRid == null) {
-      throw new IllegalArgumentException("Impossible to add a null identifiable in a link bag");
+      throw new IllegalArgumentException("Impossible to add a null primaryRid in a link bag");
+    }
+    if (secondaryRid == null) {
+      throw new IllegalArgumentException("Impossible to add a null secondaryRid in a link bag");
     }
 
     assert assertIfNotActive();
 
     var added = new boolean[1];
     if (primaryRid.isPersistent()) {
-      var counter = localChanges.getChange(primaryRid);
-      if (counter == null) {
-        var absoluteValue = getAbsoluteValue(primaryRid);
+      var change = localChanges.getChange(primaryRid);
+      if (change == null) {
+        var existing = getAbsoluteChange(primaryRid);
+        var absoluteValue = existing != null ? existing.getValue() : 0;
 
         var absoluteChange = new AbsoluteChange(absoluteValue, secondaryRid);
         added[0] = absoluteChange.increment(counterMaxValue);
         localChanges.putChange(primaryRid, absoluteChange);
       } else {
-        assert counter.getValue() >= 0;
-        added[0] = counter.increment(counterMaxValue);
-        if (counter instanceof AbsoluteChange absoluteChange) {
-          absoluteChange.setSecondaryRid(secondaryRid);
-        }
+        assert change.getValue() >= 0;
+        added[0] = change.increment(counterMaxValue);
+        change.setSecondaryRid(secondaryRid);
       }
 
       localChangesModificationsCount++;
@@ -202,11 +204,10 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     var newRidsRemoved = removeFromNewEntries(rid);
     if (newRidsRemoved) {
       assert size >= 1;
+      assert newEntry != null;
       size--;
 
-      var secondaryRid =
-          newEntry != null && newEntry.secondaryRid != null ? newEntry.secondaryRid : rid;
-      removeEvent(rid, secondaryRid);
+      removeEvent(rid, newEntry.secondaryRid);
       return true;
     }
 
@@ -214,16 +215,18 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     if (change == null) {
       if (rid.isPersistent()) {
-        var absoluteValue = getAbsoluteValue(rid);
+        var existing = getAbsoluteChange(rid);
+        var absoluteValue = existing != null ? existing.getValue() : 0;
 
         if (absoluteValue > 0) {
-          localChanges.putChange(rid, new AbsoluteChange(absoluteValue - 1));
+          var secondaryRid = existing.getSecondaryRid();
+          localChanges.putChange(rid, new AbsoluteChange(absoluteValue - 1, secondaryRid));
           localChangesModificationsCount++;
 
           assert size >= absoluteValue;
 
           size--;
-          removeEvent(rid, rid);
+          removeEvent(rid, secondaryRid);
 
           return true;
         }
@@ -240,8 +243,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       assert size >= change.getValue();
       size--;
 
-      var secondaryRid = change.getSecondaryRid();
-      removeEvent(rid, secondaryRid != null ? secondaryRid : rid);
+      removeEvent(rid, change.getSecondaryRid());
       return true;
     }
 
@@ -262,10 +264,10 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     var change = localChanges.getChange(rid);
 
     if (change == null) {
-      change = new AbsoluteChange(getAbsoluteValue(rid));
+      change = getAbsoluteChange(rid);
     }
 
-    return change.getValue() > 0;
+    return change != null && change.getValue() > 0;
   }
 
   @Override
@@ -282,7 +284,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
 
-  protected abstract int getAbsoluteValue(RID rid);
+  @Nullable
+  protected abstract AbsoluteChange getAbsoluteChange(RID rid);
 
   protected boolean removeFromNewEntries(final RID rid) {
     var entryValue = newEntries.get(rid);
@@ -307,7 +310,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   @Override
-  public Stream<RawPair<RID, Change>> getChanges() {
+  public Stream<RawPair<RID, AbsoluteChange>> getChanges() {
     assert assertIfNotActive();
 
     return Streams.mergeSortedSpliterators(
@@ -315,7 +318,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
             pair -> {
               var change = new AbsoluteChange(pair.getValue().counter,
                   pair.getValue().secondaryRid);
-              return new RawPair<RID, Change>(pair.getKey(), change);
+              return new RawPair<RID, AbsoluteChange>(pair.getKey(), change);
             }
         )
         , localChanges.stream(), ArrayBasedBagChangesContainer.COMPARATOR
@@ -489,7 +492,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     @Nullable
     private Spliterator<Map.Entry<RID, NewEntryValue>> newEntriesSpliterator;
     @Nullable
-    private Spliterator<RawPair<RID, Change>> localChangesSpliterator;
+    private Spliterator<RawPair<RID, AbsoluteChange>> localChangesSpliterator;
     @Nullable
     private Spliterator<BTreeReadEntry<RID>> btreeRecordsSpliterator;
 
@@ -568,8 +571,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
 
     private RidPair buildLocalPair() {
-      var secondary = localSecondaryRid != null ? localSecondaryRid : localRid;
-      return new RidPair(localRid, secondary);
+      return new RidPair(localRid, localSecondaryRid);
     }
 
     private RidPair buildBTreePair() {
@@ -650,9 +652,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         }
 
         if (newEntriesSpliterator != null && newEntriesSpliterator.tryAdvance(pair -> {
-          var secondary = pair.getValue().secondaryRid;
-          currentPair = new RidPair(pair.getKey(),
-              secondary != null ? secondary : pair.getKey());
+          currentPair = new RidPair(pair.getKey(), pair.getValue().secondaryRid);
           currentCounter = pair.getValue().counter;
           assert currentCounter > 0;
         })) {
@@ -708,7 +708,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         localRid = ridChangeRawPair.first();
         var change = ridChangeRawPair.second();
 
-        assert change instanceof AbsoluteChange;
         localCounter = change.getValue();
         localSecondaryRid = change.getSecondaryRid();
       })) {

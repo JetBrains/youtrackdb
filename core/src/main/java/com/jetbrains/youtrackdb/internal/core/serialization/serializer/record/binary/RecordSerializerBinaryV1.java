@@ -60,7 +60,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.bi
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
@@ -786,9 +785,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         HelperClasses.writeByte(bytes, (byte) 1);
         HelperClasses.writeLinkOptimized(bytes, recId);
         VarIntSerializer.write(bytes, counter);
-        var secondaryRid = change.getSecondaryRid();
-        HelperClasses.writeLinkOptimized(bytes,
-            secondaryRid != null ? secondaryRid : recId);
+        HelperClasses.writeLinkOptimized(bytes, change.getSecondaryRid());
       }
     });
     HelperClasses.writeByte(bytes, (byte) 0);
@@ -846,7 +843,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   private static EmbeddedLinkBag readEmbeddedLinkBag(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       int linkBagSize, int counterMaxValue) {
-    var changes = new ArrayList<RawPair<RID, Change>>();
+    var changes = new ArrayList<RawPair<RID, AbsoluteChange>>();
     var continueFlag = readByte(bytes);
 
     while (continueFlag > 0) {

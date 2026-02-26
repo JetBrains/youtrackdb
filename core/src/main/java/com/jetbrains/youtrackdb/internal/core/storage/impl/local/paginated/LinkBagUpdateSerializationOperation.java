@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
@@ -24,14 +24,14 @@ import javax.annotation.Nonnull;
  */
 public class LinkBagUpdateSerializationOperation implements RecordSerializationOperation {
 
-  private final Stream<RawPair<RID, Change>> changedValues;
+  private final Stream<RawPair<RID, AbsoluteChange>> changedValues;
 
   private final LinkBagPointer collectionPointer;
   private final LinkCollectionsBTreeManager collectionManager;
   private final int maxCounterValue;
 
   public LinkBagUpdateSerializationOperation(
-      final Stream<RawPair<RID, Change>> changedValues,
+      final Stream<RawPair<RID, AbsoluteChange>> changedValues,
       LinkBagPointer collectionPointer, int maxCounterValue,
       @Nonnull DatabaseSessionEmbedded session) {
     this.changedValues = changedValues;
@@ -68,13 +68,9 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
           tree.remove(atomicOperation, entry.first());
         } else {
           var secondaryRid = change.getSecondaryRid();
-          int secondaryCollectionId =
-              secondaryRid != null ? secondaryRid.getCollectionId() : rid.getCollectionId();
-          long secondaryPosition =
-              secondaryRid != null ? secondaryRid.getCollectionPosition()
-                  : rid.getCollectionPosition();
           tree.put(atomicOperation, entry.first(),
-              new LinkBagValue(newCounter, secondaryCollectionId, secondaryPosition));
+              new LinkBagValue(newCounter, secondaryRid.getCollectionId(),
+                  secondaryRid.getCollectionPosition()));
         }
       } catch (IOException e) {
         throw BaseException.wrapException(

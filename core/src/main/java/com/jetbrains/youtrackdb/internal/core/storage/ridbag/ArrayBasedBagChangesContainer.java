@@ -11,15 +11,15 @@ import javax.annotation.Nonnull;
 
 public class ArrayBasedBagChangesContainer implements BagChangesContainer {
 
-  public static final Comparator<RawPair<RID, Change>> COMPARATOR = Comparator.comparing(
+  public static final Comparator<RawPair<RID, AbsoluteChange>> COMPARATOR = Comparator.comparing(
       RawPair::first);
   @SuppressWarnings("unchecked")
-  private RawPair<RID, Change>[] changes = new RawPair[32];
+  private RawPair<RID, AbsoluteChange>[] changes = new RawPair[32];
 
   private int size = 0;
 
   @Override
-  public Change getChange(RID rid) {
+  public AbsoluteChange getChange(RID rid) {
     var index = Arrays.binarySearch(changes, 0, size, new RawPair<>(rid, null), COMPARATOR);
 
     if (index >= 0) {
@@ -30,7 +30,7 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
   }
 
   @Override
-  public void putChange(RID rid, Change change) {
+  public void putChange(RID rid, AbsoluteChange change) {
     var index = Arrays.binarySearch(changes, 0, size, new RawPair<>(rid, null), COMPARATOR);
 
     if (index >= 0) {
@@ -42,7 +42,7 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
     assert ensureAllSorted();
   }
 
-  private void insertAt(RID rid, Change change, int index) {
+  private void insertAt(RID rid, AbsoluteChange change, int index) {
     if (size == changes.length) {
       changes = Arrays.copyOf(changes, changes.length << 1);
     }
@@ -53,7 +53,7 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
   }
 
   @Override
-  public void fillAllSorted(Collection<? extends RawPair<RID, Change>> changes) {
+  public void fillAllSorted(Collection<? extends RawPair<RID, AbsoluteChange>> changes) {
     if (size > 0) {
       throw new IllegalStateException("Container is not empty");
     }
@@ -96,14 +96,14 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
 
   @Nonnull
   @Override
-  public Spliterator<RawPair<RID, Change>> spliterator() {
+  public Spliterator<RawPair<RID, AbsoluteChange>> spliterator() {
     return Spliterators.spliterator(changes, 0, size,
         Spliterator.SORTED | Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.SIZED);
   }
 
   @Nonnull
   @Override
-  public Spliterator<RawPair<RID, Change>> spliterator(RID after) {
+  public Spliterator<RawPair<RID, AbsoluteChange>> spliterator(RID after) {
     var index = Arrays.binarySearch(changes, 0, size, new RawPair<>(after, null), COMPARATOR);
     if (index < 0) {
       index = -index - 1;
