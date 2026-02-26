@@ -5,12 +5,12 @@ import org.junit.Test;
 
 public class AbsoluteChangeTest {
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = NullPointerException.class)
   public void testConstructorRejectsNullSecondaryRid() {
     new AbsoluteChange(1, null);
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = NullPointerException.class)
   public void testSetSecondaryRidRejectsNull() {
     var change = new AbsoluteChange(1, new RecordId(1, 1));
     change.setSecondaryRid(null);
