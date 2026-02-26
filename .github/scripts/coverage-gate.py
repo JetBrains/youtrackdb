@@ -166,6 +166,25 @@ def format_line_ranges(line_numbers):
     return ", ".join(ranges)
 
 
+def load_assert_lines(filepath):
+    """Return the set of line numbers containing Java assert statements.
+
+    JaCoCo always reports one uncovered branch for assert statements
+    (the assertion-failure path is never taken in normal tests).  These
+    phantom branches are excluded from the coverage gate.
+    """
+    result = set()
+    try:
+        with open(filepath) as f:
+            for i, line in enumerate(f, 1):
+                stripped = line.strip()
+                if stripped.startswith("assert ") or stripped.startswith("assert("):
+                    result.add(i)
+    except OSError:
+        pass
+    return result
+
+
 def compute_results(coverage_data):
     """Compute per-file and aggregate line/branch coverage results.
 
@@ -182,6 +201,7 @@ def compute_results(coverage_data):
     total_branch_count = 0
 
     for filepath, lines in sorted(coverage_data.items()):
+        assert_lines = load_assert_lines(filepath)
         file_line_covered = 0
         file_line_total = 0
         file_branch_covered = 0
@@ -198,8 +218,10 @@ def compute_results(coverage_data):
                 else:
                     uncovered_lines.append(line_nr)
 
-            # Branch coverage: a line has branches if mb + cb > 0
-            if data["cb"] + data["mb"] > 0:
+            # Branch coverage: a line has branches if mb + cb > 0.
+            # Exclude assert statements — JaCoCo always marks the
+            # assertion-failure path as an uncovered phantom branch.
+            if data["cb"] + data["mb"] > 0 and line_nr not in assert_lines:
                 file_branch_total += data["cb"] + data["mb"]
                 file_branch_covered += data["cb"]
                 if data["mb"] > 0:
