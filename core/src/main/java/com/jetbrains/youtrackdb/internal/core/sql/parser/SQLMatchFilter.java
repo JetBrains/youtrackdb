@@ -49,7 +49,6 @@ public class SQLMatchFilter extends SimpleNode {
     }
   }
 
-
   @Nullable
   public SQLWhereClause getFilter() {
     for (var item : items) {
