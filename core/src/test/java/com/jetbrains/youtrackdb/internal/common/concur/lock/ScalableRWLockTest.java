@@ -3,9 +3,11 @@ package com.jetbrains.youtrackdb.internal.common.concur.lock;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.ref.WeakReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -61,6 +63,94 @@ public class ScalableRWLockTest {
     throw new AssertionError(
         "exclusiveLock() could not be acquired after thread death; "
             + "ghost reader state was not cleaned up by Cleaner");
+  }
+
+  /**
+   * Verifies that a ScalableRWLock instance is collectible even when threads that previously used
+   * it are still alive. This is the regression test for the memory leak in CleanupAction.
+   *
+   * <p>The leak scenario: if CleanupAction captures a reference to the ScalableRWLock instance,
+   * two GC roots hold opposite ends of a dependency chain, creating a deadlock that prevents
+   * collection of both the lock and its ReadersEntry objects:
+   *
+   * <p><b>GC root 1 — Cleaner daemon thread:</b><br>
+   * Cleaner daemon → CleanupAction → ScalableRWLock → ThreadLocal field {@code entry}
+   *
+   * <p><b>GC root 2 — pool thread T (still alive):</b><br>
+   * Thread T → ThreadLocalMap → Entry(WeakReference key: ThreadLocal, strong value: ReadersEntry)
+   *
+   * <p>The Cleaner daemon won't release CleanupAction until ReadersEntry becomes
+   * phantom-reachable. But ReadersEntry is strongly reachable from Thread T's ThreadLocalMap
+   * because the lock (kept alive by CleanupAction) keeps the ThreadLocal key strongly reachable,
+   * so the WeakReference key is never cleared, so the map entry is never stale. Neither GC root
+   * lets go, and the primary leak manifests as growing {@code readersStateList}: every pool
+   * thread that ever touches the lock leaves behind a ReadersEntry that can never be cleaned up.
+   *
+   * <p>With the fix (CleanupAction captures only the needed fields, not the lock), dropping
+   * all external references to the lock breaks the deadlock: the lock becomes weakly reachable
+   * and is collected, the ThreadLocal key goes weak and is cleared, the ReadersEntry eventually
+   * becomes phantom-reachable, and the Cleaner fires to remove it from {@code readersStateList}.
+   *
+   * <p>Note: this test relies on {@code System.gc()} actually triggering collection. With the
+   * default G1 collector on JDK 21+ this is reliable, but it may be flaky under unusual GC
+   * configurations (e.g. Epsilon GC or very large heaps) where {@code System.gc()} is a no-op.
+   */
+  @Test(timeout = 30_000)
+  public void testLockIsCollectibleWhileReaderThreadIsAlive() throws Exception {
+    var readLockUsed = new CountDownLatch(1);
+    var threadCanExit = new CountDownLatch(1);
+
+    // Pass the lock through an AtomicReference so the thread can clear its reference after use
+    var lockHolder = new AtomicReference<>(new ScalableRWLock());
+    var weakRef = new WeakReference<>(lockHolder.get());
+
+    // Simulate a long-lived pool thread that uses the lock and then drops its reference.
+    // The thread stays alive (like a pool thread would), but no longer holds a strong
+    // reference to the lock.
+    var poolThread = new Thread(() -> {
+      var localLock = lockHolder.getAndSet(null);
+      localLock.sharedLock();
+      localLock.sharedUnlock();
+      //noinspection UnusedAssignment
+      localLock = null;
+      readLockUsed.countDown();
+      try {
+        threadCanExit.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    });
+    poolThread.start();
+
+    assertTrue("Pool thread should use the lock",
+        readLockUsed.await(5, TimeUnit.SECONDS));
+
+    // At this point, no strong references to the lock exist:
+    // - lockHolder was cleared by the thread via getAndSet(null)
+    // - the thread's local variable was nulled after unlock
+    // - the thread's ThreadLocalMap holds a WeakReference to the ThreadLocal key
+    // - only our WeakReference and the Cleaner's internal PhantomReference remain
+    //
+    // If CleanupAction does NOT capture the lock instance, the lock is weakly reachable
+    // and should be collected. If it does capture the lock, the chain described in the
+    // Javadoc above keeps it strongly reachable — a memory leak.
+    for (int i = 0; i < 50; i++) {
+      System.gc();
+      Thread.sleep(100);
+      if (weakRef.get() == null) {
+        threadCanExit.countDown();
+        poolThread.join(5_000);
+        return; // Success: lock was garbage-collected
+      }
+    }
+
+    threadCanExit.countDown();
+    poolThread.join(5_000);
+    throw new AssertionError(
+        "ScalableRWLock was not collected while a reader thread was still alive; "
+            + "CleanupAction likely retains a reference to the lock instance, "
+            + "preventing collection of both the lock and its ReadersEntry objects "
+            + "in long-lived thread pools");
   }
 
   /**
