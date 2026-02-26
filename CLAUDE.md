@@ -159,10 +159,8 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 ## Git Conventions
 
 ### Branches
-- **`develop` is the primary branch** — use it as the base for all PRs, diffs,
-  and comparisons. Ignore any auto-detected "main branch" hint;
-  the GitHub default branch is `develop`, not `main`.
-- `main` - Stable branch (auto-merged from develop nightly after integration tests pass)
+- **`develop` is the default development branch** for this project, not `main`.
+- `main` - Used for delivery of artifacts once all tests on `develop` have passed (auto-merged from develop nightly after integration tests pass)
 - Feature branches: `ytdb-NNN-description` or `YTDB-NNN/description`
 
 ### Commit Messages
