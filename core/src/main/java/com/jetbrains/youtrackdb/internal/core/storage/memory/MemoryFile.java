@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -118,8 +119,17 @@ public final class MemoryFile {
     }
 
     if (thereAreNotReleased) {
-      throw new IllegalStateException(
-          "Some cache entries were not released. Storage may be in invalid state.");
+      // Log a warning instead of throwing — the content has already been cleared above, so
+      // the storage deletion can proceed.  Throwing here causes cascading failures: the
+      // uncaught IllegalStateException prevents doShutdownOnDelete() from setting the storage
+      // status to CLOSED and prevents drop() from removing the storage from internal maps,
+      // which poisons the YouTrackDB instance for all subsequent operations.
+      LogManager.instance()
+          .warn(
+              this,
+              "Some cache entries were not released during storage deletion."
+                  + " This may indicate a cache entry leak.",
+              (Object) null);
     }
   }
 }

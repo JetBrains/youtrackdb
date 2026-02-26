@@ -4424,11 +4424,19 @@ public abstract class AbstractStorage
 
         writeAheadLog.removeCheckpointListener(this);
 
-        if (readCache != null) {
-          readCache.deleteStorage(writeCache);
+        try {
+          if (readCache != null) {
+            readCache.deleteStorage(writeCache);
+          }
+        } catch (final Exception e) {
+          LogManager.instance().error(this, "Error during deletion of read cache", e);
         }
 
-        writeAheadLog.delete();
+        try {
+          writeAheadLog.delete();
+        } catch (final Exception e) {
+          LogManager.instance().error(this, "Error during deletion of write ahead log", e);
+        }
       } else {
         LogManager.instance()
             .error(
