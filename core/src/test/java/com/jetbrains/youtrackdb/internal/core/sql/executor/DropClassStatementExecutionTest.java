@@ -55,6 +55,43 @@ public class DropClassStatementExecutionTest extends DbTestBase {
     Assert.assertNull(schema.getClass(className));
   }
 
+  /**
+   * DROP CLASS on a non-empty edge class (without UNSAFE) must throw
+   * CommandExecutionException mentioning edges.
+   */
+  @Test
+  public void testUnsafeEdgeClass() {
+    var className = "testUnsafeEdgeClass";
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    var e = schema.getClass("E");
+    schema.createClass(className, e);
+    schema.createClass(className + "V", v);
+
+    session.begin();
+    session.execute("create vertex " + className + "V set name = 'a'");
+    session.execute("create vertex " + className + "V set name = 'b'");
+    session.execute(
+        "create edge " + className + " from (select from " + className + "V where name = 'a')"
+            + " to (select from " + className + "V where name = 'b')");
+    session.commit();
+
+    try {
+      session.execute("drop class " + className).close();
+      Assert.fail("Expected CommandExecutionException for non-empty edge class");
+    } catch (CommandExecutionException ex) {
+      Assert.assertTrue(ex.getMessage().contains("Edges"));
+    }
+
+    // UNSAFE should succeed
+    var result = session.execute("drop class " + className + " unsafe");
+    Assert.assertTrue(result.hasNext());
+    var next = result.next();
+    Assert.assertEquals("drop class", next.getProperty("operation"));
+    result.close();
+    Assert.assertNull(schema.getClass(className));
+  }
+
   @Test
   public void testIfExists() {
     var className = "testIfExists";
