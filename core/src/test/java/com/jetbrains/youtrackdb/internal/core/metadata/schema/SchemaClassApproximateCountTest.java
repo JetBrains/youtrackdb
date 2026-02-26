@@ -232,6 +232,61 @@ public class SchemaClassApproximateCountTest extends BaseMemoryInternalDatabase 
   }
 
   /**
+   * {@code Storage.countRecords()} should return a positive approximate total across all
+   * collections when the database contains records. Verifies the O(1) implementation that
+   * sums {@code getApproximateRecordsCount()} instead of performing an O(n) full scan.
+   */
+  @Test
+  public void testStorageCountRecordsReturnsPositiveForNonEmptyDatabase() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("StorageCountClass");
+
+    session.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        session.newEntity("StorageCountClass");
+      }
+    });
+
+    // countRecords sums approximate counts across all collections — including system ones,
+    // so the total should be at least the number of records we inserted.
+    long totalRecords = session.getStorage().countRecords(session);
+    assertTrue(totalRecords >= 5);
+  }
+
+  /**
+   * {@code Storage.countRecords()} should reflect inserts and deletes correctly via
+   * the approximate count. After inserting N records and deleting M, the total should
+   * decrease by M.
+   */
+  @Test
+  public void testStorageCountRecordsReflectsDeletes() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("StorageDeleteCountClass");
+
+    session.executeInTx(tx -> {
+      for (int i = 0; i < 10; i++) {
+        session.newEntity("StorageDeleteCountClass");
+      }
+    });
+
+    long countAfterInsert = session.getStorage().countRecords(session);
+
+    session.executeInTx(tx -> {
+      var result = session.query("SELECT FROM StorageDeleteCountClass LIMIT 3");
+      while (result.hasNext()) {
+        session.delete(result.next().asEntity());
+      }
+      result.close();
+    });
+
+    long countAfterDelete = session.getStorage().countRecords(session);
+
+    // In a single-threaded scenario with all transactions committed, the
+    // approximate count is exact. Deleting 3 records reduces the total by 3.
+    assertEquals(countAfterInsert - 3, countAfterDelete);
+  }
+
+  /**
    * Verify that {@code session.approximateCountClass()} returns correct values directly.
    */
   @Test

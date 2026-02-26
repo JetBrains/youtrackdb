@@ -32,7 +32,7 @@ Each step below = 1 session = 1 commit. Workflow per session:
 - [x] Step 1 — Progress/logging/load-balancing: approximate count (10 sites)
 - [x] Step 2 — Emptiness checks: iterators (4 sites)
 - [x] Step 3 — DDL safety checks: approximate count (3 sites + bug fix)
-- [ ] Step 4 — Storage countRecords: approximate sum (1 site)
+- [x] Step 4 — Storage countRecords: approximate sum (1 site)
 
 ---
 
