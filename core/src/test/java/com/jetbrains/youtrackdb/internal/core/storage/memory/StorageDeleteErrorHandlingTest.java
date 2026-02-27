@@ -29,6 +29,16 @@ import org.junit.Test;
  * <p>These error-handling catch blocks (YTDB-527) ensure that failures during cache or WAL
  * cleanup do not prevent the storage from reaching CLOSED status, which would otherwise leave
  * the YouTrackDB instance in a corrupted state.
+ *
+ * <p><b>Reflected field names:</b> This test accesses private/protected fields via reflection.
+ * If any of the following fields are renamed, this test must be updated:
+ * <ul>
+ *   <li>{@code YouTrackDBInternalEmbedded.storages}
+ *   <li>{@code YouTrackDBInternalEmbedded.currentStorageIds}
+ *   <li>{@code YouTrackDBInternalEmbedded.sharedContexts}
+ *   <li>{@code AbstractStorage.readCache}
+ *   <li>{@code AbstractStorage.writeAheadLog}
+ * </ul>
  */
 public class StorageDeleteErrorHandlingTest {
 

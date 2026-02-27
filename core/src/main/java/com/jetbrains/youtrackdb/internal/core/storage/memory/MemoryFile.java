@@ -128,8 +128,7 @@ public final class MemoryFile {
           .warn(
               this,
               "Some cache entries were not released during storage deletion."
-                  + " This may indicate a cache entry leak.",
-              (Object) null);
+                  + " This may indicate a cache entry leak.");
     }
   }
 }
