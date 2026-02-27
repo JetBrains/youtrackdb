@@ -26,7 +26,7 @@ public class CASObjectArrayMTTest {
   private static final int MAX_SIZE = 4;
   private static final int MAX_THREADS = 2;
 
-  // Caps the number of interleavings VMLens explores to keep CI time bounded.
+  // Caps the number of interleaving VMLens explores to keep CI time bounded.
   private static final int MAX_ITERATIONS = 1000;
 
   private AllInterleavings allInterleavings(String name) throws Exception {
