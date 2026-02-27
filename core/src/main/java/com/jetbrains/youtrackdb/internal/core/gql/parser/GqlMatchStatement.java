@@ -7,9 +7,18 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 /// Represents a parsed GQL MATCH statement.
@@ -79,6 +88,7 @@ public class GqlMatchStatement implements GqlStatement {
     // Convert YQL IR (SQLMatchFilter) to Pattern + PatternNode for execution planning
     var pattern = new Pattern();
     var aliasClasses = new LinkedHashMap<String, String>();
+    var aliasFilters = new LinkedHashMap<String, SQLWhereClause>();
     var anonymousCounter = 0;
 
     for (var filter : matchFilters) {
@@ -93,13 +103,54 @@ public class GqlMatchStatement implements GqlStatement {
 
       var className = filter.getClassName(null);
       aliasClasses.put(alias, effectiveType(className));
+      aliasClasses.put(alias, effectiveType(filter.label()));
+
+      if (!filter.properties().isEmpty()) {
+        aliasFilters.put(alias, buildWhereClause(filter.properties()));
+      }
     }
 
     var commandContext = new BasicCommandContext(ctx.session());
-    var planner = new MatchExecutionPlanner(pattern, aliasClasses);
+    var planner = new MatchExecutionPlanner(pattern, aliasClasses, aliasFilters);
     var sqlPlan = planner.createExecutionPlan(commandContext, false, false);
 
     return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
+  }
+
+  /// Converts inline property filters (e.g. `{firstName: 'Karl', age: 30}`) into a
+  /// `SQLWhereClause` with AND-combined equality conditions.
+  /// The resulting clause is: `WHERE firstName = 'Karl' AND age = 30`.
+  static SQLWhereClause buildWhereClause(Map<String, Object> properties) {
+    var whereClause = new SQLWhereClause(-1);
+    var andBlock = new SQLAndBlock(-1);
+
+    for (var entry : properties.entrySet()) {
+      var condition = new SQLBinaryCondition(-1);
+      condition.setLeft(new SQLExpression(new SQLIdentifier(entry.getKey())));
+      condition.setOperator(SQLEqualsOperator.INSTANCE);
+      condition.setRight(toLiteral(entry.getValue()));
+      andBlock.getSubBlocks().add(condition);
+    }
+
+    whereClause.setBaseExpression(andBlock);
+    return whereClause;
+  }
+
+  private static SQLExpression toLiteral(Object value) {
+    var expr = new SQLExpression(-1);
+    if (value instanceof String s) {
+      expr.setMathExpression(new SQLBaseExpression(s));
+      return expr;
+    }
+    if (value instanceof Number) {
+      expr.jjtSetValue(value);
+      return expr;
+    }
+    if (value instanceof Boolean) {
+      expr.jjtSetValue(value);
+      return expr;
+    }
+    throw new IllegalArgumentException("Unsupported property value type: " + value.getClass());
   }
 
   private static String effectiveAlias(@Nullable String alias, int anonymousCounter) {
