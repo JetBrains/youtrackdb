@@ -129,6 +129,8 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
+import com.google.common.collect.MapMaker;
+import com.google.common.collect.Sets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -159,7 +161,6 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -294,13 +295,15 @@ public abstract class AbstractStorage
   protected final ThreadLocal<TsMinHolder> tsMinThreadLocal =
       ThreadLocal.withInitial(TsMinHolder::new);
 
-  // Set of all TsMinHolders across threads. Backed by a WeakHashMap so that entries are
-  // automatically removed when the owning thread's TsMinHolder becomes unreachable (after
-  // thread death releases the ThreadLocal's strong reference).
+  // Set of all TsMinHolders across threads. Backed by Guava's ConcurrentHashMap with weak
+  // keys so that entries are automatically removed when the owning thread's TsMinHolder
+  // becomes unreachable (after thread death releases the ThreadLocal's strong reference).
+  // Uses identity equality (MapMaker.weakKeys() default), matching TsMinHolder's inherited
+  // Object.equals/hashCode.
   protected final Set<TsMinHolder> tsMins = newTsMinsSet();
 
   static Set<TsMinHolder> newTsMinsSet() {
-    return Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    return Sets.newSetFromMap(new MapMaker().weakKeys().makeMap());
   }
 
   // Shared snapshot index: maps (componentId, collectionPosition, recordVersion) → PositionEntry.
@@ -5528,12 +5531,13 @@ public abstract class AbstractStorage
    */
   static long computeGlobalLowWaterMark(Set<TsMinHolder> tsMins) {
     long min = Long.MAX_VALUE;
-    synchronized (tsMins) {
-      for (TsMinHolder holder : tsMins) {
-        long ts = holder.tsMin;
-        if (ts < min) {
-          min = ts;
-        }
+    // Weakly-consistent iteration over the Guava concurrent weak-key set.
+    // No explicit synchronization needed — stale or missing entries are
+    // acceptable (same TOCTOU tolerance as the previous synchronized version).
+    for (TsMinHolder holder : tsMins) {
+      long ts = holder.tsMin;
+      if (ts < min) {
+        min = ts;
       }
     }
     return min;

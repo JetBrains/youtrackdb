@@ -171,7 +171,7 @@ public class TsMinHolderTest {
   }
 
   @Test
-  public void testWeakHashMapGcRemovesDeadHolder() {
+  public void testGcRemovesDeadHolder() {
     var tsMins = newTsMinsSet();
 
     // Keep a strong reference to the "surviving" holder
@@ -189,7 +189,7 @@ public class TsMinHolderTest {
     assertThat(tsMins).hasSize(2);
     assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(100L);
 
-    // Release the strong reference — the WeakHashMap entry becomes eligible for GC
+    // Release the strong reference — the weak-key entry becomes eligible for GC
     //noinspection UnusedAssignment
     ephemeral = null;
 
@@ -209,25 +209,14 @@ public class TsMinHolderTest {
     }
 
     if (weakRef.get() == null) {
-      // GC collected the holder — the WeakHashMap should have evicted it.
-      // On some JVMs (JDK 25+), reference-queue enqueueing happens asynchronously
-      // after the GC pause, so WeakHashMap.expungeStaleEntries() may not see the
-      // stale entry immediately. Yield the CPU so the ReferenceHandler thread can
-      // drain the queue.
-      for (int i = 0; i < 50 && tsMins.size() != 1; i++) {
-        try {
-          //noinspection BusyWait
-          Thread.sleep(10);
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          break;
-        }
-      }
-      assertThat(tsMins).hasSize(1);
+      // GC collected the holder — Guava's weak-key map iterator skips stale entries,
+      // so computeGlobalLowWaterMark (which iterates) should see only the survivor.
+      // Note: size() may still overcount because Guava's segment cleanup is lazy,
+      // but iteration is the semantically important operation for this data structure.
       assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(500L);
     }
     // If GC didn't collect within the timeout, the test is inconclusive but not a failure —
-    // WeakHashMap GC behavior is JVM-dependent. The survivor invariant still holds.
+    // weak-key GC behavior is JVM-dependent. The survivor invariant still holds.
     assertThat(tsMins).contains(survivor);
   }
 
