@@ -87,6 +87,10 @@
     <!--Override with the given url on external modules-->
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
     <heapSize>4096m</heapSize>
+    <!-- Default empty argLine; modules override this with JVM flags.
+         The coverage profile references ${argLine} in surefire config,
+         so a fallback is needed for modules that don't define it. -->
+    <argLine/>
     <javaassist.version>3.30.2-GA</javaassist.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
     <slf4j.version>2.0.17</slf4j.version>
