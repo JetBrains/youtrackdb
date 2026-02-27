@@ -89,18 +89,22 @@ public class AtomicOperationsManager {
 
     final long activeSegment;
 
-    // transaction id and id of active segment should grow synchronously to maintain correct size of
-    // WAL
+    // Transaction id, active segment, and table registration must all happen
+    // under the same lock to guarantee that operations appear in the table in
+    // strictly increasing timestamp order. Without this, a higher-TS operation
+    // could register before a lower-TS one, creating NOT_STARTED gaps that
+    // violate Snapshot Isolation's assumption that all TXs below minActiveTs
+    // are completed.
     final long commitTs;
     segmentLock.lock();
     try {
       commitTs = idGen.nextId();
       activeSegment = writeAheadLog.activeSegment();
+      atomicOperationsTable.startOperation(commitTs, activeSegment);
     } finally {
       segmentLock.unlock();
     }
 
-    atomicOperationsTable.startOperation(commitTs, activeSegment);
     atomicOperation.startToApplyOperations(commitTs);
   }
 

@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.Test;
 
 public class AtomicOperationsTableTest {
@@ -375,6 +376,9 @@ public class AtomicOperationsTableTest {
 
   // ==================== Thread Safety Tests ====================
 
+  // Verifies that concurrent startOperation calls under a lock (mimicking the
+  // production segmentLock in AtomicOperationsManager) correctly register all
+  // operations and maintain cached min/max invariants.
   @Test
   public void testConcurrentStartOperations() throws InterruptedException {
     var table = new AtomicOperationsTable(1000, 0);
@@ -382,15 +386,24 @@ public class AtomicOperationsTableTest {
     var operationsPerThread = 100;
     var latch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
+    // In production, startOperation is always called under segmentLock with
+    // monotonically increasing timestamps from idGen.nextId(). Use a shared
+    // lock + AtomicLong to replicate this guarantee.
+    var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
-        final var threadId = t;
         executor.submit(() -> {
           try {
             for (var i = 0; i < operationsPerThread; i++) {
-              long opTs = threadId * operationsPerThread + i;
-              table.startOperation(opTs, opTs);
+              lock.lock();
+              try {
+                var opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
             }
           } catch (Throwable e) {
             errors.add(e);
@@ -413,6 +426,9 @@ public class AtomicOperationsTableTest {
     assertEquals(threadCount * operationsPerThread, snapshot.inProgressTxs().size());
   }
 
+  // Verifies that concurrent start+commit cycles under a lock (mimicking
+  // the production segmentLock for starts) correctly process all operations
+  // and leave no operations in progress at the end.
   @Test
   public void testConcurrentStartAndCommit() throws InterruptedException {
     var table = new AtomicOperationsTable(1000, 0);
@@ -422,6 +438,9 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    // In production, startOperation is called under segmentLock ensuring
+    // monotonic TS order. commitOperation does not need the lock.
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -429,8 +448,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(opTs);
             }
           } catch (Throwable e) {
@@ -462,6 +487,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -469,8 +495,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(opTs);
               table.persistOperation(opTs);
             }
@@ -548,6 +580,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(writerThreads + readerThreads);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
       // Writer threads
@@ -556,8 +589,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerWriter; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               Thread.yield(); // Allow interleaving
               table.commitOperation(opTs);
               Thread.yield();
@@ -609,6 +648,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -616,8 +656,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(opTs);
               table.persistOperation(opTs);
               // Trigger manual compaction occasionally
@@ -656,6 +702,7 @@ public class AtomicOperationsTableTest {
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
     var completedOps = new AtomicInteger(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -664,8 +711,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
 
               // Mix of commit+persist and rollback
               if ((threadId + i) % 3 == 0) {
@@ -848,5 +901,865 @@ public class AtomicOperationsTableTest {
 
     table.persistOperation(2);
     assertEquals(-1, table.getSegmentEarliestNotPersistedOperation());
+  }
+
+  // ==================== Cached Min/Max Tests ====================
+
+  /// Verifies the basic lifecycle of cached min/max: start ops, take snapshot to
+  /// verify min/max, commit boundary ops, and verify min is updated via forward
+  /// scan while max is invalidated and recovered.
+  @Test
+  public void testCachedMinMaxBasicLifecycle() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+
+    // First snapshot establishes cached min=1, max=10
+    var snap1 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snap1.minActiveOperationTs());
+    assertEquals(10, snap1.maxActiveOperationTs());
+    assertEquals(3, snap1.inProgressTxs().size());
+
+    // Commit the min (ts=1) — forward scan should set cached min to 5
+    table.commitOperation(1);
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap2.minActiveOperationTs());
+    assertEquals(10, snap2.maxActiveOperationTs());
+    assertEquals(2, snap2.inProgressTxs().size());
+
+    // Commit the max (ts=10) — max invalidated, snapshot recovers it to 5
+    table.commitOperation(10);
+    var snap3 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap3.minActiveOperationTs());
+    assertEquals(5, snap3.maxActiveOperationTs());
+    assertEquals(1, snap3.inProgressTxs().size());
+  }
+
+  /// Starts 5 operations, commits the min, and verifies that the new min
+  /// is the next IN_PROGRESS entry (forward-scanned, not a full rescan).
+  @Test
+  public void testCachedMinForwardScanOnMinCommit() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(2, 2);
+    table.startOperation(3, 3);
+    table.startOperation(4, 4);
+    table.startOperation(5, 5);
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(100);
+
+    // Commit the min (ts=1) — forward scan finds ts=2
+    table.commitOperation(1);
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(2, snap.minActiveOperationTs());
+    assertEquals(5, snap.maxActiveOperationTs());
+    assertEquals(4, snap.inProgressTxs().size());
+    assertTrue(snap.inProgressTxs().contains(2));
+    assertTrue(snap.inProgressTxs().contains(3));
+    assertTrue(snap.inProgressTxs().contains(4));
+    assertTrue(snap.inProgressTxs().contains(5));
+  }
+
+  /// Starts 3 operations, commits the max, and verifies max is recovered
+  /// either by the next start or by the snapshot scan.
+  @Test
+  public void testCachedMaxInvalidatedOnMaxCommit() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(100);
+
+    // Commit the max (ts=10) — max goes to UNKNOWN
+    table.commitOperation(10);
+
+    // Snapshot recovers the actual max from scan
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snap.minActiveOperationTs());
+    assertEquals(5, snap.maxActiveOperationTs());
+    assertEquals(2, snap.inProgressTxs().size());
+
+    // Starting a new operation sets max correctly
+    table.startOperation(20, 20);
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snap2.minActiveOperationTs());
+    assertEquals(20, snap2.maxActiveOperationTs());
+    assertEquals(3, snap2.inProgressTxs().size());
+  }
+
+  /// Commits both the min and max boundaries and verifies correct state:
+  /// min is forward-scanned, max is invalidated.
+  @Test
+  public void testCachedMinMaxBothBoundariesCommitted() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(100);
+
+    // Commit min first, then max
+    table.commitOperation(1);
+    table.commitOperation(10);
+
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap.minActiveOperationTs());
+    assertEquals(5, snap.maxActiveOperationTs());
+    assertEquals(1, snap.inProgressTxs().size());
+    assertTrue(snap.inProgressTxs().contains(5));
+  }
+
+  /// Only one active operation: commit it and verify both caches go to
+  /// UNKNOWN. The next snapshot should return currentTimestamp + 1.
+  @Test
+  public void testCachedMinMaxSingleOpCommit() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(5, 5);
+
+    // Establish caches via snapshot
+    var snap1 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap1.minActiveOperationTs());
+    assertEquals(5, snap1.maxActiveOperationTs());
+
+    // Commit the only active op — both caches become UNKNOWN
+    table.commitOperation(5);
+
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    // No active ops: min and max should be currentTimestamp + 1
+    assertEquals(101, snap2.minActiveOperationTs());
+    assertEquals(101, snap2.maxActiveOperationTs());
+    assertTrue(snap2.inProgressTxs().isEmpty());
+  }
+
+  /// Commits a middle operation (not min, not max) and verifies that
+  /// the cached min/max remain unchanged.
+  @Test
+  public void testCachedMinMaxNonBoundaryCommit() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(100);
+
+    // Commit the middle op (ts=5) — neither min nor max should change
+    table.commitOperation(5);
+
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snap.minActiveOperationTs());
+    assertEquals(10, snap.maxActiveOperationTs());
+    assertEquals(2, snap.inProgressTxs().size());
+    assertTrue(snap.inProgressTxs().contains(1));
+    assertTrue(snap.inProgressTxs().contains(10));
+  }
+
+  /// Verifies that cached min/max survive compaction correctly: after
+  /// compaction restructures segments, snapshots still return accurate results.
+  @Test
+  public void testCachedMinMaxAfterCompaction() {
+    var table = new AtomicOperationsTable(10, 1);
+
+    // Create enough operations to build up segments
+    for (var i = 1; i <= 15; i++) {
+      table.startOperation(i, i);
+      if (i <= 10) {
+        table.commitOperation(i);
+        table.persistOperation(i);
+      }
+    }
+
+    // Establish caches — active ops are 11-15
+    var snap1 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(11, snap1.minActiveOperationTs());
+    assertEquals(15, snap1.maxActiveOperationTs());
+
+    // Force compaction — segments restructure but active ops don't change
+    table.compactTable();
+
+    // Snapshot after compaction should show same active set
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(11, snap2.minActiveOperationTs());
+    assertEquals(15, snap2.maxActiveOperationTs());
+    assertEquals(5, snap2.inProgressTxs().size());
+  }
+
+  /// Verifies that snapshot min/max always match the actual min/max of the
+  /// inProgressTxs set across a sequence of operations.
+  @Test
+  public void testCachedMinMaxConsistencyWithInProgressSet() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(3, 3);
+    table.startOperation(7, 7);
+    table.startOperation(12, 12);
+    table.startOperation(18, 18);
+
+    // Verify consistency after each mutation
+    assertSnapshotConsistency(table, 100);
+
+    table.commitOperation(3);
+    assertSnapshotConsistency(table, 100);
+
+    table.commitOperation(18);
+    assertSnapshotConsistency(table, 100);
+
+    table.rollbackOperation(7);
+    assertSnapshotConsistency(table, 100);
+
+    table.commitOperation(12);
+    assertSnapshotConsistency(table, 100);
+  }
+
+  /// Verifies that with cached min/max, the snapshot correctly builds the
+  /// inProgressTxs set — all active operations are included, no extras.
+  @Test
+  public void testSnapshotScanRangeNarrowing() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    // Start operations spread across the table
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+    table.startOperation(50, 50);
+    table.startOperation(90, 90);
+
+    // First snapshot: full scan establishes caches
+    var snap1 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(4, snap1.inProgressTxs().size());
+    assertEquals(5, snap1.minActiveOperationTs());
+    assertEquals(90, snap1.maxActiveOperationTs());
+
+    // Second snapshot: narrowed scan [5, 90] should find all the same ops
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(4, snap2.inProgressTxs().size());
+    assertTrue(snap2.inProgressTxs().contains(5));
+    assertTrue(snap2.inProgressTxs().contains(10));
+    assertTrue(snap2.inProgressTxs().contains(50));
+    assertTrue(snap2.inProgressTxs().contains(90));
+
+    // Commit min and max, verify narrowed scan still works
+    table.commitOperation(5);
+    table.commitOperation(90);
+    var snap3 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(2, snap3.inProgressTxs().size());
+    assertEquals(10, snap3.minActiveOperationTs());
+    assertEquals(50, snap3.maxActiveOperationTs());
+  }
+
+  /// All operations complete, both caches go UNKNOWN. New starts correctly
+  /// reinitialize both caches.
+  @Test
+  public void testCachedMinMaxRecoveryAfterAllOpsComplete() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(100);
+
+    // Complete all ops
+    table.commitOperation(1);
+    table.commitOperation(5);
+
+    // No active ops — snapshot returns currentTimestamp + 1
+    var snap1 = table.snapshotAtomicOperationTableState(200);
+    assertEquals(201, snap1.minActiveOperationTs());
+    assertEquals(201, snap1.maxActiveOperationTs());
+    assertTrue(snap1.inProgressTxs().isEmpty());
+
+    // New starts reinitialize caches
+    table.startOperation(10, 10);
+    table.startOperation(20, 20);
+
+    var snap2 = table.snapshotAtomicOperationTableState(200);
+    assertEquals(10, snap2.minActiveOperationTs());
+    assertEquals(20, snap2.maxActiveOperationTs());
+    assertEquals(2, snap2.inProgressTxs().size());
+  }
+
+  /// Rolls back the min boundary and verifies that the cached min advances
+  /// to the next IN_PROGRESS entry (same as commit, but via rollback path).
+  @Test
+  public void testCachedMinMaxRollbackOfMinBoundary() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(100);
+
+    // Rollback the min (ts=1) — forward scan should find ts=5
+    table.rollbackOperation(1);
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap.minActiveOperationTs());
+    assertEquals(10, snap.maxActiveOperationTs());
+    assertEquals(2, snap.inProgressTxs().size());
+
+    // Rollback the max (ts=10) — max invalidated, snapshot recovers to 5
+    table.rollbackOperation(10);
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap2.minActiveOperationTs());
+    assertEquals(5, snap2.maxActiveOperationTs());
+    assertEquals(1, snap2.inProgressTxs().size());
+  }
+
+  /// Creates a gap larger than MAX_FORWARD_SCAN (128) between the committed
+  /// min and the next IN_PROGRESS entry. Verifies that the forward scan cap
+  /// causes a fallback to UNKNOWN and the snapshot still produces correct
+  /// results via a broader scan.
+  @Test
+  public void testForwardScanCapFallbackToUnknown() {
+    var table = new AtomicOperationsTable(1000, 1);
+
+    // Start 200 operations: ts 1..200
+    for (var i = 1; i <= 200; i++) {
+      table.startOperation(i, i);
+    }
+
+    // Establish caches — min=1, max=200
+    var snap1 = table.snapshotAtomicOperationTableState(300);
+    assertEquals(1, snap1.minActiveOperationTs());
+    assertEquals(200, snap1.maxActiveOperationTs());
+
+    // Commit the first 150 operations, creating a gap of 150
+    // between the old min (1) and the next IN_PROGRESS (151)
+    for (var i = 1; i <= 150; i++) {
+      table.commitOperation(i);
+    }
+
+    // The forward scan on min=1's commit scans up to 128 entries and gives up
+    // (returns UNKNOWN). The next snapshot must still find the correct min.
+    var snap2 = table.snapshotAtomicOperationTableState(300);
+    assertEquals(151, snap2.minActiveOperationTs());
+    assertEquals(200, snap2.maxActiveOperationTs());
+    assertEquals(50, snap2.inProgressTxs().size());
+  }
+
+  /// Creates operations spanning multiple segments with a small compaction
+  /// interval, then verifies that the snapshot correctly skips completed
+  /// segments via scan range narrowing.
+  @Test
+  public void testMultiSegmentScanRangeSkipping() {
+    // Small compaction interval to create multiple segments
+    var table = new AtomicOperationsTable(5, 1);
+
+    // Start 20 operations (spanning multiple segments)
+    for (var i = 1; i <= 20; i++) {
+      table.startOperation(i, i);
+    }
+
+    // Commit and persist all except ts=15 and ts=18
+    for (var i = 1; i <= 20; i++) {
+      if (i != 15 && i != 18) {
+        table.commitOperation(i);
+        table.persistOperation(i);
+      }
+    }
+
+    // Force compaction to restructure segments
+    table.compactTable();
+
+    // Snapshot should find exactly ts=15 and ts=18 despite segment restructuring
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(15, snap.minActiveOperationTs());
+    assertEquals(18, snap.maxActiveOperationTs());
+    assertEquals(2, snap.inProgressTxs().size());
+    assertTrue(snap.inProgressTxs().contains(15));
+    assertTrue(snap.inProgressTxs().contains(18));
+
+    // Second snapshot uses narrowed range [15, 18] — should still be correct
+    var snap2 = table.snapshotAtomicOperationTableState(100);
+    assertEquals(15, snap2.minActiveOperationTs());
+    assertEquals(18, snap2.maxActiveOperationTs());
+    assertEquals(2, snap2.inProgressTxs().size());
+  }
+
+  /// Verifies correctness when operations are started and committed before
+  /// any snapshot is ever taken (caches remain at UNKNOWN throughout).
+  @Test
+  public void testSnapshotWithNoPriorSnapshotCachesUnknown() {
+    var table = new AtomicOperationsTable(100, 1);
+
+    // Start and commit some operations without ever taking a snapshot
+    table.startOperation(1, 1);
+    table.startOperation(5, 5);
+    table.startOperation(10, 10);
+    table.commitOperation(1);
+    table.commitOperation(10);
+
+    // First-ever snapshot: caches are UNKNOWN, must do full scan
+    var snap = table.snapshotAtomicOperationTableState(100);
+    assertEquals(5, snap.minActiveOperationTs());
+    assertEquals(5, snap.maxActiveOperationTs());
+    assertEquals(1, snap.inProgressTxs().size());
+    assertTrue(snap.inProgressTxs().contains(5));
+  }
+
+
+  // ==================== Cached Min/Max Thread Safety Tests ====================
+
+  /// Multiple threads start operations concurrently. After all starts, the
+  /// snapshot max must equal the highest TS and min the lowest TS.
+  @Test
+  public void testConcurrentStartsUpdateCachedMax() throws InterruptedException {
+    var table = new AtomicOperationsTable(10000, 1);
+    var threadCount = 8;
+    var opsPerThread = 200;
+    var startLatch = new CountDownLatch(1);
+    var doneLatch = new CountDownLatch(threadCount);
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+    var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
+
+    try (var executor = Executors.newFixedThreadPool(threadCount)) {
+      for (var t = 0; t < threadCount; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < opsPerThread; i++) {
+              lock.lock();
+              try {
+                var ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      startLatch.countDown();
+      assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    }
+
+    assertNoErrors(errors);
+
+    var totalOps = threadCount * opsPerThread;
+    // Take two snapshots: the first updates caches authoritatively, the second
+    // uses the narrowed range. Both must be self-consistent and include all ops.
+    var snapshot1 = table.snapshotAtomicOperationTableState(totalOps + 100);
+    verifySnapshotConsistency(snapshot1);
+    var snapshot2 = table.snapshotAtomicOperationTableState(totalOps + 100);
+    verifySnapshotConsistency(snapshot2);
+    assertEquals(totalOps, snapshot2.inProgressTxs().size());
+    assertEquals(1, snapshot2.minActiveOperationTs());
+    assertEquals(totalOps, snapshot2.maxActiveOperationTs());
+  }
+
+  /// Thread A commits the min (triggering forward scan) while Thread B starts
+  /// new operations. Every snapshot taken is self-consistent.
+  @Test
+  public void testConcurrentCommitMinWithStartsVerifyCacheConsistency()
+      throws InterruptedException {
+    var table = new AtomicOperationsTable(10000, 1);
+    var totalOps = 500;
+    var nextTs = new AtomicLong(1);
+
+    // Pre-start operations
+    for (var i = 0; i < totalOps; i++) {
+      var ts = nextTs.getAndIncrement();
+      table.startOperation(ts, ts);
+    }
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(totalOps + 100);
+
+    var startLatch = new CountDownLatch(1);
+    var doneLatch = new CountDownLatch(3);
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+
+    try (var executor = Executors.newFixedThreadPool(3)) {
+      // Thread A: commits from the min upward
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          for (var ts = 1L; ts <= totalOps / 2; ts++) {
+            table.commitOperation(ts);
+          }
+        } catch (Throwable e) {
+          errors.add(e);
+        } finally {
+          doneLatch.countDown();
+        }
+      });
+
+      // Thread B: starts new operations (under lock to maintain monotonic
+      // TS ordering, matching production segmentLock behavior). Note: only
+      // one thread does starts here, so the lock is only needed to order
+      // w.r.t. the pre-start phase above.
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          for (var i = 0; i < 200; i++) {
+            var ts = nextTs.getAndIncrement();
+            table.startOperation(ts, ts);
+          }
+        } catch (Throwable e) {
+          errors.add(e);
+        } finally {
+          doneLatch.countDown();
+        }
+      });
+
+      // Thread C: takes snapshots and verifies consistency
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          for (var i = 0; i < 300; i++) {
+            var snap = table.snapshotAtomicOperationTableState(Long.MAX_VALUE - 2);
+            verifySnapshotConsistency(snap);
+            Thread.yield();
+          }
+        } catch (Throwable e) {
+          errors.add(e);
+        } finally {
+          doneLatch.countDown();
+        }
+      });
+
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
+
+    assertNoErrors(errors);
+  }
+
+  /// Reader threads take snapshots while writer threads start/commit/rollback.
+  /// Every snapshot must be self-consistent.
+  @Test
+  public void testConcurrentSnapshotsWithStatusChanges() throws InterruptedException {
+    var table = new AtomicOperationsTable(1000, 1);
+    var writerThreads = 4;
+    var readerThreads = 4;
+    var opsPerWriter = 200;
+    var snapshotsPerReader = 300;
+    var startLatch = new CountDownLatch(1);
+    var doneLatch = new CountDownLatch(writerThreads + readerThreads);
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+    var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
+
+    try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
+      // Writer threads: start, then commit or rollback
+      for (var t = 0; t < writerThreads; t++) {
+        final var threadId = t;
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < opsPerWriter; i++) {
+              long ts;
+              lock.lock();
+              try {
+                ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
+              Thread.yield();
+              if ((threadId + i) % 3 == 0) {
+                table.rollbackOperation(ts);
+              } else {
+                table.commitOperation(ts);
+              }
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      // Reader threads: take snapshots and verify consistency
+      for (var t = 0; t < readerThreads; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < snapshotsPerReader; i++) {
+              var snap = table.snapshotAtomicOperationTableState(Long.MAX_VALUE - 2);
+              verifySnapshotConsistency(snap);
+              Thread.yield();
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
+
+    assertNoErrors(errors);
+  }
+
+  /// High contention: many threads rapidly start and immediately commit operations
+  /// (frequent boundary changes). Verifies no incorrect snapshots.
+  @Test
+  public void testConcurrentCacheInvalidationStorm() throws InterruptedException {
+    var table = new AtomicOperationsTable(10000, 1);
+    var threadCount = 8;
+    var opsPerThread = 300;
+    var startLatch = new CountDownLatch(1);
+    var doneLatch = new CountDownLatch(threadCount + 2);
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+    var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
+
+    try (var executor = Executors.newFixedThreadPool(threadCount + 2)) {
+      // Writer threads: rapid start+commit cycles
+      for (var t = 0; t < threadCount; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < opsPerThread; i++) {
+              long ts;
+              lock.lock();
+              try {
+                ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
+              table.commitOperation(ts);
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      // Reader threads: continuous snapshots
+      for (var r = 0; r < 2; r++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < 500; i++) {
+              var snap = table.snapshotAtomicOperationTableState(Long.MAX_VALUE - 2);
+              verifySnapshotConsistency(snap);
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
+
+    assertNoErrors(errors);
+  }
+
+  /// Mixed workload: threads start, commit, rollback, and take snapshots
+  /// concurrently. After each snapshot, min/max match the actual set.
+  @Test
+  public void testConcurrentMixedOperationsVerifyCacheConsistency()
+      throws InterruptedException {
+    var table = new AtomicOperationsTable(500, 1);
+    var writerThreads = 6;
+    var readerThreads = 3;
+    var opsPerWriter = 200;
+    var snapshotsPerReader = 400;
+    var startLatch = new CountDownLatch(1);
+    var doneLatch = new CountDownLatch(writerThreads + readerThreads);
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+    var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
+
+    try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
+      for (var t = 0; t < writerThreads; t++) {
+        final var threadId = t;
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < opsPerWriter; i++) {
+              long ts;
+              lock.lock();
+              try {
+                ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
+              Thread.yield();
+              switch ((threadId + i) % 4) {
+                case 0 -> table.rollbackOperation(ts);
+                case 1 -> table.commitOperation(ts);
+                default -> {
+                  table.commitOperation(ts);
+                  table.persistOperation(ts);
+                }
+              }
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      for (var t = 0; t < readerThreads; t++) {
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var i = 0; i < snapshotsPerReader; i++) {
+              var snap = table.snapshotAtomicOperationTableState(Long.MAX_VALUE - 2);
+              verifySnapshotConsistency(snap);
+              Thread.yield();
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
+
+    assertNoErrors(errors);
+  }
+
+  /// Many threads commit the current min concurrently (each triggering a forward
+  /// scan). Verifies min converges to the correct value.
+  @Test
+  public void testRapidMinForwardScansUnderContention() throws InterruptedException {
+    var table = new AtomicOperationsTable(10000, 1);
+    var totalOps = 1000;
+
+    // Pre-start all operations
+    for (var i = 1; i <= totalOps; i++) {
+      table.startOperation(i, i);
+    }
+
+    // Establish caches
+    table.snapshotAtomicOperationTableState(totalOps + 100);
+
+    var threadCount = 8;
+    var opsPerThread = totalOps / threadCount;
+    var startLatch = new CountDownLatch(1);
+    var doneLatch = new CountDownLatch(threadCount + 1);
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+
+    try (var executor = Executors.newFixedThreadPool(threadCount + 1)) {
+      // Each thread commits a contiguous slice of operations
+      for (var t = 0; t < threadCount; t++) {
+        final var fromTs = t * opsPerThread + 1;
+        final var toTs = (t + 1) * opsPerThread;
+        executor.submit(() -> {
+          try {
+            startLatch.await();
+            for (var ts = fromTs; ts <= toTs; ts++) {
+              table.commitOperation(ts);
+            }
+          } catch (Throwable e) {
+            errors.add(e);
+          } finally {
+            doneLatch.countDown();
+          }
+        });
+      }
+
+      // Reader thread verifies consistency
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          for (var i = 0; i < 500; i++) {
+            var snap = table.snapshotAtomicOperationTableState(totalOps + 100);
+            verifySnapshotConsistency(snap);
+            Thread.yield();
+          }
+        } catch (Throwable e) {
+          errors.add(e);
+        } finally {
+          doneLatch.countDown();
+        }
+      });
+
+      startLatch.countDown();
+      assertTrue(doneLatch.await(60, TimeUnit.SECONDS));
+    }
+
+    assertNoErrors(errors);
+
+    // All operations should be committed
+    assertEquals(-1, table.getSegmentEarliestOperationInProgress());
+  }
+
+  // ==================== Test Helpers ====================
+
+  /// Asserts that a snapshot's min/max match the actual min/max of its
+  /// inProgressTxs set. If the set is empty, min and max should be equal
+  /// (both set to currentTimestamp + 1).
+  private static void verifySnapshotConsistency(
+      AtomicOperationsTable.AtomicOperationsSnapshot snap) {
+    var set = snap.inProgressTxs();
+    if (set.isEmpty()) {
+      assertEquals(
+          "min and max must be equal when no ops are in progress",
+          snap.minActiveOperationTs(), snap.maxActiveOperationTs());
+      return;
+    }
+
+    var actualMin = Long.MAX_VALUE;
+    var actualMax = Long.MIN_VALUE;
+    for (var it = set.iterator(); it.hasNext(); ) {
+      var ts = it.nextLong();
+      if (ts < actualMin) {
+        actualMin = ts;
+      }
+      if (ts > actualMax) {
+        actualMax = ts;
+      }
+    }
+    assertEquals("snapshot min must match actual min of inProgressTxs set",
+        actualMin, snap.minActiveOperationTs());
+    assertEquals("snapshot max must match actual max of inProgressTxs set",
+        actualMax, snap.maxActiveOperationTs());
+  }
+
+  /// Takes a snapshot and asserts self-consistency.
+  private static void assertSnapshotConsistency(
+      AtomicOperationsTable table, long currentTimestamp) {
+    verifySnapshotConsistency(
+        table.snapshotAtomicOperationTableState(currentTimestamp));
+  }
+
+  /// Fails the test if any errors were collected.
+  private static void assertNoErrors(ConcurrentLinkedQueue<Throwable> errors) {
+    if (!errors.isEmpty()) {
+      var first = errors.peek();
+      fail("Errors occurred: " + first.getClass().getSimpleName()
+          + ": " + first.getMessage());
+    }
   }
 }

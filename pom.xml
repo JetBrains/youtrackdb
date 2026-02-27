@@ -87,6 +87,10 @@
     <!--Override with the given url on external modules-->
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
     <heapSize>4096m</heapSize>
+    <!-- Default empty argLine; modules override this with JVM flags.
+         The coverage profile references ${argLine} in surefire config,
+         so a fallback is needed for modules that don't define it. -->
+    <argLine/>
     <javaassist.version>3.30.2-GA</javaassist.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
     <slf4j.version>2.0.17</slf4j.version>
@@ -965,6 +969,12 @@
               <execution>
                 <id>jacoco-prepare-agent</id>
                 <goals><goal>prepare-agent</goal></goals>
+                <configuration>
+                  <!-- Write to a dedicated property so that only surefire
+                       picks up the agent. VMLens (which reads argLine
+                       directly) will not be instrumented by JaCoCo. -->
+                  <propertyName>jacocoArgLine</propertyName>
+                </configuration>
               </execution>
               <execution>
                 <id>jacoco-report</id>
@@ -1003,6 +1013,17 @@
                 </configuration>
               </execution>
             </executions>
+          </plugin>
+          <!-- Inject JaCoCo agent into surefire via late-binding reference.
+               @{jacocoArgLine} is resolved by surefire at runtime; undefined
+               properties are treated as empty, so non-coverage builds are
+               unaffected. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <argLine>@{jacocoArgLine} ${argLine}</argLine>
+            </configuration>
           </plugin>
         </plugins>
       </build>
