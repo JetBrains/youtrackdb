@@ -259,6 +259,14 @@ jobs:
           path: '.coverage/reports/'
           retention-days: 1
           if-no-files-found: error
+      - name: Upload Ekstazi Exclude Files
+        uses: actions/upload-artifact@v6
+        if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
+        with:
+          name: ekstazi-excludes
+          path: '/tmp/ekstazi-*.excludes'
+          retention-days: 7
+          if-no-files-found: warn
 
   test-windows:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
