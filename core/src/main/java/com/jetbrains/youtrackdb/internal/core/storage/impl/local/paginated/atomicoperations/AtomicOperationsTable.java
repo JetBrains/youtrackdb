@@ -304,12 +304,22 @@ public class AtomicOperationsTable {
           : "snapshot max must be in the inProgressTxs set";
 
       // Update cached min via CAS: only advance (increase) the cached value or
-      // set it from UNKNOWN to a known value. Never decrease a known value (a
-      // concurrent commit's forward-scan may have already advanced it further),
-      // and never overwrite a known value with UNKNOWN (a concurrent start may
-      // have just set it). Out-of-order starts are impossible because the caller
-      // holds segmentLock during startOperation, so timestamps always register
-      // in strictly increasing order.
+      // set it from UNKNOWN to a known value. Never decrease a known value,
+      // and never overwrite a known value with UNKNOWN.
+      //
+      // Why newCachedMin < curMin can legitimately happen (stale scan race):
+      //   1. Thread A reads cachedMin=5, scans, sees op 5 as IN_PROGRESS → min=5
+      //   2. Op 5 commits (status changes to COMMITTED)
+      //   3. Thread B reads cachedMin=5, scans, sees op 5 as COMMITTED,
+      //      skips it → min=7, CAS-advances cache from 5 to 7
+      //   4. Thread A reaches this CAS: curMin=7, newCachedMin=5 → stale,
+      //      so we skip the update (the cache already reflects the newer state)
+      //
+      // This is safe because multiple threads hold compactionLock in shared
+      // mode concurrently, so their scans can observe different operation
+      // statuses. The invariant cachedMin <= actualMin is preserved: the
+      // cache only moves forward, and a stale scan's lower value is simply
+      // discarded.
       final long newCachedMin = hasActiveOps ? minOp : UNKNOWN_TS;
       while (true) {
         final long curMin = this.cachedMinActiveTs;
@@ -321,7 +331,7 @@ public class AtomicOperationsTable {
         }
         if (curMin != UNKNOWN_TS && newCachedMin != UNKNOWN_TS
             && newCachedMin < curMin) {
-          break; // don't decrease a known min
+          break; // stale scan: a concurrent snapshot already advanced the min
         }
         if (CACHED_MIN_ACTIVE_TS.compareAndSet(this, curMin, newCachedMin)) {
           break;
