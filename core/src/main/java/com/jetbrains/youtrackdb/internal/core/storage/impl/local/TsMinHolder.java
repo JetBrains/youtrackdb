@@ -35,7 +35,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
  * when all transactions on the thread have ended.
  */
 // Identity-based equals/hashCode (inherited from Object) is required — instances are used
-// as WeakHashMap keys in AbstractStorage.tsMins.
+// as weak keys in AbstractStorage.tsMins (Guava MapMaker.weakKeys()).
 final class TsMinHolder {
 
   // The minimum {@code minActiveOperationTs} across all currently active transactions on this
