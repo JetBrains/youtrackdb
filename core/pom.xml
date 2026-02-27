@@ -320,6 +320,24 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>com.vmlens</groupId>
+        <artifactId>vmlens-maven-plugin</artifactId>
+        <version>1.2.26</version>
+        <executions>
+          <execution>
+            <id>test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <includes>
+            <include>**/*MTTest.java</include>
+          </includes>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 
@@ -471,6 +489,12 @@
     <dependency>
       <groupId>com.google.inject</groupId>
       <artifactId>guice</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.vmlens</groupId>
+      <artifactId>api</artifactId>
+      <version>1.2.26</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
