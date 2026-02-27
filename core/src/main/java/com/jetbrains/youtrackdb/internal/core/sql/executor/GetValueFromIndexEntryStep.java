@@ -81,12 +81,12 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
       }
     }
     // Normal case: load the full record from storage using the RID.
-    if (finalVal instanceof Identifiable) {
-      return new ResultInternal(ctx.getDatabaseSession(), (Identifiable) finalVal);
+    if (finalVal instanceof Identifiable identifiable) {
+      return new ResultInternal(ctx.getDatabaseSession(), identifiable);
 
     // The index entry already contains a full result (e.g. from a subquery index).
-    } else if (finalVal instanceof Result) {
-      return (Result) finalVal;
+    } else if (finalVal instanceof Result res) {
+      return res;
     }
     return null;
   }
