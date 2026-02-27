@@ -965,6 +965,12 @@
               <execution>
                 <id>jacoco-prepare-agent</id>
                 <goals><goal>prepare-agent</goal></goals>
+                <configuration>
+                  <!-- Write to a dedicated property so that only surefire
+                       picks up the agent. VMLens (which reads argLine
+                       directly) will not be instrumented by JaCoCo. -->
+                  <propertyName>jacocoArgLine</propertyName>
+                </configuration>
               </execution>
               <execution>
                 <id>jacoco-report</id>
@@ -1003,6 +1009,17 @@
                 </configuration>
               </execution>
             </executions>
+          </plugin>
+          <!-- Inject JaCoCo agent into surefire via late-binding reference.
+               @{jacocoArgLine} is resolved by surefire at runtime; undefined
+               properties are treated as empty, so non-coverage builds are
+               unaffected. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <argLine>@{jacocoArgLine} ${argLine}</argLine>
+            </configuration>
           </plugin>
         </plugins>
       </build>
