@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Set;
@@ -638,6 +639,281 @@ public class DoubleSidedEdgeLinkBagTest {
     tx.commit();
   }
 
+  // --- Transaction rollback and edge manipulation tests ---
+
+  /**
+   * Verifies that rolling back a transaction that added edges correctly restores the
+   * LinkBag to its previous state. After rollback, the vertex should have no edges.
+   */
+  @Test
+  public void testRollbackRestoresLinkBagToPreviousState() {
+    // Begin transaction, add edge, then rollback before committing
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    tx.commit();
+
+    // In a new transaction, add an edge then rollback
+    tx = session.begin();
+    var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
+    var loadedIn = tx.load(inVertex.getIdentity()).asVertex();
+    loadedOut.addStateFulEdge(loadedIn, "HeavyEdge");
+    tx.rollback();
+
+    // After rollback, the vertex should have no edges
+    tx = session.begin();
+    var reloadedOut = tx.load(outVertex.getIdentity()).asVertex();
+    assertFalse(
+        "After rollback, outgoing vertex should have no edges",
+        reloadedOut.getVertices(Direction.OUT, "HeavyEdge").iterator().hasNext());
+    tx.commit();
+  }
+
+  /**
+   * Verifies that rolling back a transaction that added edges to a vertex that
+   * already had edges correctly restores only the pre-existing edges.
+   */
+  @Test
+  public void testRollbackPreservesPreExistingEdges() {
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex1 = tx.newVertex("TestVertex");
+    var inVertex2 = tx.newVertex("TestVertex");
+    outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
+    tx.commit();
+
+    // In a new transaction, add another edge then rollback
+    tx = session.begin();
+    var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
+    var loadedIn2 = tx.load(inVertex2.getIdentity()).asVertex();
+    loadedOut.addStateFulEdge(loadedIn2, "HeavyEdge");
+    tx.rollback();
+
+    // After rollback, only the original edge should remain
+    tx = session.begin();
+    var reloadedOut = tx.load(outVertex.getIdentity()).asVertex();
+    Set<RID> adjacentRids = new HashSet<>();
+    for (var v : reloadedOut.getVertices(Direction.OUT, "HeavyEdge")) {
+      adjacentRids.add(v.getIdentity());
+    }
+    assertEquals("Should have only the original edge target", 1, adjacentRids.size());
+    assertTrue(
+        "Original edge target should be preserved",
+        adjacentRids.contains(inVertex1.getIdentity()));
+    assertFalse(
+        "Rolled-back edge target should not be present",
+        adjacentRids.contains(inVertex2.getIdentity()));
+    tx.commit();
+  }
+
+  /**
+   * Verifies that adding and then removing an edge within the same transaction
+   * correctly leaves the vertex with no edges after commit.
+   */
+  @Test
+  public void testAddAndRemoveEdgeWithinSameTransaction() {
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+
+    // Remove the edge within the same transaction
+    edge.delete();
+    tx.commit();
+
+    tx = session.begin();
+    var reloadedOut = tx.load(outVertex.getIdentity()).asVertex();
+    assertFalse(
+        "After add+delete in same transaction, no edges should remain",
+        reloadedOut.getVertices(Direction.OUT, "HeavyEdge").iterator().hasNext());
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices(BOTH) with multiple edge classes returns vertices
+   * from all classes. This exercises the multi-iterable chaining path.
+   */
+  @Test
+  public void testGetVerticesBothWithMultipleEdgeClasses() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    var heavyTarget = tx.newVertex("TestVertex");
+    var lightTarget = tx.newVertex("TestVertex");
+    var heavySource = tx.newVertex("TestVertex");
+
+    center.addStateFulEdge(heavyTarget, "HeavyEdge");
+    center.addLightWeightEdge(lightTarget, "LightEdge");
+    heavySource.addStateFulEdge(center, "HeavyEdge");
+
+    tx.commit();
+
+    tx = session.begin();
+    var loadedCenter = tx.load(center.getIdentity()).asVertex();
+
+    // BOTH with no label filter should return vertices from all directions and types
+    Set<RID> allAdjacentRids = new HashSet<>();
+    for (var v : loadedCenter.getVertices(Direction.BOTH)) {
+      allAdjacentRids.add(v.getIdentity());
+    }
+
+    assertEquals("Should have 3 adjacent vertices", 3, allAdjacentRids.size());
+    assertTrue("Should contain heavyweight outgoing target",
+        allAdjacentRids.contains(heavyTarget.getIdentity()));
+    assertTrue("Should contain lightweight outgoing target",
+        allAdjacentRids.contains(lightTarget.getIdentity()));
+    assertTrue("Should contain heavyweight incoming source",
+        allAdjacentRids.contains(heavySource.getIdentity()));
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that heavyweight edges work correctly when the LinkBag grows past the
+   * embedded-to-BTree threshold (default 40). This exercises the BTree-based storage
+   * path for double-sided edge entries, including BTree serialization, iteration,
+   * and the getVertices() optimization through BTree-backed RidPairs.
+   */
+  @Test
+  public void testDoubleSidedEdgesWithBTreeBackedLinkBag() {
+    int edgeCount = 50; // > default threshold of 40
+
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+
+    for (int i = 0; i < edgeCount; i++) {
+      var target = tx.newVertex("TestVertex");
+      center.addStateFulEdge(target, "HeavyEdge");
+    }
+
+    tx.commit();
+
+    // Reload and verify all edges are accessible through getVertices
+    tx = session.begin();
+    var loaded = tx.load(center.getIdentity()).asVertex();
+
+    // Verify the LinkBag is BTree-backed
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var outBag = (LinkBag) ((EntityImpl) loaded).getPropertyInternal(outFieldName);
+    assertNotNull(outBag);
+    assertFalse(
+        "LinkBag should be BTree-backed for " + edgeCount + " entries",
+        outBag.isEmbedded());
+    assertEquals(edgeCount, outBag.size());
+
+    // Collect target vertices via getVertices optimized path
+    Set<RID> foundRids = new HashSet<>();
+    for (var v : loaded.getVertices(Direction.OUT, "HeavyEdge")) {
+      foundRids.add(v.getIdentity());
+    }
+    assertEquals(
+        "All " + edgeCount + " target vertices should be reachable",
+        edgeCount, foundRids.size());
+
+    // Verify RidPairs are correctly formed: each should be heavyweight
+    for (var pair : outBag) {
+      assertFalse(
+          "Each BTree pair should be heavyweight (edge RID != vertex RID)",
+          pair.isLightweight());
+      assertTrue(
+          "Each pair's secondary RID should be a reachable target vertex",
+          foundRids.contains(pair.secondaryRid()));
+    }
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that BTree-backed heavyweight edges survive serialization across
+   * database close/reopen.
+   */
+  @Test
+  public void testBTreeBackedEdgesPersistAcrossSessions() {
+    int edgeCount = 50;
+
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+
+    for (int i = 0; i < edgeCount; i++) {
+      var target = tx.newVertex("TestVertex");
+      center.addStateFulEdge(target, "HeavyEdge");
+    }
+
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    // Collect the vertex RIDs after commit (RIDs are stable now)
+    tx = session.begin();
+    var loadedBefore = tx.load(centerRid).asVertex();
+    Set<RID> targetRidsBefore = new HashSet<>();
+    for (var v : loadedBefore.getVertices(Direction.OUT, "HeavyEdge")) {
+      targetRidsBefore.add(v.getIdentity());
+    }
+    assertEquals(edgeCount, targetRidsBefore.size());
+    tx.commit();
+
+    session.close();
+
+    // Reopen and verify
+    session = youTrackDB.open("test", "admin", "adminpwd");
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+
+    Set<RID> targetRidsAfter = new HashSet<>();
+    for (var v : loaded.getVertices(Direction.OUT, "HeavyEdge")) {
+      targetRidsAfter.add(v.getIdentity());
+    }
+
+    assertEquals(edgeCount, targetRidsAfter.size());
+    assertEquals(
+        "Target vertices should be the same after session reopen",
+        targetRidsBefore, targetRidsAfter);
+    tx.commit();
+  }
+
+  /**
+   * Verifies that removing edges from a BTree-backed LinkBag correctly updates
+   * the getVertices results.
+   */
+  @Test
+  public void testRemoveEdgesFromBTreeBackedLinkBag() {
+    int edgeCount = 50;
+
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+
+    for (int i = 0; i < edgeCount; i++) {
+      var target = tx.newVertex("TestVertex");
+      center.addStateFulEdge(target, "HeavyEdge");
+    }
+
+    tx.commit();
+
+    // Pick the first edge and its target to delete
+    tx = session.begin();
+    var loadedCenter = tx.load(center.getIdentity()).asVertex();
+    var edgeIter = loadedCenter.getEdges(Direction.OUT, "HeavyEdge").iterator();
+    assertTrue("Should have edges to delete", edgeIter.hasNext());
+    var edgeToDelete = edgeIter.next().asStatefulEdge();
+    var deletedTargetRid = edgeToDelete.getTo().getIdentity();
+    edgeToDelete.delete();
+    tx.commit();
+
+    // Verify the deleted edge's target is no longer in getVertices results
+    tx = session.begin();
+    var loaded = tx.load(center.getIdentity()).asVertex();
+
+    Set<RID> foundRids = new HashSet<>();
+    for (var v : loaded.getVertices(Direction.OUT, "HeavyEdge")) {
+      foundRids.add(v.getIdentity());
+    }
+
+    assertEquals(edgeCount - 1, foundRids.size());
+    assertFalse(
+        "Deleted edge target should not be in results",
+        foundRids.contains(deletedTargetRid));
+    tx.commit();
+  }
+
   /**
    * Verifies that a self-loop heavyweight edge (where outVertex == inVertex)
    * is correctly handled by getVertices in all directions.
@@ -675,5 +951,76 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals("Self-loop BOTH should yield 2 entries", 2, count);
 
     tx.commit();
+  }
+
+  // --- Entity comparison and LinkBag copy tests ---
+
+  /**
+   * Verifies that loading the same vertex twice produces entities with the same
+   * content, including LinkBag properties. This exercises EntityHelper.compareBags
+   * which iterates RidPairs during entity comparison (used in conflict resolution
+   * and database export).
+   */
+  @Test
+  public void testEntityComparisonWithLinkBagProperties() {
+    var tx = session.begin();
+    var vertex = tx.newVertex("TestVertex");
+    var target1 = tx.newVertex("TestVertex");
+    var target2 = tx.newVertex("TestVertex");
+
+    vertex.addStateFulEdge(target1, "HeavyEdge");
+    vertex.addStateFulEdge(target2, "HeavyEdge");
+
+    tx.commit();
+
+    // Load the same entity via two separate load calls
+    tx = session.begin();
+    var loaded1 = (EntityImpl) tx.load(vertex.getIdentity());
+    var loaded2 = (EntityImpl) tx.load(vertex.getIdentity());
+
+    // Compare entities (exercises EntityHelper.compareBags with RidPair iteration)
+    assertTrue(
+        "Same entity loaded twice should have same content",
+        EntityHelper.hasSameContentOf(loaded1, session, loaded2, session, null));
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that the LinkBag iterator supports remove() during iteration,
+   * which is used by some internal operations that clean up stale references.
+   */
+  @Test
+  public void testLinkBagIteratorRemoveDuringIteration() {
+    var tx = session.begin();
+    var vertex = tx.newVertex("TestVertex");
+    var target1 = tx.newVertex("TestVertex");
+    var target2 = tx.newVertex("TestVertex");
+    var target3 = tx.newVertex("TestVertex");
+
+    vertex.addStateFulEdge(target1, "HeavyEdge");
+    vertex.addStateFulEdge(target2, "HeavyEdge");
+    vertex.addStateFulEdge(target3, "HeavyEdge");
+
+    tx.commit();
+
+    // Remove the first entry via iterator.remove()
+    tx = session.begin();
+    var loaded = (EntityImpl) tx.load(vertex.getIdentity());
+    var outField = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var bag = (LinkBag) loaded.getPropertyInternal(outField);
+    assertNotNull(bag);
+    assertEquals(3, bag.size());
+
+    var iter = bag.iterator();
+    assertTrue(iter.hasNext());
+    iter.next();
+    iter.remove();
+
+    // After remove, size should decrease
+    assertEquals(
+        "LinkBag size should decrease after iterator.remove()",
+        2, bag.size());
+    tx.rollback();
   }
 }
