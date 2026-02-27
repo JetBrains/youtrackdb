@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.concur.collection;
 
+import static org.junit.Assert.assertNull;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -202,5 +204,71 @@ public class CASObjectArrayTest {
     for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i + 21, array.get(i).intValue());
     }
+  }
+
+  @Test
+  public void shouldThrowIfIndexIsOutOfBounds() {
+    final var array = new CASObjectArray<Integer>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.get(0));
+  }
+
+  @Test
+  public void shouldReturnNullIfElementDoesNotExistsLikeAMap() {
+    final var array = new CASObjectArray<Integer>();
+
+    assertNull(array.getOrDefault(0));
+  }
+
+  @Test
+  public void shouldReturnDefaultPlaceholderIfElementDoesNotExists() {
+    Integer defaultPlaceholder = (int) (Math.random() * Integer.MAX_VALUE);
+    final var array = new CASObjectArray<>(defaultPlaceholder);
+
+    Assert.assertSame("not the same with placeholder " + defaultPlaceholder,
+        defaultPlaceholder, array.getOrDefault(0));
+  }
+
+  @Test
+  public void shouldThrowWhenSetMethodWithoutPlaceholderIsUsedAndPlaceholderIsNotSet() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(UnsupportedOperationException.class, () -> array.set(0, 1));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexGet() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.get(-2));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexGetOrEmpty() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.getOrDefault(-2));
+  }
+
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexSet() {
+    final var array = new CASObjectArray<>(0);
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.set(-2, 1));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexSetWithPlaceholder() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.set(-2, 1, 0));
+  }
+
+  @Test(timeout = 100)
+  public void shouldNotHangOnNegativeIndexCompareAndSet() {
+    final var array = new CASObjectArray<>();
+
+    Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.compareAndSet(-2, 1, 0));
   }
 }
