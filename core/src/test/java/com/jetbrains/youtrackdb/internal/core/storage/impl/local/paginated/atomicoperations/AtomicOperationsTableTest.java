@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.Test;
 
 public class AtomicOperationsTableTest {
@@ -375,6 +376,9 @@ public class AtomicOperationsTableTest {
 
   // ==================== Thread Safety Tests ====================
 
+  // Verifies that concurrent startOperation calls under a lock (mimicking the
+  // production segmentLock in AtomicOperationsManager) correctly register all
+  // operations and maintain cached min/max invariants.
   @Test
   public void testConcurrentStartOperations() throws InterruptedException {
     var table = new AtomicOperationsTable(1000, 0);
@@ -382,15 +386,24 @@ public class AtomicOperationsTableTest {
     var operationsPerThread = 100;
     var latch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
+    // In production, startOperation is always called under segmentLock with
+    // monotonically increasing timestamps from idGen.nextId(). Use a shared
+    // lock + AtomicLong to replicate this guarantee.
+    var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
-        final var threadId = t;
         executor.submit(() -> {
           try {
             for (var i = 0; i < operationsPerThread; i++) {
-              long opTs = threadId * operationsPerThread + i;
-              table.startOperation(opTs, opTs);
+              lock.lock();
+              try {
+                var opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
             }
           } catch (Throwable e) {
             errors.add(e);
@@ -413,6 +426,9 @@ public class AtomicOperationsTableTest {
     assertEquals(threadCount * operationsPerThread, snapshot.inProgressTxs().size());
   }
 
+  // Verifies that concurrent start+commit cycles under a lock (mimicking
+  // the production segmentLock for starts) correctly process all operations
+  // and leave no operations in progress at the end.
   @Test
   public void testConcurrentStartAndCommit() throws InterruptedException {
     var table = new AtomicOperationsTable(1000, 0);
@@ -422,6 +438,9 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    // In production, startOperation is called under segmentLock ensuring
+    // monotonic TS order. commitOperation does not need the lock.
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -429,8 +448,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(opTs);
             }
           } catch (Throwable e) {
@@ -462,6 +487,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -469,8 +495,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(opTs);
               table.persistOperation(opTs);
             }
@@ -548,6 +580,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(writerThreads + readerThreads);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
       // Writer threads
@@ -556,8 +589,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerWriter; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               Thread.yield(); // Allow interleaving
               table.commitOperation(opTs);
               Thread.yield();
@@ -609,6 +648,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -616,8 +656,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(opTs);
               table.persistOperation(opTs);
               // Trigger manual compaction occasionally
@@ -656,6 +702,7 @@ public class AtomicOperationsTableTest {
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(0);
     var completedOps = new AtomicInteger(0);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -664,8 +711,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < operationsPerThread; i++) {
-              var opTs = nextTs.getAndIncrement();
-              table.startOperation(opTs, opTs);
+              long opTs;
+              lock.lock();
+              try {
+                opTs = nextTs.getAndIncrement();
+                table.startOperation(opTs, opTs);
+              } finally {
+                lock.unlock();
+              }
 
               // Mix of commit+persist and rollback
               if ((threadId + i) % 3 == 0) {
@@ -1270,6 +1323,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount)) {
       for (var t = 0; t < threadCount; t++) {
@@ -1277,8 +1331,13 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < opsPerThread; i++) {
-              var ts = nextTs.getAndIncrement();
-              table.startOperation(ts, ts);
+              lock.lock();
+              try {
+                var ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
             }
           } catch (Throwable e) {
             errors.add(e);
@@ -1343,7 +1402,10 @@ public class AtomicOperationsTableTest {
         }
       });
 
-      // Thread B: starts new operations
+      // Thread B: starts new operations (under lock to maintain monotonic
+      // TS ordering, matching production segmentLock behavior). Note: only
+      // one thread does starts here, so the lock is only needed to order
+      // w.r.t. the pre-start phase above.
       executor.submit(() -> {
         try {
           startLatch.await();
@@ -1394,6 +1456,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(writerThreads + readerThreads);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
       // Writer threads: start, then commit or rollback
@@ -1403,8 +1466,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < opsPerWriter; i++) {
-              var ts = nextTs.getAndIncrement();
-              table.startOperation(ts, ts);
+              long ts;
+              lock.lock();
+              try {
+                ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
               Thread.yield();
               if ((threadId + i) % 3 == 0) {
                 table.rollbackOperation(ts);
@@ -1456,6 +1525,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(threadCount + 2);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(threadCount + 2)) {
       // Writer threads: rapid start+commit cycles
@@ -1464,8 +1534,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < opsPerThread; i++) {
-              var ts = nextTs.getAndIncrement();
-              table.startOperation(ts, ts);
+              long ts;
+              lock.lock();
+              try {
+                ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
               table.commitOperation(ts);
             }
           } catch (Throwable e) {
@@ -1514,6 +1590,7 @@ public class AtomicOperationsTableTest {
     var doneLatch = new CountDownLatch(writerThreads + readerThreads);
     var errors = new ConcurrentLinkedQueue<Throwable>();
     var nextTs = new AtomicLong(1);
+    var lock = new ReentrantLock();
 
     try (var executor = Executors.newFixedThreadPool(writerThreads + readerThreads)) {
       for (var t = 0; t < writerThreads; t++) {
@@ -1522,8 +1599,14 @@ public class AtomicOperationsTableTest {
           try {
             startLatch.await();
             for (var i = 0; i < opsPerWriter; i++) {
-              var ts = nextTs.getAndIncrement();
-              table.startOperation(ts, ts);
+              long ts;
+              lock.lock();
+              try {
+                ts = nextTs.getAndIncrement();
+                table.startOperation(ts, ts);
+              } finally {
+                lock.unlock();
+              }
               Thread.yield();
               switch ((threadId + i) % 4) {
                 case 0 -> table.rollbackOperation(ts);
