@@ -297,7 +297,7 @@ When the coverage gate fails on a PR, **always check the Ekstazi exclude files f
 1. **Download the `ekstazi-excludes` artifact** from the failed CI run (available for 7 days).
 2. **Examine the exclude files** (`ekstazi-*.excludes`). Each file lists the integration tests that Ekstazi skipped for that module.
 3. **Cross-reference** the uncovered lines (from the coverage gate PR comment) with the excluded tests:
-   - If excluded tests would cover the uncovered lines → the coverage gap is an **Ekstazi selection artifact**, not genuinely missing coverage. The fix is to invalidate the Ekstazi cache (delete the `ekstazi-*` cache entries in GitHub Actions) and re-run, or adjust the Ekstazi dependency configuration.
+   - If excluded tests would cover the uncovered lines → the coverage gap is an **Ekstazi selection artifact**, not genuinely missing coverage. To fix this, first try invalidating the Ekstazi cache (by deleting the `ekstazi-*` cache entries in GitHub Actions) and re-running the job. If the problem persists, you may need to adjust the Ekstazi dependency configuration.
    - If no existing tests (included or excluded) cover the uncovered lines → the coverage gap is **genuine**. Write new tests targeting the uncovered code paths.
 4. **Do not blindly write duplicate tests** for code that is already tested by Ekstazi-excluded integration tests.
 
