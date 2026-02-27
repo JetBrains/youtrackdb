@@ -59,39 +59,182 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Version 2 implementation of a paginated collection that stores records across multiple pages.
+ * Version 2 implementation of a paginated record collection for the YouTrackDB storage engine.
  *
- * @since 10/7/13
+ * <p>A "collection" is the physical storage unit that holds records belonging to a database class
+ * (vertex type, edge type, or document type). Each collection manages its own data pages, position
+ * map, and free-space index. Records are identified by a <em>collection position</em> (a
+ * monotonically increasing {@code long}), which, combined with the collection {@link #id}, forms
+ * the full Record ID (RID) of the form {@code #collectionId:collectionPosition}.
+ *
+ * <h2>Architecture Overview</h2>
+ *
+ * <p>A {@code PaginatedCollectionV2} is composed of three on-disk components, each stored as a
+ * separate file managed through the disk-cache layer ({@link
+ * com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache ReadCache} /
+ * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache WriteCache}):
+ *
+ * <pre>{@code
+ *  PaginatedCollectionV2
+ *  |
+ *  |-- Data file  (.pcl)           -- CollectionPage pages holding serialized record chunks
+ *  |     page 0: PaginatedCollectionStateV2 (collection metadata / file-size counter)
+ *  |     page 1..N: CollectionPage instances with record entries
+ *  |
+ *  |-- Position map  (.cpm)        -- CollectionPositionMapV2
+ *  |     page 0: MapEntryPoint (stores the count of bucket pages)
+ *  |     page 1..M: CollectionPositionMapBucket pages
+ *  |       Each bucket holds up to MAX_ENTRIES position entries:
+ *  |         [status: 1B][pageIndex: 8B][recordPosition: 4B][recordVersion: 8B]
+ *  |
+ *  |-- Free-space map  (.fsm)      -- FreeSpaceMap (two-level segment tree)
+ *        page 0: first-level summary (max free space per second-level page)
+ *        page 1..K: second-level leaves (max free space per data page)
+ * }</pre>
+ *
+ * <h2>Record Storage Layout</h2>
+ *
+ * <p>A record is serialized into an "entry" consisting of a metadata header followed by the raw
+ * content bytes. The entry is then split into one or more <em>chunks</em> that are stored across
+ * {@link CollectionPage} pages. Chunks form a singly-linked list via embedded page pointers,
+ * enabling records larger than a single page to be stored.
+ *
+ * <pre>{@code
+ *  Entry layout (logical):
+ *  +------------+-------------+---------------------+-----------------------+
+ *  | recordType | contentSize | collectionPosition  |    actual content     |
+ *  |   (1 B)    |   (4 B)    |       (8 B)          |      (N bytes)        |
+ *  +------------+-------------+---------------------+-----------------------+
+ *  |<---------- METADATA_SIZE = 13 B -------------->|
+ *
+ *  Chunk layout on a CollectionPage (per page slot):
+ *  +------------------+------------------+-----------------+
+ *  |   entry data     | firstRecordFlag  | nextPagePointer |
+ *  |   (variable)     |     (1 B)        |     (8 B)       |
+ *  +------------------+------------------+-----------------+
+ *
+ *  Multi-chunk record (written tail-first, read head-first):
+ *
+ *  CollectionPage A (entry point)       CollectionPage B (tail)
+ *  +---------------------------------+  +---------------------------+
+ *  | metadata + content[0..P] | 1 |ptr--->| content[P+1..N] | 0 | -1 |
+ *  +---------------------------------+  +---------------------------+
+ *         ^                                    (nextPagePointer = -1
+ *         |                                     means end of chain)
+ *    Position map entry
+ *    points here
+ * }</pre>
+ *
+ * <p>The serialization writes chunks in <strong>reverse order</strong> (tail chunk first, head
+ * chunk last). This means the entry-point chunk -- the one the position map points to -- is
+ * always the last chunk written, which simplifies crash recovery: if the write is interrupted
+ * before the entry point is written, the position map still points to the old (valid) data.
+ *
+ * <h2>MVCC and Snapshot Isolation</h2>
+ *
+ * <p>Records use multi-version concurrency control (MVCC) for snapshot isolation:
+ * <ul>
+ *   <li>Each record version is stamped with the writing transaction's {@code commitTs}.</li>
+ *   <li>Before overwriting or deleting a record, the previous version's position entry is saved
+ *       to a <em>snapshot index</em> (keyed by {@link SnapshotKey}) so concurrent readers can
+ *       still access the old version.</li>
+ *   <li>A <em>visibility index</em> (keyed by {@link VisibilityKey}) tracks when snapshot entries
+ *       can be garbage-collected once all older transactions complete.</li>
+ *   <li>Reads check version visibility via {@link
+ *       com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot
+ *       AtomicOperationsSnapshot} and fall back to historical entries when the current version
+ *       is not yet visible.</li>
+ * </ul>
+ *
+ * <h2>Concurrency</h2>
+ *
+ * <p>Read operations acquire a shared lock; write operations acquire an exclusive lock. All
+ * structural mutations run inside an {@link AtomicOperation} for crash-safe atomicity via
+ * write-ahead logging (WAL).
+ *
+ * @see CollectionPositionMapV2
+ * @see FreeSpaceMap
+ * @see CollectionPage
+ * @see PaginatedCollectionStateV2
  */
 public final class PaginatedCollectionV2 extends PaginatedCollection {
 
-  // max chunk size - next page pointer - first record flag
+  /**
+   * Maximum entry data that can fit in a single chunk on a {@link CollectionPage}. Derived from
+   * {@link CollectionPage#MAX_RECORD_SIZE} minus the per-chunk overhead of the first-record flag
+   * (1 byte) and the next-page pointer (8 bytes).
+   */
   private static final int MAX_ENTRY_SIZE =
       CollectionPage.MAX_RECORD_SIZE - ByteSerializer.BYTE_SIZE - LongSerializer.LONG_SIZE;
 
+  /**
+   * Minimum chunk size: just the first-record flag (1 byte) + next-page pointer (8 bytes),
+   * with no entry data. Used as a lower bound when requesting a page from the free-space map.
+   */
   private static final int MIN_ENTRY_SIZE = ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
 
+  /** Page index of the collection state page within the data file (.pcl). Always page 0. */
   private static final int STATE_ENTRY_INDEX = 0;
+
+  /** On-disk binary format version for this collection implementation. */
   private static final int BINARY_VERSION = 3;
 
-  /// Size of the per-record metadata header that precedes the actual record content. Layout:
-  /// {@code [recordType: 1B][contentSize: 4B][collectionPosition: 8B]}.
+  /**
+   * Size of the per-record metadata header that precedes the actual record content.
+   *
+   * <pre>{@code
+   * Layout: [recordType: 1B][contentSize: 4B][collectionPosition: 8B] = 13 bytes
+   * }</pre>
+   */
   private static final int METADATA_SIZE =
       ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE;
 
+  /**
+   * Bit offset used to pack a page index and a record position into a single {@code long}
+   * page pointer. The page index occupies bits [16..63] and the record position occupies
+   * bits [0..15].
+   *
+   * @see #createPagePointer(long, int)
+   * @see #getPageIndex(long)
+   * @see #getRecordPosition(long)
+   */
   private static final int PAGE_INDEX_OFFSET = 16;
+
+  /** Bitmask to extract the 16-bit record position from a packed page pointer. */
   private static final int RECORD_POSITION_MASK = 0xFFFF;
 
+  /** Whether this collection stores internal system data (e.g., schema metadata). */
   private final boolean systemCollection;
+
+  /**
+   * Maps logical collection positions to physical locations (page index + offset) in the data
+   * file. Also tracks record status (ALLOCATED, FILLED, REMOVED) and version.
+   */
   private final CollectionPositionMapV2 collectionPositionMap;
+
+  /**
+   * Two-level segment tree that tracks the maximum free space available on each data page,
+   * enabling O(log N) lookup for a page with enough room for a new record chunk.
+   */
   private final FreeSpaceMap freeSpaceMap;
+
+  /** Human-readable storage name, used in exception messages and logging. */
   private final String storageName;
 
+  /** Per-collection rate meters for create/read/update/delete/conflict operations. */
   private StorageCollection.Meters meters = Meters.NOOP;
 
+  /**
+   * Numeric identifier for this collection, assigned during {@link #configure}. Forms the
+   * "collection ID" part of a Record ID ({@code #id:collectionPosition}).
+   */
   private volatile int id;
   private volatile long approximateRecordsCount;
+
+  /** Internal file ID assigned by the disk cache when the data file (.pcl) is opened/created. */
   private long fileId;
+
+  /** Strategy for resolving concurrent-modification conflicts on records in this collection. */
   private RecordConflictStrategy recordConflictStrategy;
 
   public PaginatedCollectionV2(
@@ -424,18 +567,31 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return createPhysicalPosition(recordType, collectionPosition, newRecordVersion);
   }
 
+  /**
+   * Finds or allocates a data page with at least {@code entrySize} bytes of free space.
+   *
+   * <p>First consults the {@link FreeSpaceMap} for an existing page with enough room. If no
+   * suitable page is found, a brand-new page is allocated from the data file and initialized.
+   *
+   * @param atomicOperation the current atomic operation context
+   * @param entrySize       minimum free space required on the page (bytes)
+   * @return a {@link CollectionPage} with enough room for the entry, never {@code null}
+   */
   private CollectionPage findNewPageToWrite(
       final AtomicOperation atomicOperation, final int entrySize) {
     final CollectionPage page;
     try {
+      // Ask the FSM for an existing page that can accommodate the chunk.
       final var nextPageToWrite = findNextFreePageIndexToWrite(entrySize, atomicOperation);
 
       final CacheEntry cacheEntry;
       boolean isNew;
       if (nextPageToWrite >= 0) {
+        // Found an existing page with enough free space.
         cacheEntry = loadPageForWrite(atomicOperation, fileId, nextPageToWrite, true);
         isNew = false;
       } else {
+        // No existing page fits -- grow the data file by one page.
         cacheEntry = allocateNewPage(atomicOperation);
         isNew = true;
       }
@@ -649,8 +805,22 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return new RawPairObjectInteger<>(chunk, written);
   }
 
+  /**
+   * Queries the {@link FreeSpaceMap} for an existing data page that can hold a chunk of the
+   * given size.
+   *
+   * <p>If no page has enough room for the full chunk, and the entry is large (more than half
+   * of {@link #MAX_ENTRY_SIZE}), a second attempt is made with half the chunk size. This
+   * allows large records to be split across more chunks rather than immediately allocating a
+   * new page, improving space utilization.
+   *
+   * @param bytesToWrite    the entry bytes remaining to write (clamped to {@link #MAX_ENTRY_SIZE})
+   * @param atomicOperation the current atomic operation context
+   * @return the data-file page index of a suitable page, or {@code -1} if none found
+   */
   private int findNextFreePageIndexToWrite(int bytesToWrite, AtomicOperation atomicOperation)
       throws IOException {
+    // Clamp to the maximum entry data per chunk -- larger entries will be split.
     if (bytesToWrite > MAX_ENTRY_SIZE) {
       bytesToWrite = MAX_ENTRY_SIZE;
     }
@@ -662,6 +832,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var chunkSize = calculateChunkSize(bytesToWrite);
     var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation);
 
+    // Fallback: for large entries, try to find a page that can hold at least half.
+    // This trades off more chunks for better page utilization.
     if (pageIndex < 0 && bytesToWrite > MAX_ENTRY_SIZE / 2) {
       final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
       if (halfChunkSize > 0) {
@@ -722,6 +894,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var snapshot = atomicOperation.getAtomicOperationsSnapshot();
     var commitTs = atomicOperation.getCommitTsUnsafe();
     var status = entryWithStatus.status();
+
+    assert snapshot != null
+        : "AtomicOperationsSnapshot must not be null during record read";
 
     // 1. Entry does not exist at all
     if (status == CollectionPositionMapBucket.NOT_EXISTENT
@@ -1026,6 +1201,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
+  /**
+   * Deletes a record while preserving its previous version for MVCC readers. First saves the
+   * current position entry to the snapshot index via {@link #keepPreviousRecordVersion}, then
+   * marks the position map entry as REMOVED (tombstone) with the current transaction's commitTs
+   * as the deletion version.
+   */
   private void deleteRecordWithPreservingPreviousVersion(AtomicOperation atomicOperation,
       long collectionPosition,
       PositionEntry positionEntry) throws IOException {
@@ -1033,6 +1214,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var recordVersion = atomicOperation.getCommitTs();
     keepPreviousRecordVersion(collectionPosition, recordVersion, atomicOperation, positionEntry);
 
+    // Mark as REMOVED in the position map. The deletion version (commitTs) is stored so
+    // readers can determine whether the deletion is visible to their snapshot.
     collectionPositionMap.remove(collectionPosition, recordVersion, atomicOperation);
 
     decrementApproximateRecordsCount(atomicOperation);
@@ -1089,6 +1272,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         recordType, atomicOperation, positionEntry);
   }
 
+  /**
+   * Updates a record with new content while preserving the old version for MVCC readers. The
+   * update always writes the new content to fresh page slot(s) (it does <em>not</em> overwrite
+   * in place), then updates the position map to point to the new location. If the new content
+   * happens to land on the same page/offset (unlikely in practice), only the version is updated.
+   */
   private void updateRecordWithPreservingPreviousVersion(long collectionPosition, byte[] content,
       byte recordType, AtomicOperation atomicOperation,
       PositionEntry positionEntry) throws IOException {
@@ -1135,6 +1324,29 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
   }
 
+  /**
+   * Saves the current version of a record to the snapshot index before it is overwritten or
+   * deleted, enabling MVCC snapshot isolation for concurrent readers.
+   *
+   * <p>If the old version equals the new version (i.e., the same transaction is overwriting its
+   * own write), the snapshot is skipped because no other transaction could have seen that version.
+   *
+   * <p>Two index entries are created:
+   * <ol>
+   *   <li><b>Snapshot entry</b> ({@link SnapshotKey} -> {@link PositionEntry}): maps the old
+   *       {@code (collectionId, collectionPosition, oldVersion)} triple to the physical page
+   *       location of the old record. This allows readers with a snapshot older than
+   *       {@code newRecordVersion} to find and read the previous version.</li>
+   *   <li><b>Visibility entry</b> ({@link VisibilityKey} -> {@link SnapshotKey}): keyed by
+   *       {@code newRecordVersion}, enables garbage collection of the snapshot entry once all
+   *       transactions that could see the old version have completed.</li>
+   * </ol>
+   *
+   * @param collectionPosition logical position of the record being modified
+   * @param newRecordVersion   the commitTs of the modifying transaction
+   * @param atomicOperation    the current atomic operation context
+   * @param positionEntry      the current physical location of the record to preserve
+   */
   private void keepPreviousRecordVersion(long collectionPosition, long newRecordVersion,
       AtomicOperation atomicOperation, PositionEntry positionEntry) throws IOException {
     try (final var cacheEntry = loadPageForRead(atomicOperation, fileId,
@@ -1142,16 +1354,24 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final var localPage = new CollectionPage(cacheEntry);
       var oldRecordVersion = localPage.getRecordVersion(positionEntry.getRecordPosition());
       if (oldRecordVersion == newRecordVersion) {
-        //we overwrite our own version, no need to preserve it
+        // Same transaction overwriting its own write -- no need to preserve, because
+        // no other transaction could have seen this version.
         return;
       }
 
+      // Postcondition of the guard above: versions are guaranteed to differ here.
+      // Assert monotonicity: new versions must always be greater than old ones.
+      assert oldRecordVersion < newRecordVersion
+          : "Record version must increase monotonically. "
+          + "Collection: " + id + ", position: " + collectionPosition
+          + ", oldVersion: " + oldRecordVersion + ", newVersion: " + newRecordVersion;
+
+      // Store the old version's physical location in the snapshot index.
       var snapshotKey = new SnapshotKey(id, collectionPosition, oldRecordVersion);
       atomicOperation.putSnapshotEntry(snapshotKey, positionEntry);
 
-      // The snapshotKey should be kept until the presence of active transactions
-      // started before the new record version is added - recordVersion
-      // Transaction keeps the state when it was started in atomicOperationTableState
+      // Register a visibility entry so the snapshot can be garbage-collected once all
+      // transactions that started before newRecordVersion have completed.
       var visibilityKey = new VisibilityKey(newRecordVersion, id, collectionPosition);
       atomicOperation.putVisibilityEntry(visibilityKey, snapshotKey);
     }
@@ -1531,6 +1751,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
   }
 
+  /**
+   * Shared initialization logic called by both {@link #configure} overloads. Validates the
+   * collection name, optionally sets the record conflict strategy, registers per-collection
+   * metrics, and stores the numeric collection ID.
+   */
   private void init(final int id, final String name, final String conflictStrategy)
       throws IOException {
     FileUtils.checkValidName(name);
@@ -1581,6 +1806,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return physicalPosition;
   }
 
+  /**
+   * Reassembles a multi-chunk record into a single contiguous byte array by concatenating the
+   * data portions of each chunk (stripping the trailing first-record flag and next-page pointer
+   * from each). If the record fits in a single chunk, the original array is returned as-is.
+   *
+   * @param recordChunks list of raw chunk byte arrays in read order (head to tail)
+   * @param contentSize  total data bytes across all chunks (excluding per-chunk overhead)
+   * @return a single byte array containing the full entry (metadata + content)
+   */
   private static byte[] convertRecordChunksToSingleChunk(
       final List<byte[]> recordChunks, final int contentSize) {
     final byte[] fullContent;
@@ -1603,18 +1837,49 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return fullContent;
   }
 
+  /**
+   * Packs a page index and a record position into a single {@code long} pointer.
+   *
+   * <pre>{@code
+   * Bit layout of the packed pointer:
+   *  63                 16  15              0
+   *  +--------------------+-----------------+
+   *  |    pageIndex       | recordPosition  |
+   *  +--------------------+-----------------+
+   * }</pre>
+   *
+   * @see #getPageIndex(long)
+   * @see #getRecordPosition(long)
+   */
   private static long createPagePointer(final long pageIndex, final int pagePosition) {
     return pageIndex << PAGE_INDEX_OFFSET | pagePosition;
   }
 
+  /** Extracts the 16-bit record position from a packed page pointer. */
   private static int getRecordPosition(final long nextPagePointer) {
     return (int) (nextPagePointer & RECORD_POSITION_MASK);
   }
 
+  /** Extracts the page index (bits 16..63) from a packed page pointer. */
   private static long getPageIndex(final long nextPagePointer) {
     return nextPagePointer >>> PAGE_INDEX_OFFSET;
   }
 
+  /**
+   * Allocates a new data page in the collection's data file and increments the file-size counter
+   * stored on the state page (page 0).
+   *
+   * <p>The collection tracks its own "logical" file size in
+   * {@link PaginatedCollectionStateV2#getFileSize()}, which may be less than the physical file
+   * size reported by the cache ({@code filledUpTo}). If the logical size equals the physical
+   * size minus 1 (accounting for page 0 being the state page), a truly new page is appended to
+   * the file. Otherwise, the next page after the current logical end is reused (it already
+   * exists on disk but was not yet claimed by this collection). This can happen after a crash
+   * where pages were physically allocated but the state counter was not yet updated.
+   *
+   * @param atomicOperation the current atomic operation context
+   * @return a {@link CacheEntry} for the newly allocated page (caller must close it)
+   */
   private CacheEntry allocateNewPage(AtomicOperation atomicOperation) throws IOException {
     CacheEntry cacheEntry;
     try (final var stateCacheEntry =
@@ -1624,10 +1889,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
 
       if (fileSize == filledUpTo - 1) {
+        // Logical end matches physical end -- must physically append a new page.
         cacheEntry = addPage(atomicOperation, fileId);
       } else {
+        // Physical file has pages beyond the logical end -- reuse the next one.
         assert fileSize < filledUpTo - 1;
-
         cacheEntry = loadPageForWrite(atomicOperation, fileId, fileSize + 1, false);
       }
 
@@ -1636,6 +1902,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return cacheEntry;
   }
 
+  /**
+   * Initializes page 0 of the data file as the collection state page. If the file is empty,
+   * a new page is appended; otherwise the existing page 0 is loaded. The file-size counter is
+   * reset to 0, meaning no data pages are currently allocated (page 0 itself is not counted).
+   */
   private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
     if (getFilledUpTo(atomicOperation, fileId) == 0) {

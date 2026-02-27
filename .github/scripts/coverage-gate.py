@@ -167,19 +167,34 @@ def format_line_ranges(line_numbers):
 
 
 def load_assert_lines(filepath):
-    """Return the set of line numbers containing Java assert statements.
+    """Return the set of line numbers belonging to Java assert statements.
 
     JaCoCo always reports one uncovered branch for assert statements
-    (the assertion-failure path is never taken in normal tests).  These
-    phantom branches are excluded from the coverage gate.
+    (the assertion-failure path is never taken in normal tests), and the
+    failure-message continuation lines (e.g. string concatenation after
+    the ``:``) are reported as uncovered lines.  All lines that are part
+    of an assert statement — including multi-line continuations — are
+    excluded from both line and branch coverage in the gate.
     """
     result = set()
     try:
         with open(filepath) as f:
+            in_assert = False
             for i, line in enumerate(f, 1):
                 stripped = line.strip()
-                if stripped.startswith("assert ") or stripped.startswith("assert("):
+                if not in_assert:
+                    if stripped.startswith("assert ") or stripped.startswith("assert("):
+                        result.add(i)
+                        # Check if the statement continues on subsequent lines.
+                        # Note: ";" inside string literals would cause a false
+                        # termination, but no such patterns exist in practice.
+                        if ";" not in stripped:
+                            in_assert = True
+                else:
+                    # Continuation line of a multi-line assert
                     result.add(i)
+                    if ";" in stripped:
+                        in_assert = False
     except OSError:
         pass
     return result
@@ -210,6 +225,12 @@ def compute_results(coverage_data):
         uncovered_branch_lines = []
 
         for line_nr, data in sorted(lines.items()):
+            # Exclude assert statement lines — JaCoCo reports phantom
+            # uncovered branches and uncovered failure-message lines
+            # for assert statements that can never fail in normal tests.
+            if line_nr in assert_lines:
+                continue
+
             # Line coverage: a line is "coverable" if it has any instructions
             if data["ci"] + data["mi"] > 0:
                 file_line_total += 1
@@ -219,9 +240,7 @@ def compute_results(coverage_data):
                     uncovered_lines.append(line_nr)
 
             # Branch coverage: a line has branches if mb + cb > 0.
-            # Exclude assert statements — JaCoCo always marks the
-            # assertion-failure path as an uncovered phantom branch.
-            if data["cb"] + data["mb"] > 0 and line_nr not in assert_lines:
+            if data["cb"] + data["mb"] > 0:
                 file_branch_total += data["cb"] + data["mb"]
                 file_branch_covered += data["cb"]
                 if data["mb"] > 0:
