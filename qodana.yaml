@@ -3,7 +3,7 @@ exclude:
   - name: All
     paths:
       - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser
-      - core/src/main/generated/java/
+      - '**/target/generated-sources/'
   - name: CoverageReport
   - name: MavenModelInspection
 

@@ -26,9 +26,7 @@
     <jna.version>4.0.0</jna.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
-    <generated.sources.dir>${basedir}/src/main/generated/java</generated.sources.dir>
-    <generated.antlr.dir>${generated.sources.dir}/antlr</generated.antlr.dir>
-    <generated.gremlin.dir>${generated.sources.dir}/gremlin</generated.gremlin.dir>
+    <generated.antlr.dir>${project.build.directory}/generated-sources/antlr</generated.antlr.dir>
     <gql.antlr.package>com.jetbrains.youtrackdb.internal.core.gql.parser.gen</gql.antlr.package>
     <gql.antlr.output.dir>
       ${generated.antlr.dir}/com/jetbrains/youtrackdb/internal/core/gql/parser/gen
@@ -164,7 +162,6 @@
        <plugin>
         <artifactId>maven-clean-plugin</artifactId>
         <version>${maven.clean.plugin.version}</version>
-        <!-- No filesets: generated code (ANTLR + Gremlin DSL) is in git and not cleaned; regenerated only when grammar/DSL changes -->
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -241,8 +238,6 @@
             <configuration>
               <sources>
                 <source>${generated.antlr.dir}</source>
-                <!-- Gremlin generated dir: in git; compiler sees existing files when processor skips (content unchanged) -->
-                <source>${generated.gremlin.dir}</source>
               </sources>
             </configuration>
           </execution>
@@ -273,7 +268,6 @@
           </annotationProcessors>
           <compilerArgs>
             <arg>-parameters</arg>
-            <arg>-Agremlin.dsl.generatedDir=${project.basedir}/src/main/generated/java/gremlin</arg>
             <arg>-Agremlin.dsl.sourceDir=${project.basedir}/src/main/java</arg>
             <arg>-XDcompilePolicy=simple</arg>
             <arg>--should-stop=ifError=FLOW</arg>

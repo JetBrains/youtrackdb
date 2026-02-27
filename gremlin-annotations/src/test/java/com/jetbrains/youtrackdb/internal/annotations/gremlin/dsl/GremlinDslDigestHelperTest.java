@@ -88,8 +88,8 @@ public class GremlinDslDigestHelperTest {
   }
 
   /**
-   * When file exists but no line contains the digest prefix, the loop completes and we return null
-   * (line 52). Multiple lines ensure the loop runs and fall-through is covered.
+   * When file exists but content does not contain the digest prefix, indexOf returns -1
+   * and we return null. Multiple lines ensure the search scans the full content.
    */
   @Test
   public void getStoredDigestFromGeneratedFile_returnsNullWhenNoLineContainsPrefix() throws Exception {
@@ -129,6 +129,23 @@ public class GremlinDslDigestHelperTest {
     } finally {
       generated.toFile().setReadable(true, false);
     }
+  }
+
+  @Test
+  public void getStoredDigestFromContent_returnsDigestFromContent() {
+    var content = "// " + GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + "abc123\npackage p;";
+    assertThat(GremlinDslDigestHelper.getStoredDigestFromContent(content)).isEqualTo("abc123");
+  }
+
+  @Test
+  public void getStoredDigestFromContent_returnsNullWhenPrefixAbsent() {
+    assertThat(GremlinDslDigestHelper.getStoredDigestFromContent("package p;\nclass X {}")).isNull();
+  }
+
+  @Test
+  public void getStoredDigestFromContent_handlesNoTrailingNewline() {
+    var content = "// " + GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + "def456";
+    assertThat(GremlinDslDigestHelper.getStoredDigestFromContent(content)).isEqualTo("def456");
   }
 
   @Test

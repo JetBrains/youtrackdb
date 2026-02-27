@@ -56,13 +56,14 @@ public class GremlinDslProcessorTest {
   }
 
   @Test
-  public void whenGeneratedDirNotSet_failsWithError() {
+  public void whenGeneratedDirNotSet_usesFilerAndSucceeds() {
     var compilation = javac()
         .withProcessors(new GremlinDslProcessor())
         .compile(
             JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
-    assertThat(compilation).failed();
-    assertThat(compilation).hadErrorContaining(GremlinDslProcessor.OPTION_GENERATED_DIR);
+    assertThat(compilation).succeeded();
+    assertThat(compilation).generatedSourceFile(
+        "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.__");
   }
 
   @Test
@@ -311,10 +312,10 @@ public class GremlinDslProcessorTest {
   }
 
   /**
-   * Empty generatedDir option triggers a compilation error because the option is required.
+   * Empty generatedDir option falls back to Filer API (same as absent).
    */
   @Test
-  public void withOptions_emptyGeneratedDir_failsWithError() throws IOException {
+  public void withOptions_emptyGeneratedDir_usesFilerAndSucceeds() throws IOException {
     var sourceDir = temp.newFolder("src").toPath();
     var dslSource = sourceDir.resolve(DSL_PACKAGE_PATH).resolve("SocialTraversalDsl.java");
     Files.createDirectories(dslSource.getParent());
@@ -329,8 +330,9 @@ public class GremlinDslProcessorTest {
             "-Agremlin.dsl.sourceDir=" + sourceDir.toAbsolutePath())
         .compile(JavaFileObjects.forResource(GremlinDsl.class.getResource("SocialTraversalDsl.java")));
 
-    assertThat(compilation).failed();
-    assertThat(compilation).hadErrorContaining(GremlinDslProcessor.OPTION_GENERATED_DIR);
+    assertThat(compilation).succeeded();
+    assertThat(compilation).generatedSourceFile(
+        "com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.__");
   }
 
   /**
