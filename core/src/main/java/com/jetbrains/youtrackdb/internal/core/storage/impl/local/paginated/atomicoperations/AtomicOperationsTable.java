@@ -134,9 +134,10 @@ public class AtomicOperationsTable {
   /// Cached lower bound on the minimum timestamp of all IN_PROGRESS operations.
   ///
   /// **Invariant**: `cachedMinActiveTs <= actual min` or `cachedMinActiveTs == UNKNOWN_TS`.
-  /// Updated incrementally on start (sets from UNKNOWN) and commit/rollback of the min
-  /// (forward-scanned to the next IN_PROGRESS entry). Snapshot scans write the
-  /// authoritative value.
+  /// Updated incrementally on start (sets from UNKNOWN or lowers for out-of-order starts)
+  /// and commit/rollback of the min (forward-scanned to the next IN_PROGRESS entry).
+  /// Snapshot scans only restore it from UNKNOWN — they never advance it, because
+  /// out-of-order starts may have set a lower value that the narrowed scan missed.
   @SuppressWarnings("FieldMayBeFinal") // accessed via VarHandle CAS
   private volatile long cachedMinActiveTs = UNKNOWN_TS;
 
@@ -302,27 +303,15 @@ public class AtomicOperationsTable {
       assert inProgressTs.isEmpty() || inProgressTs.contains(maxOp)
           : "snapshot max must be in the inProgressTxs set";
 
-      // Update cached min via CAS: only advance (increase) the cached value or
-      // set it from UNKNOWN to a known value. Never decrease a known value (a
-      // concurrent commit's forward-scan may have already advanced it further),
-      // and never overwrite a known value with UNKNOWN (a concurrent start may
-      // have just set it).
-      final long newCachedMin = hasActiveOps ? minOp : UNKNOWN_TS;
-      while (true) {
-        final long curMin = this.cachedMinActiveTs;
-        if (curMin == newCachedMin) {
-          break;
-        }
-        if (curMin != UNKNOWN_TS && newCachedMin == UNKNOWN_TS) {
-          break; // don't overwrite a known value with UNKNOWN
-        }
-        if (curMin != UNKNOWN_TS && newCachedMin != UNKNOWN_TS
-            && newCachedMin < curMin) {
-          break; // don't decrease a known min
-        }
-        if (CACHED_MIN_ACTIVE_TS.compareAndSet(this, curMin, newCachedMin)) {
-          break;
-        }
+      // Update cached min: only restore from UNKNOWN to a known value.
+      // When cachedMin is already known, start and commit/rollback maintain it
+      // incrementally: startOperation lowers it for out-of-order starts,
+      // commit/rollback advances it via forward-scan. The snapshot must not
+      // advance (increase) cachedMin because its scan range was bounded by the
+      // old cachedMin and may have missed lower entries added by concurrent
+      // out-of-order starts.
+      if (hasActiveOps) {
+        CACHED_MIN_ACTIVE_TS.compareAndSet(this, UNKNOWN_TS, minOp);
       }
 
       // Update cached max via CAS: never decrease below a value set by a
@@ -566,9 +555,19 @@ public class AtomicOperationsTable {
             break;
           }
         }
-        // Safe because timestamps are monotonically increasing, so the first
-        // start after UNKNOWN always has the lowest (or only) active timestamp.
-        CACHED_MIN_ACTIVE_TS.compareAndSet(this, UNKNOWN_TS, operationTs);
+        // Update min: set from UNKNOWN, or lower it if this operation's TS is
+        // below the current cached min. Out-of-order starts are possible because
+        // timestamps are assigned under segmentLock but startOperation is called
+        // after releasing it, so a higher-TS operation can start first.
+        while (true) {
+          final long curMin = this.cachedMinActiveTs;
+          if (curMin != UNKNOWN_TS && operationTs >= curMin) {
+            break; // current cached min is already <= our ts
+          }
+          if (CACHED_MIN_ACTIVE_TS.compareAndSet(this, curMin, operationTs)) {
+            break;
+          }
+        }
       } else if (expectedStatus == AtomicOperationStatus.IN_PROGRESS) {
         // Operation leaving IN_PROGRESS (commit or rollback): update caches
         // based on whether the committed TS was a boundary value.
