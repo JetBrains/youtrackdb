@@ -193,6 +193,7 @@ Runs on `develop` pushes and PRs:
 - **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
 - **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
+- **Ekstazi exclude files**: Uploaded as the `ekstazi-excludes` artifact (retained 7 days). Contains `/tmp/ekstazi-*.excludes` files listing which integration tests Ekstazi skipped. Use these to diagnose coverage gate failures caused by Ekstazi test selection (see "Investigating Coverage Gate Failures" below).
 - **Mutation testing**: PIT mutation testing on changed classes with PIT's own coverage-based test selection, fails below 85% mutation score
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
 - **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, mutation-testing) into a single required status for branch protection
@@ -288,6 +289,17 @@ Runs on `develop` pushes and PRs:
    - Changes to Gremlin integration or transaction handling: also run integration tests
    - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
+
+## Investigating Coverage Gate Failures
+
+When the coverage gate fails on a PR, **always check the Ekstazi exclude files first** before writing new tests. Integration tests use Ekstazi test selection, which may skip tests that would have covered the changed lines.
+
+1. **Download the `ekstazi-excludes` artifact** from the failed CI run (available for 7 days).
+2. **Examine the exclude files** (`ekstazi-*.excludes`). Each file lists the integration tests that Ekstazi skipped for that module.
+3. **Cross-reference** the uncovered lines (from the coverage gate PR comment) with the excluded tests:
+   - If excluded tests would cover the uncovered lines → the coverage gap is an **Ekstazi selection artifact**, not genuinely missing coverage. The fix is to invalidate the Ekstazi cache (delete the `ekstazi-*` cache entries in GitHub Actions) and re-run, or adjust the Ekstazi dependency configuration.
+   - If no existing tests (included or excluded) cover the uncovered lines → the coverage gap is **genuine**. Write new tests targeting the uncovered code paths.
+4. **Do not blindly write duplicate tests** for code that is already tested by Ekstazi-excluded integration tests.
 
 ## File Modification Rules
 
