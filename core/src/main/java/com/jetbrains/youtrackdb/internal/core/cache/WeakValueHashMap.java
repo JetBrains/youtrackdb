@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.AbstractMap;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -135,7 +136,13 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
 
   @Override
   public void clear() {
-    checkModificationAllowed();
+    // No checkModificationAllowed() here: clear() must succeed during shutdown
+    // even if forEach() is concurrently iterating on another thread
+    // (e.g., pool close force-closing sessions still in use by Gremlin threads).
+    // The stopModification flag is a same-thread reentrant guard only (it is not
+    // volatile), so it was never a reliable cross-thread protection mechanism.
+    // HashMap.clear() will increment modCount, causing ConcurrentModificationException
+    // on any active iterator — forEach() catches and handles that case gracefully.
     referenceMap.clear();
   }
 
@@ -177,6 +184,10 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
           action.accept(entry.getKey(), value);
         }
       }
+    } catch (ConcurrentModificationException e) {
+      // The map was cleared by another thread during iteration (e.g., during
+      // shutdown when the pool force-closes sessions still in use). This is
+      // expected and safe to ignore — the map is being discarded.
     } finally {
       stopModification = false;
     }
