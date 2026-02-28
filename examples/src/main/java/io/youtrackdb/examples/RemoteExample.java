@@ -2,6 +2,16 @@ package io.youtrackdb.examples;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 
+/// Example of usage of YouTrackDB in case of remote (server) deployment.
+///
+/// To connect to a remote YouTrackDB server, add the driver dependency:
+/// {@snippet :
+///   <dependency>
+///     <groupId>io.youtrackdb</groupId>
+///     <artifactId>youtrackdb-driver</artifactId>
+///     <version>${ytdb-version}</version>
+///   </dependency>
+/// }
 public class RemoteExample extends AbstractExample {
   public static void main(String[] args) throws Exception {
     //1. Run YTDB server using command:

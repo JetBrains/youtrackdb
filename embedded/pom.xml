@@ -199,11 +199,14 @@
                   <shadedPattern>com.jetbrains.youtrackdb.shade.com.fasterxml.jackson</shadedPattern>
                 </relocation>
 
-                <!-- Apache Commons (all commons-* libs) -->
-                <relocation>
-                  <pattern>org.apache.commons</pattern>
-                  <shadedPattern>com.jetbrains.youtrackdb.shade.org.apache.commons</shadedPattern>
-                </relocation>
+                <!--
+                  Apache Commons: NOT relocated. The public API surface
+                  (YourTracks, YouTrackDB, YTDBGraphTraversalSourceDSL)
+                  exposes commons-lang3, commons-configuration2, and
+                  commons-collections4 types in method signatures
+                  (e.g. FailableConsumer, Configuration). Relocating
+                  would force users to reference shaded package names.
+                -->
 
                 <!-- fastutil -->
                 <relocation>
@@ -238,19 +241,11 @@
                   <shadedPattern>com.jetbrains.youtrackdb.shade.org.objectweb.asm</shadedPattern>
                 </relocation>
 
-                <!-- JNR / JFFI -->
-                <relocation>
-                  <pattern>com.github.jnr</pattern>
-                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.github.jnr</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>jnr</pattern>
-                  <shadedPattern>com.jetbrains.youtrackdb.shade.jnr</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>com.kenai</pattern>
-                  <shadedPattern>com.jetbrains.youtrackdb.shade.com.kenai</shadedPattern>
-                </relocation>
+                <!--
+                  JNR / JFFI: NOT relocated. JFFI uses JNI native methods
+                  bound by class name (e.g. com_kenai_jffi_Foreign_getVersion).
+                  Relocating would break the JNI linkage at runtime.
+                -->
 
                 <!-- SnakeYAML -->
                 <relocation>

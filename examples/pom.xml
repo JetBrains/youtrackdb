@@ -21,10 +21,33 @@
   </properties>
 
   <dependencies>
+    <!-- Shaded uber-jar for embedded usage (relocates third-party deps to avoid conflicts) -->
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-embedded</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- Remote driver (needed only for server connections, see RemoteExample).
+         Exclude youtrackdb-core because youtrackdb-embedded already bundles it
+         with relocated third-party dependencies. Having both the shaded and
+         unshaded core on the classpath causes NoSuchMethodError at runtime. -->
     <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-driver</artifactId>
       <version>${project.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>io.youtrackdb</groupId>
+          <artifactId>youtrackdb-core</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- JSR-305 annotations (@Nonnull etc.) - excluded from the embedded uber-jar -->
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>jsr305</artifactId>
+      <version>3.0.2</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>

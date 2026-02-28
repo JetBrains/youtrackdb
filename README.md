@@ -51,10 +51,14 @@ To install YouTrackDB as an embedded database, add the following dependency to y
 
 <dependency>
   <groupId>io.youtrackdb</groupId>
-  <artifactId>youtrackdb-core</artifactId>
+  <artifactId>youtrackdb-embedded</artifactId>
   <version>0.5.0-SNAPSHOT</version>
 </dependency>
 ```
+
+The `youtrackdb-embedded` artifact is a shaded uber-jar that relocates all third-party
+dependencies (Guava, Jackson, Groovy, etc.) under `com.jetbrains.youtrackdb.shade`,
+so they won't conflict with versions used by your application.
 
 You also need to add a YTDB snapshot repository to your Maven pom.xml file:
 
@@ -79,7 +83,7 @@ or in case of Gradle:
 
 ```
 dependencies {
-    implementation 'io.youtrackdb:youtrackdb-core:0.5.0-SNAPSHOT'
+    implementation 'io.youtrackdb:youtrackdb-embedded:0.5.0-SNAPSHOT'
 }
 ```
 
