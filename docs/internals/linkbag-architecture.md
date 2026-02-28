@@ -133,12 +133,13 @@ of RIDs in the same order.
 `AbstractLinkBag` provides the core add/remove/contains/iteration logic that is common to both
 storage strategies. It manages three layers of data:
 
-1. **`newEntries`** -- A `TreeMap<RID, int[]>` holding RIDs that are not yet persistent (temporary
-   records that haven't been saved to storage). These entries are tracked separately because their
-   identity (RID) may change when the record gets persisted.
-2. **`localChanges`** -- A `BagChangesContainer` (sorted array of `(RID, Change)` pairs) that
-   tracks modifications to persistent RIDs. Each entry maps a persistent RID to an `AbsoluteChange`
-   recording the current counter value.
+1. **`newEntries`** -- A `TreeMap<RID, NewEntryValue>` holding RIDs that are not yet persistent
+   (temporary records that haven't been saved to storage). Each `NewEntryValue` stores an integer
+   counter and a `secondaryRid` (the RID of the vertex on the other end of the edge). These entries
+   are tracked separately because their identity (RID) may change when the record gets persisted.
+2. **`localChanges`** -- A `BagChangesContainer` (sorted array of `(RID, AbsoluteChange)` pairs)
+   that tracks modifications to persistent RIDs. Each entry maps a persistent RID to an
+   `AbsoluteChange` recording the current counter value.
 3. **BTree data** (BTree-based bags only) -- The persisted data in the on-disk BTree, accessible
    through the subclass's `getAbsoluteValue()` and `btreeSpliterator()` methods.
 
@@ -153,9 +154,9 @@ storage strategies. It manages three layers of data:
 
 | Field | Type | Description |
 |---|---|---|
-| `localChanges` | `BagChangesContainer` | Sorted container of `(RID -> Change)` pairs for persistent RIDs |
-| `newEntries` | `TreeMap<RID, int[]>` | Non-persistent RID entries. Value is a single-element `int[]` holding the counter |
-| `newEntriesIdentityMap` | `IdentityHashMap<RID, int[]>` | Temporary holding area during identity change events |
+| `localChanges` | `BagChangesContainer` | Sorted container of `(RID -> AbsoluteChange)` pairs for persistent RIDs |
+| `newEntries` | `TreeMap<RID, NewEntryValue>` | Non-persistent RID entries. `NewEntryValue` holds the counter and the secondary RID |
+| `newEntriesIdentityMap` | `IdentityHashMap<RID, NewEntryValue>` | Temporary holding area during identity change events |
 | `size` | `int` | Total number of links (sum of all counters across all data layers) |
 | `counterMaxValue` | `int` | Maximum allowed counter value per RID (prevents unbounded duplicates) |
 | `tracker` | `SimpleMultiValueTracker<RID, RID>` | Records add/remove events for index maintenance and rollback |
@@ -275,7 +276,8 @@ is written directly into the owning entity's binary record.
 
 - `EmbeddedLinkBag(session, counterMaxValue)` -- New empty bag.
 - `EmbeddedLinkBag(changes, session, size, counterMaxValue)` -- Deserialization constructor. Takes
-  a pre-sorted list of `(RID, Change)` pairs and populates `localChanges` via `fillAllSorted()`.
+  a pre-sorted list of `(RID, AbsoluteChange)` pairs and populates `localChanges` via
+  `fillAllSorted()`.
 
 ### Serialization Format
 
@@ -359,7 +361,7 @@ During record serialization (when the entity is saved), `handleContextBTree()` i
 
 #### BTree Iteration (`btreeSpliterator()`)
 
-Returns a `Spliterator<ObjectIntPair<RID>>` that scans the entire RID range
+Returns a `Spliterator<RawPair<RID, LinkBagValue>>` that scans the entire RID range
 `[#0:0 ... #MAX:MAX]` within the bag's BTree slice. This spliterator is used by the
 `MergingSpliterator` in `AbstractLinkBag` to merge BTree data with local changes.
 
@@ -500,7 +502,9 @@ Deletes the entire BTree file for a given collection ID. Used when a cluster/col
 key-value pairs where:
 
 - **Key**: `EdgeKey` -- a composite of `(ridBagId, targetCollection, targetPosition)`
-- **Value**: `int` -- the counter (number of occurrences of the target RID in the bag)
+- **Value**: `LinkBagValue` -- a record containing the counter (number of occurrences of the target
+  RID in the bag) and the secondary RID components (`secondaryCollectionId`, `secondaryPosition`)
+  identifying the vertex on the other end of the edge
 
 Multiple logical link bags coexist in the same BTree file, distinguished by their `ridBagId`
 prefix in the key. The `EdgeKey` comparison order ensures all entries for a given bag are contiguous,
@@ -529,9 +533,9 @@ Each bucket (page) is represented by the `Bucket` class and can be either:
 1. Acquires a read lock.
 2. Walks the BTree from root to leaf using `findBucket()`.
 3. If the key is found (`itemIndex >= 0`), reads and returns the value from the bucket.
-4. Returns `-1` if not found.
+4. Returns `null` if not found.
 
-#### `put(AtomicOperation, EdgeKey, int)` -- Insert or Update
+#### `put(AtomicOperation, EdgeKey, LinkBagValue)` -- Insert or Update
 
 1. Acquires an exclusive lock.
 2. Finds the target leaf bucket via `findBucketForUpdate()`.
@@ -547,7 +551,7 @@ Each bucket (page) is represented by the `Bucket` class and can be either:
 1. Acquires an exclusive lock.
 2. Finds the leaf bucket containing the key.
 3. Removes the entry and decrements the tree size.
-4. Returns the old value, or `-1` if the key wasn't found.
+4. Returns the old `LinkBagValue`, or `null` if the key wasn't found.
 
 ### Bucket Splitting
 
@@ -567,7 +571,7 @@ split, a new root is created with two children.
 The BTree supports both forward and backward range scans:
 
 - **`streamEntriesBetween(from, fromInclusive, to, toInclusive, ascSortOrder)`**: Returns a
-  `Stream<RawPairObjectInteger<EdgeKey>>` of all entries in the specified range.
+  `Stream<RawPair<EdgeKey, LinkBagValue>>` of all entries in the specified range.
 - **`spliteratorEntriesBetween(...)`**: Returns a `Spliterator` for the same range.
 
 Iteration is implemented by `SpliteratorForward` and `SpliteratorBackward`:
@@ -616,7 +620,7 @@ each link bag has its own private BTree, when in reality multiple bags share the
 | `intFileId` | `int` | Integer file ID of the BTree file |
 | `linkBagId` | `long` | Unique ID of this bag within the shared BTree |
 | `keySerializer` | `BinarySerializer<RID>` | Serializer for RID keys |
-| `valueSerializer` | `BinarySerializer<Integer>` | Serializer for integer counter values |
+| `valueSerializer` | `BinarySerializer<LinkBagValue>` | Serializer for `LinkBagValue` entries |
 
 ### Key Translation
 
@@ -637,7 +641,7 @@ operations on one bag never see or affect entries belonging to another bag.
 Translates to `bTree.get(new EdgeKey(linkBagId, rid.collectionId, rid.collectionPosition))`.
 Returns `null` instead of `-1` for missing entries (adapter convention).
 
-#### `put(AtomicOperation, RID, Integer)` -- Insert or Update
+#### `put(AtomicOperation, RID, LinkBagValue)` -- Insert or Update
 
 Translates to `bTree.put(atomicOperation, EdgeKey(...), value)`.
 
@@ -677,12 +681,14 @@ of links (accounting for duplicates).
 #### `spliteratorEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive, ascSortOrder)`
 
 Returns a `TransformingSpliterator` that wraps the shared BTree's spliterator. The
-`TransformingSpliterator` converts each `RawPairObjectInteger<EdgeKey>` into an
-`ObjectIntPair<RID>` by extracting `targetCollection` and `targetPosition` from the `EdgeKey`.
+`TransformingSpliterator` converts each `RawPair<EdgeKey, LinkBagValue>` into a
+`RawPair<RID, LinkBagValue>` by extracting `targetCollection` and `targetPosition` from the
+`EdgeKey`.
 
 ### `TransformingSpliterator` (Inner Class)
 
-A `Spliterator<ObjectIntPair<RID>>` that wraps a `Spliterator<RawPairObjectInteger<EdgeKey>>`:
+A `Spliterator<RawPair<RID, LinkBagValue>>` that wraps a
+`Spliterator<RawPair<EdgeKey, LinkBagValue>>`:
 
 - `tryAdvance()`: Delegates to the underlying spliterator and converts the `EdgeKey` to a `RecordId`.
 - `trySplit()`: Delegates and wraps the result.
@@ -713,6 +719,35 @@ Ordering is lexicographic: first by `ridBagId`, then `targetCollection`, then `t
 This ensures all entries for a given bag are contiguous in the BTree, enabling efficient range
 scans.
 
+### `LinkBagValue`
+
+**Package**: `com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree`
+
+A Java record stored as the value in `SharedLinkBagBTree`. It holds the link counter along with the
+secondary RID components (the vertex on the other end of the edge):
+
+| Field | Type | Description |
+|---|---|---|
+| `counter` | `int` | Number of occurrences of the target RID in the bag |
+| `secondaryCollectionId` | `int` | Collection ID of the secondary vertex |
+| `secondaryPosition` | `long` | Position of the secondary vertex within the collection |
+
+Both `secondaryCollectionId` and `secondaryPosition` must be non-negative (enforced by assertions
+in the compact constructor).
+
+### `NewEntryValue`
+
+**Package**: `com.jetbrains.youtrackdb.internal.core.storage.ridbag` (inner class of
+`AbstractLinkBag`)
+
+A package-private static class used as the value type in `AbstractLinkBag.newEntries`. It holds
+the counter for a non-persistent RID along with the secondary RID:
+
+| Field | Type | Description |
+|---|---|---|
+| `counter` | `int` | Number of occurrences of the non-persistent RID |
+| `secondaryRid` | `RID` (`@Nonnull`) | The RID of the vertex on the other end of the edge |
+
 ### `LinkBagPointer`
 
 **Package**: `com.jetbrains.youtrackdb.internal.core.storage.ridbag`
@@ -724,11 +759,18 @@ A record `(fileId, linkBagId)` that uniquely identifies a BTree-based link bag:
 - `INVALID` -- A sentinel constant `(-1, -1)` representing an uninitialized pointer.
 - `isValid()` -- Returns `true` if both fields are non-negative.
 
-### `Change` Interface and `AbsoluteChange`
+### `AbsoluteChange`
 
 **Package**: `com.jetbrains.youtrackdb.internal.core.storage.ridbag`
 
-`Change` is an interface representing a modification to an RID's counter:
+`AbsoluteChange` is a concrete class representing a modification to an RID's counter. It stores an
+absolute counter value (not a delta) along with a `secondaryRid` -- the RID of the vertex on the
+other end of the edge.
+
+| Field | Type | Description |
+|---|---|---|
+| `value` | `int` | The absolute counter value |
+| `secondaryRid` | `RID` (`@Nonnull`) | The RID of the vertex on the other end of the edge |
 
 | Method | Description |
 |---|---|
@@ -736,17 +778,17 @@ A record `(fileId, linkBagId)` that uniquely identifies a BTree-based link bag:
 | `decrement()` | Decrements the counter. Returns `true` if the old value was > 0 |
 | `applyTo(value, maxCap)` | Applies this change to a base value |
 | `getValue()` | Returns the current counter value |
+| `getSecondaryRid()` | Returns the secondary RID |
 | `serialize(stream, offset)` | Serializes the change for persistence |
 
-`AbsoluteChange` is the sole implementation. It stores an absolute counter value (not a delta). When
-applied to a base value, it simply replaces it. The counter is clamped to `[0, maxCap]` and is
-automatically floored to 0 if it goes negative.
+When applied to a base value, `AbsoluteChange` simply replaces it. The counter is clamped to
+`[0, maxCap]` and is automatically floored to 0 if it goes negative.
 
 ### `BagChangesContainer` and `ArrayBasedBagChangesContainer`
 
 **Package**: `com.jetbrains.youtrackdb.internal.core.storage.ridbag`
 
-`BagChangesContainer` is an interface for a sorted collection of `(RID, Change)` pairs.
+`BagChangesContainer` is an interface for a sorted collection of `(RID, AbsoluteChange)` pairs.
 
 `ArrayBasedBagChangesContainer` implements it using a sorted array with binary search:
 
@@ -815,9 +857,9 @@ If btree:
     LinkBagUpdateSerializationOperation.execute()
       |
       v
-    For each (RID, Change) in getChanges():
+    For each (RID, AbsoluteChange) in getChanges():
       if counter == 0: tree.remove(rid)
-      if counter > 0:  tree.put(rid, counter)
+      if counter > 0:  tree.put(rid, LinkBagValue(counter, secondaryRid))
 ```
 
 ### Iterating Edges
