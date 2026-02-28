@@ -10,9 +10,32 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-/** Execution step that extracts record values from index entries, optionally filtering by collection ID. */
+/**
+ * Intermediate step that extracts the record RID from an index entry and loads
+ * the actual record from storage.
+ *
+ * <p>Index steps ({@link FetchFromIndexStep}) return key-RID pairs, not full records.
+ * This step extracts the "rid" property from each index entry, optionally filters
+ * it by allowed collection IDs (to ensure the record belongs to the target class),
+ * and loads the full record.
+ *
+ * <pre>
+ *  Pipeline (index-based query):
+ *    FetchFromIndexStep -&gt; GetValueFromIndexEntryStep -&gt; [DistinctStep] -&gt; [FilterStep]
+ *                          ^^^ this step ^^^
+ *
+ *  Input:  { key: "Alice", rid: #10:5 }  (index entry)
+ *  Output: { @rid: #10:5, name: "Alice", age: 30, ... }  (full record)
+ * </pre>
+ *
+ * @see FetchFromIndexStep
+ */
 public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
 
+  /**
+   * Collection IDs to filter by (only records from these collections pass through).
+   * Null means no filtering (all collections accepted).
+   */
   private final IntArrayList filterCollectionIds;
 
   /**
@@ -31,7 +54,7 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
 
     if (prev == null) {
-      throw new IllegalStateException("filter step requires a previous step");
+      throw new IllegalStateException("GetValueFromIndexEntryStep requires a previous step");
     }
     var resultSet = prev.start(ctx);
     return resultSet.filter(this::filterMap);
@@ -47,6 +70,7 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
       var rid = id.getIdentity();
       var found = false;
       for (int filterCollectionId : filterCollectionIds) {
+        // Negative collection ID means new (not-yet-committed) record; allow through.
         if (rid.getCollectionId() < 0 || filterCollectionId == rid.getCollectionId()) {
           found = true;
           break;
@@ -56,9 +80,11 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
         return null;
       }
     }
-    if (finalVal instanceof Identifiable id) {
-      return new ResultInternal(ctx.getDatabaseSession(), id);
+    // Normal case: load the full record from storage using the RID.
+    if (finalVal instanceof Identifiable identifiable) {
+      return new ResultInternal(ctx.getDatabaseSession(), identifiable);
 
+    // The index entry already contains a full result (e.g. from a subquery index).
     } else if (finalVal instanceof Result res) {
       return res;
     }
@@ -87,6 +113,7 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
     return result;
   }
 
+  /** Cacheable: collection ID filter list is fixed at construction time. */
   @Override
   public boolean canBeCached() {
     return true;

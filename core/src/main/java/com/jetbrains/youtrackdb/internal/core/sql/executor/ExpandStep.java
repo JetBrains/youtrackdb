@@ -13,11 +13,34 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * Expands a result-set. The pre-requisite is that the input element contains only one field (no
- * matter the name)
+ * Intermediate step that implements the {@code expand(field)} projection operator.
+ *
+ * <p>EXPAND takes a single field from each upstream record and "expands" its value:
+ * <ul>
+ *   <li>{@link Identifiable} -- loaded as a full record (single output row)</li>
+ *   <li>{@link Iterable} / {@link Iterator} -- each element becomes a separate output row</li>
+ *   <li>{@link Map} -- each entry becomes a separate output row (key-value result)</li>
+ *   <li>{@link Result} -- passed through as-is</li>
+ * </ul>
+ *
+ * <pre>
+ *  SQL:   SELECT expand(friends) FROM Person WHERE name = 'Alice'
+ *
+ *  Input:  { friends: [#10:1, #10:2, #10:3] }  (single row with link list)
+ *  Output: { @rid: #10:1, name: "Bob",   ... }  (three separate records)
+ *          { @rid: #10:2, name: "Carol", ... }
+ *          { @rid: #10:3, name: "Dave",  ... }
+ * </pre>
+ *
+ * <p>This is commonly used for graph traversals where outgoing edges return link
+ * collections that need to be expanded into individual vertex records.
+ *
+ * @see SelectExecutionPlanner#handleExpand
+ * @see UnwindStep
  */
 public class ExpandStep extends AbstractExecutionStep {
 
+  /** The alias of the field to expand (e.g. "friends" from expand(friends)). */
   private final String expandAlias;
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
@@ -40,6 +63,8 @@ public class ExpandStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
+    // For entity results, expand the entity itself. For projected results, the single
+    // property value is the collection/link to expand.
     Object projValue;
     if (nextAggregateItem.isEntity()) {
       projValue = nextAggregateItem.asEntity();
@@ -66,6 +91,7 @@ public class ExpandStep extends AbstractExecutionStep {
           var transaction = db.getActiveTransaction();
           rec = transaction.load(identifiable);
         } catch (RecordNotFoundException rnf) {
+          // Deleted or inaccessible records are silently skipped (dangling links are tolerated).
           return ExecutionStream.empty();
         }
 
@@ -102,6 +128,12 @@ public class ExpandStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  /** Cacheable: the expand alias is a fixed string determined at plan time. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override

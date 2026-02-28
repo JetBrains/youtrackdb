@@ -10,14 +10,32 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
-/** Execution step that fetches all records from a specified collection (cluster). */
+/**
+ * Source step that scans a single collection (by numeric collection ID) rather
+ * than a whole class. This is a lower-level variant of
+ * {@link FetchFromClassExecutionStep} used when the target is a specific collection.
+ *
+ * <p>Supports optional ASC/DESC ordering of the collection scan and can be
+ * narrowed by RID range conditions from the query planning info.
+ */
 public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
 
+  /** Sentinel value for ascending scan order. */
   public static final Object ORDER_ASC = "ASC";
+
+  /** Sentinel value for descending scan order. */
   public static final Object ORDER_DESC = "DESC";
+
+  /**
+   * Planning info preserved for plan copying via {@link #copy()}. Not currently
+   * consulted during execution. Retained so that copied plans carry complete metadata.
+   */
   private final QueryPlanningInfo queryPlanning;
 
+  /** The numeric collection ID to scan. */
   private int collectionId;
+
+  /** Scan order: {@link #ORDER_ASC}, {@link #ORDER_DESC}, or null for default (ascending). */
   private Object order;
 
   public FetchFromCollectionExecutionStep(
@@ -37,6 +55,7 @@ public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects before scanning.
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
@@ -53,15 +72,8 @@ public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
     return set;
   }
 
-  @Override
-  public void sendTimeout() {
-    super.sendTimeout();
-  }
-
-  @Override
-  public void close() {
-    super.close();
-  }
+  // sendTimeout() and close() delegate to super -- no additional resources to manage.
+  // These overrides exist for historical reasons and are retained for binary compatibility.
 
   @Override
   public String prettyPrint(int depth, int indent) {
@@ -104,6 +116,7 @@ public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
     }
   }
 
+  /** Cacheable: collection ID is a stable numeric reference. */
   @Override
   public boolean canBeCached() {
     return true;

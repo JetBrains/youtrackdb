@@ -59,15 +59,111 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
+/**
+ * Converts a parsed {@link SQLSelectStatement} AST into a physical
+ * {@link SelectExecutionPlan} -- an ordered chain of {@link ExecutionStepInternal}
+ * nodes that, when started, produce a pull-based stream of results.
+ *
+ * <h2>High-level pipeline</h2>
+ * <pre>
+ * SQLSelectStatement (AST from JavaCC parser)
+ *        |
+ *        v
+ * +-------------------------------+
+ * | SelectExecutionPlanner        |
+ * |  1. init()          copy AST  |
+ * |  2. optimizeQuery() rewrite   |
+ * |  3. build step chain          |
+ * +-------------------------------+
+ *        |
+ *        v
+ * SelectExecutionPlan (linked list of steps)
+ *
+ *  step1 --next--&gt; step2 --next--&gt; ... --next--&gt; stepN
+ *        &lt;--prev--       &lt;--prev--     &lt;--prev--
+ *
+ *  Execution is PULL-BASED: the caller invokes stepN.start(ctx)
+ *  which recursively pulls from step(N-1), etc.
+ * </pre>
+ *
+ * <h2>Planning phases (in order)</h2>
+ * <pre>
+ *  Phase                        | Method(s)
+ *  -----------------------------|-------------------------------------------
+ *  1. Copy &amp; normalize AST      | init()
+ *  2. Optimize query            | optimizeQuery()
+ *     a. Split LET              |   splitLet()
+ *     b. Rewrite index chains   |   rewriteIndexChainsAsSubqueries()
+ *     c. Extract subqueries     |   extractSubQueries()
+ *     d. Flatten WHERE          |   whereClause.flatten()
+ *     e. Move equalities left   |   moveFlattenedEqualitiesLeft()
+ *     f. Split projections      |   splitProjectionsForGroupBy()
+ *     g. Add ORDER BY projs     |   addOrderByProjections()
+ *  3. Hard-wired optimizations  | handleHardwiredOptimizations()
+ *     (COUNT(*) short-circuits) |
+ *  4. Global LET                | handleGlobalLet()
+ *  5. Fetch from target         | handleFetchFromTarget()
+ *  6. Per-record LET            | handleLet()
+ *  7. WHERE filtering           | handleWhere()
+ *  8. Projections block         | handleProjectionsBlock()
+ *     (projections, EXPAND,     |
+ *      UNWIND, ORDER BY,        |
+ *      SKIP, LIMIT, DISTINCT)   |
+ *  9. Timeout                   | AccumulatingTimeoutStep
+ *  10. Cache plan (optional)    | ExecutionPlanCache.put()
+ * </pre>
+ *
+ * <h2>Projection splitting for aggregation</h2>
+ * When the SELECT list contains aggregate functions (e.g. {@code count(*), max(price)}),
+ * the planner splits projections into three phases to support GROUP BY correctly:
+ * <pre>
+ *   SELECT city, count(*), max(price) FROM Product GROUP BY city
+ *
+ *   preAggregateProjection :  city           (per-record fields needed before grouping)
+ *   aggregateProjection    :  count(*), max  (aggregate accumulators, grouped by city)
+ *   projection (post)      :  city, count, max (final output mapping)
+ *
+ *   Pipeline:
+ *   FetchFromClass -&gt; ProjectionCalc(pre) -&gt; AggregateProjectionCalc -&gt; ProjectionCalc(post)
+ * </pre>
+ *
+ * <h2>Index selection strategy</h2>
+ * For class-targeted queries with a WHERE clause the planner attempts, in order:
+ * <ol>
+ *   <li>Indexed function execution (e.g. spatial / full-text custom functions)</li>
+ *   <li>Best-fit B-tree / hash index lookup via {@link #findBestIndexFor}</li>
+ *   <li>Index-only sort (ORDER BY matches index field order)</li>
+ *   <li>Full class scan with optional RID-ordering optimization</li>
+ * </ol>
+ *
+ * <h2>Thread safety</h2>
+ * Instances are <b>not</b> thread-safe. A new planner is created per query execution.
+ * The resulting {@link SelectExecutionPlan} may be cached and copied for reuse.
+ *
+ * @see SelectExecutionPlan
+ * @see QueryPlanningInfo
+ * @see ExecutionStepInternal
+ */
 public class SelectExecutionPlanner {
 
+  /** Mutable planning state -- populated by {@link #init} and mutated by optimization passes. */
   private QueryPlanningInfo info;
+
+  /** The parsed SQL SELECT statement (immutable AST from the JavaCC parser). */
   private final SQLSelectStatement statement;
 
   public SelectExecutionPlanner(SQLSelectStatement oSelectStatement) {
     this.statement = oSelectStatement;
   }
 
+  /**
+   * Copies all relevant clauses from the parsed {@link SQLSelectStatement} into a mutable
+   * {@link QueryPlanningInfo} so that subsequent optimization passes can freely rewrite them
+   * without mutating the original AST (which may be cached or reused).
+   *
+   * <p>Also applies a default command-level timeout from {@link GlobalConfiguration#COMMAND_TIMEOUT}
+   * if no explicit TIMEOUT clause was specified in the SQL.
+   */
   private void init(CommandContext ctx) {
     // copying the content, so that it can be manipulated and optimized
     info = new QueryPlanningInfo();
@@ -104,9 +200,28 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Main entry point: builds and returns a fully assembled execution plan for the
+   * SELECT statement that was passed to the constructor.
+   *
+   * <p>The method first checks the plan cache (when {@code useCache} is true and profiling
+   * is disabled). If no cached plan is found it runs the full planning pipeline:
+   * <pre>
+   *   init() --&gt; optimizeQuery() --&gt; hardwired opts? --&gt; globalLet --&gt; fetch
+   *          --&gt; perRecordLet --&gt; where --&gt; projectionsBlock --&gt; timeout
+   * </pre>
+   *
+   * @param ctx              command context carrying the database session and input parameters
+   * @param enableProfiling  if true, each step wraps its output stream with profiling counters
+   * @param useCache         if true, the planner will check / populate the
+   *                         {@link ExecutionPlanCache}
+   * @return a ready-to-execute {@link InternalExecutionPlan}
+   */
   public InternalExecutionPlan createExecutionPlan(
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
     var session = ctx.getDatabaseSession();
+
+    // --- 1. Check the plan cache before doing any work ---
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
       var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
       if (plan != null) {
@@ -114,36 +229,45 @@ public class SelectExecutionPlanner {
       }
     }
 
+    // Record the timestamp so we can avoid caching a stale plan if the schema
+    // was modified concurrently during planning.
     var planningStart = System.currentTimeMillis();
 
+    // --- 2. Copy AST into mutable QueryPlanningInfo ---
     init(ctx);
     var result = new SelectExecutionPlan(ctx);
 
+    // DISTINCT + expand() is an unsupported combination -- fail fast.
     if (info.expand && info.distinct) {
       throw new CommandExecutionException(session,
           "Cannot execute a statement with DISTINCT expand(), please use a subquery");
     }
 
+    // --- 3. Optimize the query: rewrite LET, flatten WHERE, split projections, etc. ---
     optimizeQuery(info, ctx);
 
+    // --- 4. Try hardwired short-circuit optimizations (e.g. COUNT(*) without scan) ---
     if (handleHardwiredOptimizations(result, ctx, enableProfiling)) {
       return result;
     }
 
-    handleGlobalLet(result, info, ctx, enableProfiling);
+    // --- 5. Build the step chain in pipeline order ---
+    handleGlobalLet(result, info, ctx, enableProfiling);       // global LET (executed once)
 
-    handleFetchFromTarget(result, info, ctx, enableProfiling);
+    handleFetchFromTarget(result, info, ctx, enableProfiling); // data source
 
-    handleLet(result, info, ctx, enableProfiling);
+    handleLet(result, info, ctx, enableProfiling);             // per-record LET
 
-    handleWhere(result, info, ctx, enableProfiling);
+    handleWhere(result, info, ctx, enableProfiling);           // WHERE filtering
 
-    handleProjectionsBlock(result, info, ctx, enableProfiling);
+    handleProjectionsBlock(result, info, ctx, enableProfiling);// projections, ORDER BY, etc.
 
+    // --- 6. Append timeout enforcement step if configured ---
     if (info.timeout != null) {
       result.chain(new AccumulatingTimeoutStep(info.timeout, ctx, enableProfiling));
     }
 
+    // --- 7. Store the assembled plan in the cache for future reuse ---
     if (useCache
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
@@ -154,15 +278,46 @@ public class SelectExecutionPlanner {
     return result;
   }
 
+  /**
+   * Assembles the tail of the execution plan covering projections, EXPAND, UNWIND,
+   * ORDER BY, DISTINCT, SKIP and LIMIT.
+   *
+   * <p>The ordering of these steps depends on which SQL features are used. Three
+   * mutually exclusive code paths handle all combinations:
+   *
+   * <pre>
+   * Path A -- EXPAND / UNWIND / GROUP BY present:
+   *   Projections -&gt; Expand -&gt; Unwind -&gt; OrderBy -&gt; Skip -&gt; Limit
+   *   (ORDER BY must come AFTER expand/unwind because those change the row count)
+   *
+   * Path B -- DISTINCT / aggregation (no expand/unwind):
+   *   OrderBy -&gt; Projections -&gt; Distinct -&gt; Skip -&gt; Limit
+   *   (ORDER BY before projections so sort keys are still available)
+   *
+   * Path C -- simple query (no expand/unwind/distinct/aggregation):
+   *   Skip -&gt; Limit -&gt; Projections
+   *   (SKIP/LIMIT applied early to minimize projection work)
+   * </pre>
+   *
+   * <p>In all paths, if an ORDER BY clause is present,
+   * {@link #handleProjectionsBeforeOrderBy} is called first to ensure that ORDER BY
+   * expressions that are not part of the user's SELECT list are temporarily added as
+   * projections (they will be stripped later by {@code projectionAfterOrderBy}).
+   */
   public static void handleProjectionsBlock(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean enableProfiling) {
+
+    // Ensure ORDER BY expressions are available as projected columns.
     handleProjectionsBeforeOrderBy(result, info, ctx, enableProfiling);
 
     if (info.expand || info.unwind != null || info.groupBy != null) {
-
+      // --- Path A: EXPAND / UNWIND / GROUP BY ---
+      // Projections must be computed before expand/unwind because those operators
+      // consume the projected field to produce new rows.  ORDER BY runs after
+      // because the row cardinality has changed.
       handleProjections(result, info, ctx, enableProfiling);
       handleExpand(result, info, ctx, enableProfiling);
       handleUnwind(result, info, ctx, enableProfiling);
@@ -174,8 +329,16 @@ public class SelectExecutionPlanner {
         result.chain(new LimitExecutionStep(info.limit, ctx, enableProfiling));
       }
     } else {
+      // ORDER BY runs first so sort keys (which may be raw record fields
+      // not present in the final projection) are still accessible.
       handleOrderBy(result, info, ctx, enableProfiling);
+
       if (info.distinct || info.groupBy != null || info.aggregateProjection != null) {
+        // --- Path B: DISTINCT / aggregation ---
+        // Note: info.groupBy != null is a defensive guard here. In practice, the outer
+        // if-branch (Path A) already handles groupBy != null. It is retained to ensure
+        // correct behavior if the Path A condition is ever modified.
+        // Projections run after sorting; DISTINCT deduplicates the projected rows.
         handleProjections(result, info, ctx, enableProfiling);
         handleDistinct(result, info, ctx, enableProfiling);
         if (info.skip != null) {
@@ -185,6 +348,9 @@ public class SelectExecutionPlanner {
           result.chain(new LimitExecutionStep(info.limit, ctx, enableProfiling));
         }
       } else {
+        // --- Path C: simple query ---
+        // SKIP/LIMIT before projections to avoid computing projections on
+        // rows that will be discarded anyway.
         if (info.skip != null) {
           result.chain(new SkipExecutionStep(info.skip, ctx, enableProfiling));
         }
@@ -196,6 +362,10 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Rewrites legacy Lucene-style operators in the WHERE clause to the standard form.
+   * Returns the (possibly mutated) WHERE clause, or {@code null} if the input was null.
+   */
   @Nullable
   private static SQLWhereClause translateLucene(SQLWhereClause whereClause) {
     if (whereClause == null) {
@@ -209,10 +379,10 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * for backward compatibility, translate "distinct(foo)" to "DISTINCT foo". This method modifies
-   * the projection itself.
-   *
-   * @param projection the projection
+   * For backward compatibility, translates the legacy {@code distinct(foo)} function
+   * call syntax into the standard {@code SELECT DISTINCT foo} form. Returns a new
+   * projection with {@code isDistinct() == true} and the inner expression unwrapped.
+   * If the projection does not contain a legacy distinct() call, it is returned as-is.
    */
   public static SQLProjection translateDistinct(SQLProjection projection) {
     if (projection != null && projection.getItems().size() == 1) {
@@ -239,10 +409,10 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * checks if a projection is a distinct(expr). In new executor the distinct() function is not
-   * supported, so "distinct(expr)" is translated to "DISTINCT expr"
-   *
-   * @param item the projection
+   * Returns {@code true} if the given projection item is a legacy {@code distinct(expr)}
+   * function call. The new executor does not support {@code distinct()} as a function;
+   * instead, the caller rewrites it to {@code SELECT DISTINCT expr} via
+   * {@link #translateDistinct}.
    */
   private static boolean isDistinct(SQLProjectionItem item) {
     if (item.getExpression() == null) {
@@ -270,6 +440,21 @@ public class SelectExecutionPlanner {
     return function.getName().getStringValue().equalsIgnoreCase("distinct");
   }
 
+  /**
+   * Attempts to short-circuit the entire plan with a single optimized step when the
+   * query is a simple {@code SELECT count(*) FROM ClassName} (optionally with a
+   * single indexed equality condition).
+   *
+   * <pre>
+   *  Case 1 -- bare count:   SELECT count(*) FROM Foo
+   *    =&gt; CountFromClassStep  (O(1) metadata lookup, no record scan)
+   *
+   *  Case 2 -- indexed count: SELECT count(*) FROM Foo WHERE bar = ?
+   *    =&gt; CountFromIndexWithKeyStep  (single index key count)
+   * </pre>
+   *
+   * @return {@code true} if the optimization was applied and the plan is complete
+   */
   private boolean handleHardwiredOptimizations(
       SelectExecutionPlan result, CommandContext ctx, boolean profilingEnabled) {
     if (handleHardwiredCountOnClass(result, info, ctx, profilingEnabled)) {
@@ -278,6 +463,16 @@ public class SelectExecutionPlanner {
     return handleHardwiredCountOnClassUsingIndex(result, info, ctx, profilingEnabled);
   }
 
+  /**
+   * Handles the special case of {@code SELECT count(*) FROM ClassName} with no WHERE,
+   * no GROUP BY, no ORDER BY, no SKIP/LIMIT, no LET, etc.
+   *
+   * <p>If all preconditions are met and no security policies restrict reads on the target
+   * class, the plan is reduced to a single {@link CountFromClassStep} which reads the
+   * record count from class metadata in O(1) time.
+   *
+   * @return {@code true} if the optimization was applied
+   */
   private static boolean handleHardwiredCountOnClass(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -310,6 +505,11 @@ public class SelectExecutionPlanner {
     return true;
   }
 
+  /**
+   * Returns {@code true} if a security policy restricts read access to the given class,
+   * which would make a direct metadata count incorrect (the count must respect row-level
+   * security filtering).
+   */
   private static boolean securityPoliciesExistForClass(SchemaClassInternal targetClass,
       CommandContext ctx) {
     if (targetClass == null) {
@@ -323,6 +523,21 @@ public class SelectExecutionPlanner {
         "database.class." + targetClass.getName());
   }
 
+  /**
+   * Handles the special case of {@code SELECT count(*) FROM ClassName WHERE field = ?}
+   * when a single-field index exists on the filtered property.
+   *
+   * <p>Constraints checked (all must be true for the optimization to apply):
+   * <ul>
+   *   <li>Target is a class (not a subquery, variable, etc.)</li>
+   *   <li>Projection is exactly one count(*)</li>
+   *   <li>WHERE is a single equality condition on a base identifier</li>
+   *   <li>A single-field class index covers the equality field</li>
+   *   <li>No security policies restrict reads</li>
+   * </ul>
+   *
+   * @return {@code true} if the optimization was applied
+   */
   private static boolean handleHardwiredCountOnClassUsingIndex(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -394,8 +609,9 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * returns true if the query is minimal, ie. no WHERE condition, no SKIP/LIMIT, no UNWIND, no
-   * GROUP/ORDER BY, no LET
+   * Returns {@code true} if the query has no WHERE, no SKIP/LIMIT, no UNWIND,
+   * no GROUP BY, no ORDER BY, and no LET -- i.e. the simplest possible query
+   * form that qualifies for hardwired optimizations like metadata-based count.
    */
   private static boolean isMinimalQuery(QueryPlanningInfo info) {
     return info.projectionAfterOrderBy == null
@@ -409,6 +625,10 @@ public class SelectExecutionPlanner {
         && info.skip == null;
   }
 
+  /**
+   * Returns {@code true} if the query is exactly {@code SELECT count(*)} with a
+   * single aggregate projection item and a single output projection item.
+   */
   private static boolean isCountStar(QueryPlanningInfo info) {
     if (info.aggregateProjection == null
         || info.projection == null
@@ -420,6 +640,11 @@ public class SelectExecutionPlanner {
     return item.getExpression().toString().equalsIgnoreCase("count(*)");
   }
 
+  /**
+   * Returns {@code true} if the query has exactly one aggregate projection that is a
+   * bare {@code count()} (with no modifier), and only one user-visible output column
+   * (synthetic ORDER BY aliases are excluded from the count).
+   */
   private static boolean isCountOnly(QueryPlanningInfo info) {
     if (info.aggregateProjection == null
         || info.projection == null
@@ -439,6 +664,16 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /**
+   * Appends an {@link UnwindStep} if the query contains an UNWIND clause.
+   *
+   * <p>UNWIND flattens a collection-valued field into multiple rows:
+   * <pre>
+   *   Input:  { name: "Alice", tags: ["a","b"] }
+   *   Output: { name: "Alice", tags: "a" }
+   *           { name: "Alice", tags: "b" }
+   * </pre>
+   */
   public static void handleUnwind(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -449,6 +684,7 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /** Appends a {@link DistinctExecutionStep} if the query uses DISTINCT. */
   private static void handleDistinct(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -459,6 +695,12 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * If an ORDER BY clause is present, projections are calculated early so that
+   * sort keys derived from projected expressions are available to
+   * {@link OrderByStep}. Without ORDER BY this is a no-op (projections are
+   * deferred for efficiency).
+   */
   private static void handleProjectionsBeforeOrderBy(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -469,17 +711,48 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Builds the projection sub-pipeline (up to three steps) and appends it to the plan.
+   *
+   * <p>When aggregation is involved the projection is split into three phases
+   * (see {@link #splitProjectionsForGroupBy}):
+   * <pre>
+   *   Phase 1 (optional): ProjectionCalculationStep(preAggregateProjection)
+   *       -- evaluates per-row expressions needed by the aggregate
+   *
+   *   Phase 2 (optional): AggregateProjectionCalculationStep(aggregateProjection)
+   *       -- accumulates aggregate functions, grouped by GROUP BY keys
+   *       +  GuaranteeEmptyCountStep (only for bare count() without GROUP BY)
+   *
+   *   Phase 3 (always):   ProjectionCalculationStep(projection)
+   *       -- computes the final output columns
+   * </pre>
+   *
+   * <p>The {@code projectionsCalculated} flag prevents this method from appending
+   * projection steps more than once (it can be called from both
+   * {@link #handleProjectionsBeforeOrderBy} and the main projections block).
+   *
+   * <p>When no ORDER BY is present, a combined aggregation limit
+   * ({@code SKIP + LIMIT}) is passed into the aggregation step so it can
+   * stop accumulating early once enough groups have been produced.
+   */
   private static void handleProjections(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
     if (!info.projectionsCalculated && info.projection != null) {
+
+      // Phase 1: pre-aggregate projections (per-row expressions feeding aggregates)
       if (info.preAggregateProjection != null) {
         result.chain(
             new ProjectionCalculationStep(info.preAggregateProjection, ctx, profilingEnabled));
       }
+
+      // Phase 2: aggregate accumulation (GROUP BY + aggregate functions)
       if (info.aggregateProjection != null) {
+        // When there is no ORDER BY, we can limit how many groups the aggregation
+        // produces to (SKIP + LIMIT) -- an early-termination optimization.
         long aggregationLimit = -1;
         if (info.orderBy == null && info.limit != null) {
           aggregationLimit = info.limit.getValue(ctx);
@@ -495,28 +768,59 @@ public class SelectExecutionPlanner {
                 ctx,
                 info.timeout != null ? info.timeout.getVal().longValue() : -1,
                 profilingEnabled));
+
+        // For a bare "SELECT count(*) FROM ..." (no GROUP BY), guarantee that
+        // the result contains at least one row with count=0 even when the
+        // upstream produces zero records.
         if (isCountOnly(info) && info.groupBy == null) {
           result.chain(
               new GuaranteeEmptyCountStep(
                   info.aggregateProjection.getItems().getFirst(), ctx, profilingEnabled));
         }
       }
+
+      // Phase 3: final projection (maps accumulated / raw fields to output columns)
       result.chain(new ProjectionCalculationStep(info.projection, ctx, profilingEnabled));
 
       info.projectionsCalculated = true;
     }
   }
 
+  /**
+   * Master optimization pass that rewrites the mutable {@link QueryPlanningInfo} in-place.
+   *
+   * <p>The sub-passes run in a fixed order because each may depend on the output of
+   * the previous one:
+   * <pre>
+   *  1. splitLet           -- separate global vs per-record LET items
+   *  2. rewriteIndexChains -- convert chained index traversals to subqueries
+   *  3. extractSubQueries  -- pull inline subqueries into LET variables
+   *  4. detect expand()    -- extract EXPAND projection into a flag + alias
+   *  5. flatten WHERE      -- convert OR/AND tree to a list of AND blocks
+   *  6. equalities left    -- reorder each AND block: equalities first (index-friendly)
+   *  7. splitProjections   -- split into pre-aggregate / aggregate / post-aggregate
+   *  8. addOrderByProjs    -- add synthetic projections for ORDER BY expressions
+   * </pre>
+   *
+   * <p>After this method completes, {@code info.flattenedWhereClause} is a
+   * {@code List<SQLAndBlock>} where each block represents one OR-branch, and within
+   * each block the conditions are ordered with equalities first (which allows the
+   * index selection logic to match index prefixes greedily).
+   */
   public static void optimizeQuery(QueryPlanningInfo info, CommandContext ctx) {
     splitLet(info, ctx);
     rewriteIndexChainsAsSubqueries(info, ctx);
     extractSubQueries(info);
+
+    // Detect and extract expand() from the projection
     if (info.projection != null && info.projection.isExpand()) {
       info.expand = true;
       info.expandAlias = info.projection.getExpandAlias();
       info.projection = info.projection.getExpandContent();
     }
 
+    // Flatten the WHERE tree into a list of AND blocks (one per OR branch)
+    // and reorder equalities to the front of each block for index matching.
     if (info.whereClause != null) {
       if (info.target == null) {
         info.flattenedWhereClause = info.whereClause.flatten(ctx, null);
@@ -524,7 +828,8 @@ public class SelectExecutionPlanner {
         info.flattenedWhereClause = info.whereClause.flatten(ctx,
             info.target.getSchemaClass(ctx.getDatabaseSession()));
       }
-      // this helps index optimization
+      // Move equality conditions to the left of each AND block so the index
+      // selection logic can greedily match the longest index prefix.
       info.flattenedWhereClause = moveFlattenedEqualitiesLeft(info.flattenedWhereClause);
     }
 
@@ -532,6 +837,12 @@ public class SelectExecutionPlanner {
     addOrderByProjections(info);
   }
 
+  /**
+   * Rewrites chained index traversals in the WHERE clause into subqueries.
+   * For example, {@code WHERE friend.name = 'Alice'} where {@code friend} is a link
+   * and {@code name} is indexed can be rewritten as a subquery that first resolves
+   * the index lookup, then matches the link.
+   */
   private static void rewriteIndexChainsAsSubqueries(QueryPlanningInfo info, CommandContext ctx) {
     if (ctx == null) {
       return;
@@ -552,7 +863,19 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * splits LET clauses in global (executed once) and local (executed once per record)
+   * Splits the per-record LET clause into global and per-record items.
+   *
+   * <p>Items that can be evaluated once (before the main fetch) are promoted to
+   * global LET. The promotion criteria are:
+   * <ul>
+   *   <li>Expression is early-calculable (does not depend on the current record)</li>
+   *   <li>Expression is a set-combination function (unionAll, intersect, difference)</li>
+   *   <li>Query subexpression does not reference {@code $parent} (no back-reference
+   *       to the outer record)</li>
+   * </ul>
+   *
+   * <p>Promoted items are removed from {@code info.perRecordLetClause} and added to
+   * {@code info.globalLetClause}.
    */
   private static void splitLet(QueryPlanningInfo info, CommandContext ctx) {
     if (info.perRecordLetClause != null && info.perRecordLetClause.getItems() != null) {
@@ -575,6 +898,12 @@ public class SelectExecutionPlanner {
   private static final Set<String> COMBINATION_FUNCTIONS =
       Set.of("unionall", "intersect", "difference");
 
+  /**
+   * Checks whether an expression is a set-combination function ({@code unionAll},
+   * {@code intersect}, {@code difference}) that operates on query-result variables.
+   * Such expressions are always promoted to global LET because they aggregate
+   * multiple result sets and do not depend on individual records.
+   */
   private static boolean isCombinationOfQueries(SQLExpression expression) {
     if (expression.getMathExpression() instanceof SQLBaseExpression exp) {
       if (exp.getIdentifier() != null
@@ -597,7 +926,17 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * re-writes a list of flat AND conditions, moving left all the equality operations
+   * Reorders the conditions within each AND block so that equality conditions
+   * ({@code field = value}) appear before range/other conditions.
+   *
+   * <p>This is critical for index selection: indexes are matched by prefix, so having
+   * equalities first maximizes the number of index fields that can be used.
+   *
+   * <pre>
+   * Before: [age &gt; 20, name = 'Alice', city = 'NYC']
+   * After:  [name = 'Alice', city = 'NYC', age &gt; 20]
+   *          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  equality prefix for composite index
+   * </pre>
    */
   @Nullable
   private static List<SQLAndBlock> moveFlattenedEqualitiesLeft(
@@ -632,7 +971,24 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * creates additional projections for ORDER BY
+   * Adds synthetic projection items for ORDER BY expressions that are not already
+   * present in the user's SELECT list.
+   *
+   * <p>When a query sorts by an expression not in the projection (e.g.
+   * {@code SELECT name FROM Person ORDER BY age}), the sort step needs access to
+   * {@code age}. This method:
+   * <ol>
+   *   <li>Adds a temporary projection with alias {@code _$$$ORDER_BY_ALIAS$$$_N}</li>
+   *   <li>Rewrites the ORDER BY item to reference this alias</li>
+   *   <li>Creates a {@code projectionAfterOrderBy} that strips the temporary
+   *       aliases after sorting is complete</li>
+   * </ol>
+   *
+   * <pre>
+   *  Before:  SELECT name FROM Person ORDER BY age
+   *  After:   SELECT name, age AS _$$$ORDER_BY_ALIAS$$$_0 ... ORDER BY _$$$ORDER_BY_ALIAS$$$_0
+   *           + projectionAfterOrderBy: SELECT name   (strips the temporary column)
+   * </pre>
    */
   private static void addOrderByProjections(QueryPlanningInfo info) {
     if (info.orderApplied
@@ -673,14 +1029,19 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * given a list of aliases (present in the existing projections) calculates a list of additional
-   * projections to add to the existing projections to allow ORDER BY calculation. The sorting
-   * clause will be modified with new replaced aliases
+   * Computes synthetic projection items for ORDER BY expressions not covered by existing
+   * projection aliases.
    *
-   * @param allAliases existing aliases in the projection
-   * @param orderBy    sorting clause
-   * @return a list of additional projections to add to the existing projections to allow ORDER BY
-   * calculation (empty if nothing has to be added).
+   * <p>For each ORDER BY item whose alias is not in {@code allAliases}, a new
+   * {@link SQLProjectionItem} is created with a synthetic alias
+   * ({@code _$$$ORDER_BY_ALIAS$$$_0}, {@code _$$$ORDER_BY_ALIAS$$$_1}, ...) and the
+   * ORDER BY item is rewritten to reference this alias instead of the original expression.
+   *
+   * @param allAliases existing aliases in the user's projection
+   * @param orderBy    the ORDER BY clause (mutated in-place: items are rewritten to use
+   *                   the synthetic aliases)
+   * @return synthetic projection items to append (empty if all ORDER BY expressions are
+   *         already projected)
    */
   private static List<SQLProjectionItem> calculateAdditionalOrderByProjections(
       Set<String> allAliases, SQLOrderBy orderBy) {
@@ -714,8 +1075,30 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * splits projections in three parts (pre-aggregate, aggregate and final) to efficiently manage
-   * aggregations
+   * Splits the user's SELECT-list projections into three phases to support SQL
+   * aggregation with GROUP BY correctly.
+   *
+   * <pre>
+   *  Example:
+   *    SELECT city, count(*) AS cnt, max(price) AS mp FROM Product GROUP BY city
+   *
+   *  Split result:
+   *    preAggregateProjection : [city]
+   *        -- per-record fields consumed by the aggregation / grouping
+   *    aggregateProjection    : [count(*), max(price)]
+   *        -- aggregate accumulators, each producing one value per group
+   *    projection (post)      : [city, cnt, mp]
+   *        -- final output mapping from aliases to accumulated results
+   *
+   *  Non-aggregate items (e.g. "city") are forwarded through all three phases
+   *  so they remain accessible after aggregation.
+   *
+   *  Pipeline built later:
+   *    ... -&gt; ProjectionCalc(pre) -&gt; AggregateProjectionCalc -&gt; ProjectionCalc(post)
+   * </pre>
+   *
+   * <p>If no aggregate functions are found the three-phase split is skipped entirely
+   * (the {@code isSplitted} flag stays {@code false}).
    */
   private static void splitProjectionsForGroupBy(QueryPlanningInfo info, CommandContext ctx) {
     if (info.projection == null) {
@@ -773,10 +1156,12 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /** Delegates to the projection item's own aggregate detection logic. */
   private static boolean isAggregate(DatabaseSessionEmbedded session, SQLProjectionItem item) {
     return item.isAggregate(session);
   }
 
+  /** Creates a pass-through projection item that simply references an existing alias by name. */
   private static SQLProjectionItem projectionFromAlias(SQLIdentifier oIdentifier) {
     var result = new SQLProjectionItem(-1);
     result.setExpression(new SQLExpression(oIdentifier));
@@ -784,9 +1169,21 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * if GROUP BY is performed on an expression that is not explicitly in the pre-aggregate
-   * projections, then that expression has to be put in the pre-aggregate (only here, in subsequent
-   * steps it's removed)
+   * Ensures that GROUP BY expressions are present in the pre-aggregate projections.
+   *
+   * <p>If a GROUP BY expression matches an existing pre-aggregate alias (by name), it
+   * is reused directly. Otherwise, a synthetic projection with alias
+   * {@code _$$$GROUP_BY_ALIAS$$$_N} is added to the pre-aggregate projection, and the
+   * GROUP BY is rewritten to reference this alias.
+   *
+   * <pre>
+   *  Example:
+   *    SELECT count(*) FROM Product GROUP BY city * 2
+   *
+   *    city * 2 is not in the pre-aggregate projections, so:
+   *      preAggregateProjection += [city * 2 AS _$$$GROUP_BY_ALIAS$$$_0]
+   *      GROUP BY rewritten to: _$$$GROUP_BY_ALIAS$$$_0
+   * </pre>
    */
   private static void addGroupByExpressionsToProjections(DatabaseSessionEmbedded session,
       QueryPlanningInfo info) {
@@ -795,6 +1192,7 @@ public class SelectExecutionPlanner {
         || info.groupBy.getItems().isEmpty()) {
       return;
     }
+    // Build a new GROUP BY that references projection aliases instead of raw expressions.
     var newGroupBy = new SQLGroupBy(-1);
     var i = 0;
     for (var exp : info.groupBy.getItems()) {
@@ -804,9 +1202,8 @@ public class SelectExecutionPlanner {
       var found = false;
       if (info.preAggregateProjection != null) {
         for (var alias : info.preAggregateProjection.getAllAliases()) {
-          // if it's a simple identifier and it's the same as one of the projections in the query,
-          // then the projection itself is used for GROUP BY without recalculating; in all the other
-          // cases, it is evaluated separately
+          // If the GROUP BY expression is a simple identifier matching an existing
+          // projection alias, reuse it -- no need for a synthetic alias.
           if (alias.equals(exp.getDefaultAlias().getStringValue()) && exp.isBaseIdentifier()) {
             found = true;
             newGroupBy.getItems().add(exp);
@@ -815,6 +1212,9 @@ public class SelectExecutionPlanner {
         }
       }
       if (!found) {
+        // The GROUP BY expression is not already projected -- add a synthetic
+        // projection (e.g. _$$$GROUP_BY_ALIAS$$$_0) and rewrite the GROUP BY
+        // to reference this alias.
         var newItem = new SQLProjectionItem(-1);
         newItem.setExpression(exp);
         var groupByAlias = new SQLIdentifier("_$$$GROUP_BY_ALIAS$$$_" + i++);
@@ -829,12 +1229,27 @@ public class SelectExecutionPlanner {
         newGroupBy.getItems().add(new SQLExpression(groupByAlias));
       }
 
+      // Replace the original GROUP BY with the rewritten version after each iteration.
+      // This is inside the loop so that subsequent iterations see the updated groupBy.
       info.groupBy = newGroupBy;
     }
   }
 
   /**
-   * translates subqueries to LET statements
+   * Extracts inline subqueries from the WHERE, projection, ORDER BY, and GROUP BY
+   * clauses and rewrites them as LET variables.
+   *
+   * <p>Each extracted subquery is assigned a synthetic alias (prefixed
+   * {@code $$$SUBQUERY$$_}) and replaced in-place by a variable reference.
+   * The subquery itself is added either to the global LET (when it does not
+   * reference the current record) or to the per-record LET (when it uses
+   * {@code $parent} or similar back-references).
+   *
+   * <pre>
+   *  Before: SELECT * FROM Foo WHERE bar IN (SELECT id FROM Bar)
+   *  After:  LET $$$SUBQUERY$$_0 = (SELECT id FROM Bar)
+   *          SELECT * FROM Foo WHERE bar IN $$$SUBQUERY$$_0
+   * </pre>
    */
   private static void extractSubQueries(QueryPlanningInfo info) {
     var collector = new SubQueryCollector();
@@ -878,6 +1293,7 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /** Appends an expression-based LET item to the global LET clause. */
   private static void addGlobalLet(QueryPlanningInfo info, SQLIdentifier alias, SQLExpression exp) {
     if (info.globalLetClause == null) {
       info.globalLetClause = new SQLLetClause(-1);
@@ -888,6 +1304,7 @@ public class SelectExecutionPlanner {
     info.globalLetClause.addItem(item);
   }
 
+  /** Appends a subquery-based LET item to the global LET clause. */
   private static void addGlobalLet(QueryPlanningInfo info, SQLIdentifier alias, SQLStatement stm) {
     if (info.globalLetClause == null) {
       info.globalLetClause = new SQLLetClause(-1);
@@ -898,6 +1315,7 @@ public class SelectExecutionPlanner {
     info.globalLetClause.addItem(item);
   }
 
+  /** Inserts a subquery-based LET item at position {@code pos} in the global LET clause. */
   private static void addGlobalLet(
       QueryPlanningInfo info, SQLIdentifier alias, SQLStatement stm, int pos) {
     if (info.globalLetClause == null) {
@@ -909,6 +1327,7 @@ public class SelectExecutionPlanner {
     info.globalLetClause.getItems().add(pos, item);
   }
 
+  /** Appends a subquery-based LET item to the per-record LET clause. */
   private static void addRecordLevelLet(QueryPlanningInfo info, SQLIdentifier alias,
       SQLStatement stm) {
     if (info.perRecordLetClause == null) {
@@ -920,6 +1339,7 @@ public class SelectExecutionPlanner {
     info.perRecordLetClause.addItem(item);
   }
 
+  /** Inserts a subquery-based LET item at position {@code pos} in the per-record LET clause. */
   private static void addRecordLevelLet(
       QueryPlanningInfo info, SQLIdentifier alias, SQLStatement stm, int pos) {
     if (info.perRecordLetClause == null) {
@@ -931,6 +1351,26 @@ public class SelectExecutionPlanner {
     info.perRecordLetClause.getItems().add(pos, item);
   }
 
+  /**
+   * Determines the data source for the SELECT and appends the appropriate fetch step(s).
+   *
+   * <p>Target resolution strategy (first match wins):
+   * <pre>
+   *  Target AST node         | Handler                     | Fetch step(s)
+   *  ------------------------|-----------------------------|--------------------------
+   *  null                    | handleNoTarget()            | EmptyDataGeneratorStep
+   *  $variable               | handleVariableAsTarget()    | FetchFromVariableStep
+   *  ClassName               | handleClassAsTarget()       | FetchFromClass/Index/...
+   *  (SELECT subquery)       | handleSubqueryAsTarget()    | SubQueryStep
+   *  :inputParam             | handleInputParamAsTarget()  | depends on param type
+   *  multiple :params        | (parallel sub-plans)        | ParallelExecStep
+   *  metadata:SCHEMA/...     | handleMetadataAsTarget()    | FetchFromRids/Metadata
+   *  [#rid1, #rid2, ...]     | handleRidsAsTarget()        | FetchFromRidsStep
+   * </pre>
+   *
+   * <p>For class targets, index-based optimizations are attempted before falling
+   * back to a full class scan (see {@link #handleClassAsTarget}).
+   */
   private void handleFetchFromTarget(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -991,6 +1431,11 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Handles a context variable (e.g. {@code $myVar}) as the FROM target.
+   * The variable's value is expected to be iterable (typically a result set
+   * from a previous LET assignment).
+   */
   private static void handleVariableAsTarget(
       SelectExecutionPlan plan,
       QueryPlanningInfo info,
@@ -1006,6 +1451,12 @@ public class SelectExecutionPlanner {
             targetItem.getIdentifier().getStringValue(), ctx, profilingEnabled));
   }
 
+  /**
+   * Extracts RID range conditions (e.g. {@code @rid > #10:5 AND @rid < #10:100}) from
+   * the flattened WHERE clause. These conditions are stored separately in
+   * {@link QueryPlanningInfo#ridRangeConditions} and used to narrow the collection scan
+   * range in {@link FetchFromClassExecutionStep}.
+   */
   private static SQLAndBlock extractRidRanges(List<SQLAndBlock> flattenedWhereClause,
       CommandContext ctx) {
     var result = new SQLAndBlock(-1);
@@ -1023,6 +1474,10 @@ public class SelectExecutionPlanner {
     return result;
   }
 
+  /**
+   * Returns {@code true} if the given boolean expression is a range comparison on
+   * {@code @rid} (e.g. {@code @rid > #10:5}).
+   */
   private static boolean isRidRange(SQLBooleanExpression booleanExpression, CommandContext ctx) {
     if (booleanExpression instanceof SQLBinaryCondition cond) {
       var operator = cond.getOperator();
@@ -1039,6 +1494,17 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /**
+   * Handles a positional / named input parameter ({@code ?} or {@code :param}) as
+   * the FROM target. The runtime value is inspected and dispatched to the
+   * appropriate handler:
+   * <ul>
+   *   <li>{@code null} -- {@link EmptyStep} (no rows)</li>
+   *   <li>{@link SchemaClass} or String -- treated as a class name</li>
+   *   <li>{@link Identifiable} -- single RID fetch</li>
+   *   <li>{@link Iterable} -- collection of RIDs</li>
+   * </ul>
+   */
   private void handleInputParamAsTarget(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -1106,12 +1572,23 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Handles a SELECT without a FROM clause (e.g. {@code SELECT 1+1, sysdate()}).
+   * Produces a single empty record so that the projection step can evaluate
+   * expressions exactly once.
+   */
   private static void handleNoTarget(
       SelectExecutionPlan result, CommandContext ctx, boolean profilingEnabled) {
     result.chain(new EmptyDataGeneratorStep(1, ctx, profilingEnabled));
   }
 
 
+  /**
+   * Handles {@code SELECT FROM metadata:SCHEMA}, {@code metadata:INDEXES},
+   * {@code metadata:STORAGE}, or {@code metadata:DATABASE} targets.
+   * Each is mapped to a specialized fetch step that reads the corresponding
+   * metadata structures.
+   */
   private static void handleMetadataAsTarget(
       SelectExecutionPlan plan,
       SQLMetadataIdentifier metadata,
@@ -1134,6 +1611,10 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Handles an explicit list of RIDs as the FROM target
+   * (e.g. {@code SELECT FROM [#10:3, #10:7]}).
+   */
   private static void handleRidsAsTarget(
       SelectExecutionPlan plan, List<SQLRid> rids, CommandContext ctx, boolean profilingEnabled) {
     List<RecordIdInternal> actualRids = new ArrayList<>();
@@ -1143,6 +1624,11 @@ public class SelectExecutionPlanner {
     plan.chain(new FetchFromRidsStep(actualRids, ctx, profilingEnabled));
   }
 
+  /**
+   * Appends an {@link ExpandStep} when the projection uses {@code expand(field)}.
+   * EXPAND takes a single link/collection field and expands each element into its
+   * own result row (analogous to UNWIND but resolves links to full records).
+   */
   private static void handleExpand(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -1153,6 +1639,22 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Appends global LET steps to the plan. Global LET items are evaluated exactly
+   * once (before the main fetch) and their results are stored in the command context
+   * for later use by per-record expressions.
+   *
+   * <p>Two step types are used:
+   * <ul>
+   *   <li>{@link GlobalLetExpressionStep} -- for simple expressions
+   *       (e.g. {@code LET $x = 42})</li>
+   *   <li>{@link GlobalLetQueryStep} -- for subquery expressions
+   *       (e.g. {@code LET $x = (SELECT FROM Foo)})</li>
+   * </ul>
+   *
+   * <p>The items are sorted to match the original LET declaration order
+   * (important when one LET variable references a previous one).
+   */
   private void handleGlobalLet(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
@@ -1178,6 +1680,17 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Appends per-record LET steps. Unlike global LETs, these are evaluated once
+   * for every record flowing through the pipeline.
+   *
+   * <p>Uses {@link LetExpressionStep} for expressions and {@link LetQueryStep}
+   * for subqueries. Results are stored as metadata on the current result row
+   * so they can be referenced by subsequent WHERE / projection expressions.
+   *
+   * <p>Note: this method may be called multiple times during planning (e.g.
+   * from the indexed-function path that injects per-record LETs into sub-plans).
+   */
   private void handleLet(
       SelectExecutionPlan plan,
       QueryPlanningInfo info,
@@ -1203,6 +1716,15 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Sorts LET items to match the order declared in the original SQL LET clause.
+   * This is important because LET items may reference previously declared variables
+   * (e.g. {@code LET $a = 1, $b = $a + 1}) so evaluation order must be preserved.
+   *
+   * <p>Items present in {@code items} but not in the original {@code letClause}
+   * (e.g. synthetic variables from {@code extractSubQueries()}) are appended at
+   * the end in their original insertion order.
+   */
   private static List<SQLLetItem> sortLet(List<SQLLetItem> items, SQLLetClause letClause) {
     if (letClause == null) {
       return items;
@@ -1225,6 +1747,14 @@ public class SelectExecutionPlanner {
     return result;
   }
 
+  /**
+   * Appends a {@link FilterStep} for the WHERE clause (if present and not already
+   * consumed by an index-based optimization).
+   *
+   * <p>Note: when index-based fetch is used, the planner may have already set
+   * {@code info.whereClause = null} to indicate that the WHERE was fully satisfied
+   * by the index. In that case this method is a no-op.
+   */
   private void handleWhere(
       SelectExecutionPlan plan,
       QueryPlanningInfo info,
@@ -1240,6 +1770,25 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Appends an {@link OrderByStep} (and optionally a post-ORDER-BY projection) if:
+   * <ul>
+   *   <li>An ORDER BY clause exists</li>
+   *   <li>The order has not already been satisfied by an index scan
+   *       ({@code info.orderApplied == false})</li>
+   * </ul>
+   *
+   * <p>The step loads all upstream records into memory and sorts them. When both SKIP
+   * and LIMIT are specified (and no EXPAND/UNWIND invalidates them), the step is told
+   * the maximum number of results needed ({@code SKIP + LIMIT}) so it can use a
+   * bounded priority queue instead of a full sort.
+   *
+   * <p>Edge properties (e.g. {@code out_FriendOf}) are detected and flagged so the
+   * comparator can handle LINKBAG values correctly.
+   *
+   * <p>If {@code projectionAfterOrderBy} is set (i.e. synthetic ORDER BY aliases were
+   * added during planning), an additional projection step strips those temporary columns.
+   */
   public static void handleOrderBy(
       SelectExecutionPlan plan,
       QueryPlanningInfo info,
@@ -1294,9 +1843,7 @@ public class SelectExecutionPlanner {
     }
   }
 
-  /**
-   * @param plan the execution plan where to add the fetch step
-   */
+  /** Delegates to the full {@link #handleClassAsTarget} with the info's own target. */
   private void handleClassAsTarget(
       SelectExecutionPlan plan,
       QueryPlanningInfo info,
@@ -1305,6 +1852,23 @@ public class SelectExecutionPlanner {
     handleClassAsTarget(plan, info.target, info, ctx, profilingEnabled);
   }
 
+  /**
+   * Central entry point for class-based data fetch. Tries optimizations in this order:
+   *
+   * <pre>
+   *   1. handleClassAsTargetWithIndexedFunction  -- indexed function in WHERE
+   *   2. handleClassAsTargetWithIndex            -- regular index lookup
+   *   3. handleClassWithIndexForSortOnly         -- index used only for ORDER BY
+   *   4. FetchFromClassExecutionStep             -- full class scan (fallback)
+   * </pre>
+   *
+   * <p>After the fetch step, a {@link FilterByClassStep} is always appended when an
+   * index was used, because the index may cover a superclass and return records from
+   * sibling classes that must be filtered out.
+   *
+   * <p>For the full-scan fallback, RID ordering (ASC/DESC) is pushed down to the
+   * fetch step when the ORDER BY is simply {@code ORDER BY @rid}.
+   */
   private void handleClassAsTarget(
       SelectExecutionPlan plan,
       SQLFromClause from,
@@ -1356,6 +1920,16 @@ public class SelectExecutionPlanner {
     plan.chain(fetcher);
   }
 
+  /**
+   * Filters a class's polymorphic collection IDs to only those whose names appear in
+   * the given set. Used when a subclass hierarchy query should only scan specific
+   * collections.
+   *
+   * @param db                the database session (for resolving collection names)
+   * @param clazz             the schema class whose polymorphic collection IDs are filtered
+   * @param filterCollections the set of allowed collection names
+   * @return an {@link IntArrayList} containing only the matching collection IDs
+   */
   private static IntArrayList classCollectionsFiltered(
       DatabaseSessionEmbedded db, SchemaClass clazz, Set<String> filterCollections) {
     var ids = clazz.getPolymorphicCollectionIds();
@@ -1368,6 +1942,29 @@ public class SelectExecutionPlanner {
     return filtered;
   }
 
+  /**
+   * Attempts to execute the query using indexed functions found in the WHERE clause
+   * (e.g. spatial functions like {@code ST_Within()}).
+   *
+   * <p>For each OR-branch (AND block) in the flattened WHERE clause, the planner:
+   * <ol>
+   *   <li>Checks for indexed function conditions via
+   *       {@code block.getIndexedFunctionConditions()}</li>
+   *   <li>If found, picks the best candidate function and creates a
+   *       {@link FetchFromIndexedFunctionStep}</li>
+   *   <li>If not found, falls back to regular index lookup or full scan for that branch</li>
+   *   <li>Remaining WHERE conditions (not covered by the function) are applied as
+   *       post-fetch {@link FilterStep}</li>
+   * </ol>
+   *
+   * <p>When the WHERE has multiple OR branches, each branch produces a sub-plan and
+   * all are combined via {@link ParallelExecStep} + {@link DistinctExecutionStep}.
+   *
+   * <p>If this method succeeds, it clears {@code info.whereClause} and
+   * {@code info.flattenedWhereClause} to signal that the WHERE has been fully handled.
+   *
+   * @return {@code true} if the query was handled via indexed functions
+   */
   private boolean handleClassAsTargetWithIndexedFunction(
       SelectExecutionPlan plan,
       SQLIdentifier queryTarget,
@@ -1538,6 +2135,12 @@ public class SelectExecutionPlanner {
     }
   }
 
+  /**
+   * Returns {@code true} if any of the boolean expressions reference a LET variable
+   * (identifiable by a {@code $} prefix). When LET variables are referenced in a
+   * WHERE sub-block, the per-record LET steps must be injected into the sub-plan
+   * before the filter step.
+   */
   private static boolean refersToLet(List<SQLBooleanExpression> subBlocks) {
     if (subBlocks == null) {
       return false;
@@ -1550,6 +2153,12 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /**
+   * Filters out indexed function conditions that cannot actually be executed via an
+   * index on the given target. Conditions that can be evaluated without an index
+   * (fallback mode) are silently excluded; conditions that require an index but
+   * none exists cause an exception.
+   */
   @Nullable
   private static List<SQLBinaryCondition> filterIndexedFunctionsWithoutIndex(
       List<SQLBinaryCondition> indexedFunctionConditions,
@@ -1571,12 +2180,23 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * tries to use an index for sorting only. Also adds the fetch step to the execution plan
+   * Attempts to satisfy the ORDER BY clause using an index scan (without a WHERE
+   * index lookup). When an index's field order matches the ORDER BY fields, the step
+   * can iterate the index in the desired direction to produce pre-sorted results,
+   * eliminating the need for an in-memory sort.
    *
-   * @param plan current execution plan
-   * @param info the query planning information
-   * @param ctx  the current context
-   * @return true if it succeeded to use an index to sort, false otherwise.
+   * <pre>
+   *  Example:
+   *    SELECT FROM Person ORDER BY lastName ASC
+   *    Index on [lastName]
+   *
+   *    Pipeline:
+   *      FetchFromIndexValuesStep(ASC) -&gt; GetValueFromIndexEntryStep -&gt; ...
+   *      (no OrderByStep needed -- data is already sorted)
+   * </pre>
+   *
+   * @return {@code true} if an index was used for sorting (plan is updated);
+   *         {@code false} if no suitable index was found (caller should fall back)
    */
   private boolean handleClassWithIndexForSortOnly(
       SelectExecutionPlan plan,
@@ -1638,6 +2258,11 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /**
+   * Returns {@code true} if {@code alias} is a projected alias for an expression
+   * that equals {@code indexField}. This is needed to match ORDER BY items that
+   * reference a projection alias rather than the raw field name.
+   */
   private boolean isInOriginalProjection(String indexField, String alias) {
     if (info.projection == null) {
       return false;
@@ -1651,6 +2276,17 @@ public class SelectExecutionPlanner {
         .anyMatch(proj -> proj.getAlias().getStringValue().equals(alias));
   }
 
+  /**
+   * Attempts to satisfy the entire WHERE clause using index lookups on the target
+   * class. If the target class itself has no suitable index but is the root of a
+   * class hierarchy with subclasses that do, the planner recursively tries each
+   * subclass and combines results via {@link ParallelExecStep}.
+   *
+   * <p>If successful, clears {@code info.whereClause} and
+   * {@code info.flattenedWhereClause}.
+   *
+   * @return {@code true} if index-based fetch was set up for all OR-branches
+   */
   private boolean handleClassAsTargetWithIndex(
       SelectExecutionPlan plan,
       SQLIdentifier targetClass,
@@ -1707,7 +2343,18 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * checks if a class is the top of a diamond hierarchy
+   * Returns {@code true} if the class is the root of a diamond inheritance hierarchy
+   * (i.e. two or more subclasses share a common descendant). Diamond hierarchies
+   * prevent per-subclass index plans because a record could appear in multiple
+   * subclass scans, leading to incorrect duplicate results.
+   *
+   * <pre>
+   *    A         &lt;-- clazz
+   *   / \
+   *  B   C       &lt;-- A's subclasses
+   *   \ /
+   *    D         &lt;-- diamond: D is reachable from both B and C
+   * </pre>
    */
   private static boolean isDiamondHierarchy(SchemaClass clazz) {
     Set<SchemaClass> traversed = new HashSet<>();
@@ -1727,6 +2374,13 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /**
+   * Recursively tries to find index-based fetch steps for the given class or its
+   * subclasses. Used when the parent class has no records of its own (abstract
+   * hierarchy root) but subclasses may have their own indexes.
+   *
+   * @return list of steps if successful, {@code null} if any branch cannot be indexed
+   */
   @Nullable
   private List<ExecutionStepInternal> handleClassAsTargetWithIndexRecursive(
       String targetClass,
@@ -1772,6 +2426,27 @@ public class SelectExecutionPlanner {
     return result.isEmpty() ? null : result;
   }
 
+  /**
+   * Core index lookup logic for a single class. For each OR-branch in the flattened
+   * WHERE, calls {@link #findBestIndexFor} to select the optimal index. If all branches
+   * can be covered by indexes, assembles the fetch steps.
+   *
+   * <pre>
+   *  WHERE (a = 1 AND b = 2) OR (c = 3)
+   *  flattenedWhereClause: [AND(a=1,b=2), AND(c=3)]
+   *
+   *  Each AND block is matched independently:
+   *    AND(a=1,b=2) -&gt; idx_a_b (composite index)
+   *    AND(c=3)      -&gt; idx_c  (single-field index)
+   *
+   *  If both succeed -&gt; combine via commonFactor + executionStepFromIndexes
+   *  If any fails    -&gt; return null (cannot use indexes for this class)
+   * </pre>
+   *
+   * @param isHierarchyRoot if true, ORDER BY can be satisfied from the index;
+   *                        for subclass branches this is false
+   * @return list of execution steps, or {@code null} if indexes cannot cover all branches
+   */
   @Nullable
   private List<ExecutionStepInternal> handleClassAsTargetWithIndex(
       String targetClass,
@@ -1817,6 +2492,18 @@ public class SelectExecutionPlanner {
     );
   }
 
+  /**
+   * Converts a list of {@link IndexSearchDescriptor}s into concrete execution steps.
+   *
+   * <p>Single-descriptor case: creates a linear chain:
+   * <pre>
+   *   FetchFromIndexStep -&gt; GetValueFromIndexEntryStep [-&gt; DistinctStep] [-&gt; FilterStep]
+   * </pre>
+   *
+   * <p>Multi-descriptor case: creates parallel sub-plans merged with
+   * {@link ParallelExecStep} + {@link DistinctExecutionStep} to deduplicate results
+   * from overlapping index ranges.
+   */
   private List<ExecutionStepInternal> executionStepFromIndexes(
       Set<String> filterCollections,
       SchemaClass clazz,
@@ -1881,10 +2568,15 @@ public class SelectExecutionPlanner {
     return result;
   }
 
+  /** Returns the immutable schema snapshot from the session for thread-safe class lookups. */
   private static SchemaInternal getSchemaFromContext(CommandContext ctx) {
     return ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
   }
 
+  /**
+   * Returns {@code true} if the ORDER BY is fully covered by the index field order
+   * in the given descriptor (i.e. no in-memory sort is needed).
+   */
   private static boolean fullySorted(SQLOrderBy orderBy, IndexSearchDescriptor desc) {
     if (orderBy.ordersWithCollate() || !orderBy.ordersSameDirection()) {
       return false;
@@ -1916,6 +2608,11 @@ public class SelectExecutionPlanner {
     return result == null || result.equals(SQLOrderByItem.ASC);
   }
 
+  /**
+   * Creates a {@link ParallelExecStep} that runs one index fetch sub-plan per
+   * {@link IndexSearchDescriptor}. Each sub-plan is:
+   * {@code FetchFromIndex -> GetValueFromIndexEntry [-> Distinct] [-> Filter]}.
+   */
   private ExecutionStepInternal createParallelIndexFetch(
       List<IndexSearchDescriptor> indexSearchDescriptors,
       Set<String> filterCollections,
@@ -1947,6 +2644,7 @@ public class SelectExecutionPlanner {
     return new ParallelExecStep(subPlans, ctx, profilingEnabled);
   }
 
+  /** Wraps a single boolean expression in a {@link SQLWhereClause} for use with {@link FilterStep}. */
   private static SQLWhereClause createWhereFrom(SQLBooleanExpression remainingCondition) {
     var result = new SQLWhereClause(-1);
     result.setBaseExpression(remainingCondition);
@@ -1954,8 +2652,30 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * given a flat AND block and a set of indexes, returns the best index to be used to process it,
-   * with the complete description on how to use it
+   * Selects the best index from the given candidates to satisfy as many conditions
+   * as possible within the AND block. The selection algorithm works in four stages:
+   *
+   * <pre>
+   *  Stage 1: Build candidates
+   *    - For each equality/range index: buildIndexSearchDescriptor()
+   *    - For each FULLTEXT index:       buildIndexSearchDescriptorForFulltext()
+   *
+   *  Stage 2: Prune redundant candidates
+   *    - removeGenericIndexes(): prefer target-class index over superclass index
+   *    - removePrefixIndexes():  if [a,b] and [a] both match, discard [a]
+   *
+   *  Stage 3: Sort by cost
+   *    - IndexSearchDescriptor.cost() estimates I/O cost
+   *    - Keep only candidates tied for lowest cost
+   *
+   *  Stage 4: Pick the widest
+   *    - Among equal-cost candidates, pick the one covering the most fields
+   * </pre>
+   *
+   * @param indexes all indexes defined on the target class
+   * @param block   a single AND block from the flattened WHERE clause
+   * @param clazz   the target schema class
+   * @return the best index descriptor, or {@code null} if no index can be used
    */
   @Nullable
   private static IndexSearchDescriptor findBestIndexFor(
@@ -2040,6 +2760,11 @@ public class SelectExecutionPlanner {
     return results;
   }
 
+  /**
+   * Removes index descriptors that are strict prefixes of other descriptors in the list.
+   * When two indexes cover overlapping condition prefixes, the longer (more specific) one
+   * is preferred because it narrows the result set further.
+   */
   private static List<IndexSearchDescriptor> removePrefixIndexes(
       List<IndexSearchDescriptor> descriptors) {
     List<IndexSearchDescriptor> result = new ArrayList<>();
@@ -2061,6 +2786,7 @@ public class SelectExecutionPlanner {
     return result;
   }
 
+  /** Returns {@code true} if {@code desc} is a condition prefix of any descriptor in the list. */
   private static boolean isPrefixOfAny(IndexSearchDescriptor desc,
       List<IndexSearchDescriptor> result) {
     for (var item : result) {
@@ -2072,8 +2798,10 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * finds prefix conditions for a given condition, eg. if the condition is on [a,b] and in the list
-   * there is another condition on [a] or on [a,b], then that condition is returned.
+   * Returns all descriptors in {@code descriptors} whose condition blocks are a prefix
+   * of (or equal to) {@code desc}'s condition blocks. For example, if {@code desc}
+   * covers conditions [a, b] and the list contains a descriptor covering [a], that
+   * descriptor is returned because [a] is a prefix of [a, b].
    */
   private static List<IndexSearchDescriptor> findPrefixes(
       IndexSearchDescriptor desc, List<IndexSearchDescriptor> descriptors) {
@@ -2087,8 +2815,34 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * given an index and a flat AND block, returns a descriptor on how to process it with an index
-   * (index, index key and additional filters to apply after index fetch
+   * Builds an {@link IndexSearchDescriptor} that describes how to use the given index
+   * to evaluate as many conditions as possible from the AND block.
+   *
+   * <p>The algorithm walks the index's property list (which defines the composite key
+   * order) and greedily matches WHERE conditions:
+   *
+   * <pre>
+   *  Index on [city, age, name]
+   *  WHERE city = 'NYC' AND age &gt; 20 AND name = 'Alice' AND salary &gt; 50000
+   *
+   *  Matching:
+   *    city  -&gt; city = 'NYC'     (equality, continue to next field)
+   *    age   -&gt; age &gt; 20         (range, STOP -- range can only be on last field)
+   *    name  -&gt; not reachable (after range)
+   *
+   *  Result:
+   *    indexKeyValue:      [city = 'NYC', age &gt; 20]
+   *    remainingCondition: name = 'Alice' AND salary &gt; 50000
+   * </pre>
+   *
+   * <p>For a single indexed property with two conditions on the same field (e.g.
+   * {@code age >= 20 AND age < 30}), the method attempts to merge them into a single
+   * between-style range condition for the index key.
+   *
+   * <p>Hash indexes (which do not support ordered iteration) require all key fields
+   * to be present; if only a prefix matches, the descriptor is rejected.
+   *
+   * @return a descriptor, or {@code null} if the index cannot be used for this block
    */
   @Nullable
   private static IndexSearchDescriptor buildIndexSearchDescriptor(
@@ -2225,8 +2979,16 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * given a full text index and a flat AND block, returns a descriptor on how to process it with an
-   * index (index, index key and additional filters to apply after index fetch
+   * Builds an {@link IndexSearchDescriptor} for a FULLTEXT (non-Lucene) index.
+   *
+   * <p>Iterates over the index's field list and, for each field, looks for a matching
+   * CONTAINSTEXT condition in the AND block. Matched conditions become the index key;
+   * unmatched conditions remain as post-fetch filters.
+   *
+   * <p>Like {@link #buildIndexSearchDescriptor}, hash-type fulltext indexes require a
+   * complete key match (all fields present).
+   *
+   * @return a descriptor, or {@code null} if no CONTAINSTEXT match was found
    */
   @Nullable
   private static IndexSearchDescriptor buildIndexSearchDescriptorForFulltext(
@@ -2263,6 +3025,7 @@ public class SelectExecutionPlanner {
     return null;
   }
 
+  /** Returns {@code true} if the given field is indexed "by key" (for map-type indexes). */
   private static boolean isIndexByKey(Index index, String field) {
     var def = index.getDefinition();
     for (var o : def.getFieldsToIndex()) {
@@ -2273,6 +3036,7 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /** Returns {@code true} if the given field is indexed "by value" (for map-type indexes). */
   private static boolean isIndexByValue(Index index, String field) {
     var def = index.getDefinition();
     for (var o : def.getFieldsToIndex()) {
@@ -2283,6 +3047,7 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /** Returns {@code true} if the given field's type is {@link PropertyType#EMBEDDEDMAP}. */
   private static boolean isMap(SchemaClass clazz,
       String indexField) {
     var prop = clazz.getProperty(indexField);
@@ -2293,7 +3058,19 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * aggregates multiple index conditions that refer to the same key search
+   * Aggregates multiple {@link IndexSearchDescriptor}s that share the same index and
+   * key condition into a single descriptor with an OR-combined remaining filter.
+   *
+   * <p>This handles the case where multiple OR-branches of the WHERE clause share the
+   * same index key but differ in their residual filter:
+   * <pre>
+   *  WHERE (a = 1 AND b = 2) OR (a = 1 AND b = 3)
+   *           same index key: a=1
+   *           residual: b=2 OR b=3  (combined into a single SQLOrBlock)
+   * </pre>
+   *
+   * @param indexSearchDescriptors one descriptor per OR-branch
+   * @return deduplicated descriptors with OR-combined residual filters
    */
   private static List<IndexSearchDescriptor> commonFactor(
       List<IndexSearchDescriptor> indexSearchDescriptors) {
@@ -2326,6 +3103,11 @@ public class SelectExecutionPlanner {
   }
 
 
+  /**
+   * Wraps a subquery statement as the FROM target using a {@link SubQueryStep}.
+   * A child {@link BasicCommandContext} is created for the subquery so that its
+   * variables do not leak into the outer query scope.
+   */
   private static void handleSubqueryAsTarget(
       SelectExecutionPlan plan,
       SQLStatement subQuery,
@@ -2339,6 +3121,7 @@ public class SelectExecutionPlanner {
     plan.chain(new SubQueryStep(subExecutionPlan, ctx, subCtx, profilingEnabled));
   }
 
+  /** Returns {@code true} if the ORDER BY is exactly {@code ORDER BY @rid DESC}. */
   private static boolean isOrderByRidDesc(QueryPlanningInfo info) {
     if (!hasTargetWithSortedRids(info)) {
       return false;
@@ -2357,6 +3140,7 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /** Returns {@code true} if the ORDER BY is exactly {@code ORDER BY @rid ASC} (or default). */
   private static boolean isOrderByRidAsc(QueryPlanningInfo info) {
     if (!hasTargetWithSortedRids(info)) {
       return false;
@@ -2375,6 +3159,10 @@ public class SelectExecutionPlanner {
     return false;
   }
 
+  /**
+   * Returns {@code true} if the target is a class/identifier (as opposed to a subquery
+   * or variable), which means records can be scanned in RID order.
+   */
   private static boolean hasTargetWithSortedRids(QueryPlanningInfo info) {
     if (info.target == null) {
       return false;

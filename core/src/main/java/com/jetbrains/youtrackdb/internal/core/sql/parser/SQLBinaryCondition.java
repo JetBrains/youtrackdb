@@ -435,9 +435,11 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
     left = new SQLExpression(-1);
     left.deserialize(fromResult.getProperty("left"));
     try {
+      // Typed local avoids String.valueOf(char[]) overload pitfall with generic getProperty.
+      String operatorClassName = fromResult.getProperty("operator");
       operator =
           (SQLBinaryCompareOperator)
-              Class.forName(String.valueOf(fromResult.getProperty("operator"))).newInstance();
+              Class.forName(operatorClassName).getConstructor(int.class).newInstance(-1);
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
     }

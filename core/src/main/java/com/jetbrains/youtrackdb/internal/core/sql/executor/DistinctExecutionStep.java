@@ -13,11 +13,43 @@ import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nullable;
 
-/** Execution step that filters out duplicate results from the upstream stream. */
+/**
+ * Intermediate step that removes duplicate records from the stream.
+ *
+ * <p>Two deduplication strategies are used:
+ * <ul>
+ *   <li><b>Entity records</b>: deduplication by RID (using a compact {@link RidSet}
+ *       which is memory-efficient for identity-based comparison)</li>
+ *   <li><b>Projected records</b> (non-entity): deduplication by full content equality
+ *       (using a {@code HashSet<Result>})</li>
+ * </ul>
+ *
+ * <pre>
+ *  SQL:   SELECT DISTINCT city FROM Person
+ *
+ *  For each record:
+ *    if (entity)     -&gt; check RID in pastRids set
+ *    if (projection) -&gt; check full record in pastItems set
+ *    already seen?   -&gt; discard
+ *    first time?     -&gt; add to set, pass through
+ * </pre>
+ *
+ * <p>A heap limit ({@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}) is enforced on
+ * the {@code pastItems} set (projected records) to prevent OOM. Entity records
+ * tracked by RID via {@link RidSet} are not subject to this limit because RidSet
+ * uses a compact bitmap representation.
+ *
+ * @see SelectExecutionPlanner#handleDistinct
+ */
 public class DistinctExecutionStep extends AbstractExecutionStep {
 
+  /** Maximum number of distinct items allowed in the in-memory set. */
   private final long maxElementsAllowed;
 
+  /**
+   * @param ctx              the query context (used to read the max-heap-elements config)
+   * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
+   */
   public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     var session = ctx == null ? null : ctx.getDatabaseSession();
@@ -53,6 +85,8 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   private void markAsVisited(Result nextValue, Set<RID> pastRids, Set<Result> pastItems,
       DatabaseSessionEmbedded session) {
+    // Entity records with valid RIDs are tracked by RID (memory-efficient).
+    // Non-entity results (projections) fall through to full-content tracking.
     if (nextValue.isEntity()) {
       var identity = nextValue.asEntityOrNull().getIdentity();
       var collection = identity.getCollectionId();
@@ -64,6 +98,8 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
     }
     pastItems.add(nextValue);
     if (maxElementsAllowed > 0 && maxElementsAllowed < pastItems.size()) {
+      // Clear the set before throwing to release memory -- the exception handler
+      // should not hold a reference to a potentially huge set.
       pastItems.clear();
       throw new CommandExecutionException(session,
           "Limit of allowed entities for in-heap DISTINCT in a single query exceeded ("
@@ -87,10 +123,21 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
     return pastItems.contains(nextValue);
   }
 
+  /**
+   * No-op: DISTINCT does not propagate timeout signals. The terminal
+   * {@link AccumulatingTimeoutStep} handles timeout enforcement, and propagating
+   * backward through the deduplication state is not meaningful.
+   */
   @Override
   public void sendTimeout() {
   }
 
+  /**
+   * Closes the predecessor directly without the {@link AbstractExecutionStep#alreadyClosed}
+   * guard. This is safe because DistinctExecutionStep does not hold resources of its own
+   * (the pastRids/pastItems sets are local to each {@link #internalStart} call), so only
+   * the upstream needs to be closed.
+   */
   @Override
   public void close() {
     if (prev != null) {

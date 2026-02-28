@@ -14,9 +14,39 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import java.util.Collections;
 import org.apache.commons.collections4.IteratorUtils;
 
-/** Execution step that fetches results from a named context variable. */
+/**
+ * Source step that fetches records from a context variable (e.g. {@code SELECT FROM $myVar}).
+ *
+ * <p>The variable's runtime value is inspected and handled based on its type:
+ * <ul>
+ *   <li>{@link ExecutionStream} -- used directly</li>
+ *   <li>{@link ResultSet} -- copied (if internal) and streamed</li>
+ *   <li>{@link Identifiable} -- loaded as a single record</li>
+ *   <li>{@link Result} -- wrapped as a single-element stream</li>
+ *   <li>{@link Iterable} -- iterated, loading entities as needed</li>
+ * </ul>
+ *
+ * <p>Variables typically come from LET assignments:
+ * <pre>
+ *  LET $friends = (SELECT expand(out('Friend')) FROM #10:0)
+ *  SELECT FROM $friends WHERE age &gt; 30
+ * </pre>
+ *
+ * <pre>
+ *  ctx.getVariable(variableName)
+ *    +-- ExecutionStream?  --&gt; use directly
+ *    +-- ResultSet?        --&gt; copy if internal, stream with loadEntity, attach onClose
+ *    +-- Identifiable?     --&gt; reload from tx, wrap as single-element stream
+ *    +-- Result?           --&gt; loadEntity, wrap as single-element stream
+ *    +-- Iterable?         --&gt; iterate with transforming iterator (loadEntity)
+ *    +-- null/other        --&gt; throw CommandExecutionException
+ * </pre>
+ *
+ * @see SelectExecutionPlanner#handleVariableAsTarget
+ */
 public class FetchFromVariableStep extends AbstractExecutionStep {
 
+  /** The name of the context variable (without the '$' prefix). */
   private String variableName;
 
   public FetchFromVariableStep(String variableName, CommandContext ctx, boolean profilingEnabled) {
@@ -27,6 +57,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Drain predecessor for side effects before reading variable.
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
@@ -46,7 +77,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
                 .onClose((context) -> ((ResultSet) src).close());
       }
       case Identifiable identifiable -> {
-        //case when we pass variable between txs
+        // The entity may have been assigned in a prior transaction; reload from the current active transaction.
         identifiable = session.getActiveTransaction().loadEntity(identifiable);
         source =
             ExecutionStream.resultIterator(
@@ -73,6 +104,19 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     return source;
   }
 
+  /**
+   * Ensures entities are fully loaded from the current transaction.
+   *
+   * <p>Handles two cross-transaction scenarios:
+   * <ul>
+   *   <li><b>Entity instance</b>: if unloaded (e.g. assigned in a prior tx), reload
+   *       it from the current active transaction.</li>
+   *   <li><b>Result wrapping an entity</b>: the result may come from a serialized
+   *       result set where only the identity (RID) survives. If the entity reference
+   *       is null, rewrap with just the identity so the downstream can load it.
+   *       Otherwise, rewrap with the entity itself for a consistent ResultInternal.</li>
+   * </ul>
+   */
   private static Result loadEntity(DatabaseSessionEmbedded session, Result result) {
     if (result instanceof Entity entity) {
       if (entity.isUnloaded()) {
@@ -82,6 +126,8 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     } else if (result instanceof Result sqlResult) {
       if (sqlResult.isEntity()) {
         var entity = sqlResult.asEntityOrNull();
+        // Entity ref may be null when the Result only carries an identity (RID)
+        // from a serialized or cross-session result set.
         if (entity == null) {
           return new ResultInternal(session, sqlResult.getIdentity());
         }
@@ -93,11 +139,15 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    return ExecutionStepInternal.getIndent(depth, indent)
+    var result = ExecutionStepInternal.getIndent(depth, indent)
         + "+ FETCH FROM VARIABLE\n"
         + ExecutionStepInternal.getIndent(depth, indent)
         + "  "
         + variableName;
+    if (profilingEnabled) {
+      result += " (" + getCostFormatted() + ")";
+    }
+    return result;
   }
 
   @Override
@@ -112,12 +162,22 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     try {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("variableName") != null) {
-        this.variableName = fromResult.getProperty(variableName);
+        this.variableName = fromResult.getProperty("variableName");
       }
       reset();
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
+  }
+
+  /**
+   * Not cacheable: the variable's value is resolved at execution time from the
+   * command context and may differ between executions (e.g. from different LET
+   * assignments or input parameters).
+   */
+  @Override
+  public boolean canBeCached() {
+    return false;
   }
 
   @Override

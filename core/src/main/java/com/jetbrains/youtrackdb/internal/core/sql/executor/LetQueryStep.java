@@ -13,10 +13,32 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Execution step that runs a sub-query and assigns its result to a per-record LET variable. */
+/**
+ * Per-record LET step that executes a subquery for each row flowing through the
+ * pipeline and attaches the result list as metadata on the record.
+ *
+ * <pre>
+ *  SQL:  SELECT *, $orders FROM Customer
+ *        LET $orders = (SELECT FROM Order WHERE customer = $parent.$current)
+ *
+ *  For each Customer record:
+ *    1. Execute the subquery with $parent.$current = current record
+ *    2. Collect results into a List
+ *    3. Store as record.metadata("orders")
+ * </pre>
+ *
+ * <p>A new child context is created per execution to avoid leaking variables
+ * between records. Queries with positional parameters ({@code ?}) bypass plan
+ * caching to avoid ordinal conflicts.
+ *
+ * @see SelectExecutionPlanner#handleLet
+ */
 public class LetQueryStep extends AbstractExecutionStep {
 
+  /** The variable name to store per-record query results under. */
   private final SQLIdentifier varName;
+
+  /** The subquery AST to execute for each record. */
   private final SQLStatement query;
 
   public LetQueryStep(
@@ -30,6 +52,7 @@ public class LetQueryStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);
+    // Set outer context as parent so $parent.$current resolves to the current outer record.
     subCtx.setParentWithoutOverridingChild(ctx);
     InternalExecutionPlan subExecutionPlan;
     if (query.toString().contains("?")) {
@@ -70,6 +93,12 @@ public class LetQueryStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ LET (for each record)\n" + spaces + "  " + varName + " = (" + query + ")";
+  }
+
+  /** Cacheable: subquery AST is deep-copied per execution via {@link #copy}. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override

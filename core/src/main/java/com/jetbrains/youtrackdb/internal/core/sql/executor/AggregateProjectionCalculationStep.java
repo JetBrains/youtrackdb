@@ -13,11 +13,60 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Execution step that computes aggregate projection results grouped by a GROUP BY clause. */
+/**
+ * Intermediate step that performs aggregation (GROUP BY + aggregate functions).
+ *
+ * <p>This is a <b>blocking</b> step: it must consume all upstream records before
+ * producing any output, because aggregate functions (count, sum, max, etc.) need
+ * to see all rows in each group before computing a result.
+ *
+ * <pre>
+ *  SQL:   SELECT city, count(*), max(price) FROM Product GROUP BY city
+ *
+ *  Processing:
+ *    1. Pull all records from upstream
+ *    2. Group by the GROUP BY key (city)
+ *    3. For each group, accumulate aggregate functions
+ *    4. Finalize accumulators (getFinalValue)
+ *    5. Emit one result per group
+ *
+ *  Without GROUP BY (e.g. SELECT count(*) FROM Product):
+ *    All records go into a single group with key = [null]
+ * </pre>
+ *
+ * <pre>
+ *  Upstream records
+ *    |
+ *    v
+ *  [Group by key] --&gt; Map&lt;key, ResultInternal&gt;
+ *    |                   |
+ *    |                   +-- non-aggregate props: set on first visit
+ *    |                   +-- aggregate props: stored as AggregationContext (temp)
+ *    v
+ *  [Finalize] -- for each group, replace AggregationContext with scalar
+ *    |
+ *    v
+ *  Output: one Result per group
+ * </pre>
+ *
+ * <p>The {@code limit} parameter allows early termination when no ORDER BY is
+ * present: once enough groups have been accumulated, the step can stop.
+ *
+ * @see SelectExecutionPlanner#handleProjections
+ * @see AggregationContext
+ */
 public class AggregateProjectionCalculationStep extends ProjectionCalculationStep {
 
+  /** GROUP BY clause (null for queries without GROUP BY). */
   private final SQLGroupBy groupBy;
+
+  /** Query timeout in milliseconds (-1 = no timeout). */
   private final long timeoutMillis;
+
+  /**
+   * Maximum number of groups to produce (-1 = unlimited).
+   * Set to SKIP + LIMIT when no ORDER BY invalidates the optimization.
+   */
   private final long limit;
 
   public AggregateProjectionCalculationStep(
@@ -39,6 +88,17 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
     return ExecutionStream.resultIterator(finalResults.iterator());
   }
 
+  /**
+   * Consumes all upstream records, groups them, accumulates aggregate values,
+   * finalizes each group's accumulators, and returns the result list.
+   *
+   * <pre>
+   *  1. Pull all records from prev.start(ctx)
+   *  2. For each record: aggregate() into the group map
+   *  3. For each group result: finalize AggregationContext -> final value
+   *  4. Return list of finalized group results
+   * </pre>
+   */
   private List<Result> executeAggregation(CommandContext ctx) {
     var timeoutBegin = System.currentTimeMillis();
     if (prev == null) {
@@ -73,6 +133,11 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
     return finalResults;
   }
 
+  /**
+   * Processes a single upstream record: computes the GROUP BY key, looks up or creates
+   * the group's accumulator row, evaluates non-aggregate projections (first visit only),
+   * and feeds the record into each aggregate function's accumulation context.
+   */
   private void aggregate(
       Result next, CommandContext ctx, Map<List<?>, ResultInternal> aggregateResults) {
     var db = ctx.getDatabaseSession();
@@ -85,6 +150,9 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
     }
     var preAggr = aggregateResults.get(key);
     if (preAggr == null) {
+      // Early termination: when a limit is set (SKIP+LIMIT with no ORDER BY),
+      // stop creating new groups once we have enough. Uses > (not >=) because
+      // the current record hasn't been added yet and we need exactly `limit` groups.
       if (limit > 0 && aggregateResults.size() > limit) {
         return;
       }
@@ -126,6 +194,12 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
             + projection.toString()
             + (groupBy == null ? "" : (spaces + "\n  " + groupBy));
     return result;
+  }
+
+  /** Cacheable: projection and GROUP BY ASTs are deep-copied per execution via {@link #copy}. */
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override
