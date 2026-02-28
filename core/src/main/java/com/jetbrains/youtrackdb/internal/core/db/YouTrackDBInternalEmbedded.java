@@ -892,10 +892,16 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
             sharedContext.close();
           }
           final var storageId = storage.getId();
-          storage.delete();
-          storages.remove(name);
-          currentStorageIds.remove(storageId);
-          sharedContexts.remove(name);
+          try {
+            storage.delete();
+          } finally {
+            // Always remove the storage from internal maps, even if delete() threw.
+            // Leaving a partially-deleted storage in the maps would poison the
+            // YouTrackDB instance for all subsequent operations on any database.
+            storages.remove(name);
+            currentStorageIds.remove(storageId);
+            sharedContexts.remove(name);
+          }
         }
       }
     }
