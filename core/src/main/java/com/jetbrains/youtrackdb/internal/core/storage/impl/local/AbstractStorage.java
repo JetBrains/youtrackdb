@@ -3898,6 +3898,10 @@ public abstract class AbstractStorage
    * {@code Long.MAX_VALUE} when no transactions remain active. Called at transaction end
    * (commit or rollback). Multiple sessions on the same thread may have overlapping
    * transactions, so {@code tsMin} is only cleared when the last one ends.
+   *
+   * <p>The reset uses an opaque write ({@link TsMinHolder#setTsMinOpaque}) instead of a
+   * volatile write: no {@code StoreLoad} barrier is needed because the owning thread has no
+   * subsequent loads that depend on the reset being globally visible immediately.
    */
   public void resetTsMin() {
     var holder = tsMinThreadLocal.get();
@@ -3909,7 +3913,7 @@ public abstract class AbstractStorage
     }
     holder.activeTxCount--;
     if (holder.activeTxCount == 0) {
-      holder.tsMin = Long.MAX_VALUE;
+      holder.setTsMinOpaque(Long.MAX_VALUE);
     }
   }
 
