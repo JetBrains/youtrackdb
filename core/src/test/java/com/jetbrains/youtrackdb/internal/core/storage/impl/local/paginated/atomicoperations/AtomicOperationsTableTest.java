@@ -378,7 +378,7 @@ public class AtomicOperationsTableTest {
 
   // Verifies that concurrent startOperation calls under a lock (mimicking the
   // production segmentLock in AtomicOperationsManager) correctly register all
-  // operations and maintain cached min/max invariants.
+  // operations and maintain the cached min invariant.
   @Test
   public void testConcurrentStartOperations() throws InterruptedException {
     var table = new AtomicOperationsTable(1000, 0);
@@ -903,20 +903,20 @@ public class AtomicOperationsTableTest {
     assertEquals(-1, table.getSegmentEarliestNotPersistedOperation());
   }
 
-  // ==================== Cached Min/Max Tests ====================
+  // ==================== Cached Min Tests ====================
 
-  /// Verifies the basic lifecycle of cached min/max: start ops, take snapshot to
+  /// Verifies the basic lifecycle of the cached min: start ops, take snapshot to
   /// verify min/max, commit boundary ops, and verify min is updated via forward
-  /// scan while max is invalidated and recovered.
+  /// scan.
   @Test
-  public void testCachedMinMaxBasicLifecycle() {
+  public void testCachedMinBasicLifecycle() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(1, 1);
     table.startOperation(5, 5);
     table.startOperation(10, 10);
 
-    // First snapshot establishes cached min=1, max=10
+    // First snapshot establishes cached min=1
     var snap1 = table.snapshotAtomicOperationTableState(100);
     assertEquals(1, snap1.minActiveOperationTs());
     assertEquals(10, snap1.maxActiveOperationTs());
@@ -929,7 +929,7 @@ public class AtomicOperationsTableTest {
     assertEquals(10, snap2.maxActiveOperationTs());
     assertEquals(2, snap2.inProgressTxs().size());
 
-    // Commit the max (ts=10) — max invalidated, snapshot recovers it to 5
+    // Commit ts=10 — snapshot finds remaining op ts=5
     table.commitOperation(10);
     var snap3 = table.snapshotAtomicOperationTableState(100);
     assertEquals(5, snap3.minActiveOperationTs());
@@ -949,7 +949,7 @@ public class AtomicOperationsTableTest {
     table.startOperation(4, 4);
     table.startOperation(5, 5);
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(100);
 
     // Commit the min (ts=1) — forward scan finds ts=2
@@ -964,23 +964,23 @@ public class AtomicOperationsTableTest {
     assertTrue(snap.inProgressTxs().contains(5));
   }
 
-  /// Starts 3 operations, commits the max, and verifies max is recovered
-  /// either by the next start or by the snapshot scan.
+  /// Starts 3 operations, commits the highest one, and verifies the
+  /// snapshot correctly reflects the remaining active operations.
   @Test
-  public void testCachedMaxInvalidatedOnMaxCommit() {
+  public void testSnapshotAfterMaxCommit() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(1, 1);
     table.startOperation(5, 5);
     table.startOperation(10, 10);
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(100);
 
-    // Commit the max (ts=10) — max goes to UNKNOWN
+    // Commit ts=10
     table.commitOperation(10);
 
-    // Snapshot recovers the actual max from scan
+    // Snapshot computes the actual max from scan
     var snap = table.snapshotAtomicOperationTableState(100);
     assertEquals(1, snap.minActiveOperationTs());
     assertEquals(5, snap.maxActiveOperationTs());
@@ -995,16 +995,16 @@ public class AtomicOperationsTableTest {
   }
 
   /// Commits both the min and max boundaries and verifies correct state:
-  /// min is forward-scanned, max is invalidated.
+  /// min is forward-scanned, only the middle operation remains.
   @Test
-  public void testCachedMinMaxBothBoundariesCommitted() {
+  public void testCachedMinBothBoundariesCommitted() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(1, 1);
     table.startOperation(5, 5);
     table.startOperation(10, 10);
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(100);
 
     // Commit min first, then max
@@ -1018,20 +1018,20 @@ public class AtomicOperationsTableTest {
     assertTrue(snap.inProgressTxs().contains(5));
   }
 
-  /// Only one active operation: commit it and verify both caches go to
+  /// Only one active operation: commit it and verify the cached min goes to
   /// UNKNOWN. The next snapshot should return currentTimestamp + 1.
   @Test
-  public void testCachedMinMaxSingleOpCommit() {
+  public void testCachedMinSingleOpCommit() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(5, 5);
 
-    // Establish caches via snapshot
+    // Establish cached min via snapshot
     var snap1 = table.snapshotAtomicOperationTableState(100);
     assertEquals(5, snap1.minActiveOperationTs());
     assertEquals(5, snap1.maxActiveOperationTs());
 
-    // Commit the only active op — both caches become UNKNOWN
+    // Commit the only active op — cached min becomes UNKNOWN
     table.commitOperation(5);
 
     var snap2 = table.snapshotAtomicOperationTableState(100);
@@ -1042,16 +1042,16 @@ public class AtomicOperationsTableTest {
   }
 
   /// Commits a middle operation (not min, not max) and verifies that
-  /// the cached min/max remain unchanged.
+  /// the cached min remains unchanged.
   @Test
-  public void testCachedMinMaxNonBoundaryCommit() {
+  public void testCachedMinNonBoundaryCommit() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(1, 1);
     table.startOperation(5, 5);
     table.startOperation(10, 10);
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(100);
 
     // Commit the middle op (ts=5) — neither min nor max should change
@@ -1065,10 +1065,10 @@ public class AtomicOperationsTableTest {
     assertTrue(snap.inProgressTxs().contains(10));
   }
 
-  /// Verifies that cached min/max survive compaction correctly: after
+  /// Verifies that the cached min survives compaction correctly: after
   /// compaction restructures segments, snapshots still return accurate results.
   @Test
-  public void testCachedMinMaxAfterCompaction() {
+  public void testCachedMinAfterCompaction() {
     var table = new AtomicOperationsTable(10, 1);
 
     // Create enough operations to build up segments
@@ -1080,7 +1080,7 @@ public class AtomicOperationsTableTest {
       }
     }
 
-    // Establish caches — active ops are 11-15
+    // Establish cached min — active ops are 11-15
     var snap1 = table.snapshotAtomicOperationTableState(100);
     assertEquals(11, snap1.minActiveOperationTs());
     assertEquals(15, snap1.maxActiveOperationTs());
@@ -1098,7 +1098,7 @@ public class AtomicOperationsTableTest {
   /// Verifies that snapshot min/max always match the actual min/max of the
   /// inProgressTxs set across a sequence of operations.
   @Test
-  public void testCachedMinMaxConsistencyWithInProgressSet() {
+  public void testCachedMinConsistencyWithInProgressSet() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(3, 3);
@@ -1122,7 +1122,7 @@ public class AtomicOperationsTableTest {
     assertSnapshotConsistency(table, 100);
   }
 
-  /// Verifies that with cached min/max, the snapshot correctly builds the
+  /// Verifies that with the cached min, the snapshot correctly builds the
   /// inProgressTxs set — all active operations are included, no extras.
   @Test
   public void testSnapshotScanRangeNarrowing() {
@@ -1134,13 +1134,13 @@ public class AtomicOperationsTableTest {
     table.startOperation(50, 50);
     table.startOperation(90, 90);
 
-    // First snapshot: full scan establishes caches
+    // First snapshot: full scan establishes cached min
     var snap1 = table.snapshotAtomicOperationTableState(100);
     assertEquals(4, snap1.inProgressTxs().size());
     assertEquals(5, snap1.minActiveOperationTs());
     assertEquals(90, snap1.maxActiveOperationTs());
 
-    // Second snapshot: narrowed scan [5, 90] should find all the same ops
+    // Second snapshot: scan starts at cached min=5, should find all the same ops
     var snap2 = table.snapshotAtomicOperationTableState(100);
     assertEquals(4, snap2.inProgressTxs().size());
     assertTrue(snap2.inProgressTxs().contains(5));
@@ -1157,16 +1157,16 @@ public class AtomicOperationsTableTest {
     assertEquals(50, snap3.maxActiveOperationTs());
   }
 
-  /// All operations complete, both caches go UNKNOWN. New starts correctly
-  /// reinitialize both caches.
+  /// All operations complete, cached min goes UNKNOWN. The next snapshot after
+  /// new starts correctly re-establishes the cached min.
   @Test
-  public void testCachedMinMaxRecoveryAfterAllOpsComplete() {
+  public void testCachedMinRecoveryAfterAllOpsComplete() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(1, 1);
     table.startOperation(5, 5);
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(100);
 
     // Complete all ops
@@ -1179,7 +1179,7 @@ public class AtomicOperationsTableTest {
     assertEquals(201, snap1.maxActiveOperationTs());
     assertTrue(snap1.inProgressTxs().isEmpty());
 
-    // New starts reinitialize caches
+    // Next snapshot after new starts re-establishes cached min
     table.startOperation(10, 10);
     table.startOperation(20, 20);
 
@@ -1192,14 +1192,14 @@ public class AtomicOperationsTableTest {
   /// Rolls back the min boundary and verifies that the cached min advances
   /// to the next IN_PROGRESS entry (same as commit, but via rollback path).
   @Test
-  public void testCachedMinMaxRollbackOfMinBoundary() {
+  public void testCachedMinRollbackOfMinBoundary() {
     var table = new AtomicOperationsTable(100, 1);
 
     table.startOperation(1, 1);
     table.startOperation(5, 5);
     table.startOperation(10, 10);
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(100);
 
     // Rollback the min (ts=1) — forward scan should find ts=5
@@ -1209,7 +1209,7 @@ public class AtomicOperationsTableTest {
     assertEquals(10, snap.maxActiveOperationTs());
     assertEquals(2, snap.inProgressTxs().size());
 
-    // Rollback the max (ts=10) — max invalidated, snapshot recovers to 5
+    // Rollback ts=10 — only ts=5 remains
     table.rollbackOperation(10);
     var snap2 = table.snapshotAtomicOperationTableState(100);
     assertEquals(5, snap2.minActiveOperationTs());
@@ -1230,7 +1230,7 @@ public class AtomicOperationsTableTest {
       table.startOperation(i, i);
     }
 
-    // Establish caches — min=1, max=200
+    // Establish cached min=1
     var snap1 = table.snapshotAtomicOperationTableState(300);
     assertEquals(1, snap1.minActiveOperationTs());
     assertEquals(200, snap1.maxActiveOperationTs());
@@ -1247,6 +1247,40 @@ public class AtomicOperationsTableTest {
     assertEquals(151, snap2.minActiveOperationTs());
     assertEquals(200, snap2.maxActiveOperationTs());
     assertEquals(50, snap2.inProgressTxs().size());
+  }
+
+  /// Regression test: after the forward scan cap sets cachedMin to UNKNOWN,
+  /// a new startOperation must NOT blindly set cachedMin to its own TS.
+  /// Doing so would hide older active operations behind the new min.
+  ///
+  /// Scenario: TS=1 and TS=200 are IN_PROGRESS. TS=1 commits, creating a
+  /// gap of 199 entries (> MAX_FORWARD_SCAN=128). The forward scan gives up,
+  /// setting cachedMin=UNKNOWN. TS=300 starts. A subsequent snapshot must
+  /// still find TS=200 as the actual min, not TS=300.
+  @Test
+  public void testStartAfterForwardScanCapDoesNotHideOlderActiveOp() {
+    var table = new AtomicOperationsTable(1000, 1);
+
+    table.startOperation(1, 1);
+    table.startOperation(200, 200);
+
+    // Establish cached min=1
+    table.snapshotAtomicOperationTableState(400);
+
+    // Commit TS=1. The forward scan from 2 hits the cap at 128 entries
+    // without finding TS=200 → cachedMin set to UNKNOWN.
+    table.commitOperation(1);
+
+    // New start: must NOT set cachedMin to 300 (hiding TS=200).
+    table.startOperation(300, 300);
+
+    // Snapshot must find TS=200 as the actual min, not TS=300.
+    var snap = table.snapshotAtomicOperationTableState(400);
+    assertEquals(200, snap.minActiveOperationTs());
+    assertEquals(300, snap.maxActiveOperationTs());
+    assertEquals(2, snap.inProgressTxs().size());
+    assertTrue(snap.inProgressTxs().contains(200));
+    assertTrue(snap.inProgressTxs().contains(300));
   }
 
   /// Creates operations spanning multiple segments with a small compaction
@@ -1289,7 +1323,7 @@ public class AtomicOperationsTableTest {
   }
 
   /// Verifies correctness when operations are started and committed before
-  /// any snapshot is ever taken (caches remain at UNKNOWN throughout).
+  /// any snapshot is ever taken (cached min remains at UNKNOWN throughout).
   @Test
   public void testSnapshotWithNoPriorSnapshotCachesUnknown() {
     var table = new AtomicOperationsTable(100, 1);
@@ -1301,7 +1335,7 @@ public class AtomicOperationsTableTest {
     table.commitOperation(1);
     table.commitOperation(10);
 
-    // First-ever snapshot: caches are UNKNOWN, must do full scan
+    // First-ever snapshot: cached min is UNKNOWN, must do full scan
     var snap = table.snapshotAtomicOperationTableState(100);
     assertEquals(5, snap.minActiveOperationTs());
     assertEquals(5, snap.maxActiveOperationTs());
@@ -1310,12 +1344,12 @@ public class AtomicOperationsTableTest {
   }
 
 
-  // ==================== Cached Min/Max Thread Safety Tests ====================
+  // ==================== Cached Min Thread Safety Tests ====================
 
   /// Multiple threads start operations concurrently. After all starts, the
   /// snapshot max must equal the highest TS and min the lowest TS.
   @Test
-  public void testConcurrentStartsUpdateCachedMax() throws InterruptedException {
+  public void testConcurrentStartsProduceConsistentSnapshot() throws InterruptedException {
     var table = new AtomicOperationsTable(10000, 1);
     var threadCount = 8;
     var opsPerThread = 200;
@@ -1354,7 +1388,7 @@ public class AtomicOperationsTableTest {
     assertNoErrors(errors);
 
     var totalOps = threadCount * opsPerThread;
-    // Take two snapshots: the first updates caches authoritatively, the second
+    // Take two snapshots: the first updates cached min authoritatively, the second
     // uses the narrowed range. Both must be self-consistent and include all ops.
     var snapshot1 = table.snapshotAtomicOperationTableState(totalOps + 100);
     verifySnapshotConsistency(snapshot1);
@@ -1380,7 +1414,7 @@ public class AtomicOperationsTableTest {
       table.startOperation(ts, ts);
     }
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(totalOps + 100);
 
     var startLatch = new CountDownLatch(1);
@@ -1661,7 +1695,7 @@ public class AtomicOperationsTableTest {
       table.startOperation(i, i);
     }
 
-    // Establish caches
+    // Establish cached min
     table.snapshotAtomicOperationTableState(totalOps + 100);
 
     var threadCount = 8;
