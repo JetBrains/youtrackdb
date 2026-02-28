@@ -117,8 +117,10 @@ YourTrackDB requires at least JDK 21.
 
 To start to work with YouTrackDB:
 
+<!-- embedme examples/src/main/java/io/youtrackdb/examples/ReadmeExample.java -->
+
 ```java
-package io.youtrackdb;
+package io.youtrackdb.examples;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
@@ -127,83 +129,88 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONMapper;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
 
-import java.util.List;
-
 import static org.apache.tinkerpop.gremlin.process.traversal.P.gt;
 
-/// Minimal example of usage of YouTrackDB.
-public class Example {
+/// Minimal example of usage of YouTrackDB as an embedded database.
+/// This file is embedded into README.md by embedme — keep it self-contained.
+public class ReadmeExample {
 
   public static void main(String[] args) throws Exception {
-    //Create a YouTrackDB database manager instance and provide the root folder where all databases will be stored
-    // We work with inmemory databases here, so we use "." as a root folder
-    try (var ytdb = YourTracks.instance(".")) { //use YourTracks.instance("localhost", "root-name", "root-password") if you want to connect to server
-      //Create the database with demo data to play with it
+    // Create a YouTrackDB database manager instance and provide the root
+    // folder where all databases will be stored.
+    // We work with in-memory databases here, so we use "." as a root folder.
+    try (var ytdb = YourTracks.instance(".")) {
+      // Use YourTracks.instance("localhost", "root-name", "root-password")
+      // if you want to connect to a server instead.
+
+      // Create the database with demo data to play with it.
       try (var traversalSource = YTDBDemoGraphFactory.createModern(ytdb)) {
-         //Prepare GraphSONMapper to check our results
-         var jsonMapper = GraphSONMapper.build()
-                 .version(GraphSONVersion.V1_0) // use the simplest version for brevity
-                 .addRegistry(YTDBIoRegistry.instance())//add serializer for custom types
-                 .create().createMapper();
-         
-        //YTDB data manipulation is performed inside a transaction, so let us start one.
-        //YTDBGraphTraversal will start transaction automatically if it is not started yet.
-        //But in such a case you will need to commit it manually, and borders of transaction will be diluted,
-        //we suggest using lambda-style API to automatically start/commit/rollback transactions.
+        // Prepare GraphSONMapper to check our results.
+        var jsonMapper = GraphSONMapper.build()
+            .version(GraphSONVersion.V1_0) // use the simplest version for brevity
+            .addRegistry(YTDBIoRegistry.instance()) // add serializer for custom types
+            .create().createMapper();
+
+        // YTDB data manipulation is performed inside a transaction.
+        // YTDBGraphTraversal will start a transaction automatically if one is
+        // not started yet, but then you need to commit it manually and the
+        // transaction borders become diluted.  We suggest using the
+        // lambda-style API to automatically start/commit/rollback transactions.
         traversalSource.executeInTx(g -> {
-          //Find a vertex with class "person" and property "name" equals to "marko".
+          // Find a vertex with class "person" and property "name" equal to "marko".
           var v = g.V().has("person", "name", "marko").next();
           System.out.println("output:" + jsonMapper.writeValueAsString(v));
-          //output:{
-          //  "id":{..},
-          //  "label":"person",
-          //  "type":"vertex",
-          //  "properties":{
-          //    "name":[{"id":{..},"value":"marko"}],
-          //    "age":[{"id":{..},"value":29}]
+          // output:{
+          //   "id":{..},
+          //   "label":"person",
+          //   "type":"vertex",
+          //   "properties":{
+          //     "name":[{"id":{..},"value":"marko"}],
+          //     "age":[{"id":{..},"value":29}]
           //   }
           // }
-          // there is ongoing change to implement conversion of vertices from/to native JSON
-          // by using additional metadata provided by DB schema.
-          //
-          //Get the names of the people the vertex knows who are over the age of 30.
+
+          // Get the names of the people the vertex knows who are over 30.
           var friendNames = g.V(v.id()).out("knows").has("age",
               gt(30)).<String>values("name").toList();
           System.out.println("output:" + String.join(", ", friendNames));
-          //output: josh
+          // output: josh
         });
 
-        //Create an empty database with the name "tg", username "superuser", admin role and password "adminpwd".
+        // Create an empty database with the name "tg", username "superuser",
+        // admin role and password "adminpwd".
         ytdb.create("tg", DatabaseType.MEMORY, "superuser", "adminpwd", "admin");
-        //and then open the YTDBGraphGraphTraversal instance
+        // Open a YTDBGraphTraversal instance for the new database.
         try (var newTraversal = ytdb.openTraversal("tg", "superuser", "adminpwd")) {
           newTraversal.executeInTx(g -> {
-            //create a vertex with class(label) "person" and properties' name and age.
-            var v1 = g.addV("person").property("name", "marko").property("age", 29).next();
+            // Create a vertex with class(label) "person" and properties.
+            var v1 = g.addV("person")
+                .property("name", "marko").property("age", 29).next();
             System.out.println("output:" + jsonMapper.writeValueAsString(v1));
-            // output : {
-            //        "id":{..},
-            //        "label":"person",
-            //        "type":"vertex",
-            //        "properties": {
-            //          "name": [{"id":{...}, "value":"marko"}],
-            //          "age":[{"id":{ ...}, "value":29}]
-            //       }
-            //  }
+            // output:{
+            //   "id":{..},
+            //   "label":"person",
+            //   "type":"vertex",
+            //   "properties":{
+            //     "name":[{"id":{..},"value":"marko"}],
+            //     "age":[{"id":{..},"value":29}]
+            //   }
+            // }
 
-            // create a vertex with class(label) "software" and properties' name and lang.
-            var v2 = g.addV("software").property("name", "lop").property("lang", "java").next();
-            //connect both vertices by "created" relation.
-            // we need to call iterate() here to execute traversal flow.
+            // Create a vertex with class(label) "software" and properties.
+            var v2 = g.addV("software")
+                .property("name", "lop").property("lang", "java").next();
+            // Connect both vertices by "created" relation.
+            // We need to call iterate() here to execute the traversal flow.
             g.addE("created").from(v1).to(v2).property("weight", 0.4).iterate();
           });
 
-          //let us check the results of data modification after commit
+          // Check the results of data modification after commit.
           traversalSource.executeInTx(g -> {
-            var createdSoftware = g.V().has("person", "name", "marko").out(
-                "created").<String>values("name").toList();
+            var createdSoftware = g.V().has("person", "name", "marko")
+                .out("created").<String>values("name").toList();
             System.out.println("output:" + String.join(", ", createdSoftware));
-            //output: lop
+            // output: lop
           });
         }
       }
