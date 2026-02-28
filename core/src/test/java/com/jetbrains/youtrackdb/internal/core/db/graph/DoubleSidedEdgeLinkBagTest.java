@@ -12,10 +12,13 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
@@ -60,6 +63,7 @@ public class DoubleSidedEdgeLinkBagTest {
   @After
   public void after() {
     session.close();
+    youTrackDB.drop("test");
     youTrackDB.close();
   }
 
@@ -1022,5 +1026,117 @@ public class DoubleSidedEdgeLinkBagTest {
         "LinkBag size should decrease after iterator.remove()",
         2, bag.size());
     tx.rollback();
+  }
+
+  // --- Index tests: verify LinkBag is indexed only by primaryRid ---
+
+  /**
+   * Verifies that a LINKBAG index on an edge field only contains the primaryRid
+   * (edge record RID) for heavyweight edges, not the secondaryRid (opposite vertex).
+   *
+   * <p>Setup: create a vertex class with a LINKBAG property, add a NOTUNIQUE index,
+   * then add heavyweight edges and check that only edge RIDs appear as index keys.
+   */
+  @Test
+  public void testLinkBagIndexContainsOnlyPrimaryRidForHeavyweightEdges() {
+    // Create an index on the out_HeavyEdge LinkBag field of TestVertex
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    vertexClass.createProperty(outFieldName, PropertyType.LINKBAG);
+    vertexClass.createIndex(
+        "testHeavyEdgeIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, outFieldName);
+
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex1 = tx.newVertex("TestVertex");
+    var inVertex2 = tx.newVertex("TestVertex");
+
+    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+
+    var edge1Rid = edge1.getIdentity();
+    var edge2Rid = edge2.getIdentity();
+    var inVertex1Rid = inVertex1.getIdentity();
+    var inVertex2Rid = inVertex2.getIdentity();
+
+    tx.commit();
+
+    // Read all index keys and verify only edge RIDs (primaryRids) are present
+    tx = session.begin();
+    var ato = tx.getAtomicOperation();
+    var index = session.getSharedContext().getIndexManager().getIndex("testHeavyEdgeIndex");
+    assertNotNull("Index should exist", index);
+
+    Set<RID> indexKeys = new HashSet<>();
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIter = keyStream.iterator();
+      while (keyIter.hasNext()) {
+        var key = keyIter.next();
+        indexKeys.add(((Identifiable) key).getIdentity());
+      }
+    }
+
+    // Index should contain the 2 edge record RIDs (primary RIDs)
+    assertTrue("Index should contain edge1 RID (primaryRid)",
+        indexKeys.contains(edge1Rid));
+    assertTrue("Index should contain edge2 RID (primaryRid)",
+        indexKeys.contains(edge2Rid));
+
+    // Index should NOT contain the opposite vertex RIDs (secondary RIDs)
+    assertFalse("Index should NOT contain inVertex1 RID (secondaryRid)",
+        indexKeys.contains(inVertex1Rid));
+    assertFalse("Index should NOT contain inVertex2 RID (secondaryRid)",
+        indexKeys.contains(inVertex2Rid));
+
+    assertEquals("Index should have exactly 2 keys (one per edge)", 2, indexKeys.size());
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that a LINKBAG index on an edge field stores the opposite vertex RID
+   * for lightweight edges (since primaryRid == secondaryRid == opposite vertex for
+   * lightweight edges).
+   */
+  @Test
+  public void testLinkBagIndexContainsVertexRidForLightweightEdges() {
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
+    vertexClass.createProperty(outFieldName, PropertyType.LINKBAG);
+    vertexClass.createIndex(
+        "testLightEdgeIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, outFieldName);
+
+    var tx = session.begin();
+
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+
+    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+
+    var inVertexRid = inVertex.getIdentity();
+
+    tx.commit();
+
+    // Verify the index contains the opposite vertex RID (primaryRid for lightweight)
+    tx = session.begin();
+    var ato = tx.getAtomicOperation();
+    var index = session.getSharedContext().getIndexManager().getIndex("testLightEdgeIndex");
+    assertNotNull("Index should exist", index);
+
+    Set<RID> indexKeys = new HashSet<>();
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIter = keyStream.iterator();
+      while (keyIter.hasNext()) {
+        var key = keyIter.next();
+        indexKeys.add(((Identifiable) key).getIdentity());
+      }
+    }
+
+    assertEquals("Index should have exactly 1 key", 1, indexKeys.size());
+    assertTrue("Index key should be the opposite vertex RID",
+        indexKeys.contains(inVertexRid));
+
+    tx.commit();
   }
 }

@@ -60,20 +60,16 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
       case ADD -> {
-        var secondaryKey = createSingleValue(transaction, changeEvent.getValue());
-        processAdd(secondaryKey, keysToAdd, keysToRemove);
+        // Index only by primaryRid (the key in the change event).
+        // For heavyweight edges primaryRid is the edge record RID;
+        // for lightweight edges it equals the opposite vertex RID.
         var primaryKey = createSingleValue(transaction, changeEvent.getKey());
-        if (!primaryKey.equals(secondaryKey)) {
-          processAdd(primaryKey, keysToAdd, keysToRemove);
-        }
+        processAdd(primaryKey, keysToAdd, keysToRemove);
       }
       case REMOVE -> {
-        var secondaryKey = createSingleValue(transaction, changeEvent.getOldValue());
-        processRemoval(secondaryKey, keysToAdd, keysToRemove);
+        // Remove index entry by primaryRid.
         var primaryKey = createSingleValue(transaction, changeEvent.getKey());
-        if (!primaryKey.equals(secondaryKey)) {
-          processRemoval(primaryKey, keysToAdd, keysToRemove);
-        }
+        processRemoval(primaryKey, keysToAdd, keysToRemove);
       }
       default ->
           throw new IllegalArgumentException(
@@ -95,9 +91,6 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     final List<Object> values = new ArrayList<>();
     for (final var item : linkBag) {
       values.add(createSingleValue(transaction, item.primaryRid()));
-      if (!item.isLightweight()) {
-        values.add(createSingleValue(transaction, item.secondaryRid()));
-      }
     }
 
     return values;
@@ -119,9 +112,6 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     final List<Object> values = new ArrayList<>();
     for (final var item : linkBag) {
       values.add(createSingleValue(transaction, item.primaryRid()));
-      if (!item.isLightweight()) {
-        values.add(createSingleValue(transaction, item.secondaryRid()));
-      }
     }
 
     return values;

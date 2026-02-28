@@ -493,5 +493,123 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     Assert.assertEquals(keysToRemove, removedKeys);
   }
 
+  // --- Tests for heavyweight edges: key (primaryRid) != value (secondaryRid) ---
+  // Index should only contain entries for primaryRid, never for secondaryRid.
+
+  /**
+   * Verifies that when a heavyweight ADD event is processed (key=#1:12, value=#1:50),
+   * only the primaryRid (#1:12) is added to the index — the secondaryRid (#1:50)
+   * should NOT appear.
+   */
+  @Test
+  public void testProcessChangeEventAddHeavyweightOnlyIndexesPrimaryRid() {
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
+    keysToAdd.defaultReturnValue(-1);
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
+    keysToRemove.defaultReturnValue(-1);
+
+    // Heavyweight: key (edge RID) differs from value (opposite vertex RID)
+    final var event = new MultiValueChangeEvent<Identifiable, Identifiable>(
+        ChangeType.ADD,
+        RecordIdInternal.fromString("#1:12", false),
+        RecordIdInternal.fromString("#1:50", false));
+
+    propertyIndex.processChangeEvent(
+        session.getActiveTransaction(), event, keysToAdd, keysToRemove);
+
+    // Only the primaryRid (#1:12) should be in keysToAdd
+    final Map<Object, Integer> expectedAdd = new HashMap<>();
+    expectedAdd.put(RecordIdInternal.fromString("#1:12", false), 1);
+
+    Assert.assertEquals(expectedAdd, keysToAdd);
+    Assert.assertTrue("ADD event should not produce any removals",
+        keysToRemove.isEmpty());
+    Assert.assertFalse("secondaryRid #1:50 should NOT appear in keysToAdd",
+        keysToAdd.containsKey(RecordIdInternal.fromString("#1:50", false)));
+  }
+
+  /**
+   * Verifies that when a heavyweight REMOVE event is processed (key=#1:12, oldValue=#1:50),
+   * only the primaryRid (#1:12) is removed from the index — the secondaryRid (#1:50)
+   * should NOT be removed.
+   */
+  @Test
+  public void testProcessChangeEventRemoveHeavyweightOnlyRemovesPrimaryRid() {
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
+    keysToAdd.defaultReturnValue(-1);
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
+    keysToRemove.defaultReturnValue(-1);
+
+    final var event = new MultiValueChangeEvent<Identifiable, Identifiable>(
+        ChangeType.REMOVE,
+        RecordIdInternal.fromString("#1:12", false),
+        null,
+        RecordIdInternal.fromString("#1:50", false));
+
+    propertyIndex.processChangeEvent(
+        session.getActiveTransaction(), event, keysToAdd, keysToRemove);
+
+    final Map<Object, Integer> expectedRemove = new HashMap<>();
+    expectedRemove.put(RecordIdInternal.fromString("#1:12", false), 1);
+
+    Assert.assertTrue(keysToAdd.isEmpty());
+    Assert.assertEquals(expectedRemove, keysToRemove);
+    Assert.assertFalse("secondaryRid #1:50 should NOT appear in keysToRemove",
+        keysToRemove.containsKey(RecordIdInternal.fromString("#1:50", false)));
+  }
+
+  /**
+   * Verifies that createValue for a LinkBag containing a heavyweight pair (primary != secondary)
+   * only includes the primaryRid in the result, not the secondaryRid.
+   */
+  @Test
+  public void testCreateValueHeavyweightPairOnlyIncludesPrimaryRid() {
+    var ridBag = new LinkBag(session);
+
+    // Add a heavyweight pair: primaryRid=#1:12, secondaryRid=#1:50
+    ridBag.add(
+        RecordIdInternal.fromString("#1:12", false),
+        RecordIdInternal.fromString("#1:50", false));
+
+    final var result = propertyIndex.createValue(
+        session.getActiveTransaction(), Collections.singletonList(ridBag));
+    Assert.assertTrue(result instanceof Collection);
+
+    final var collectionResult = (Collection<?>) result;
+    Assert.assertEquals("Should contain only the primaryRid", 1, collectionResult.size());
+    Assert.assertTrue("Should contain primaryRid #1:12",
+        collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertFalse("Should NOT contain secondaryRid #1:50",
+        collectionResult.contains(RecordIdInternal.fromString("#1:50", false)));
+
+    assertEmbedded(ridBag);
+  }
+
+  /**
+   * Verifies createValue(Object...) for a LinkBag with a heavyweight pair only
+   * includes the primaryRid.
+   */
+  @Test
+  public void testCreateValueArrayParamsHeavyweightPairOnlyIncludesPrimaryRid() {
+    var ridBag = new LinkBag(session);
+
+    ridBag.add(
+        RecordIdInternal.fromString("#1:12", false),
+        RecordIdInternal.fromString("#1:50", false));
+
+    final var result = propertyIndex.createValue(
+        session.getActiveTransaction(), ridBag);
+    Assert.assertTrue(result instanceof Collection);
+
+    final var collectionResult = (Collection<?>) result;
+    Assert.assertEquals("Should contain only the primaryRid", 1, collectionResult.size());
+    Assert.assertTrue("Should contain primaryRid #1:12",
+        collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertFalse("Should NOT contain secondaryRid #1:50",
+        collectionResult.contains(RecordIdInternal.fromString("#1:50", false)));
+
+    assertEmbedded(ridBag);
+  }
+
   abstract void assertEmbedded(LinkBag linkBag);
 }
