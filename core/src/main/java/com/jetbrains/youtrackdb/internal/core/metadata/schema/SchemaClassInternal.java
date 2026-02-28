@@ -48,6 +48,10 @@ public interface SchemaClassInternal extends SchemaClass {
 
   long count(DatabaseSessionEmbedded session, final boolean isPolymorphic);
 
+  long approximateCount(DatabaseSessionEmbedded session);
+
+  long approximateCount(DatabaseSessionEmbedded session, boolean isPolymorphic);
+
   SchemaPropertyInternal getPropertyInternal(String propertyName);
 
   Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session, String... fields);

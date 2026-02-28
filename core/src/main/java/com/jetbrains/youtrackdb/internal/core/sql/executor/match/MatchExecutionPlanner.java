@@ -1356,7 +1356,7 @@ public class MatchExecutionPlanner {
       if (filter != null) {
         upperBound = filter.estimate(oClass, THRESHOLD, ctx);
       } else {
-        upperBound = oClass.count(ctx.getDatabaseSession());
+        upperBound = oClass.approximateCount(ctx.getDatabaseSession());
       }
       result.put(alias, upperBound);
     }

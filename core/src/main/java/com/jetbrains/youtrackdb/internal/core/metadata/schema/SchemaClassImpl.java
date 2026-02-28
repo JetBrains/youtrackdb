@@ -751,6 +751,19 @@ public abstract class SchemaClassImpl {
     }
   }
 
+  public long approximateCount(DatabaseSessionEmbedded session) {
+    return approximateCount(session, true);
+  }
+
+  public long approximateCount(DatabaseSessionEmbedded session, final boolean isPolymorphic) {
+    acquireSchemaReadLock();
+    try {
+      return session.approximateCountClass(getName(), isPolymorphic);
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
   /**
    * Truncates all the collections the class uses.
    */

@@ -99,6 +99,18 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     return delegate.count(this.session, isPolymorphic);
   }
 
+  @Override
+  public long approximateCount(DatabaseSessionEmbedded session) {
+    assert this.session.assertIfNotActive();
+    return delegate.approximateCount(this.session);
+  }
+
+  @Override
+  public long approximateCount(DatabaseSessionEmbedded session, boolean isPolymorphic) {
+    assert this.session.assertIfNotActive();
+    return delegate.approximateCount(this.session, isPolymorphic);
+  }
+
   @Nullable
   @Override
   public SchemaPropertyInternal getPropertyInternal(String propertyName) {

@@ -81,7 +81,7 @@ public class SQLWhereClause extends SimpleNode {
    */
   public long estimate(SchemaClassInternal schemaClass, long threshold, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var count = schemaClass.count(session);
+    var count = schemaClass.approximateCount(session);
     if (count > 1) {
       count = count / 2;
     }
