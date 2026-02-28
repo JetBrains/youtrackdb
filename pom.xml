@@ -95,7 +95,7 @@
     <project.rootdir>${project.basedir}/</project.rootdir>
     <slf4j.version>2.0.17</slf4j.version>
     <log4j.version>2.25.3</log4j.version>
-    <jackson.verson>2.20.0</jackson.verson>
+    <jackson.verson>2.21.1</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <gremlin.version>3.8.1-fccfc5a-SNAPSHOT</gremlin.version>
     <hamcrest.version>3.0</hamcrest.version>
