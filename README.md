@@ -122,14 +122,14 @@ To start to work with YouTrackDB:
 ```java
 package io.youtrackdb.examples;
 
+import static org.apache.tinkerpop.gremlin.process.traversal.P.gt;
+
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBDemoGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONMapper;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
-
-import static org.apache.tinkerpop.gremlin.process.traversal.P.gt;
 
 /// Minimal example of usage of YouTrackDB as an embedded database.
 /// This file is embedded into README.md by embedme — keep it self-contained.
