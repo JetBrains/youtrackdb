@@ -20,6 +20,8 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!-- RemoteExampleTest requires Docker; excluded by default, cleared by docker-images profile -->
     <examples.surefire.excludes>**/RemoteExampleTest.java</examples.surefire.excludes>
+    <!-- Examples legitimately use System.out for demonstration output -->
+    <errorprone.extra.args>-Xep:SystemOut:OFF</errorprone.extra.args>
   </properties>
 
   <dependencies>

@@ -105,6 +105,7 @@
     <guice.version>7.0.0</guice.version>
     <antlr.version>4.13.2</antlr.version>
     <errorprone.version>2.47.0</errorprone.version>
+    <errorprone.extra.args/>
     <nullaway.version>0.13.1</nullaway.version>
     <jspecify.version>1.0.0</jspecify.version>
     <errorprone.args>-Xplugin:ErrorProne -XepExcludedPaths:.*/src/main/generated/.*|.*/internal/core/sql/parser/.*|.*/src/test/.*|.*/generated-test-sources/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR -Xep:StringCaseLocaleUsage:ERROR -Xep:PatternMatchingInstanceof:ERROR -Xep:UnusedVariable:ERROR -Xep:UnnecessaryParentheses:ERROR -Xep:MixedMutabilityReturnType:ERROR -Xep:SystemOut:ERROR -Xep:CheckedExceptionNotThrown:ERROR -Xep:RemoveUnusedImports:ERROR -Xep:MissingOverride:ERROR -Xep:ImmutableEnumChecker:ERROR -Xep:EffectivelyPrivate:ERROR -Xep:StatementSwitchToExpressionSwitch:ERROR -Xep:OperatorPrecedence:ERROR -Xep:InvalidParam:ERROR -Xep:EmptyBlockTag:ERROR -Xep:ReferenceEquality:ERROR -Xep:EqualsGetClass:ERROR -Xep:StringSplitter:ERROR -Xep:TypeParameterUnusedInFormals:ERROR -Xep:NonApiType:OFF</errorprone.args>
@@ -414,7 +415,7 @@
               <arg>-XDcompilePolicy=simple</arg>
               <arg>--should-stop=ifError=FLOW</arg>
               <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
-              <arg>${errorprone.args}</arg>
+              <arg>${errorprone.args} ${errorprone.extra.args}</arg>
             </compilerArgs>
             <annotationProcessorPaths>
               <path>
