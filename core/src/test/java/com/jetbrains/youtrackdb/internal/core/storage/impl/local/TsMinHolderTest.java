@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -20,6 +21,16 @@ public class TsMinHolderTest {
     assertThat(holder.tsMin).isEqualTo(Long.MAX_VALUE);
     assertThat(holder.activeTxCount).isZero();
     assertThat(holder.registeredInTsMins).isFalse();
+  }
+
+  @Test
+  public void testLookupVarHandleThrowsOnInvalidField() {
+    // Exercises the error path (catch + throw) in lookupVarHandle, which is unreachable
+    // during normal class initialization because the "tsMin" field always exists.
+    assertThatThrownBy(
+            () -> TsMinHolder.lookupVarHandle(TsMinHolder.class, "nonExistent", long.class))
+        .isInstanceOf(ExceptionInInitializerError.class)
+        .hasCauseInstanceOf(NoSuchFieldException.class);
   }
 
   @Test

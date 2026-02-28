@@ -47,11 +47,16 @@ import java.lang.invoke.VarHandle;
 // as weak keys in AbstractStorage.tsMins (Guava MapMaker.weakKeys()).
 final class TsMinHolder {
 
-  private static final VarHandle TS_MIN;
+  private static final VarHandle TS_MIN =
+      lookupVarHandle(TsMinHolder.class, "tsMin", long.class);
 
-  static {
+  /**
+   * Looks up a {@link VarHandle} for the given field. Package-private so the error path can be
+   * tested with an invalid field name.
+   */
+  static VarHandle lookupVarHandle(Class<?> clazz, String fieldName, Class<?> fieldType) {
     try {
-      TS_MIN = MethodHandles.lookup().findVarHandle(TsMinHolder.class, "tsMin", long.class);
+      return MethodHandles.lookup().findVarHandle(clazz, fieldName, fieldType);
     } catch (ReflectiveOperationException e) {
       throw new ExceptionInInitializerError(e);
     }
