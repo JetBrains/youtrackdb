@@ -24,6 +24,4 @@ public class EmbeddedExample extends AbstractExample {
       ytdManipulationExample(ytdb);
     }
   }
-
-
 }
