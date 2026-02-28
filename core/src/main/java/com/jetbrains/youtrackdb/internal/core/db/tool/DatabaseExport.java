@@ -185,7 +185,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       long collectionExportedRecordsTot = 0;
       if (collectionName != null) {
         // CHECK IF THE COLLECTION IS INCLUDED
-        collectionExportedRecordsTot = session.countCollectionElements(collectionName);
+        collectionExportedRecordsTot = session.getApproximateCollectionCount(collectionName);
       }
 
       listener.onMessage(

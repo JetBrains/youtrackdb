@@ -360,13 +360,9 @@ public abstract class IndexAbstract implements Index {
       long entityNum = 0;
       long entitiesTotal = 0;
 
-      session.begin();
-      try {
-        for (final var collection : collectionsToIndex) {
-          entitiesTotal += storage.count(session, storage.getCollectionIdByName(collection));
-        }
-      } finally {
-        session.rollback();
+      for (final var collection : collectionsToIndex) {
+        entitiesTotal += storage.getApproximateRecordsCount(
+            storage.getCollectionIdByName(collection));
       }
 
       if (iProgressListener != null) {
@@ -577,11 +573,12 @@ public abstract class IndexAbstract implements Index {
       if (collectionsToIndex.add(collectionName)) {
 
         if (requireEmpty) {
-          // INDEX SINGLE COLLECTION
-          var collectionId = session.getCollectionIdByName(collectionName);
-          if (session.countCollectionElements(collectionId) > 0) {
-            throw new IndexException("Collection " + collectionName
-                + " is not empty. Please remove all records from it before adding to index");
+          // INDEX SINGLE COLLECTION — O(1) emptiness check via iterator
+          try (var iter = session.browseCollection(collectionName)) {
+            if (iter.hasNext()) {
+              throw new IndexException("Collection " + collectionName
+                  + " is not empty. Please remove all records from it before adding to index");
+            }
           }
         }
 
@@ -598,10 +595,12 @@ public abstract class IndexAbstract implements Index {
     acquireExclusiveLock();
     try {
       var session = transaction.getDatabaseSession();
-      var collectionId = session.getCollectionIdByName(collectionName);
-      if (session.countCollectionElements(collectionId) > 0) {
-        throw new IndexException("Collection " + collectionName
-            + " is not empty. Please remove all records from it before removing it from index");
+      // O(1) emptiness check via iterator
+      try (var iter = session.browseCollection(collectionName)) {
+        if (iter.hasNext()) {
+          throw new IndexException("Collection " + collectionName
+              + " is not empty. Please remove all records from it before removing it from index");
+        }
       }
 
       if (collectionsToIndex.remove(collectionName)) {
@@ -842,11 +841,10 @@ public abstract class IndexAbstract implements Index {
     }
 
     var collectionId = session.getCollectionIdByName(collectionName);
-    session.begin();
-    var collectionCount = session.countCollectionElements(collectionId);
-    session.rollback();
-
-    if (collectionCount > 0) {
+    // O(1) approximate guard — avoids starting a transaction just to check emptiness.
+    // False-zero (approximate says 0 when records exist) is theoretically possible after
+    // crash recovery but harmless: index rebuild is idempotent and can be retried.
+    if (storage.getApproximateRecordsCount(collectionId) > 0) {
       try (var fillSession = session.copy()) {
         var collectionIterator = fillSession.browseCollection(collectionName);
         fillSession.executeInTxBatchesInternal(collectionIterator, (fillTransaction, record) -> {

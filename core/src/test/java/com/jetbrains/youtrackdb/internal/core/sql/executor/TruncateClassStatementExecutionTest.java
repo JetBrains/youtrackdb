@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -136,6 +137,50 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
     session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * TRUNCATE CLASS POLYMORPHIC must check each subclass's count individually.
+   * This verifies the fix for a bug where the parent class count was checked in the
+   * subclass loop instead of each subclass's own count.
+   *
+   * Scenario: a regular (non-V/E) parent class with a subclass that extends both
+   * the parent and V (multiple inheritance). Only the subclass has records.
+   * The first polymorphic count check passes (parent is not V/E), so the subclass
+   * loop must detect the non-empty vertex subclass and throw.
+   *
+   * Before the fix, the loop checked the parent's count (0) and would not throw.
+   */
+  @Test
+  public void testTruncatePolymorphicChecksSubclassCounts() {
+    // Parent is a regular class (not V/E) — the first polymorphic check won't throw
+    session.execute("create class TestTruncPolyParent");
+    // Child extends both the parent and V via multiple inheritance
+    session.execute("create class TestTruncPolyChild extends TestTruncPolyParent, V");
+
+    session.begin();
+    session.execute("create vertex TestTruncPolyChild set name = 'a'");
+    session.commit();
+
+    // Polymorphic truncate without UNSAFE must throw because the vertex subclass has records
+    try {
+      session.execute("truncate class TestTruncPolyParent polymorphic");
+      Assert.fail("Expected CommandExecutionException for non-empty vertex subclass");
+    } catch (CommandExecutionException e) {
+      // Verify error message names the subclass, not the parent
+      Assert.assertTrue(
+          "Error should mention the subclass name",
+          e.getMessage().contains("TestTruncPolyChild"));
+    }
+
+    // UNSAFE should succeed
+    session.execute("truncate class TestTruncPolyParent polymorphic unsafe");
+
+    session.begin();
+    var result = session.query("select from TestTruncPolyChild");
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();

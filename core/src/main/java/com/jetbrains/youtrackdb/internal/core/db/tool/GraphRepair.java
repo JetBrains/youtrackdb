@@ -117,7 +117,7 @@ public class GraphRepair {
 
           final var edgeClass = schema.getClass(SchemaClass.EDGE_CLASS_NAME);
           if (edgeClass != null) {
-            final var countEdges = graph.countClass(edgeClass.getName());
+            final var countEdges = graph.approximateCountClass(edgeClass.getName());
 
             var skipEdges = 0L;
             if (options != null && options.get("-skipEdges") != null) {
@@ -319,7 +319,7 @@ public class GraphRepair {
     if (vertexClass != null) {
       session.executeInTx(
           transaction -> {
-            final var countVertices = session.countClass(vertexClass.getName());
+            final var countVertices = session.approximateCountClass(vertexClass.getName());
             var skipVertices = 0L;
             if (options != null && options.get("-skipVertices") != null) {
               skipVertices = Long.parseLong(options.get("-skipVertices").getFirst());

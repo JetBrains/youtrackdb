@@ -159,7 +159,11 @@ public interface Storage {
       String fieldName, RID rid);
 
   /**
-   * Returns the total number of records.
+   * Returns the approximate total number of records across all collections.
+   *
+   * <p>The result is based on per-collection volatile counters and is not
+   * snapshot-isolated. During concurrent modifications, the total may reflect
+   * a mix of pre- and post-commit states across different collections.
    */
   @SuppressWarnings("unused")
   long countRecords(DatabaseSessionEmbedded session);

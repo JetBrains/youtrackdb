@@ -493,15 +493,11 @@ public abstract class AbstractStorage
   @Override
   public long countRecords(DatabaseSessionEmbedded session) {
     long tot = 0;
-
-    var transaction = session.getActiveTransaction();
-    var atomicOperation = transaction.getAtomicOperation();
     for (var c : getCollectionInstances()) {
       if (c != null) {
-        tot += c.getEntries(atomicOperation) - c.getTombstonesCount();
+        tot += c.getApproximateRecordsCount();
       }
     }
-
     return tot;
   }
 

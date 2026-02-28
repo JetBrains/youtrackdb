@@ -4,6 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -35,7 +36,8 @@ public class SQLTruncateClassStatement extends DDLStatement {
       throw new CommandExecutionException(session, "Schema Class not found: " + className);
     }
 
-    final var recs = session.computeInTxInternal(tx -> clazz.count(session, polymorphic));
+    final var recs = session.computeInTxInternal(
+        tx -> clazz.approximateCount(session, polymorphic));
     if (recs > 0 && !unsafe) {
       if (clazz.isSubClassOf("V")) {
         throw new CommandExecutionException(session,
@@ -52,7 +54,8 @@ public class SQLTruncateClassStatement extends DDLStatement {
     var subclasses = clazz.getAllSubclasses();
     if (polymorphic && !unsafe) { // for multiple inheritance
       for (var subclass : subclasses) {
-        var subclassRecs = session.computeInTxInternal(tx -> clazz.count(session));
+        var subclassRecs = session.computeInTxInternal(
+            tx -> ((SchemaClassInternal) subclass).approximateCount(session));
         if (subclassRecs > 0) {
           if (subclass.isSubClassOf("V")) {
             throw new CommandExecutionException(session,
