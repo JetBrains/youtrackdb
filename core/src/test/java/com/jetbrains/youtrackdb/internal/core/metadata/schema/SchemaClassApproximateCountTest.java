@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -249,5 +251,52 @@ public class SchemaClassApproximateCountTest extends BaseMemoryInternalDatabase 
     assertEquals(12, session.approximateCountClass("SessionLevelClass", true));
     // Default (polymorphic)
     assertEquals(12, session.approximateCountClass("SessionLevelClass"));
+  }
+
+  /**
+   * Verify that approximateCount works correctly through SchemaClassProxy (mutable schema path),
+   * which delegates to SchemaClassImpl. This exercises the SchemaClassProxy.approximateCount()
+   * and SchemaClassImpl.approximateCount() code paths.
+   */
+  @Test
+  public void testApproximateCountThroughSchemaClassProxy() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("ProxyTestClass");
+
+    session.executeInTx(tx -> {
+      for (int i = 0; i < 7; i++) {
+        session.newEntity("ProxyTestClass");
+      }
+    });
+
+    // Access via mutable schema (returns SchemaClassProxy wrapping SchemaClassImpl)
+    var cls = (SchemaClassInternal) session.getMetadata().getSchema()
+        .getClass("ProxyTestClass");
+
+    // Test the single-arg overload (default polymorphic)
+    assertEquals(7, cls.approximateCount(session));
+    // Test the two-arg overload (non-polymorphic)
+    assertEquals(7, cls.approximateCount(session, false));
+    // Test the two-arg overload (polymorphic)
+    assertEquals(7, cls.approximateCount(session, true));
+  }
+
+  /**
+   * Calling approximateCountClass with a non-existent class name should throw
+   * IllegalArgumentException with a message containing the class name.
+   * Tests both the two-arg and single-arg overloads.
+   */
+  @Test
+  public void testApproximateCountClassNotFound() {
+    var ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> session.approximateCountClass("NonExistentClass", false));
+    assertTrue(ex.getMessage().contains("NonExistentClass"));
+
+    // Also verify the single-arg (default polymorphic) overload
+    var ex2 = assertThrows(
+        IllegalArgumentException.class,
+        () -> session.approximateCountClass("NonExistentClass"));
+    assertTrue(ex2.getMessage().contains("NonExistentClass"));
   }
 }
