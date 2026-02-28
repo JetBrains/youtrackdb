@@ -200,6 +200,103 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
           JAVA_TOOL_OPTIONS: '-Djdk.attach.allowAttachSelf=true'
+      - name: Generate Ekstazi Exclude Files
+        if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
+        shell: bash
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+        run: |
+          # Ekstazi writes exclude files to /tmp/ekstazi-<artifactId>.excludes
+          # when it has cached data and skips tests. If those files exist,
+          # just log them. Otherwise, generate them by diffing all IT source
+          # classes against failsafe reports (which tests actually ran).
+
+          EXISTING=$(find /tmp -maxdepth 1 -name 'ekstazi-*.excludes' -size +0c 2>/dev/null)
+          if [ -n "$EXISTING" ]; then
+            echo "Ekstazi wrote exclude files directly:"
+            for f in $EXISTING; do
+              COUNT=$(wc -l < "$f")
+              echo "  $f ($COUNT excluded test(s))"
+            done
+            exit 0
+          fi
+
+          echo "No Ekstazi-written exclude files found — generating from failsafe reports."
+
+          # Discover Maven modules dynamically.
+          MODULES=$(./mvnw -s .github/workflows/settings.xml -q help:evaluate \
+            -Dexpression=project.modules -DforceStdout -N \
+            | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
+
+          if [ -z "$MODULES" ]; then
+            echo "::warning::Failed to extract Maven modules — skipping exclude file generation"
+            exit 0
+          fi
+
+          echo "Discovered modules: $MODULES"
+
+          # For each module, compare all IT test classes against failsafe reports
+          # to determine which tests Ekstazi excluded from execution.
+          for module_dir in $MODULES; do
+            if [ ! -f "${module_dir}/pom.xml" ]; then
+              echo "Skipping ${module_dir}: no pom.xml found"
+              continue
+            fi
+
+            TEST_SRC="${module_dir}/src/test/java"
+            REPORT_DIR="${module_dir}/target/failsafe-reports"
+
+            if [ ! -d "$TEST_SRC" ]; then
+              echo "Skipping ${module_dir}: no test source directory"
+              continue
+            fi
+
+            if [ ! -d "$REPORT_DIR" ]; then
+              echo "Skipping ${module_dir}: no failsafe-reports (integration tests may not have run)"
+              continue
+            fi
+
+            # Read artifactId from module pom.xml (skip parent block)
+            ARTIFACT_ID=$(sed -n '/<parent>/,/<\/parent>/d; s/.*<artifactId>\(.*\)<\/artifactId>.*/\1/p' \
+              "${module_dir}/pom.xml" | head -1)
+
+            if [ -z "$ARTIFACT_ID" ]; then
+              echo "::warning::Could not read artifactId from ${module_dir}/pom.xml — using directory name"
+              ARTIFACT_ID="youtrackdb-${module_dir}"
+            fi
+
+            EXCLUDES_FILE="/tmp/ekstazi-${ARTIFACT_ID}.excludes"
+
+            # Find all IT test classes (fully qualified names)
+            ALL_ITS=$(find "$TEST_SRC" \( -name '*IT.java' -o -name '*IntegrationTest.java' \) | \
+              sed "s|${TEST_SRC}/||; s|\.java$||; s|/|.|g" | sort)
+
+            if [ -z "$ALL_ITS" ]; then
+              echo "Skipping ${module_dir}: no integration test classes found"
+              continue
+            fi
+
+            # Find tests that actually ran (from failsafe XML report filenames)
+            RAN_ITS=$(find "$REPORT_DIR" -name 'TEST-*.xml' -printf '%f\n' 2>/dev/null | \
+              sed 's/^TEST-//; s/\.xml$//' | sort)
+
+            # Excluded = All - Ran
+            if [ -z "$RAN_ITS" ]; then
+              EXCLUDED="$ALL_ITS"
+            else
+              EXCLUDED=$(comm -23 <(echo "$ALL_ITS") <(echo "$RAN_ITS"))
+            fi
+
+            if [ -n "$EXCLUDED" ]; then
+              echo "$EXCLUDED" > "$EXCLUDES_FILE"
+              echo "Generated $EXCLUDES_FILE with $(echo "$EXCLUDED" | wc -l) excluded test(s)"
+            else
+              # Write empty file so the artifact upload succeeds (proves the step ran)
+              touch "$EXCLUDES_FILE"
+              echo "Generated $EXCLUDES_FILE (no tests excluded)"
+            fi
+          done
       - name: Print VMLens Data Race Report
         if: always()
         run: |
