@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /// @see AtomicOperationsSnapshot
 public class AtomicOperationsTable {
 
-  /// Sentinel value indicating the cached min or max is unknown and must be recomputed.
+  /// Sentinel value indicating the cached min is unknown and must be recomputed.
   private static final long UNKNOWN_TS = Long.MIN_VALUE;
 
   /// Maximum number of entries to scan in [#findNextInProgressFrom] before
@@ -60,16 +60,11 @@ public class AtomicOperationsTable {
   /// VarHandle for CAS operations on [#cachedMinActiveTs].
   private static final VarHandle CACHED_MIN_ACTIVE_TS;
 
-  /// VarHandle for CAS operations on [#cachedMaxActiveTs].
-  private static final VarHandle CACHED_MAX_ACTIVE_TS;
-
   static {
     try {
       var lookup = MethodHandles.lookup();
       CACHED_MIN_ACTIVE_TS = lookup.findVarHandle(
           AtomicOperationsTable.class, "cachedMinActiveTs", long.class);
-      CACHED_MAX_ACTIVE_TS = lookup.findVarHandle(
-          AtomicOperationsTable.class, "cachedMaxActiveTs", long.class);
     } catch (ReflectiveOperationException e) {
       throw new ExceptionInInitializerError(e);
     }
@@ -134,20 +129,13 @@ public class AtomicOperationsTable {
   /// Cached lower bound on the minimum timestamp of all IN_PROGRESS operations.
   ///
   /// **Invariant**: `cachedMinActiveTs <= actual min` or `cachedMinActiveTs == UNKNOWN_TS`.
-  /// Updated incrementally on start (sets from UNKNOWN) and commit/rollback of the min
-  /// (forward-scanned to the next IN_PROGRESS entry). Snapshot scans advance it to
-  /// the scanned value. Out-of-order starts are impossible because the caller holds
-  /// segmentLock during startOperation, guaranteeing strictly increasing TS order.
+  /// Updated on commit/rollback of the min (forward-scanned to the next IN_PROGRESS
+  /// entry, or set to UNKNOWN if the scan cap is reached). Snapshot scans advance it
+  /// to the scanned value. Not updated on startOperation because UNKNOWN_TS is
+  /// ambiguous (could mean "no active ops" or "forward scan gave up") and setting
+  /// it to the new TS could violate the invariant.
   @SuppressWarnings("FieldMayBeFinal") // accessed via VarHandle CAS
   private volatile long cachedMinActiveTs = UNKNOWN_TS;
-
-  /// Cached upper bound on the maximum timestamp of all IN_PROGRESS operations.
-  ///
-  /// **Invariant**: `cachedMaxActiveTs >= actual max` or `cachedMaxActiveTs == UNKNOWN_TS`.
-  /// Updated incrementally on start (CAS loop to the new max) and commit/rollback of the
-  /// max (invalidated to UNKNOWN). Snapshot scans restore it via CAS (never decreasing).
-  @SuppressWarnings("FieldMayBeFinal") // accessed via VarHandle CAS
-  private volatile long cachedMaxActiveTs = UNKNOWN_TS;
 
   /// An immutable snapshot of the atomic operations table state at a point in time.
   ///
@@ -243,13 +231,14 @@ public class AtomicOperationsTable {
 
     compactionLock.sharedLock();
     try {
-      // Read cached bounds to narrow the scan range.
-      // Invariants: cachedMin <= actual min, cachedMax >= actual max (or UNKNOWN).
+      // Read the cached lower bound to skip committed/rolled-back entries at the
+      // front of the table. Invariant: cachedMin <= actual min (or UNKNOWN).
+      // We do NOT cache or use an upper bound because updating cachedMax after
+      // the table entry CAS in startOperation creates a race window: a concurrent
+      // snapshot could read the stale cachedMax and miss the just-started entry,
+      // producing a snapshot with maxActiveOperationTs lower than the true maximum.
       final var cachedMin = this.cachedMinActiveTs;
-      final var cachedMax = this.cachedMaxActiveTs;
-
       final long scanFromTs = (cachedMin != UNKNOWN_TS) ? cachedMin : Long.MIN_VALUE;
-      final long scanToTs = (cachedMax != UNKNOWN_TS) ? cachedMax : Long.MAX_VALUE;
 
       for (var segIdx = 0; segIdx < tables.length; segIdx++) {
         final var table = tables[segIdx];
@@ -261,18 +250,16 @@ public class AtomicOperationsTable {
 
         final long segLastTs = segOffset + tableSize - 1;
 
-        // Skip segment if entirely outside the scan range
-        if (segLastTs < scanFromTs || segOffset > scanToTs) {
+        // Skip segment if entirely before the scan start
+        if (segLastTs < scanFromTs) {
           continue;
         }
 
-        // Compute index bounds within this segment
+        // Compute start index within this segment (skip entries before cachedMin)
         final int startIdx = (scanFromTs > segOffset)
             ? (int) (scanFromTs - segOffset) : 0;
-        final int endIdx = (scanToTs < segLastTs)
-            ? (int) (scanToTs - segOffset + 1) : tableSize;
 
-        for (var i = startIdx; i < endIdx; i++) {
+        for (var i = startIdx; i < tableSize; i++) {
           final var operationInformation = table.get(i);
 
           if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
@@ -334,24 +321,6 @@ public class AtomicOperationsTable {
           break; // stale scan: a concurrent snapshot already advanced the min
         }
         if (CACHED_MIN_ACTIVE_TS.compareAndSet(this, curMin, newCachedMin)) {
-          break;
-        }
-      }
-
-      // Update cached max via CAS: never decrease below a value set by a
-      // concurrent startOperation.
-      final long newCachedMax = hasActiveOps ? maxOp : UNKNOWN_TS;
-      while (true) {
-        final long curMax = this.cachedMaxActiveTs;
-        if (curMax == newCachedMax) {
-          break;
-        }
-        // Don't replace a known value with UNKNOWN or a lower value
-        if (curMax != UNKNOWN_TS
-            && (newCachedMax == UNKNOWN_TS || newCachedMax < curMax)) {
-          break;
-        }
-        if (CACHED_MAX_ACTIVE_TS.compareAndSet(this, curMax, newCachedMax)) {
           break;
         }
       }
@@ -570,51 +539,25 @@ public class AtomicOperationsTable {
         }
       }
 
-      // Maintain min/max caches after successful status change.
-      // All cache updates use CAS to handle concurrent modifications safely.
-      if (newStatus == AtomicOperationStatus.IN_PROGRESS) {
-        // New operation started: update max to max(current, operationTs) and
-        // set min from UNKNOWN if this is the first active operation.
-        assert operationTs >= 0 : "operation timestamp must be non-negative";
-        while (true) {
-          final long curMax = this.cachedMaxActiveTs;
-          if (curMax != UNKNOWN_TS && operationTs <= curMax) {
-            break;
-          }
-          if (CACHED_MAX_ACTIVE_TS.compareAndSet(this, curMax, operationTs)) {
-            break;
-          }
-        }
-        // Set min from UNKNOWN if this is the first active operation.
-        // Safe because the caller (AtomicOperationsManager) holds segmentLock,
-        // guaranteeing operations register in strictly increasing TS order.
-        // The first start after UNKNOWN always has the lowest active timestamp.
-        CACHED_MIN_ACTIVE_TS.compareAndSet(this, UNKNOWN_TS, operationTs);
-      } else if (expectedStatus == AtomicOperationStatus.IN_PROGRESS) {
-        // Operation leaving IN_PROGRESS (commit or rollback): update caches
-        // based on whether the committed TS was a boundary value.
+      // Maintain the cached min after successful status change.
+      //
+      // We intentionally do NOT update cachedMinActiveTs on startOperation.
+      // UNKNOWN_TS is ambiguous: it can mean "no active operations" OR "the
+      // forward scan in commitOperation hit its cap and gave up". In the
+      // latter case, there may be an older active operation below the new
+      // start's TS. Setting cachedMin to the new TS would violate the
+      // invariant cachedMin <= actual min. Instead, we leave it as UNKNOWN
+      // and let the next snapshot perform a full scan to re-establish it.
+      if (expectedStatus == AtomicOperationStatus.IN_PROGRESS) {
+        // Operation leaving IN_PROGRESS (commit or rollback): if this was the
+        // cached min, forward-scan for the next IN_PROGRESS entry.
         final long curMin = this.cachedMinActiveTs;
-        final long curMax = this.cachedMaxActiveTs;
-
-        final boolean isMin = (curMin != UNKNOWN_TS && operationTs == curMin);
-        final boolean isMax = (curMax != UNKNOWN_TS && operationTs == curMax);
-
-        if (isMin && isMax) {
-          // Case 1: only active operation — invalidate both
-          CACHED_MIN_ACTIVE_TS.compareAndSet(this, operationTs, UNKNOWN_TS);
-          CACHED_MAX_ACTIVE_TS.compareAndSet(this, operationTs, UNKNOWN_TS);
-        } else if (isMin) {
-          // Case 2: committed the min — forward-scan for the next IN_PROGRESS entry
+        if (curMin != UNKNOWN_TS && operationTs == curMin) {
           final long newMin = findNextInProgressFrom(operationTs + 1);
           assert newMin > operationTs || newMin == UNKNOWN_TS
               : "new min must be > committed ts";
           CACHED_MIN_ACTIVE_TS.compareAndSet(this, operationTs, newMin);
-        } else if (isMax) {
-          // Case 3: committed the max — invalidate max; next start or snapshot
-          // will restore it
-          CACHED_MAX_ACTIVE_TS.compareAndSet(this, operationTs, UNKNOWN_TS);
         }
-        // Case 4: non-boundary operation — no change needed
       }
       // COMMITTED → PERSISTED: no cache update needed (TX already left IN_PROGRESS)
     } finally {
@@ -673,10 +616,10 @@ public class AtomicOperationsTable {
   /// Compaction is triggered automatically when
   /// `operationsStarted > lastCompactionOperation + tableCompactionInterval`.
   ///
-  /// Note: [#cachedMinActiveTs] and [#cachedMaxActiveTs] remain valid across
-  /// compaction because they store timestamps (not segment indices). Compaction
-  /// only removes completed entries and adjusts segment offsets; the set of
-  /// IN_PROGRESS operations and their timestamps are unchanged.
+  /// Note: [#cachedMinActiveTs] remains valid across compaction because it
+  /// stores a timestamp (not a segment index). Compaction only removes completed
+  /// entries and adjusts segment offsets; the set of IN_PROGRESS operations and
+  /// their timestamps are unchanged.
   public void compactTable() {
     compactionLock.exclusiveLock();
     try {

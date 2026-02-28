@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
  * schedules, so small operation counts are sufficient for thorough coverage.
  *
  * <p>Each test focuses on a specific concurrent interaction with the cached
- * min/max fields and snapshot scan range narrowing.
+ * min field and snapshot scan range narrowing.
  */
 public class AtomicOperationsTableMTTest {
 
@@ -72,7 +72,7 @@ public class AtomicOperationsTableMTTest {
         allInterleavings("concurrentStartWithSnapshotShouldBeConsistent")) {
       while (allInterleavings.hasNext()) {
         var table = new AtomicOperationsTable(100, 1);
-        // Pre-establish one operation and caches
+        // Pre-establish one operation and cached min
         table.startOperation(1, 1);
         table.snapshotAtomicOperationTableState(100);
 
@@ -112,7 +112,7 @@ public class AtomicOperationsTableMTTest {
         // Pre-start two operations
         table.startOperation(1, 1);
         table.startOperation(2, 2);
-        // Establish caches
+        // Establish cached min
         table.snapshotAtomicOperationTableState(100);
 
         // Thread 1 commits ts=1 (the min), Thread 2 starts ts=3
@@ -180,7 +180,7 @@ public class AtomicOperationsTableMTTest {
         table.startOperation(1, 1);
         table.startOperation(2, 2);
         table.startOperation(3, 3);
-        // Establish caches
+        // Establish cached min
         table.snapshotAtomicOperationTableState(100);
 
         var snapHolder = new AtomicOperationsTable.AtomicOperationsSnapshot[1];
@@ -209,9 +209,8 @@ public class AtomicOperationsTableMTTest {
   }
 
   /**
-   * One thread commits the max while another starts a new operation.
-   * The max cache is invalidated on commit and should be restored by the
-   * new start. Every interleaving must produce a self-consistent snapshot.
+   * One thread commits the highest active operation while another starts a new
+   * operation. Every interleaving must produce a self-consistent snapshot.
    */
   @Test
   public void concurrentCommitMaxWithStartShouldBeConsistent()
@@ -222,10 +221,9 @@ public class AtomicOperationsTableMTTest {
         var table = new AtomicOperationsTable(100, 1);
         table.startOperation(1, 1);
         table.startOperation(3, 3);
-        // Establish caches: min=1, max=3
         table.snapshotAtomicOperationTableState(100);
 
-        // Thread 1 commits max (ts=3), Thread 2 starts ts=5
+        // Thread 1 commits ts=3, Thread 2 starts ts=5
         var t1 = new Thread(() -> table.commitOperation(3));
         var t2 = new Thread(() -> table.startOperation(5, 5));
 
@@ -243,10 +241,8 @@ public class AtomicOperationsTableMTTest {
   }
 
   /**
-   * Commits the only active operation (isMin && isMax) while another thread
-   * starts a new operation. Both caches are invalidated to UNKNOWN, then the
-   * new start should restore them. Every interleaving must produce a
-   * self-consistent snapshot.
+   * Commits the only active operation while another thread starts a new
+   * operation. Every interleaving must produce a self-consistent snapshot.
    */
   @Test
   public void concurrentCommitSoleOpWithStartShouldBeConsistent()
@@ -256,7 +252,6 @@ public class AtomicOperationsTableMTTest {
       while (allInterleavings.hasNext()) {
         var table = new AtomicOperationsTable(100, 1);
         table.startOperation(1, 1);
-        // Establish caches: min=1, max=1
         table.snapshotAtomicOperationTableState(100);
 
         // Thread 1 commits the only op, Thread 2 starts a new one
@@ -314,8 +309,8 @@ public class AtomicOperationsTableMTTest {
 
   /**
    * One thread commits a non-boundary operation while another takes a snapshot.
-   * The cached min/max should remain unchanged (Case 4 in the commit handler).
-   * Every interleaving must produce a self-consistent snapshot.
+   * The cached min should remain unchanged since the committed operation is not
+   * the min. Every interleaving must produce a self-consistent snapshot.
    */
   @Test
   public void concurrentNonBoundaryCommitWithSnapshotShouldBeConsistent()
@@ -327,7 +322,7 @@ public class AtomicOperationsTableMTTest {
         table.startOperation(1, 1);
         table.startOperation(3, 3);
         table.startOperation(5, 5);
-        // Establish caches: min=1, max=5
+        // Establish cached min via snapshot
         table.snapshotAtomicOperationTableState(100);
 
         var snapHolder = new AtomicOperationsTable.AtomicOperationsSnapshot[1];
@@ -350,6 +345,76 @@ public class AtomicOperationsTableMTTest {
         assertEquals(2, snapAfter.inProgressTxs().size());
         assertTrue(snapAfter.inProgressTxs().contains(1));
         assertTrue(snapAfter.inProgressTxs().contains(5));
+      }
+    }
+  }
+
+  /**
+   * Regression test: verifies that a snapshot never reports a
+   * {@code maxActiveOperationTs} lower than any actually-found IN_PROGRESS
+   * entry. Before the fix, the snapshot scan used a cached upper bound
+   * ({@code cachedMaxActiveTs}) that could be stale when a new operation was
+   * concurrently started. The scan would stop too early and produce a snapshot
+   * with a {@code maxActiveOperationTs} that excluded the just-started entry.
+   * This caused committed operations between the stale max and the true max
+   * to be erroneously visible, violating Snapshot Isolation.
+   *
+   * <p>The test starts two operations, establishes cached scan bounds, then
+   * concurrently starts a third operation (beyond the cached max) while
+   * taking a snapshot. The snapshot's {@code maxActiveOperationTs} must be
+   * at least as high as every entry in its {@code inProgressTxs} set.
+   */
+  @Test
+  public void snapshotShouldNeverMissStartBeyondCachedMax()
+      throws Exception {
+    try (var allInterleavings =
+        allInterleavings("snapshotShouldNeverMissStartBeyondCachedMax")) {
+      while (allInterleavings.hasNext()) {
+        var table = new AtomicOperationsTable(100, 1);
+        // Pre-establish two operations and populate the cached min bound.
+        table.startOperation(1, 1);
+        table.startOperation(2, 2);
+        table.snapshotAtomicOperationTableState(100);
+
+        var snapHolder = new AtomicOperationsTable.AtomicOperationsSnapshot[1];
+
+        // Thread 1 starts ts=3 (beyond the previously scanned max=2).
+        // Thread 2 takes a snapshot concurrently.
+        var t1 = new Thread(() -> table.startOperation(3, 3));
+        var t2 = new Thread(
+            () -> snapHolder[0] = table.snapshotAtomicOperationTableState(100));
+
+        t1.start();
+        t2.start();
+        t1.join();
+        t2.join();
+
+        // The concurrent snapshot must be self-consistent: min/max must
+        // match the actual bounds of inProgressTxs.
+        verifySnapshotConsistency(snapHolder[0]);
+
+        // Stronger check: maxActiveOperationTs must be >= every entry.
+        // With the old cachedMax-based scan, certain interleavings would
+        // produce a snapshot with max=2 even though ts=3 was IN_PROGRESS,
+        // because the scan stopped at the stale cachedMax=2.
+        var snap = snapHolder[0];
+        for (var it = snap.inProgressTxs().iterator(); it.hasNext(); ) {
+          var ts = it.nextLong();
+          assertTrue(ts <= snap.maxActiveOperationTs(),
+              "snapshot max (" + snap.maxActiveOperationTs()
+                  + ") must be >= every in-progress entry (" + ts + ")");
+          assertTrue(ts >= snap.minActiveOperationTs(),
+              "snapshot min (" + snap.minActiveOperationTs()
+                  + ") must be <= every in-progress entry (" + ts + ")");
+        }
+
+        // After both threads complete, all three operations must be visible.
+        var snapAfter = table.snapshotAtomicOperationTableState(100);
+        verifySnapshotConsistency(snapAfter);
+        assertEquals(3, snapAfter.inProgressTxs().size());
+        assertTrue(snapAfter.inProgressTxs().contains(1));
+        assertTrue(snapAfter.inProgressTxs().contains(2));
+        assertTrue(snapAfter.inProgressTxs().contains(3));
       }
     }
   }
