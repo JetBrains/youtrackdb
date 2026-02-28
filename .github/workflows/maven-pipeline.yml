@@ -730,6 +730,12 @@ jobs:
     needs: [ detect-changes, test-linux, test-windows, coverage-gate, mutation-testing ]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Verify embedded code examples in documentation
+        run: npx embedme --verify **/*.md
+
       - name: Check results
         env:
           DETECT_RESULT: ${{ needs.detect-changes.result }}

@@ -18,13 +18,40 @@
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- RemoteExampleTest requires Docker; excluded by default, cleared by docker-images profile -->
+    <examples.surefire.excludes>**/RemoteExampleTest.java</examples.surefire.excludes>
+    <!-- Examples legitimately use System.out for demonstration output -->
+    <errorprone.extra.args>-Xep:SystemOut:OFF</errorprone.extra.args>
   </properties>
 
   <dependencies>
+    <!-- Shaded uber-jar for embedded usage (relocates third-party deps to avoid conflicts) -->
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-embedded</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- Remote driver (needed only for server connections, see RemoteExample).
+         Exclude youtrackdb-core because youtrackdb-embedded already bundles it
+         with relocated third-party dependencies. Having both the shaded and
+         unshaded core on the classpath causes NoSuchMethodError at runtime. -->
     <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-driver</artifactId>
       <version>${project.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>io.youtrackdb</groupId>
+          <artifactId>youtrackdb-core</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- JSR-305 annotations (@Nonnull etc.) - excluded from the embedded uber-jar -->
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>jsr305</artifactId>
+      <version>3.0.2</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>
@@ -39,6 +66,18 @@
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>
       <artifactId>log4j-slf4j2-impl</artifactId>
+    </dependency>
+
+    <!-- test -->
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
   <build>
@@ -58,6 +97,58 @@
         </configuration>
         <inherited>false</inherited>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-junit47</artifactId>
+            <version>${surefire.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <excludes>
+            <exclude>${examples.surefire.excludes}</exclude>
+          </excludes>
+          <argLine>
+            -ea
+            -Xms4096m
+            -Xmx4096m
+            -Dyoutrackdb.storage.diskCache.bufferSize=4096
+            -Dyoutrackdb.security.createDefaultUsers=false
+            -Dyoutrackdb.memory.directMemory.trackMode=true
+            -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
+            -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
+            --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
+            --add-opens java.base/sun.security.x509=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+            --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-exports=java.base/sun.security.x509=ALL-UNNAMED
+            --add-exports=java.base/sun.security.action=ALL-UNNAMED
+            -XX:+IgnoreUnrecognizedVMOptions
+          </argLine>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- Include RemoteExampleTest only when Docker images are available -->
+    <profile>
+      <id>docker-images</id>
+      <properties>
+        <examples.surefire.excludes>none</examples.surefire.excludes>
+      </properties>
+    </profile>
+  </profiles>
 </project>
