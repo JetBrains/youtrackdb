@@ -7,6 +7,7 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import org.junit.Test;
 
@@ -55,6 +56,72 @@ public class LinkBagBasicTest extends DbTestBase {
     assertEquals(bag1, bag2);
     assertEquals(bag1.hashCode(), bag2.hashCode());
     session.rollback();
+  }
+
+  /**
+   * Verify that the LinkBag copy constructor copies all entries from the source bag.
+   * This exercises the LinkBag(session, source) constructor which iterates the
+   * source bag and adds each RidPair to the new bag.
+   */
+  @Test
+  public void testCopyConstructorCopiesAllEntries() {
+    session.begin();
+    var entity1 = session.newEntity();
+    var entity2 = session.newEntity();
+    var entity3 = session.newEntity();
+    session.commit();
+
+    session.begin();
+    var source = new LinkBag(session);
+    source.add(entity1.getIdentity());
+    source.add(entity2.getIdentity());
+    source.add(entity3.getIdentity());
+
+    var copy = new LinkBag(session, source);
+
+    assertEquals(
+        "Copy should have the same size as the source",
+        source.size(), copy.size());
+    assertEquals(
+        "Copy should be equal to the source",
+        source, copy);
+    session.rollback();
+  }
+
+  /**
+   * Verify that passing a non-null primaryRid with a null secondaryRid throws
+   * IllegalArgumentException. This exercises the secondaryRid null validation
+   * in AbstractLinkBag.add(RID, RID).
+   */
+  @Test(expected = IllegalArgumentException.class)
+  public void testNullSecondaryRidThrows() {
+    session.begin();
+    try {
+      var bag = new EmbeddedLinkBag(session, Integer.MAX_VALUE);
+      bag.add(new RecordId(1, 0), null);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verify that calling iterator.remove() without a preceding next() call throws
+   * IllegalStateException. This exercises the currentPair==null guard in
+   * AbstractLinkBag.EnhancedIterator.remove().
+   */
+  @Test(expected = IllegalStateException.class)
+  public void testIteratorRemoveWithoutNextThrows() {
+    session.begin();
+    try {
+      var bag = new EmbeddedLinkBag(session, Integer.MAX_VALUE);
+      var entity = session.newEntity();
+      bag.add(entity.getIdentity());
+      var iter = bag.iterator();
+      // Calling remove without next should throw
+      iter.remove();
+    } finally {
+      session.rollback();
+    }
   }
 
   @Test

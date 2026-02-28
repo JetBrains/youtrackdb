@@ -21,7 +21,9 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
@@ -1028,6 +1030,50 @@ public class DoubleSidedEdgeLinkBagTest {
     tx.rollback();
   }
 
+  // --- getVerticesOptimized with non-LinkBag edge property ---
+
+  /**
+   * Verifies that getVerticesOptimized correctly handles edge properties stored as a
+   * single LINK (Identifiable) rather than a LinkBag. This exercises the Identifiable
+   * case in the switch statement at VertexEntityImpl.getVerticesOptimized.
+   *
+   * <p>When an edge property is schema-typed as LINK, addLinkToEdge stores a single
+   * Identifiable (the edge record RID). getVerticesOptimized must detect this and
+   * fall back to the edge-based traversal path.
+   */
+  @Test
+  public void testGetVerticesOptimizedWithLinkTypedEdgeProperty() {
+    // Create a separate edge class with LINK-typed property on the vertex
+    session.getSchema().createEdgeClass("LinkEdge");
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "LinkEdge");
+    vertexClass.createProperty(outFieldName, PropertyType.LINK);
+
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    // addStateFulEdge stores the edge RID as a single LINK (not a LinkBag)
+    // because the property is typed as LINK
+    outVertex.addStateFulEdge(inVertex, "LinkEdge");
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(outVertex.getIdentity()).asVertex();
+
+    // getVertices should still return the correct adjacent vertex
+    // even though the property is stored as a single Identifiable
+    var vertices = loaded.getVertices(Direction.OUT, "LinkEdge");
+    var iter = vertices.iterator();
+    assertTrue("Should have at least one adjacent vertex", iter.hasNext());
+    var adjacent = iter.next();
+    assertEquals(
+        "Adjacent vertex should be the target (in) vertex",
+        inVertex.getIdentity(), adjacent.getIdentity());
+    assertFalse("Should have exactly one adjacent vertex", iter.hasNext());
+
+    tx.commit();
+  }
+
   // --- Index tests: verify LinkBag is indexed only by primaryRid ---
 
   /**
@@ -1090,6 +1136,92 @@ public class DoubleSidedEdgeLinkBagTest {
         indexKeys.contains(inVertex2Rid));
 
     assertEquals("Index should have exactly 2 keys (one per edge)", 2, indexKeys.size());
+
+    tx.commit();
+  }
+
+  // --- ResultInternal and LinkBag conversion tests ---
+
+  /**
+   * Verifies that ResultInternal.toMapValue correctly converts a LinkBag to a List
+   * of primary RIDs. This exercises the LinkBag case in the static toMapValue switch
+   * expression, which iterates RidPairs and extracts primaryRid values.
+   */
+  @Test
+  public void testResultInternalToMapValueConvertsLinkBagToRidList() {
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex1 = tx.newVertex("TestVertex");
+    var inVertex2 = tx.newVertex("TestVertex");
+    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = (EntityImpl) tx.load(outVertex.getIdentity());
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var bag = (LinkBag) loaded.getPropertyInternal(outFieldName);
+    assertNotNull("Vertex should have a LinkBag for edge field", bag);
+
+    // Call toMapValue to convert the LinkBag to a List<RID>
+    var converted = ResultInternal.toMapValue(bag, false);
+    assertTrue(
+        "toMapValue should convert LinkBag to a List",
+        converted instanceof List<?>);
+
+    @SuppressWarnings("unchecked")
+    var ridList = (List<RID>) converted;
+    assertEquals(
+        "Converted list should have same size as LinkBag",
+        bag.size(), ridList.size());
+
+    // All primary RIDs (edge record RIDs) should be in the list
+    Set<RID> expectedRids = new HashSet<>();
+    for (var pair : bag) {
+      expectedRids.add(pair.primaryRid());
+    }
+    assertEquals(
+        "Converted list should contain all primary RIDs from the LinkBag",
+        expectedRids, new HashSet<>(ridList));
+
+    tx.commit();
+  }
+
+  /**
+   * Verifies that setting a LinkBag as a property value on a ResultInternal
+   * correctly converts it to a List of primary RIDs via convertPropertyValue.
+   * This exercises the LinkBag case in the private convertPropertyValue method.
+   */
+  @Test
+  public void testResultInternalSetPropertyConvertsLinkBag() {
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edgeRid = edge.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = (EntityImpl) tx.load(outVertex.getIdentity());
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var bag = (LinkBag) loaded.getPropertyInternal(outFieldName);
+    assertNotNull(bag);
+
+    // Setting a LinkBag property on a ResultInternal should convert it to a List
+    var result = new ResultInternal(session);
+    result.setProperty("edges", bag);
+    var value = result.getProperty("edges");
+
+    assertTrue(
+        "Property value should be converted from LinkBag to a List",
+        value instanceof List<?>);
+
+    @SuppressWarnings("unchecked")
+    var ridList = (List<RID>) value;
+    assertEquals("Converted list should have 1 entry", 1, ridList.size());
+    assertEquals(
+        "Converted list should contain the edge RID (primary RID)",
+        edgeRid, ridList.getFirst());
 
     tx.commit();
   }

@@ -43,12 +43,12 @@ public class LinkBag
   }
 
   public LinkBag(@Nonnull DatabaseSessionEmbedded session, final LinkBag source) {
+    this.session = session;
     initThresholds(session);
     init();
     for (var pair : source) {
       add(pair.primaryRid(), pair.secondaryRid());
     }
-    this.session = session;
   }
 
   public LinkBag(@Nonnull DatabaseSessionEmbedded session) {

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import java.nio.ByteBuffer;
@@ -136,6 +137,24 @@ public class LinkBagValueTest {
     var bufferSize =
         serializer.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
     assertEquals(computedSize, bufferSize);
+  }
+
+  /**
+   * Verifies that the serializer metadata methods return correct values:
+   * getId() = -1, isFixedLength() = false, getFixedLength() = -1, and
+   * preprocess() returns the input unchanged.
+   */
+  @Test
+  public void testSerializerMetadata() {
+    assertEquals(-1, serializer.getId());
+    assertFalse(serializer.isFixedLength());
+    assertEquals(-1, serializer.getFixedLength());
+
+    var value = new LinkBagValue(5, 10, 20L);
+    var preprocessed = serializer.preprocess(serializerFactory, value);
+    assertEquals(
+        "preprocess should return the same value unchanged",
+        value, preprocessed);
   }
 
   /**
