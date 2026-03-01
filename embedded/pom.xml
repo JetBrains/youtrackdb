@@ -388,6 +388,7 @@
           </argLine>
           <systemPropertyVariables>
             <project.build.directory>${project.build.directory}</project.build.directory>
+            <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
         </configuration>
         <executions>
@@ -411,6 +412,10 @@
           </dependency>
         </dependencies>
         <configuration>
+          <systemPropertyVariables>
+            <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
+          </systemPropertyVariables>
           <excludes>
             <exclude>**/EmbeddedGraphFeatureTest.java</exclude>
           </excludes>
