@@ -240,7 +240,22 @@ public class AtomicOperationsTable {
       final var cachedMin = this.cachedMinActiveTs;
       final long scanFromTs = (cachedMin != UNKNOWN_TS) ? cachedMin : Long.MIN_VALUE;
 
-      for (var segIdx = 0; segIdx < tables.length; segIdx++) {
+      // Scan in REVERSE order (high-to-low timestamps) to guarantee visibility
+      // of all IN_PROGRESS entries via the Java Memory Model happens-before chain.
+      //
+      // Operations are registered under segmentLock in strictly increasing TS order.
+      // Each registration performs a volatile store to its table slot:
+      //   store(table[X]) hb release(segmentLock) hb acquire(segmentLock) hb store(table[Y])
+      // where X < Y. A forward (low-to-high) scan can miss entry X: the scanner
+      // reads table[X] before store(X) completes, then reads table[Y] after store(Y).
+      // The snapshot omits X from inProgressTxs, so X's committed writes appear
+      // visible (X < minActiveOperationTs), violating snapshot isolation.
+      //
+      // Reverse scanning fixes this: if the scanner observes table[Y] = IN_PROGRESS,
+      // the happens-before chain guarantees that the subsequent read of table[X]
+      // (with X < Y) also sees IN_PROGRESS:
+      //   store(X) hb store(Y) hb read(Y) hb read(X)  [transitivity]
+      for (var segIdx = tables.length - 1; segIdx >= 0; segIdx--) {
         final var table = tables[segIdx];
         final var segOffset = tsOffsets[segIdx];
         final var tableSize = table.size();
@@ -255,11 +270,11 @@ public class AtomicOperationsTable {
           continue;
         }
 
-        // Compute start index within this segment (skip entries before cachedMin)
-        final int startIdx = (scanFromTs > segOffset)
+        // Compute the lowest index within this segment (skip entries before cachedMin)
+        final int lowIdx = (scanFromTs > segOffset)
             ? (int) (scanFromTs - segOffset) : 0;
 
-        for (var i = startIdx; i < tableSize; i++) {
+        for (var i = tableSize - 1; i >= lowIdx; i--) {
           final var operationInformation = table.get(i);
 
           if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
