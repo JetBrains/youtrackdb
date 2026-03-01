@@ -882,11 +882,21 @@ public class FrontendTransactionImpl implements
     clear();
 
     if (atomicOperation != null) {
-      atomicOperation.deactivate();
-      if (storageTxThreadId == Thread.currentThread().threadId()) {
-        session.getStorage().resetTsMin();
+      try {
+        atomicOperation.deactivate();
+        if (storageTxThreadId == Thread.currentThread().threadId()) {
+          session.getStorage().resetTsMin();
+        }
+      } finally {
+        // Ensure atomicOperation is always nulled even if deactivate() or
+        // resetTsMin() throws. Without this, a secondary rollbackInternal()
+        // call (triggered by close-listeners in
+        // DatabaseSessionEmbedded.internalClose() after the exception is
+        // caught at its rollback() call) would observe a stale non-null
+        // atomicOperation.
+        atomicOperation = null;
+        storageTxThreadId = 0;
       }
-      atomicOperation = null;
     }
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
