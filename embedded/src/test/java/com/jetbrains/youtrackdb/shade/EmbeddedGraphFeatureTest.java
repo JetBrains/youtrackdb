@@ -179,7 +179,7 @@ public class EmbeddedGraphFeatureTest {
         final var dataFile = TestHelper.generateTempFileFromResource(
             graph.getClass(),
             GryoResourceAccess.class,
-            graphData.location().substring(graphData.location().lastIndexOf('/') + 1),
+            Paths.get(graphData.location()).getFileName().toString(),
             "", false
         ).getAbsolutePath();
         graph.traversal().io(dataFile).read().iterate();
