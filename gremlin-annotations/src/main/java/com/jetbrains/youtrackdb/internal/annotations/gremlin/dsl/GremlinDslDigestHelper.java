@@ -54,17 +54,29 @@ public final class GremlinDslDigestHelper {
       return null;
     }
     try {
-      var lines = Files.readAllLines(generatedPath);
-      for (var line : lines) {
-        if (line.contains(DSL_SOURCE_DIGEST_PREFIX)) {
-          var start = line.indexOf(DSL_SOURCE_DIGEST_PREFIX) + DSL_SOURCE_DIGEST_PREFIX.length();
-          return line.substring(start).trim();
-        }
-      }
+      return getStoredDigestFromContent(Files.readString(generatedPath));
     } catch (IOException e) {
       log.warn("Cannot read stored digest from: {}", generatedPath, e);
       return null;
     }
-    return null;
+  }
+
+  /**
+   * Extracts the stored DSL source digest from the content of a generated file.
+   * Returns null if the digest comment line is missing.
+   */
+  @Nullable
+  public static String getStoredDigestFromContent(final CharSequence content) {
+    var text = content.toString();
+    var idx = text.indexOf(DSL_SOURCE_DIGEST_PREFIX);
+    if (idx < 0) {
+      return null;
+    }
+    var start = idx + DSL_SOURCE_DIGEST_PREFIX.length();
+    var end = text.indexOf('\n', start);
+    if (end < 0) {
+      end = text.length();
+    }
+    return text.substring(start, end).trim();
   }
 }

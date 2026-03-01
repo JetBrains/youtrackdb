@@ -45,6 +45,7 @@ import javax.lang.model.type.TypeVariable;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
+import javax.tools.StandardLocation;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
@@ -72,7 +73,11 @@ import org.slf4j.LoggerFactory;
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class GremlinDslProcessor extends AbstractProcessor {
 
-  /** Processor option: output directory for generated DSL (enables skip when source unchanged). */
+  /**
+   * Processor option: output directory for generated DSL (filesystem mode).
+   * When set, generated files are written directly to this directory. When absent, the processor
+   * uses the standard Filer API so that javac handles multi-round compilation automatically.
+   */
   public static final String OPTION_GENERATED_DIR = "gremlin.dsl.generatedDir";
   /** Processor option: source root (e.g. src/main/java) to read DSL file for digest. */
   public static final String OPTION_SOURCE_DIR = "gremlin.dsl.sourceDir";
@@ -83,6 +88,8 @@ public class GremlinDslProcessor extends AbstractProcessor {
   private Messager messager;
   private Elements elementUtils;
   private Types typeUtils;
+  /** When non-null, write generated files to this path; otherwise use the Filer API. */
+  @Nullable private Path filesystemOutputPath;
 
   @Override
   public Set<String> getSupportedOptions() {
@@ -95,14 +102,16 @@ public class GremlinDslProcessor extends AbstractProcessor {
     messager = processingEnv.getMessager();
     elementUtils = processingEnv.getElementUtils();
     typeUtils = processingEnv.getTypeUtils();
+    var generatedDir = processingEnv.getOptions().get(OPTION_GENERATED_DIR);
+    filesystemOutputPath = (generatedDir != null && !generatedDir.isEmpty())
+        ? Paths.get(generatedDir) : null;
   }
 
-  /** Returns path to the DSL source file, or null if options are not set. */
+  /** Returns path to the DSL source file, or null if the source dir option is not set. */
   @Nullable
   private Path getDslSourcePath(final TypeElement dslElement, final Context ctx) {
-    var generatedDir = processingEnv.getOptions().get(OPTION_GENERATED_DIR);
     var sourceDir = processingEnv.getOptions().get(OPTION_SOURCE_DIR);
-    if (generatedDir == null || generatedDir.isEmpty() || sourceDir == null || sourceDir.isEmpty()) {
+    if (sourceDir == null || sourceDir.isEmpty()) {
       return null;
     }
     var path = Paths.get(sourceDir,
@@ -124,15 +133,33 @@ public class GremlinDslProcessor extends AbstractProcessor {
     if (currentDigest.isEmpty()) {
       return false;
     }
-    var generatedDir = processingEnv.getOptions().get(OPTION_GENERATED_DIR);
-    var packagePath = ctx.packageName.replace('.', '/');
-    var sentinelPath = Paths.get(generatedDir).resolve(packagePath).resolve("__.java");
-    var storedDigest = GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(sentinelPath);
+    var storedDigest = readStoredDigest(ctx);
     if (!currentDigest.equals(storedDigest)) {
       return false;
     }
     log.debug("Skipping DSL generation: source digest unchanged ({})", currentDigest);
     return true;
+  }
+
+  /**
+   * Reads the stored digest from the sentinel file. Uses the filesystem path when
+   * {@link #OPTION_GENERATED_DIR} is set, otherwise reads from Filer's SOURCE_OUTPUT.
+   */
+  @Nullable
+  private String readStoredDigest(final Context ctx) {
+    if (filesystemOutputPath != null) {
+      var packagePath = ctx.packageName.replace('.', '/');
+      var sentinelPath = filesystemOutputPath.resolve(packagePath).resolve("__.java");
+      return GremlinDslDigestHelper.getStoredDigestFromGeneratedFile(sentinelPath);
+    }
+    try {
+      var resource = processingEnv.getFiler().getResource(
+          StandardLocation.SOURCE_OUTPUT, ctx.packageName, "__.java");
+      return GremlinDslDigestHelper.getStoredDigestFromContent(resource.getCharContent(true));
+    } catch (Exception e) {
+      log.debug("Could not read stored digest from Filer: {}", e.getMessage());
+      return null;
+    }
   }
 
   @Override
@@ -151,17 +178,10 @@ public class GremlinDslProcessor extends AbstractProcessor {
         var sourceDigest = dslPath != null
             ? GremlinDslDigestHelper.computeSourceDigest(dslPath) : "";
 
-        var generatedDir = processingEnv.getOptions().get(OPTION_GENERATED_DIR);
-        if (generatedDir == null || generatedDir.isEmpty()) {
-          throw new ProcessorException(dslElement,
-              "Processor option '%s' is required", OPTION_GENERATED_DIR);
-        }
-        var outputPath = Paths.get(generatedDir);
-
-        generateTraversalInterface(ctx, sourceDigest, outputPath);
-        generateDefaultTraversal(ctx, sourceDigest, outputPath);
-        generateTraversalSource(ctx, sourceDigest, outputPath);
-        generateAnonymousTraversal(ctx, sourceDigest, outputPath);
+        generateTraversalInterface(ctx, sourceDigest);
+        generateDefaultTraversal(ctx, sourceDigest);
+        generateTraversalSource(ctx, sourceDigest);
+        generateAnonymousTraversal(ctx, sourceDigest);
       }
     } catch (Exception ex) {
       messager.printMessage(Diagnostic.Kind.ERROR, ex.getMessage());
@@ -170,8 +190,8 @@ public class GremlinDslProcessor extends AbstractProcessor {
     return true;
   }
 
-  private void generateAnonymousTraversal(final Context ctx, final String sourceDigest,
-      final Path outputPath) throws IOException {
+  private void generateAnonymousTraversal(final Context ctx, final String sourceDigest)
+      throws IOException {
     final var anonymousClass = TypeSpec.classBuilder("__")
         .addModifiers(Modifier.PUBLIC, Modifier.FINAL);
 
@@ -283,11 +303,11 @@ public class GremlinDslProcessor extends AbstractProcessor {
         anonymousClass.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    writeJavaFile(traversalSourceJavaFile, outputPath);
+    writeJavaFile(traversalSourceJavaFile);
   }
 
-  private void generateTraversalSource(final Context ctx, final String sourceDigest,
-      final Path outputPath) throws IOException {
+  private void generateTraversalSource(final Context ctx, final String sourceDigest)
+      throws IOException {
     final var graphTraversalSourceElement = ctx.traversalSourceDslType;
     final var traversalSourceClass = TypeSpec.classBuilder(ctx.traversalSourceClazz)
         .addModifiers(Modifier.PUBLIC)
@@ -490,7 +510,7 @@ public class GremlinDslProcessor extends AbstractProcessor {
         traversalSourceClass.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    writeJavaFile(traversalSourceJavaFile, outputPath);
+    writeJavaFile(traversalSourceJavaFile);
   }
 
   private Element findClassAsElement(final Element element, final Class<?> clazz) {
@@ -502,8 +522,8 @@ public class GremlinDslProcessor extends AbstractProcessor {
     return findClassAsElement(typeUtils.asElement(supertypes.getFirst()), clazz);
   }
 
-  private void generateDefaultTraversal(final Context ctx, final String sourceDigest,
-      final Path outputPath) throws IOException {
+  private void generateDefaultTraversal(final Context ctx, final String sourceDigest)
+      throws IOException {
     final var defaultTraversalClass = TypeSpec.classBuilder(ctx.defaultTraversalClazz)
         .addModifiers(Modifier.PUBLIC)
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
@@ -563,11 +583,11 @@ public class GremlinDslProcessor extends AbstractProcessor {
         defaultTraversalClass.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    writeJavaFile(defaultTraversalJavaFile, outputPath);
+    writeJavaFile(defaultTraversalJavaFile);
   }
 
-  private void generateTraversalInterface(final Context ctx, final String sourceDigest,
-      final Path outputPath) throws IOException {
+  private void generateTraversalInterface(final Context ctx, final String sourceDigest)
+      throws IOException {
     final var traversalInterface = TypeSpec.interfaceBuilder(ctx.traversalClazz)
         .addModifiers(Modifier.PUBLIC)
         .addTypeVariables(Arrays.asList(TypeVariableName.get("S"), TypeVariableName.get("E")))
@@ -614,12 +634,15 @@ public class GremlinDslProcessor extends AbstractProcessor {
     final var traversalJavaFile = JavaFile.builder(ctx.packageName, traversalInterface.build())
         .addFileComment(GremlinDslDigestHelper.DSL_SOURCE_DIGEST_PREFIX + sourceDigest)
         .build();
-    writeJavaFile(traversalJavaFile, outputPath);
+    writeJavaFile(traversalJavaFile);
   }
 
-  private static void writeJavaFile(final JavaFile javaFile, final Path outputPath)
-      throws IOException {
-    javaFile.writeTo(outputPath);
+  private void writeJavaFile(final JavaFile javaFile) throws IOException {
+    if (filesystemOutputPath != null) {
+      javaFile.writeTo(filesystemOutputPath);
+    } else {
+      javaFile.writeTo(processingEnv.getFiler());
+    }
   }
 
   private static MethodSpec constructMethod(final Element element, final ClassName returnClazz,
