@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -101,6 +102,9 @@ public final class SQLContainsCondition extends SQLBooleanExpression {
         var found = false;
         while (leftIterator.hasNext()) {
           var rightItem = leftIterator.next();
+          if (rightItem instanceof RidPair ridPair) {
+            rightItem = ridPair.primaryRid();
+          }
           if ((leftItem != null && leftItem.equals(rightItem))
               || (leftItem == null && rightItem == null)) {
             found = true;

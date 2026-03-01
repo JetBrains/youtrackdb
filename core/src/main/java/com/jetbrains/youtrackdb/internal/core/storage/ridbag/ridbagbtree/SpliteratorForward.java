@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
-import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.util.ArrayList;
@@ -12,7 +12,7 @@ import java.util.Spliterator;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
-public final class SpliteratorForward implements Spliterator<RawPairObjectInteger<EdgeKey>> {
+public final class SpliteratorForward implements Spliterator<RawPair<EdgeKey, LinkBagValue>> {
 
   private final SharedLinkBagBTree bTree;
 
@@ -26,8 +26,8 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
 
   private LogSequenceNumber lastLSN = null;
 
-  private final List<RawPairObjectInteger<EdgeKey>> dataCache = new ArrayList<>();
-  private Iterator<RawPairObjectInteger<EdgeKey>> cacheIterator = Collections.emptyIterator();
+  private final List<RawPair<EdgeKey, LinkBagValue>> dataCache = new ArrayList<>();
+  private Iterator<RawPair<EdgeKey, LinkBagValue>> cacheIterator = Collections.emptyIterator();
 
   private final AtomicOperation atomicOperation;
 
@@ -47,7 +47,7 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
   }
 
   @Override
-  public boolean tryAdvance(Consumer<? super RawPairObjectInteger<EdgeKey>> action) {
+  public boolean tryAdvance(Consumer<? super RawPair<EdgeKey, LinkBagValue>> action) {
     if (cacheIterator == null) {
       return false;
     }
@@ -78,7 +78,7 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
 
   @Nullable
   @Override
-  public Spliterator<RawPairObjectInteger<EdgeKey>> trySplit() {
+  public Spliterator<RawPair<EdgeKey, LinkBagValue>> trySplit() {
     return null;
   }
 
@@ -93,8 +93,8 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
   }
 
   @Override
-  public Comparator<? super RawPairObjectInteger<EdgeKey>> getComparator() {
-    return Comparator.comparing(pair -> pair.first);
+  public Comparator<? super RawPair<EdgeKey, LinkBagValue>> getComparator() {
+    return Comparator.comparing(RawPair::first);
   }
 
   EdgeKey getFromKey() {
@@ -113,7 +113,7 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
     return toKeyInclusive;
   }
 
-  public List<RawPairObjectInteger<EdgeKey>> getDataCache() {
+  public List<RawPair<EdgeKey, LinkBagValue>> getDataCache() {
     return dataCache;
   }
 

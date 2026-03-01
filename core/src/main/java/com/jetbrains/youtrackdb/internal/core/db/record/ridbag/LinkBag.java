@@ -1,27 +1,6 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.db.record.ridbag;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.collection.DataContainer;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
@@ -30,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -38,7 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.Collection;
 import java.util.Iterator;
@@ -47,40 +25,11 @@ import java.util.Objects;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
-/**
- * A collection that contain links to {@link Identifiable}. Bag is similar to set but can contain
- * several entering of the same object.<br>
- *
- * <p>Could be tree based and embedded representation.<br>
- *
- * <ul>
- *   <li><b>Embedded</b> stores its content directly to the entity that owns it.<br>
- *       It better fits for cases when only small amount of links are stored to the bag.<br>
- *   <li><b>Tree-based</b> implementation stores its content in a separate data structure called
- *       {@link IsolatedLinkBagBTree}.<br>
- *       It fits great for cases when you have a huge amount of links.<br>
- * </ul>
- *
- * <br>
- * The representation is automatically converted to tree-based implementation when top threshold is
- * reached. And backward to embedded one when size is decreased to bottom threshold. <br>
- * The thresholds could be configured by {@link
- * GlobalConfiguration#LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD} and {@link
- * GlobalConfiguration#LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD}. <br>
- * <br>
- * This collection is used to efficiently manage relationships in graph model.<br>
- * <br>
- * Does not implement {@link Collection} interface because some operations could not be efficiently
- * implemented and that's why should be avoided.<br>
- *
- * @since 1.7rc1
- */
 public class LinkBag
     implements
-    Iterable<RID>,
+    Iterable<RidPair>,
     Sizeable,
     TrackedMultiValue<RID, RID>,
-    DataContainer<RID>,
     RecordElement, StorageBackedMultiValue {
 
   private LinkBagDelegate delegate;
@@ -94,12 +43,12 @@ public class LinkBag
   }
 
   public LinkBag(@Nonnull DatabaseSessionEmbedded session, final LinkBag source) {
+    this.session = session;
     initThresholds(session);
     init();
-    for (var identifiable : source) {
-      add(identifiable);
+    for (var pair : source) {
+      add(pair.primaryRid(), pair.secondaryRid());
     }
-    this.session = session;
   }
 
   public LinkBag(@Nonnull DatabaseSessionEmbedded session) {
@@ -130,12 +79,14 @@ public class LinkBag
     delegate.addAll(values);
   }
 
-  @Override
   public void add(RID identifiable) {
     delegate.add(identifiable);
   }
 
-  @Override
+  public boolean add(RID primaryRid, RID secondaryRid) {
+    return delegate.add(primaryRid, secondaryRid);
+  }
+
   public boolean remove(RID identifiable) {
     return delegate.remove(identifiable);
   }
@@ -151,12 +102,12 @@ public class LinkBag
 
   @Nonnull
   @Override
-  public Iterator<RID> iterator() {
+  public Iterator<RidPair> iterator() {
     return delegate.iterator();
   }
 
   @Nonnull
-  public Stream<RID> stream() {
+  public Stream<RidPair> stream() {
     return delegate.stream();
   }
 
@@ -203,8 +154,8 @@ public class LinkBag
 
     final var owner = oldDelegate.getOwner();
     delegate.disableTracking(owner);
-    for (var identifiable : oldDelegate) {
-      delegate.add(identifiable);
+    for (var pair : oldDelegate) {
+      delegate.add(pair.primaryRid(), pair.secondaryRid());
     }
 
     delegate.setOwner(owner);
@@ -227,8 +178,8 @@ public class LinkBag
 
     final var owner = oldDelegate.getOwner();
     delegate.disableTracking(owner);
-    for (var identifiable : oldDelegate) {
-      delegate.add(identifiable);
+    for (var pair : oldDelegate) {
+      delegate.add(pair.primaryRid(), pair.secondaryRid());
     }
 
     delegate.setOwner(owner);
@@ -329,8 +280,8 @@ public class LinkBag
         return false;
       }
 
-      Identifiable firstElement = firstIter.next();
-      Identifiable secondElement = secondIter.next();
+      RidPair firstElement = firstIter.next();
+      RidPair secondElement = secondIter.next();
       if (!Objects.equals(firstElement, secondElement)) {
         return false;
       }

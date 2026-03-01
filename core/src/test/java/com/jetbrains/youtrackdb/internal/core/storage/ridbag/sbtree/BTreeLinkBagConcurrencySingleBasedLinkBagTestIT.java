@@ -142,8 +142,8 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
         var entity = session.loadEntity(entityContainerRid);
         LinkBag linkBag = entity.getProperty("linkBag");
 
-        for (Identifiable identifiable : linkBag) {
-          Assert.assertTrue(ridSet.remove(identifiable.getIdentity()));
+        for (var ridPair : linkBag) {
+          Assert.assertTrue(ridSet.remove(ridPair.primaryRid()));
         }
 
         Assert.assertTrue(ridSet.isEmpty());
@@ -253,12 +253,12 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
                   List<RID> ridsToDelete = new ArrayList<>();
                   var counter = 0;
                   while (iterator.hasNext()) {
-                    Identifiable identifiable = iterator.next();
+                    var ridPair = iterator.next();
 
                     if (rnd.nextBoolean()) {
                       iterator.remove();
                       counter++;
-                      ridsToDelete.add(identifiable.getIdentity());
+                      ridsToDelete.add(ridPair.primaryRid());
                     }
 
                     if (counter >= 5) {

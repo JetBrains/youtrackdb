@@ -1,22 +1,3 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -26,10 +7,11 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import java.io.IOException;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -42,14 +24,14 @@ import javax.annotation.Nonnull;
  */
 public class LinkBagUpdateSerializationOperation implements RecordSerializationOperation {
 
-  private final Stream<RawPair<RID, Change>> changedValues;
+  private final Stream<RawPair<RID, AbsoluteChange>> changedValues;
 
   private final LinkBagPointer collectionPointer;
   private final LinkCollectionsBTreeManager collectionManager;
   private final int maxCounterValue;
 
   public LinkBagUpdateSerializationOperation(
-      final Stream<RawPair<RID, Change>> changedValues,
+      final Stream<RawPair<RID, AbsoluteChange>> changedValues,
       LinkBagPointer collectionPointer, int maxCounterValue,
       @Nonnull DatabaseSessionEmbedded session) {
     this.changedValues = changedValues;
@@ -85,7 +67,10 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
         if (newCounter == 0) {
           tree.remove(atomicOperation, entry.first());
         } else {
-          tree.put(atomicOperation, entry.first(), newCounter);
+          var secondaryRid = change.getSecondaryRid();
+          tree.put(atomicOperation, entry.first(),
+              new LinkBagValue(newCounter, secondaryRid.getCollectionId(),
+                  secondaryRid.getCollectionPosition()));
         }
       } catch (IOException e) {
         throw BaseException.wrapException(
@@ -95,7 +80,7 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
     });
   }
 
-  private IsolatedLinkBagBTree<RID, Integer> loadTree() {
+  private IsolatedLinkBagBTree<RID, LinkBagValue> loadTree() {
     return collectionManager.loadIsolatedBTree(collectionPointer);
   }
 }

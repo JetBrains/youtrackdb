@@ -31,6 +31,16 @@ public class LinkBagIndexTest extends BaseDBTest {
     ridBagIndexTestClass.createIndex("ridBagIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "ridBag");
 
+    final var vertexClass =
+        session.getMetadata().getSchema().createVertexClass("RidBagIndexVertexClass");
+
+    vertexClass.createProperty("ridBag", PropertyType.LINKBAG);
+
+    vertexClass.createIndex("ridBagVertexIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "ridBag");
+
+    session.createEdgeClass("RidBagIndexEdgeClass");
+
     session.close();
   }
 
@@ -40,6 +50,8 @@ public class LinkBagIndexTest extends BaseDBTest {
       session = acquireSession();
     }
 
+    session.getMetadata().getSchema().dropClass("RidBagIndexEdgeClass");
+    session.getMetadata().getSchema().dropClass("RidBagIndexVertexClass");
     session.getMetadata().getSchema().dropClass("RidBagIndexTestClass");
     session.close();
   }
@@ -49,6 +61,7 @@ public class LinkBagIndexTest extends BaseDBTest {
   public void afterMethod() {
     session.begin();
     session.execute("DELETE FROM RidBagIndexTestClass").close();
+    session.execute("DELETE VERTEX RidBagIndexVertexClass").close();
     session.commit();
 
     session.begin();
@@ -58,6 +71,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     if (!session.getStorage().isRemote()) {
       final var index = getIndex("ridBagIndex");
       Assert.assertEquals(index.size(session), 0);
+
+      final var vertexIndex = getIndex("ridBagVertexIndex");
+      Assert.assertEquals(vertexIndex.size(session), 0);
     }
     result.close();
     session.commit();
@@ -301,8 +317,13 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.rollback();
   }
 
+  /**
+   * Verify that adding a lightweight entry to a persisted LinkBag via direct API
+   * correctly adds the new key to the index while preserving existing entries.
+   */
   public void testIndexRidBagUpdateAddItem() {
 
+    // 1. Create a document with a LinkBag containing two lightweight entries and commit.
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
 
@@ -318,16 +339,13 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Load the document from storage and add a third entry via direct API.
     session.begin();
-    session
-        .execute(
-            "UPDATE "
-                + document.getIdentity()
-                + " set ridBag = ridBag || "
-                + docThree.getIdentity())
-        .close();
+    EntityImpl loaded = session.load(document.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag").add(docThree.getIdentity());
     session.commit();
 
+    // 3. Verify the index contains all three keys.
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
 
@@ -538,8 +556,13 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.rollback();
   }
 
+  /**
+   * Verify that removing a lightweight entry from a persisted LinkBag via direct API
+   * correctly removes the key from the index while preserving remaining entries.
+   */
   public void testIndexRidBagUpdateRemoveItem() {
 
+    // 1. Create a document with a LinkBag containing two lightweight entries and commit.
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
 
@@ -554,12 +577,13 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    // 2. Load from storage and remove one entry via direct API.
     session.begin();
-    session
-        .execute("UPDATE " + document.getIdentity() + " remove ridBag = " + docTwo.getIdentity())
-        .close();
+    EntityImpl loaded = session.load(document.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag").remove(docTwo.getIdentity());
     session.commit();
 
+    // 3. Verify the index contains only the remaining key.
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
 
@@ -711,8 +735,8 @@ public class LinkBagIndexTest extends BaseDBTest {
     var res = result.next();
 
     var resultSet = new HashSet<>();
-    for (Identifiable identifiable : res.<LinkBag>getProperty("ridBag")) {
-      resultSet.add(identifiable);
+    for (var ridPair : res.<LinkBag>getProperty("ridBag")) {
+      resultSet.add(ridPair.primaryRid());
     }
     result.close();
 
@@ -720,4 +744,284 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
   }
+
+  /**
+   * Verify that committing a vertex LinkBag with double-sided RidPair entries
+   * (edge RID + target vertex RID) indexes only the primary RIDs (edge RIDs).
+   */
+  public void testIndexRidBagWithPairsOnVertex() {
+    // 1. Create a vertex with two heavyweight edges and populate ridBag
+    //    with double-sided pairs (edgeRid, targetVertexRid).
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var target1 = session.newVertex("V");
+    final var target2 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge2 = session.newStatefulEdge(vertex, target2, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    ridBag.add(edge2.getIdentity(), target2.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Verify only the 2 primary RIDs (edge RIDs) are in the index.
+    final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+    Assert.assertEquals(index.size(session), 2);
+
+    var expectedKeys = Set.of(edge1.getIdentity(), edge2.getIdentity());
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Verify that a vertex LinkBag containing both a lightweight entry (single RID)
+   * and a double-sided RidPair entry indexes only the primary RIDs.
+   */
+  public void testIndexRidBagWithMixedSingleAndPairOnVertex() {
+    // 1. Create a vertex ridBag with one lightweight entry and one double-sided pair.
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Verify the index contains 2 keys: single1 (lightweight primary)
+    //    + edge1 (heavyweight primary). target1 (secondary) is NOT indexed.
+    final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+    Assert.assertEquals(index.size(session), 2);
+
+    var expectedKeys = Set.of(single1.getIdentity(), edge1.getIdentity());
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Verify that incrementally adding a double-sided RidPair entry to a persisted
+   * vertex LinkBag indexes only the primary RID via change tracking.
+   */
+  public void testIndexRidBagUpdateAddPairItemOnVertex() {
+    // 1. Create a vertex with a lightweight-only ridBag and commit.
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Load from storage, add a double-sided pair entry, and commit.
+    session.begin();
+    EntityImpl loaded = session.load(vertex.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag")
+        .add(edge1.getIdentity(), target1.getIdentity());
+    session.commit();
+
+    // 3. Verify the index has 2 keys: single1 + edge1 (primary only, not target1).
+    final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+    Assert.assertEquals(index.size(session), 2);
+
+    var expectedKeys = Set.of(single1.getIdentity(), edge1.getIdentity());
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Same as {@link #testIndexRidBagUpdateAddPairItemOnVertex()} but the add
+   * operation is wrapped in a try/catch transaction block to verify commit safety.
+   */
+  public void testIndexRidBagUpdateAddPairItemOnVertexInTx() {
+    // 1. Create a vertex with a lightweight-only ridBag and commit.
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Add a double-sided pair in a guarded transaction block.
+    try {
+      session.begin();
+      EntityImpl loaded = session.load(vertex.getIdentity());
+      loaded.<LinkBag>getProperty("ridBag")
+          .add(edge1.getIdentity(), target1.getIdentity());
+      session.commit();
+    } catch (Exception e) {
+      session.rollback();
+      throw e;
+    }
+
+    // 3. Verify the index has 2 keys: single1 + edge1 (primary only, not target1).
+    final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+    Assert.assertEquals(index.size(session), 2);
+
+    var expectedKeys = Set.of(single1.getIdentity(), edge1.getIdentity());
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertTrue(expectedKeys.contains(key.getIdentity()),
+            "Unexpected key found: " + key);
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Verify that removing a double-sided RidPair entry from a persisted vertex
+   * LinkBag removes the primary RID from the index.
+   */
+  public void testIndexRidBagUpdateRemovePairItemOnVertex() {
+    // 1. Create a vertex ridBag with one lightweight and one pair entry, commit.
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var single1 = session.newVertex("V");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(single1.getIdentity());
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Load from storage and remove the pair entry by its primary RID.
+    session.begin();
+    EntityImpl loaded = session.load(vertex.getIdentity());
+    loaded.<LinkBag>getProperty("ridBag").remove(edge1.getIdentity());
+    session.commit();
+
+    // 3. Verify the index contains only the lightweight entry.
+    final var index = getIndex("ridBagVertexIndex");
+    var activeTx = session.begin();
+    var ato = activeTx.getAtomicOperation();
+    Assert.assertEquals(index.size(session), 1);
+
+    try (var keyStream = index.keyStream(ato)) {
+      var keyIterator = keyStream.iterator();
+      while (keyIterator.hasNext()) {
+        var key = (Identifiable) keyIterator.next();
+        Assert.assertEquals(key.getIdentity(), single1.getIdentity());
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Verify that replacing a vertex LinkBag containing a double-sided RidPair entry
+   * with an empty LinkBag removes the primary RID index entry.
+   */
+  public void testIndexRidBagReplaceWithEmptyOnVertex() {
+    // 1. Create a vertex with a pair-only ridBag and commit.
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Verify only the primary RID (edge1) is indexed.
+    final var index = getIndex("ridBagVertexIndex");
+    session.begin();
+    Assert.assertEquals(index.size(session), 1);
+    session.commit();
+
+    // 3. Replace the ridBag with an empty one and commit.
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    var loaded = (EntityImpl) activeTx.load(vertex);
+    loaded.setProperty("ridBag", new LinkBag(session));
+    session.commit();
+
+    // 4. Verify the index is empty.
+    session.begin();
+    Assert.assertEquals(index.size(session), 0);
+    session.commit();
+  }
+
+  /**
+   * Verify that deleting a vertex whose LinkBag contains a double-sided RidPair
+   * entry removes the primary RID index entry.
+   */
+  public void testIndexRidBagRemoveVertexWithPairs() {
+    // 1. Create a vertex with a pair-only ridBag and commit.
+    session.begin();
+    final var vertex = session.newVertex("RidBagIndexVertexClass");
+    final var target1 = session.newVertex("V");
+    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+
+    final var ridBag = new LinkBag(session);
+    ridBag.add(edge1.getIdentity(), target1.getIdentity());
+    vertex.setProperty("ridBag", ridBag);
+
+    session.commit();
+
+    // 2. Verify only the primary RID (edge1) is indexed.
+    final var index = getIndex("ridBagVertexIndex");
+    session.begin();
+    Assert.assertEquals(index.size(session), 1);
+    session.commit();
+
+    // 3. Delete the vertex (which also deletes its edges) and commit.
+    session.begin();
+    session.execute("DELETE VERTEX " + vertex.getIdentity()).close();
+    session.commit();
+
+    // 4. Verify the index is empty.
+    session.begin();
+    Assert.assertEquals(index.size(session), 0);
+    session.commit();
+  }
+
 }

@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -173,8 +172,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     List<RID> addedDocs = new ArrayList<>(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
     session.commit();
   }
 
@@ -306,8 +305,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     List<RID> addedDocs = new ArrayList<>(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
     session.commit();
   }
 
@@ -377,11 +376,11 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertEquals(2, ridBag.size());
 
-    List<Identifiable> addedDocs = new ArrayList<>(Arrays.asList(docOne, docTwo));
+    List<RID> addedDocs = new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
     var iterator = ridBag.iterator();
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
     session.commit();
   }
 
@@ -446,8 +445,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
     var iterator = ridBag.iterator();
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
     session.commit();
   }
 
@@ -512,8 +511,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = rootDoc.getProperty("ridBag");
 
     var iterator = ridBag.iterator();
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
     session.commit();
   }
 
@@ -591,8 +590,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = rootDoc.getProperty("ridBag");
 
     var iterator = ridBag.iterator();
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
-    Assert.assertTrue(addedDocs.remove(iterator.next()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
+    Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));
     session.commit();
   }
 
@@ -612,7 +611,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     final List<Integer> amountOfAddedDocsPerLevel = new ArrayList<>();
     final List<Integer> amountOfAddedDocsAfterSavePerLevel = new ArrayList<>();
     final List<Integer> amountOfDeletedDocsPerLevel = new ArrayList<>();
-    Map<LevelKey, List<Identifiable>> addedDocPerLevel =
+    Map<LevelKey, List<RID>> addedDocPerLevel =
         new HashMap<>();
 
     for (var i = 0; i < levels; i++) {
@@ -654,7 +653,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     final List<Integer> amountOfAddedDocsPerLevel = new ArrayList<>();
     final List<Integer> amountOfAddedDocsAfterSavePerLevel = new ArrayList<>();
     final List<Integer> amountOfDeletedDocsPerLevel = new ArrayList<>();
-    Map<LevelKey, List<Identifiable>> addedDocPerLevel =
+    Map<LevelKey, List<RID>> addedDocPerLevel =
         new HashMap<>();
 
     for (var i = 0; i < levels; i++) {
@@ -705,7 +704,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(5);
 
-    List<Identifiable> docsToAdd = new ArrayList<>();
+    List<RID> docsToAdd = new ArrayList<>();
 
     session.begin();
     var document = (EntityImpl) session.newEntity();
@@ -723,7 +722,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
       var docToAdd = (EntityImpl) session.newEntity();
 
       ridBag.add(docToAdd.getIdentity());
-      docsToAdd.add(docToAdd);
+      docsToAdd.add(docToAdd.getIdentity());
     }
 
     session.commit();
@@ -756,8 +755,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = document.getProperty("ridBag");
 
     Assert.assertTrue(ridBag.isEmbedded());
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(identifiable));
+    for (var ridPair : ridBag) {
+      Assert.assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
@@ -835,8 +834,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = document.getProperty("ridBag");
 
     Assert.assertTrue(ridBag.isEmbedded());
-    for (var identifiable : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(identifiable));
+    for (var ridPair : ridBag) {
+      Assert.assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
@@ -848,7 +847,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(5);
 
-    List<Identifiable> docsToAdd = new ArrayList<>();
+    List<RID> docsToAdd = new ArrayList<>();
 
     session.begin();
     var document = (EntityImpl) session.newEntity();
@@ -866,7 +865,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
       var docToAdd = (EntityImpl) session.newEntity();
 
       ridBag.add(docToAdd.getIdentity());
-      docsToAdd.add(docToAdd);
+      docsToAdd.add(docToAdd.getIdentity());
     }
 
     session.commit();
@@ -902,8 +901,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = document.getProperty("ridBag");
 
     Assert.assertTrue(ridBag.isEmbedded());
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(identifiable));
+    for (var ridPair : ridBag) {
+      Assert.assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
@@ -932,7 +931,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(7);
 
-    List<Identifiable> docsToAdd = new ArrayList<>();
+    List<RID> docsToAdd = new ArrayList<>();
 
     session.begin();
     var document = (EntityImpl) session.newEntity();
@@ -951,7 +950,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
       var docToAdd = (EntityImpl) session.newEntity();
 
       ridBag.add(docToAdd.getIdentity());
-      docsToAdd.add(docToAdd);
+      docsToAdd.add(docToAdd.getIdentity());
     }
 
     session.commit();
@@ -970,7 +969,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 4; i++) {
       var docToRemove = docsToAdd.get(i);
-      ridBag.remove(docToRemove.getIdentity());
+      ridBag.remove(docToRemove);
     }
 
     Assert.assertTrue(document.isDirty());
@@ -983,8 +982,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertFalse(ridBag.isEmbedded());
 
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(identifiable));
+    for (var ridPair : ridBag) {
+      Assert.assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
@@ -1002,7 +1001,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    List<Identifiable> docsToAdd = new ArrayList<>();
+    List<RID> docsToAdd = new ArrayList<>();
 
     var document = (EntityImpl) session.newEntity();
 
@@ -1020,7 +1019,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
       var docToAdd = (EntityImpl) session.newEntity();
 
       ridBag.add(docToAdd.getIdentity());
-      docsToAdd.add(docToAdd);
+      docsToAdd.add(docToAdd.getIdentity());
     }
 
     session.commit();
@@ -1041,7 +1040,7 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 4; i++) {
       var docToRemove = docsToAdd.get(i);
-      ridBag.remove(docToRemove.getIdentity());
+      ridBag.remove(docToRemove);
     }
 
     Assert.assertTrue(document.isDirty());
@@ -1059,8 +1058,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertFalse(ridBag.isEmbedded());
 
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(identifiable));
+    for (var ridPair : ridBag) {
+      Assert.assertTrue(docsToAdd.remove(ridPair.primaryRid()));
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
@@ -1071,12 +1070,12 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
       final List<Integer> amountOfAddedDocsPerLevel,
       int level,
       int levels,
-      Map<LevelKey, List<Identifiable>> addedDocPerLevel,
+      Map<LevelKey, List<RID>> addedDocPerLevel,
       EntityImpl rootDoc) {
 
     int docs = amountOfAddedDocsPerLevel.get(level);
 
-    List<Identifiable> addedDocs = new ArrayList<>();
+    List<RID> addedDocs = new ArrayList<>();
     addedDocPerLevel.put(new LevelKey(rootDoc.getIdentity(), level), addedDocs);
 
     var ridBag = new LinkBag(session);
@@ -1106,9 +1105,9 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     var activeTx = db.getActiveTransaction();
     rootDoc = activeTx.load(rootDoc);
     LinkBag linkBag = rootDoc.getProperty("ridBag");
-    for (Identifiable identifiable : linkBag) {
+    for (var ridPair : linkBag) {
       var transaction = db.getActiveTransaction();
-      EntityImpl doc = transaction.load(identifiable);
+      EntityImpl doc = transaction.load(ridPair.primaryRid());
       if (level + 1 < levels) {
         deleteDocsForLevel(db, amountOfDeletedDocsPerLevel, level + 1, levels, doc, rnd);
       }
@@ -1143,9 +1142,9 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
     rootDoc = activeTx.load(rootDoc);
     LinkBag linkBag = rootDoc.getProperty("ridBag");
 
-    for (Identifiable identifiable : linkBag) {
+    for (var ridPair : linkBag) {
       var transaction = db.getActiveTransaction();
-      EntityImpl doc = transaction.load(identifiable);
+      EntityImpl doc = transaction.load(ridPair.primaryRid());
       if (level + 1 < levels) {
         addDocsForLevel(db, amountOfAddedDocsAfterSavePerLevel, level + 1, levels, doc);
       }
@@ -1163,23 +1162,23 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
   private void assertDocsAfterRollback(
       int level,
       int levels,
-      Map<LevelKey, List<Identifiable>> addedDocPerLevel,
+      Map<LevelKey, List<RID>> addedDocPerLevel,
       EntityImpl rootDoc) {
     LinkBag linkBag = rootDoc.getProperty("ridBag");
-    List<Identifiable> addedDocs =
+    List<RID> addedDocs =
         new ArrayList<>(
             addedDocPerLevel.get(new LevelKey(rootDoc.getIdentity(), level)));
 
-    for (Identifiable identifiable : linkBag) {
+    for (var ridPair : linkBag) {
       var transaction = session.getActiveTransaction();
-      EntityImpl doc = transaction.load(identifiable);
+      EntityImpl doc = transaction.load(ridPair.primaryRid());
       if (level + 1 < levels) {
         assertDocsAfterRollback(level + 1, levels, addedDocPerLevel, doc);
       } else {
         Assert.assertNull(doc.getProperty("ridBag"));
       }
 
-      Assert.assertTrue(addedDocs.remove(doc));
+      Assert.assertTrue(addedDocs.remove(doc.getIdentity()));
     }
 
     Assert.assertTrue(addedDocs.isEmpty());

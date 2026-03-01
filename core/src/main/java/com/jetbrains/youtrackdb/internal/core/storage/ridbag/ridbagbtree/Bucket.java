@@ -211,8 +211,8 @@ final class Bucket extends DurablePage {
       entryPosition += getObjectSizeInDirectMemory(EdgeKeySerializer.INSTANCE, serializerFactory,
           entryPosition);
 
-      final int value = deserializeFromDirectMemory(IntSerializer.INSTANCE, serializerFactory,
-          entryPosition);
+      final var value = deserializeFromDirectMemory(LinkBagValueSerializer.INSTANCE,
+          serializerFactory, entryPosition);
 
       return new TreeEntry(-1, -1, key, value);
     } else {
@@ -225,7 +225,7 @@ final class Bucket extends DurablePage {
       final var key = deserializeFromDirectMemory(EdgeKeySerializer.INSTANCE, serializerFactory,
           entryPosition);
 
-      return new TreeEntry(leftChild, rightChild, key, -1);
+      return new TreeEntry(leftChild, rightChild, key, null);
     }
   }
 
@@ -245,7 +245,7 @@ final class Bucket extends DurablePage {
     return getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
   }
 
-  public int getValue(final int entryIndex, BinarySerializerFactory serializerFactory) {
+  public LinkBagValue getValue(final int entryIndex, BinarySerializerFactory serializerFactory) {
     assert isLeaf();
 
     var entryPosition = getPointer(entryIndex);
@@ -253,7 +253,8 @@ final class Bucket extends DurablePage {
     // skip key
     entryPosition += getObjectSizeInDirectMemory(EdgeKeySerializer.INSTANCE, serializerFactory,
         entryPosition);
-    return deserializeFromDirectMemory(IntSerializer.INSTANCE, serializerFactory, entryPosition);
+    return deserializeFromDirectMemory(LinkBagValueSerializer.INSTANCE, serializerFactory,
+        entryPosition);
   }
 
   byte[] getRawValue(final int entryIndex, BinarySerializerFactory serializerFactory) {
@@ -265,9 +266,9 @@ final class Bucket extends DurablePage {
     entryPosition += getObjectSizeInDirectMemory(EdgeKeySerializer.INSTANCE, serializerFactory,
         entryPosition);
 
-    final var intSize = getObjectSizeInDirectMemory(IntSerializer.INSTANCE, serializerFactory,
-        entryPosition);
-    return getBinaryValue(entryPosition, intSize);
+    final var valueSize = getObjectSizeInDirectMemory(LinkBagValueSerializer.INSTANCE,
+        serializerFactory, entryPosition);
+    return getBinaryValue(entryPosition, valueSize);
   }
 
   public void addAll(final List<byte[]> rawEntries) {
@@ -317,7 +318,7 @@ final class Bucket extends DurablePage {
       final var keySize = getObjectSizeInDirectMemory(EdgeKeySerializer.INSTANCE, serializerFactory,
           entryPosition);
       final var valueSize =
-          getObjectSizeInDirectMemory(IntSerializer.INSTANCE, serializerFactory,
+          getObjectSizeInDirectMemory(LinkBagValueSerializer.INSTANCE, serializerFactory,
               startEntryPosition + keySize);
       return getBinaryValue(startEntryPosition, keySize + valueSize);
     } else {
@@ -436,8 +437,8 @@ final class Bucket extends DurablePage {
       BinarySerializerFactory serializerFactory) {
     final var entryPosition = getPointer(index) + keySize;
 
-    final var valueSize = getObjectSizeInDirectMemory(IntSerializer.INSTANCE, serializerFactory,
-        entryPosition);
+    final var valueSize = getObjectSizeInDirectMemory(LinkBagValueSerializer.INSTANCE,
+        serializerFactory, entryPosition);
     if (valueSize == value.length) {
       setBinaryValue(entryPosition, value);
     } else {

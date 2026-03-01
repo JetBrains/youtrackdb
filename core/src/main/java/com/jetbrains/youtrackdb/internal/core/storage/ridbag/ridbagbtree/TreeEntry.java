@@ -7,9 +7,10 @@ final class TreeEntry implements Comparable<TreeEntry> {
   private final int leftChild;
   private final int rightChild;
   private final EdgeKey key;
-  private final int value;
+  private final LinkBagValue value;
 
-  public TreeEntry(final int leftChild, final int rightChild, final EdgeKey key, final int value) {
+  public TreeEntry(final int leftChild, final int rightChild, final EdgeKey key,
+      final LinkBagValue value) {
     this.leftChild = leftChild;
     this.rightChild = rightChild;
     this.key = key;
@@ -59,7 +60,7 @@ final class TreeEntry implements Comparable<TreeEntry> {
     return key;
   }
 
-  public int getValue() {
+  public LinkBagValue getValue() {
     return value;
   }
 }

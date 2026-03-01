@@ -940,7 +940,7 @@ public class JSONTest extends BaseDBTest {
 
       final var bag = entity.<LinkBag>getProperty("in_EHasGoodStudents");
       Assert.assertEquals(bag.size(), 1);
-      final var rid = bag.iterator().next();
+      final var rid = bag.iterator().next().primaryRid();
       Assert.assertEquals(rid, eid);
     });
   }

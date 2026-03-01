@@ -331,11 +331,11 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
       final List<RID> ins =
           e.getValue().getFirst() == null ? List.of() :
-              StreamSupport.stream(e.getValue().getFirst().spliterator(), false).toList();
+              e.getValue().getFirst().stream().map(ridPair -> (RID) ridPair.primaryRid()).toList();
 
       final List<RID> outs =
           e.getValue().getSecond() == null ? List.of() :
-              StreamSupport.stream(e.getValue().getSecond().spliterator(), false).toList();
+              e.getValue().getSecond().stream().map(ridPair -> (RID) ridPair.primaryRid()).toList();
 
       final var expectedEdges = fDef.impl(List.of(ins, outs));
 

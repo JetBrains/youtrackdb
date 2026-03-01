@@ -1,22 +1,3 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -25,8 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree.BTreeReadEntry;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
 import java.util.Spliterator;
 import javax.annotation.Nonnull;
@@ -38,7 +19,7 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
   }
 
 
-  public EmbeddedLinkBag(@Nonnull List<RawPair<RID, Change>> changes,
+  public EmbeddedLinkBag(@Nonnull List<RawPair<RID, AbsoluteChange>> changes,
       @Nonnull DatabaseSessionEmbedded session, int size, int counterMaxValue) {
     super(session, size, counterMaxValue);
     localChanges.fillAllSorted(changes);
@@ -55,8 +36,8 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
     assert assertIfNotActive();
     final var reverted = new EmbeddedLinkBag(transaction.getDatabaseSession(), counterMaxValue);
-    for (var identifiable : this) {
-      reverted.add(identifiable);
+    for (var pair : this) {
+      reverted.add(pair.primaryRid(), pair.secondaryRid());
     }
 
     doRollBackChanges(multiValueChangeEvents, reverted);
@@ -96,7 +77,7 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
       final var event = listIterator.previous();
       switch (event.getChangeType()) {
         case ADD -> reverted.remove(event.getKey());
-        case REMOVE -> reverted.add(event.getOldValue());
+        case REMOVE -> reverted.add(event.getKey(), event.getOldValue());
         default ->
             throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
@@ -110,16 +91,12 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
 
 
   @Override
-  protected int getAbsoluteValue(RID rid) {
-    var change = localChanges.getChange(rid);
-    if (change == null) {
-      return 0;
-    }
-    return change.getValue();
+  protected AbsoluteChange getAbsoluteChange(RID rid) {
+    return localChanges.getChange(rid);
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(AtomicOperation atomicOperation) {
+  protected Spliterator<BTreeReadEntry<RID>> btreeSpliterator(AtomicOperation atomicOperation) {
     return null;
   }
 

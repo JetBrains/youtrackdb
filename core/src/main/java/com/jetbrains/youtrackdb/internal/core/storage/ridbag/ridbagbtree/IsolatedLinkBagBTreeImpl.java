@@ -2,13 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
-import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
-import it.unimi.dsi.fastutil.objects.ObjectIntImmutablePair;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.Map.Entry;
 import java.util.Spliterator;
 import java.util.function.Consumer;
@@ -17,21 +15,21 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integer> {
+public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkBagValue> {
 
   private final SharedLinkBagBTree bTree;
   private final int intFileId;
   private final long linkBagId;
 
   private final BinarySerializer<RID> keySerializer;
-  private final BinarySerializer<Integer> valueSerializer;
+  private final BinarySerializer<LinkBagValue> valueSerializer;
 
   public IsolatedLinkBagBTreeImpl(
       final SharedLinkBagBTree bTree,
       final int intFileId,
       final long linkBagId,
       BinarySerializer<RID> keySerializer,
-      BinarySerializer<Integer> valueSerializer) {
+      BinarySerializer<LinkBagValue> valueSerializer) {
     this.bTree = bTree;
     this.intFileId = intFileId;
     this.linkBagId = linkBagId;
@@ -56,21 +54,16 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
   @Nullable
   @Override
-  public Integer get(RID rid, AtomicOperation atomicOperation) {
-    final int result;
-
-    result = bTree.get(new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()),
+  public LinkBagValue get(RID rid, AtomicOperation atomicOperation) {
+    final var result = bTree.get(
+        new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()),
         atomicOperation);
-
-    if (result < 0) {
-      return null;
-    }
 
     return result;
   }
 
   @Override
-  public boolean put(AtomicOperation atomicOperation, RID rid, Integer value) {
+  public boolean put(AtomicOperation atomicOperation, RID rid, LinkBagValue value) {
     return bTree.put(
         atomicOperation,
         new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()),
@@ -90,7 +83,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
       while (iterator.hasNext()) {
         final var entry = iterator.next();
-        bTree.remove(atomicOperation, entry.first);
+        bTree.remove(atomicOperation, entry.first());
       }
     }
   }
@@ -112,18 +105,10 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
   @Nullable
   @Override
-  public Integer remove(AtomicOperation atomicOperation, RID rid) {
-    final int result;
-    result =
-        bTree.remove(
-            atomicOperation,
-            new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()));
-
-    if (result < 0) {
-      return null;
-    }
-
-    return result;
+  public LinkBagValue remove(AtomicOperation atomicOperation, RID rid) {
+    return bTree.remove(
+        atomicOperation,
+        new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()));
   }
 
   @Override
@@ -131,7 +116,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       RID rid,
       boolean inclusive,
       boolean ascSortOrder,
-      RangeResultListener<RID, Integer> listener, AtomicOperation atomicOperation) {
+      RangeResultListener<RID, LinkBagValue> listener, AtomicOperation atomicOperation) {
     try (final var stream =
         bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()),
@@ -145,7 +130,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
   @Nonnull
   @Override
-  public Spliterator<ObjectIntPair<RID>> spliteratorEntriesBetween(@Nonnull RID keyFrom,
+  public Spliterator<BTreeReadEntry<RID>> spliteratorEntriesBetween(@Nonnull RID keyFrom,
       boolean fromInclusive, @Nonnull RID keyTo, boolean toInclusive, boolean ascSortOrder,
       AtomicOperation atomicOperation) {
     var spliterator = bTree.spliteratorEntriesBetween(
@@ -170,7 +155,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
-        return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
+        return new RecordId(entry.first().targetCollection, entry.first().targetPosition);
       }
     }
 
@@ -190,7 +175,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
-        return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
+        return new RecordId(entry.first().targetCollection, entry.first().targetPosition);
       }
     }
 
@@ -211,8 +196,8 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       forEachEntry(
           stream,
           entry -> {
-            final var treeValue = entry.second;
-            size.increment(treeValue);
+            final var treeValue = entry.second();
+            size.increment(treeValue.counter());
             return true;
           });
     }
@@ -226,13 +211,13 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
   }
 
   @Override
-  public BinarySerializer<Integer> getValueSerializer() {
+  public BinarySerializer<LinkBagValue> getValueSerializer() {
     return valueSerializer;
   }
 
   private static void forEachEntry(
-      final Stream<RawPairObjectInteger<EdgeKey>> stream,
-      final Function<RawPairObjectInteger<EdgeKey>, Boolean> consumer) {
+      final Stream<RawPair<EdgeKey, LinkBagValue>> stream,
+      final Function<RawPair<EdgeKey, LinkBagValue>, Boolean> consumer) {
 
     var cont = true;
 
@@ -243,8 +228,8 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
   }
 
   private static void listenStream(
-      final Stream<RawPairObjectInteger<EdgeKey>> stream,
-      final RangeResultListener<RID, Integer> listener) {
+      final Stream<RawPair<EdgeKey, LinkBagValue>> stream,
+      final RangeResultListener<RID, LinkBagValue> listener) {
     forEachEntry(
         stream,
         entry ->
@@ -252,16 +237,17 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
                 new Entry<>() {
                   @Override
                   public RID getKey() {
-                    return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
+                    return new RecordId(entry.first().targetCollection,
+                        entry.first().targetPosition);
                   }
 
                   @Override
-                  public Integer getValue() {
-                    return entry.second;
+                  public LinkBagValue getValue() {
+                    return entry.second();
                   }
 
                   @Override
-                  public Integer setValue(Integer value) {
+                  public LinkBagValue setValue(LinkBagValue value) {
                     throw new UnsupportedOperationException();
                   }
                 }));
@@ -269,26 +255,29 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
 
 
   private static final class TransformingSpliterator implements
-      Spliterator<ObjectIntPair<RID>> {
+      Spliterator<BTreeReadEntry<RID>> {
 
-    private final Spliterator<RawPairObjectInteger<EdgeKey>> delegate;
+    private final Spliterator<RawPair<EdgeKey, LinkBagValue>> delegate;
 
-    TransformingSpliterator(Spliterator<RawPairObjectInteger<EdgeKey>> delegate) {
+    TransformingSpliterator(Spliterator<RawPair<EdgeKey, LinkBagValue>> delegate) {
       this.delegate = delegate;
     }
 
     @Override
-    public boolean tryAdvance(Consumer<? super ObjectIntPair<RID>> action) {
+    public boolean tryAdvance(Consumer<? super BTreeReadEntry<RID>> action) {
       return delegate.tryAdvance(pair -> {
-        final var rid = new RecordId(pair.first.targetCollection, pair.first.targetPosition);
-        action.accept(new ObjectIntImmutablePair<>(rid, pair.second));
+        final var rid = new RecordId(pair.first().targetCollection, pair.first().targetPosition);
+        final var value = pair.second();
+        action.accept(new BTreeReadEntry<>(rid, value.counter(),
+            value.secondaryCollectionId(), value.secondaryPosition()));
       });
     }
 
     @Nullable
     @Override
-    public Spliterator<ObjectIntPair<RID>> trySplit() {
-      return new TransformingSpliterator(delegate.trySplit());
+    public Spliterator<BTreeReadEntry<RID>> trySplit() {
+      var split = delegate.trySplit();
+      return split != null ? new TransformingSpliterator(split) : null;
     }
 
     @Override

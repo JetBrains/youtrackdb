@@ -60,7 +60,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.bi
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
@@ -779,12 +778,14 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       var recId = ridChangeRawPair.first();
       assert recId.isPersistent();
 
-      var change = ridChangeRawPair.second().getValue();
-      assert change >= 0;
-      if (change > 0) {
+      var change = ridChangeRawPair.second();
+      var counter = change.getValue();
+      assert counter >= 0;
+      if (counter > 0) {
         HelperClasses.writeByte(bytes, (byte) 1);
         HelperClasses.writeLinkOptimized(bytes, recId);
-        VarIntSerializer.write(bytes, change);
+        VarIntSerializer.write(bytes, counter);
+        HelperClasses.writeLinkOptimized(bytes, change.getSecondaryRid());
       }
     });
     HelperClasses.writeByte(bytes, (byte) 0);
@@ -842,13 +843,14 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   private static EmbeddedLinkBag readEmbeddedLinkBag(DatabaseSessionEmbedded session,
       BytesContainer bytes,
       int linkBagSize, int counterMaxValue) {
-    var changes = new ArrayList<RawPair<RID, Change>>();
+    var changes = new ArrayList<RawPair<RID, AbsoluteChange>>();
     var continueFlag = readByte(bytes);
 
     while (continueFlag > 0) {
       var rid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
       var counter = VarIntSerializer.readAsInteger(bytes);
-      changes.add(new RawPair<>(rid, new AbsoluteChange(counter)));
+      var secondaryRid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
+      changes.add(new RawPair<>(rid, new AbsoluteChange(counter, secondaryRid)));
       continueFlag = readByte(bytes);
     }
 

@@ -17,8 +17,8 @@ public final class LinkBagConverter extends AbstractCollectionConverter<LinkBag>
     final ResultCallback callback =
         item -> result.add(((Identifiable) item).getIdentity());
 
-    for (Identifiable identifiable : value) {
-      updated = convertSingleValue(session, identifiable, callback, updated);
+    for (var ridPair : value) {
+      updated = convertSingleValue(session, ridPair.primaryRid(), callback, updated);
     }
 
     if (updated) {

@@ -316,8 +316,8 @@ public class LiveQueryHookV2 {
     // TODO move it to some helper class
     if (value instanceof LinkBag linkBag) {
       List<Identifiable> result = new ArrayList<>(linkBag.size());
-      for (Identifiable oIdentifiable : linkBag) {
-        result.add(oIdentifiable);
+      for (var ridPair : linkBag) {
+        result.add(ridPair.primaryRid());
       }
       return result;
     }

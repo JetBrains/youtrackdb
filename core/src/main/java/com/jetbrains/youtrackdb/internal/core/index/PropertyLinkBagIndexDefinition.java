@@ -21,7 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -60,12 +59,18 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
-      case ADD ->
-          processAdd(
-              createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
-      case REMOVE ->
-          processRemoval(
-              createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+      case ADD -> {
+        // Index only by primaryRid (the key in the change event).
+        // For heavyweight edges primaryRid is the edge record RID;
+        // for lightweight edges it equals the opposite vertex RID.
+        var primaryKey = createSingleValue(transaction, changeEvent.getKey());
+        processAdd(primaryKey, keysToAdd, keysToRemove);
+      }
+      case REMOVE -> {
+        // Remove index entry by primaryRid.
+        var primaryKey = createSingleValue(transaction, changeEvent.getKey());
+        processRemoval(primaryKey, keysToAdd, keysToRemove);
+      }
       default ->
           throw new IllegalArgumentException(
               "Invalid change type : " + changeEvent.getChangeType());
@@ -84,8 +89,8 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       return null;
     }
     final List<Object> values = new ArrayList<>();
-    for (final Identifiable item : linkBag) {
-      values.add(createSingleValue(transaction, item.getIdentity()));
+    for (final var item : linkBag) {
+      values.add(createSingleValue(transaction, item.primaryRid()));
     }
 
     return values;
@@ -105,8 +110,8 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     }
 
     final List<Object> values = new ArrayList<>();
-    for (final Identifiable item : linkBag) {
-      values.add(createSingleValue(transaction, item.getIdentity()));
+    for (final var item : linkBag) {
+      values.add(createSingleValue(transaction, item.primaryRid()));
     }
 
     return values;

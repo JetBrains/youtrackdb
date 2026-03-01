@@ -1035,7 +1035,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     EntityImpl outEntity;
     EntityImpl inEntity;
 
-    var outEntityModified = false;
     if (getTransactionInternal().isDeletedInTx(toVertex.getIdentity())) {
       throw new RecordNotFoundException(getDatabaseName(),
           toVertex.getIdentity(), "The vertex " + toVertex.getIdentity() + " has been deleted");
@@ -1070,29 +1069,25 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     final var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, className);
 
     if (createLightweightEdge) {
+      // Lightweight edges: both primary and secondary RIDs point to the opposite vertex
       var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      var transaction2 = getActiveTransaction();
-      var transaction3 = getActiveTransaction();
-      VertexEntityImpl.createLink(this, transaction3.load(toVertex), transaction2.load(inVertex),
-          outFieldName);
-      var transaction = getActiveTransaction();
-      var transaction1 = getActiveTransaction();
-      VertexEntityImpl.createLink(this, transaction1.load(inVertex), transaction.load(toVertex),
-          inFieldName);
+      var tx = getActiveTransaction();
+      VertexEntityImpl.createLink(this, tx.load(toVertex), tx.load(inVertex), outFieldName);
+      tx = getActiveTransaction();
+      VertexEntityImpl.createLink(this, tx.load(inVertex), tx.load(toVertex), inFieldName);
       edge = lightWeightEdge;
     } else {
+      // Heavyweight edges: primary RID is the edge record, secondary RID is the opposite vertex
       var statefulEdge = newStatefulEdgeInternal(className);
-      var transaction = getActiveTransaction();
-      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, transaction.load(toVertex));
+      var tx = getActiveTransaction();
+      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, tx.load(toVertex));
       statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
 
-      if (!outEntityModified) {
-        // OUT-VERTEX ---> IN-VERTEX/EDGE
-        VertexEntityImpl.createLink(this, outEntity, statefulEdge, outFieldName);
-      }
+      // OUT-VERTEX ---> edge record as primary, IN-VERTEX as secondary
+      VertexEntityImpl.createLink(this, outEntity, statefulEdge, inEntity, outFieldName);
 
-      // IN-VERTEX ---> OUT-VERTEX/EDGE
-      VertexEntityImpl.createLink(this, inEntity, statefulEdge, inFieldName);
+      // IN-VERTEX ---> edge record as primary, OUT-VERTEX as secondary
+      VertexEntityImpl.createLink(this, inEntity, statefulEdge, outEntity, inFieldName);
       edge = statefulEdge;
     }
     // OK
@@ -4023,7 +4018,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
         for (var link : oppositeLinksContainer) {
           var transaction = getActiveTransaction();
-          var oppositeEntity = (EntityImpl) transaction.loadEntityOrNull(link);
+          var oppositeEntity = (EntityImpl) transaction.loadEntityOrNull(link.primaryRid());
           //skip self-links and already deleted entities
           if (oppositeEntity == null || oppositeEntity.equals(entity)) {
             continue;
@@ -4141,15 +4136,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               || currentPropertyValue instanceof EntityLinkSetImpl ||
               currentPropertyValue instanceof LinkBag
               || currentPropertyValue instanceof EntityLinkMapIml) {
+            var isLinkBag = currentPropertyValue instanceof LinkBag;
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
-                  assert event.getValue() != null;
-                  incrementLinkCounter((RecordIdInternal) event.getValue(), linksToUpdateMap);
+                  var addedRid = isLinkBag ? event.getKey() : event.getValue();
+                  assert addedRid != null;
+                  incrementLinkCounter((RecordIdInternal) addedRid, linksToUpdateMap);
                 }
                 case REMOVE -> {
-                  assert event.getOldValue() != null;
-                  decrementLinkCounter((RecordIdInternal) event.getOldValue(), linksToUpdateMap);
+                  var removedRid = isLinkBag ? event.getKey() : event.getOldValue();
+                  assert removedRid != null;
+                  decrementLinkCounter((RecordIdInternal) removedRid, linksToUpdateMap);
                 }
                 case UPDATE -> {
                   assert event.getValue() != null;
@@ -4295,7 +4293,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
       case LinkBag linkBag -> {
         for (var link : linkBag) {
-          incrementLinkCounter((RecordIdInternal) link, links);
+          incrementLinkCounter((RecordIdInternal) link.primaryRid(), links);
         }
       }
       default -> {
@@ -4336,7 +4334,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
       case LinkBag linkBag -> {
         for (var link : linkBag) {
-          decrementLinkCounter((RecordIdInternal) link, links);
+          decrementLinkCounter((RecordIdInternal) link.primaryRid(), links);
         }
       }
       default -> {

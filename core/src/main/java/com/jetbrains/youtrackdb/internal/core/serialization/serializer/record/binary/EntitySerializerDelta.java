@@ -1404,7 +1404,7 @@ public class EntitySerializerDelta {
       VarIntSerializer.write(bytes, bag.size());
 
       for (var itemValue : bag) {
-        writeOptimizedLink(session, bytes, itemValue);
+        writeOptimizedLink(session, bytes, itemValue.primaryRid());
       }
     } else {
       var pos = bytes.alloc(1);

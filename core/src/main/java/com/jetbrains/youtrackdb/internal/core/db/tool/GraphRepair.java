@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageRecoverEventListener;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -433,10 +432,10 @@ public class GraphRepair {
                             .getValueAsInteger()) {
                           vertex.setDirty();
                         }
-                        for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
-                          final var o = it.next();
+                        for (var it = ridbag.iterator(); it.hasNext(); ) {
+                          final var ridPair = it.next();
                           if (isEdgeBroken(session,
-                              vertex, fieldName, connection.getKey(), (Identifiable) o,
+                              vertex, fieldName, connection.getKey(), ridPair.primaryRid(),
                               stats)) {
                             vertexCorrupted = true;
                             if (!checkOnly) {

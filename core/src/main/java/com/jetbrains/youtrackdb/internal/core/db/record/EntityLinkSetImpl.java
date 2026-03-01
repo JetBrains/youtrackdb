@@ -135,8 +135,23 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   @Nonnull
   @Override
   public Iterator<Identifiable> iterator() {
-    //noinspection unchecked,rawtypes
-    return (Iterator) delegate.iterator();
+    var ridPairIter = delegate.iterator();
+    return new Iterator<>() {
+      @Override
+      public boolean hasNext() {
+        return ridPairIter.hasNext();
+      }
+
+      @Override
+      public Identifiable next() {
+        return ridPairIter.next().primaryRid();
+      }
+
+      @Override
+      public void remove() {
+        ridPairIter.remove();
+      }
+    };
   }
 
   @Override
@@ -311,8 +326,8 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
 
     final var owner = oldDelegate.getOwner();
     delegate.disableTracking(owner);
-    for (var identifiable : oldDelegate) {
-      delegate.add(identifiable);
+    for (var ridPair : oldDelegate) {
+      delegate.add(ridPair.primaryRid());
     }
 
     delegate.setOwner(owner);
@@ -336,8 +351,8 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
 
     final var owner = oldDelegate.getOwner();
     delegate.disableTracking(owner);
-    for (var identifiable : oldDelegate) {
-      delegate.add(identifiable);
+    for (var ridPair : oldDelegate) {
+      delegate.add(ridPair.primaryRid());
     }
 
     delegate.setOwner(owner);

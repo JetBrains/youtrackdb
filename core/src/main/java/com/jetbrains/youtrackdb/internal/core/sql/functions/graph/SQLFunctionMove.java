@@ -88,6 +88,10 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
         var rec = (EntityImpl) transaction.loadEntity(iRecord);
         if (rec.isEdge()) {
           return null;
+        } else if (rec.isVertex()) {
+          // Use the optimized getVertices() path which reads adjacent vertices
+          // directly from LinkBag secondary RIDs without loading edge records.
+          return rec.asVertex().getVertices(iDirection, labels);
         } else {
           return rec.getEntities(iDirection, labels);
         }
