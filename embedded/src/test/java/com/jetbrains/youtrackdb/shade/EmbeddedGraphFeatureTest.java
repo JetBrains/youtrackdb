@@ -15,6 +15,7 @@ import io.cucumber.junit.CucumberOptions;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -132,7 +133,7 @@ public class EmbeddedGraphFeatureTest {
     private static YTDBGraph initGraph(GraphData graphData) {
       final var configs = new BaseConfiguration();
       final var directory =
-          makeTestDirectory(graphData == null ? "default" : graphData.name().toLowerCase());
+          makeTestDirectory(graphData == null ? "default" : graphData.name().toLowerCase(Locale.ROOT));
 
       try {
         FileUtils.deleteDirectory(new File(directory));
@@ -178,7 +179,7 @@ public class EmbeddedGraphFeatureTest {
         final var dataFile = TestHelper.generateTempFileFromResource(
             graph.getClass(),
             GryoResourceAccess.class,
-            graphData.location().substring(graphData.location().lastIndexOf(File.separator) + 1),
+            graphData.location().substring(graphData.location().lastIndexOf('/') + 1),
             "", false
         ).getAbsolutePath();
         graph.traversal().io(dataFile).read().iterate();
