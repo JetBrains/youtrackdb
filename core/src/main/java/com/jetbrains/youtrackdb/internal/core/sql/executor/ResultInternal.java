@@ -213,7 +213,7 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   @Nullable
-  private Object convertPropertyValue(Object value) {
+  protected Object convertPropertyValue(Object value) {
     if (value == null) {
       return null;
     }

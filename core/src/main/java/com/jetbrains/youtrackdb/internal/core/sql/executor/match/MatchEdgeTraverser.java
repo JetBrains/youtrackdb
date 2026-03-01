@@ -166,12 +166,8 @@ public class MatchEdgeTraverser {
       return null;
     }
 
-    // Build the output row: copy all upstream aliases + add the new one
-    var result = new ResultInternal(session);
-    for (var prop : sourceRecord.getPropertyNames()) {
-      result.setProperty(prop, sourceRecord.getProperty(prop));
-    }
-    result.setProperty(endPointAlias, nextR);
+    // Build the output row: layer the new alias on top of the upstream row
+    var result = new MatchResultRow(session, sourceRecord, endPointAlias, nextR);
 
     // Propagate WHILE-traversal metadata if the user declared depth/path aliases
     if (edge.edge.item.getFilter().getDepthAlias() != null) {
