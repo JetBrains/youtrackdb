@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
@@ -22,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -1270,5 +1273,142 @@ public class DoubleSidedEdgeLinkBagTest {
         indexKeys.contains(inVertexRid));
 
     tx.commit();
+  }
+
+  /**
+   * Verifies that getVertices() correctly traverses edges stored as EntityLinkListImpl.
+   * When a vertex edge property is typed as LINKLIST in the schema, addEdge stores edge
+   * references in an EntityLinkListImpl. The getVertices() method must handle this type
+   * via the EdgeIterable path, loading edge records and resolving adjacent vertices.
+   */
+  @Test
+  public void testGetVerticesTraversesLinkListEdgeProperty() {
+    // Define edge properties as LINKLIST type on the vertex class
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
+    vertexClass.createProperty(outFieldName, PropertyType.LINKLIST);
+    vertexClass.createProperty(inFieldName, PropertyType.LINKLIST);
+
+    // Create vertices and a heavyweight edge; addEdge stores as EntityLinkListImpl
+    // because the schema property type is LINKLIST
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var outRid = outVertex.getIdentity();
+    var inRid = inVertex.getIdentity();
+    tx.commit();
+
+    // Reload and verify the property is stored as EntityLinkListImpl
+    tx = session.begin();
+    var loadedOut = (EntityImpl) tx.load(outRid);
+    var fieldValue = loadedOut.getPropertyInternal(outFieldName);
+    assertTrue("Edge property should be EntityLinkListImpl, but was: "
+            + fieldValue.getClass().getSimpleName(),
+        fieldValue instanceof EntityLinkListImpl);
+
+    // Verify getVertices() correctly resolves the adjacent vertex through the LINKLIST
+    var vertices = loadedOut.asVertex().getVertices(Direction.OUT, "HeavyEdge");
+    var iter = vertices.iterator();
+    assertTrue("Should have an adjacent vertex via LINKLIST edge property", iter.hasNext());
+    assertEquals("Adjacent vertex should be the target vertex",
+        inRid, iter.next().getIdentity());
+    assertFalse("Should have exactly one adjacent vertex", iter.hasNext());
+
+    // Verify the reverse direction also works
+    var loadedIn = (EntityImpl) tx.load(inRid);
+    var inFieldValue = loadedIn.getPropertyInternal(inFieldName);
+    assertTrue("Incoming edge property should be EntityLinkListImpl, but was: "
+            + inFieldValue.getClass().getSimpleName(),
+        inFieldValue instanceof EntityLinkListImpl);
+
+    var inVertices = loadedIn.asVertex().getVertices(Direction.IN, "HeavyEdge");
+    var inIter = inVertices.iterator();
+    assertTrue("Should have an adjacent vertex via incoming LINKLIST", inIter.hasNext());
+    assertEquals("Adjacent incoming vertex should be the source vertex",
+        outRid, inIter.next().getIdentity());
+    assertFalse("Should have exactly one incoming adjacent vertex", inIter.hasNext());
+    tx.rollback();
+  }
+
+  /**
+   * Verifies that getVertices() correctly traverses edges stored as EntityLinkSetImpl.
+   * Unlike LINKLIST, the addEdge method does not natively create LINKSET edge properties,
+   * so this test manually replaces the LinkBag with an EntityLinkSetImpl containing the
+   * same edge RIDs. This simulates a vertex whose edge property was stored as LINKSET
+   * (e.g., from schema migration or direct property assignment). The getVertices() method
+   * must handle the EntityLinkSetImpl type via the EdgeIterable path, loading edge records
+   * and resolving adjacent vertices in both directions.
+   */
+  @Test
+  public void testGetVerticesTraversesLinkSetEdgeProperty() {
+    // Create vertices and a heavyweight edge (default storage is LinkBag)
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var outRid = outVertex.getIdentity();
+    var inRid = inVertex.getIdentity();
+    tx.commit();
+
+    // In a new transaction, replace edge properties with EntityLinkSetImpl on both
+    // vertices. This is necessary because addEdge does not support PropertyType.LINKSET
+    // natively — it only creates LinkBag or EntityLinkListImpl storage.
+    tx = session.begin();
+    var loadedOut = (EntityImpl) tx.load(outRid);
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+
+    // Collect existing edge RIDs from the outgoing LinkBag and replace with LinkSet
+    var outBag = (LinkBag) loadedOut.getPropertyInternal(outFieldName);
+    var outEdgeRids = new ArrayList<Identifiable>();
+    for (var pair : outBag) {
+      outEdgeRids.add(pair.primaryRid());
+    }
+    assertEquals("Should have one outgoing edge RID", 1, outEdgeRids.size());
+
+    var outLinkSet = new EntityLinkSetImpl(loadedOut, outEdgeRids);
+    loadedOut.setPropertyInternal(outFieldName, outLinkSet);
+
+    // Verify the property is now EntityLinkSetImpl
+    var outFieldValue = loadedOut.getPropertyInternal(outFieldName);
+    assertTrue("Outgoing edge property should be EntityLinkSetImpl, but was: "
+            + outFieldValue.getClass().getSimpleName(),
+        outFieldValue instanceof EntityLinkSetImpl);
+
+    // Verify getVertices() correctly resolves the adjacent vertex through the LINKSET
+    var vertices = loadedOut.asVertex().getVertices(Direction.OUT, "HeavyEdge");
+    var iter = vertices.iterator();
+    assertTrue("Should have an adjacent vertex via LINKSET edge property", iter.hasNext());
+    assertEquals("Adjacent vertex should be the target vertex",
+        inRid, iter.next().getIdentity());
+    assertFalse("Should have exactly one adjacent vertex", iter.hasNext());
+
+    // Now verify the reverse direction: replace the incoming edge property with LinkSet
+    var loadedIn = (EntityImpl) tx.load(inRid);
+    var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
+
+    var inBag = (LinkBag) loadedIn.getPropertyInternal(inFieldName);
+    var inEdgeRids = new ArrayList<Identifiable>();
+    for (var pair : inBag) {
+      inEdgeRids.add(pair.primaryRid());
+    }
+    assertEquals("Should have one incoming edge RID", 1, inEdgeRids.size());
+
+    var inLinkSet = new EntityLinkSetImpl(loadedIn, inEdgeRids);
+    loadedIn.setPropertyInternal(inFieldName, inLinkSet);
+
+    var inFieldValue = loadedIn.getPropertyInternal(inFieldName);
+    assertTrue("Incoming edge property should be EntityLinkSetImpl, but was: "
+            + inFieldValue.getClass().getSimpleName(),
+        inFieldValue instanceof EntityLinkSetImpl);
+
+    var inVertices = loadedIn.asVertex().getVertices(Direction.IN, "HeavyEdge");
+    var inIter = inVertices.iterator();
+    assertTrue("Should have an adjacent vertex via incoming LINKSET", inIter.hasNext());
+    assertEquals("Adjacent incoming vertex should be the source vertex",
+        outRid, inIter.next().getIdentity());
+    assertFalse("Should have exactly one incoming adjacent vertex", inIter.hasNext());
+    tx.rollback();
   }
 }
