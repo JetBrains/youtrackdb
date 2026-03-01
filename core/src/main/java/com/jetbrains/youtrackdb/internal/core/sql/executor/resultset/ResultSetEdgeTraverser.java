@@ -70,7 +70,7 @@ public final class ResultSetEdgeTraverser implements ExecutionStream {
     }
     var result = nextResult;
     // Update $matched so downstream WHERE clauses can reference previously matched aliases
-    ctx.setVariable("$matched", result);
+    ctx.setSystemVariable(CommandContext.VAR_MATCHED, result);
     nextResult = null;
     return result;
   }

@@ -128,6 +128,31 @@ public class BasicCommandContext implements CommandContext {
       iName = iName.substring(1);
     }
 
+    // Fast path: simple variable names without path separators.
+    // The hot-path variables ("current", "currentMatch", "matched") always take this
+    // branch, avoiding the expensive quote-aware getLowerIndexOf scan.
+    if (iName.indexOf('.') < 0 && iName.indexOf('[') < 0) {
+      // Check for special keywords (CONTEXT=7, PARENT=6, ROOT=4) using length
+      // as a fast pre-filter to avoid equalsIgnoreCase for most variable names.
+      int len = iName.length();
+      if (len == 7 && iName.equalsIgnoreCase("CONTEXT")) {
+        result = getVariables();
+      } else if (len == 6 && iName.equalsIgnoreCase("PARENT")) {
+        result = parent;
+      } else if (len == 4 && iName.equalsIgnoreCase("ROOT")) {
+        CommandContext p = this;
+        while (p.getParent() != null) {
+          p = p.getParent();
+        }
+        result = p;
+      } else {
+        result = lookupVariable(iName);
+      }
+      return result != null ? resolveValue(result) : iDefault;
+    }
+
+    // Slow path: names with path navigation (contains '.' or '[').
+    // Uses the quote-aware getLowerIndexOf to find the first unquoted separator.
     var pos = StringSerializerHelper.getLowerIndexOf(iName, 0, ".", "[");
 
     String firstPart;
@@ -178,15 +203,7 @@ public class BasicCommandContext implements CommandContext {
       }
       result = p;
     } else {
-      if (variables != null && variables.containsKey(firstPart)) {
-        result = variables.get(firstPart);
-      } else {
-        if (child != null) {
-          result = child.getVariable(firstPart);
-        } else {
-          result = getVariableFromParentHierarchy(firstPart);
-        }
-      }
+      result = lookupVariable(firstPart);
     }
 
     if (pos > -1) {
@@ -194,6 +211,42 @@ public class BasicCommandContext implements CommandContext {
     }
 
     return result != null ? resolveValue(result) : iDefault;
+  }
+
+  /**
+   * Looks up a simple variable name in the local variables map, then system variables
+   * (for hot-path names like "current", "matched"), falling back to child/parent hierarchy.
+   */
+  private Object lookupVariable(String name) {
+    if (variables != null && variables.containsKey(name)) {
+      return variables.get(name);
+    }
+    // Check system variables for known hot-path names. This allows SQL expressions
+    // like "$matched.alias" to resolve variables stored via setSystemVariable().
+    Object sysVar = resolveNamedSystemVariable(name);
+    if (sysVar != null) {
+      return sysVar;
+    }
+    if (child != null) {
+      return child.getVariable(name);
+    }
+    return getVariableFromParentHierarchy(name);
+  }
+
+  /**
+   * Maps well-known variable names to their system variable IDs and returns
+   * the value, or {@code null} if the name is not a known system variable
+   * or the variable is not set.
+   */
+  @Nullable
+  private Object resolveNamedSystemVariable(String name) {
+    return switch (name) {
+      case "current" -> getSystemVariable(VAR_CURRENT);
+      case "currentMatch" -> getSystemVariable(VAR_CURRENT_MATCH);
+      case "matched" -> getSystemVariable(VAR_MATCHED);
+      case "depth" -> getSystemVariable(VAR_DEPTH);
+      default -> null;
+    };
   }
 
   private Object resolveValue(Object value) {
@@ -231,29 +284,35 @@ public class BasicCommandContext implements CommandContext {
 
     init();
 
-    var pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
-    if (pos > -1) {
-      var nested = getVariable(iName.substring(0, pos));
-      if (nested instanceof CommandContext commandContext) {
-        commandContext.setVariable(iName.substring(pos + 1), iValue);
+    // Fast path: simple variable names without path separators (the common case).
+    // Avoids the getHigherIndexOf scan for hot-path variables like "current", "matched".
+    if (iName.indexOf('.') >= 0 || iName.indexOf('[') >= 0) {
+      var pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
+      if (pos > -1) {
+        var nested = getVariable(iName.substring(0, pos));
+        if (nested instanceof CommandContext commandContext) {
+          commandContext.setVariable(iName.substring(pos + 1), iValue);
+        }
+        return this;
+      }
+    }
+
+    // Simple name - direct variable set
+    if (variables.containsKey(iName)) {
+      variables.put(
+          iName, iValue); // this is a local existing variable, so it's bound to current contex
+    } else if (parent instanceof BasicCommandContext basicCommandContext
+        && basicCommandContext.hasVariable(iName)) {
+      if ("current".equalsIgnoreCase(iName) || "parent".equalsIgnoreCase(iName)) {
+        variables.put(iName, iValue);
+      } else {
+        parent.setVariable(
+            iName,
+            iValue); // it is an existing variable in parent context, so it's bound to parent
+        // context
       }
     } else {
-      if (variables.containsKey(iName)) {
-        variables.put(
-            iName, iValue); // this is a local existing variable, so it's bound to current contex
-      } else if (parent instanceof BasicCommandContext basicCommandContext
-          && basicCommandContext.hasVariable(iName)) {
-        if ("current".equalsIgnoreCase(iName) || "parent".equalsIgnoreCase(iName)) {
-          variables.put(iName, iValue);
-        } else {
-          parent.setVariable(
-              iName,
-              iValue); // it is an existing variable in parent context, so it's bound to parent
-          // context
-        }
-      } else {
-        variables.put(iName, iValue); // it's a new variable, so it's created in this context
-      }
+      variables.put(iName, iValue); // it's a new variable, so it's created in this context
     }
     return this;
   }

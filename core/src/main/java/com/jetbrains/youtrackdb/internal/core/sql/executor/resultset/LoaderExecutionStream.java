@@ -34,7 +34,7 @@ public final class LoaderExecutionStream implements ExecutionStream {
 
     var result = nextResult;
     nextResult = null;
-    ctx.setVariable("$current", result);
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT, result);
     return result;
   }
 

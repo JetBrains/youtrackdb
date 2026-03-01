@@ -318,9 +318,9 @@ public class MatchEdgeTraverser {
       // The starting point IS included (depth 0) if it passes the filters. Expansion
       // continues while the WHILE condition holds and depth < maxDepth.
       List<Result> result = new ArrayList<>();
-      iCommandContext.setVariable("$depth", depth);
-      var previousMatch = iCommandContext.getVariable("$currentMatch");
-      iCommandContext.setVariable("$currentMatch", startingPoint);
+      iCommandContext.setSystemVariable(CommandContext.VAR_DEPTH, depth);
+      var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
+      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
 
       // Evaluate the starting point against all filters
       if (matchesFilters(iCommandContext, filter, startingPoint)
@@ -370,7 +370,7 @@ public class MatchEdgeTraverser {
           }
         }
       }
-      iCommandContext.setVariable("$currentMatch", previousMatch);
+      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
       return ExecutionStream.resultIterator(result.iterator());
     }
   }
@@ -389,20 +389,20 @@ public class MatchEdgeTraverser {
       final SQLRid theTargetRid,
       Result next,
       CommandContext ctx) {
-    var previousMatch = ctx.getVariable("$currentMatch");
-    var matched = (ResultInternal) ctx.getVariable("matched");
+    var previousMatch = ctx.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
+    var matched = (ResultInternal) ctx.getSystemVariable(CommandContext.VAR_MATCHED);
     if (matched != null) {
       matched.setProperty(
           getStartingPointAlias(), sourceRecord.getProperty(getStartingPointAlias()));
     }
-    iCommandContext.setVariable("$currentMatch", next);
+    iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, next);
     if (matchesFilters(iCommandContext, theFilter, next)
         && matchesClass(iCommandContext, theClassName, next)
         && matchesRid(iCommandContext, theTargetRid, next)) {
-      ctx.setVariable("$currentMatch", previousMatch);
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
       return next;
     } else {
-      ctx.setVariable("$currentMatch", previousMatch);
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
       return null;
     }
   }
@@ -486,13 +486,13 @@ public class MatchEdgeTraverser {
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
 
-    var prevCurrent = iCommandContext.getVariable("$current");
-    iCommandContext.setVariable("$current", startingPoint);
+    var prevCurrent = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT);
+    iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, startingPoint);
     Object qR;
     try {
       qR = this.item.getMethod().execute(startingPoint, iCommandContext);
     } finally {
-      iCommandContext.setVariable("$current", prevCurrent);
+      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, prevCurrent);
     }
 
     return toExecutionStream(qR, iCommandContext.getDatabaseSession());

@@ -117,7 +117,7 @@ public final class SQLFunctionCall extends SimpleNode {
     }
 
     if (record == null) {
-      var current = ctx == null ? null : ctx.getVariable("$current");
+      var current = ctx == null ? null : ctx.getSystemVariable(CommandContext.VAR_CURRENT);
       if (current != null) {
         if (current instanceof Identifiable) {
           record = current;
