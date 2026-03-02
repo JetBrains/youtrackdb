@@ -205,6 +205,22 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     );
   }
 
+  /// Execute a parameterized GQL (Graph Query Language) query with varargs.
+  ///
+  /// Returns a traversal of result maps where each map contains variable bindings.
+  /// For example, `MATCH (a:Person) WHERE a.name = $name` with parameters "name", "Maria"
+  /// produces maps with key "a" bound to matched vertices where name is "Maria".
+  ///
+  /// @param query     The GQL query to execute.
+  /// @param keyValues Alternating key/value pairs for query parameters (key1, value1, key2,
+  ///                  value2, ...).
+  /// @return A traversal of result maps.
+  public GraphTraversal<Object, Object> gql(
+      @Nonnull String query, @Nonnull Object... keyValues) {
+    var arguments = processKeyValueArguments(keyValues);
+    return gql(query, arguments);
+  }
+
   /// Performs backup of database content to the selected folder.
   ///
   /// During the first backup full content of the database will be copied into the directory,
