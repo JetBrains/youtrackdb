@@ -6,14 +6,14 @@ Feature: Command Support
     # DDL is not transactional - execute directly without BEGIN/COMMIT
     And the traversal of
       """
-      g.sqlCommand("CREATE CLASS Employee IF NOT EXISTS EXTENDS V")
+      g.yql("CREATE CLASS Employee IF NOT EXISTS EXTENDS V")
       """
     When iterated to list
 
-  Scenario: g_sqlCommand_INSERT_and_verify
+  Scenario: g_yql_INSERT_and_verify
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Alice'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Alice'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
@@ -23,10 +23,10 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_INSERT_with_parameters
+  Scenario: g_yql_INSERT_with_parameters
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = :name", "name", "Bob").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = :name", "name", "Bob").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
@@ -36,10 +36,10 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_INSERT_with_multiple_parameters
+  Scenario: g_yql_INSERT_with_multiple_parameters
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = :name, age = :age", "name", "Charlie", "age", 30).sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = :name, age = :age", "name", "Charlie", "age", 30).yql("COMMIT")
       """
     When iterated to list
     And the traversal of
@@ -49,11 +49,11 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_DELETE_with_parameters
+  Scenario: g_yql_DELETE_with_parameters
     # First insert a record
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'ToDelete'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'ToDelete'").yql("COMMIT")
       """
     When iterated to list
     # Verify it exists
@@ -66,7 +66,7 @@ Feature: Command Support
     # Delete with parameter
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("DELETE VERTEX FROM Employee WHERE name = :name", "name", "ToDelete").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("DELETE VERTEX FROM Employee WHERE name = :name", "name", "ToDelete").yql("COMMIT")
       """
     When iterated to list
     # Verify it's gone
@@ -77,128 +77,129 @@ Feature: Command Support
     When iterated to list
     Then the result should have a count of 0
 
-  Scenario: g_sqlCommand_SELECT_returns_elements
+  Scenario: g_yql_SELECT_returns_elements
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Alice'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Alice'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("SELECT FROM Employee WHERE name = 'Alice'").hasLabel("Employee").values("name")
+      g.yql("BEGIN").yql("SELECT FROM Employee WHERE name = 'Alice'").hasLabel("Employee").values("name")
       """
     When iterated to list
     Then the result should be unordered
       | result |
       | Alice  |
 
-  Scenario: g_sqlCommand_SELECT_with_parameters
+  Scenario: g_yql_SELECT_with_parameters
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Bob'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Bob'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("SELECT FROM Employee WHERE name = :name", "name", "Bob").hasLabel("Employee").values("name")
+      g.yql("BEGIN").yql("SELECT FROM Employee WHERE name = :name", "name", "Bob").hasLabel("Employee").values("name")
       """
     When iterated to list
     Then the result should be unordered
       | result |
       | Bob    |
 
-  Scenario: g_sqlCommand_SELECT_empty_result
+  Scenario: g_yql_SELECT_empty_result
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("SELECT FROM Employee WHERE name = 'Missing'")
+      g.yql("BEGIN").yql("SELECT FROM Employee WHERE name = 'Missing'")
       """
     When iterated to list
     Then the result should have a count of 0
 
-  Scenario: g_sqlCommand_SELECT_projection
+  Scenario: g_yql_SELECT_projection
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Eve'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Eve'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("SELECT name FROM Employee WHERE name = 'Eve'")
+      g.yql("BEGIN").yql("SELECT name FROM Employee WHERE name = 'Eve'")
       """
     When iterated to list
     Then the result should have a count of 1
 
-  Scenario: g_sqlCommand_MATCH_returns_vertex_elements
+  Scenario: g_yql_MATCH_returns_vertex_elements
     # Setup: two employees connected by a Knows edge
     And the traversal of
       """
-      g.sqlCommand("CREATE CLASS Knows IF NOT EXISTS EXTENDS E")
+      g.yql("CREATE CLASS Knows IF NOT EXISTS EXTENDS E")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Alice'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Alice'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Bob'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Bob'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("CREATE EDGE Knows FROM (SELECT FROM Employee WHERE name = 'Alice') TO (SELECT FROM Employee WHERE name = 'Bob')").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("CREATE EDGE Knows FROM (SELECT FROM Employee WHERE name = 'Alice') TO (SELECT FROM Employee WHERE name = 'Bob')").yql("COMMIT")
       """
     When iterated to list
     # MATCH returning a vertex: should be wrapped as a Gremlin vertex element
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("MATCH {class: Employee, as: p, where: (name = 'Alice')}.out('Knows'){as: friend} RETURN expand(friend)").hasLabel("Employee").values("name")
+      g.yql("BEGIN").yql("MATCH {class: Employee, as: p, where: (name = 'Alice')}.out('Knows'){as: friend} RETURN expand(friend)").hasLabel("Employee").values("name")
       """
     When iterated to list
     Then the result should be unordered
       | result |
       | Bob    |
 
-  Scenario: g_sqlCommand_MATCH_returns_multiple_vertices
+  Scenario: g_yql_MATCH_returns_multiple_vertices
     # Setup: Alice knows both Bob and Charlie
     And the traversal of
       """
-      g.sqlCommand("CREATE CLASS Knows IF NOT EXISTS EXTENDS E")
+      g.yql("CREATE CLASS Knows IF NOT EXISTS EXTENDS E")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Alice'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Alice'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Bob'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Bob'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("INSERT INTO Employee SET name = 'Charlie'").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("INSERT INTO Employee SET name = 'Charlie'").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("CREATE EDGE Knows FROM (SELECT FROM Employee WHERE name = 'Alice') TO (SELECT FROM Employee WHERE name = 'Bob')").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("CREATE EDGE Knows FROM (SELECT FROM Employee WHERE name = 'Alice') TO (SELECT FROM Employee WHERE name = 'Bob')").yql("COMMIT")
       """
     When iterated to list
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("CREATE EDGE Knows FROM (SELECT FROM Employee WHERE name = 'Alice') TO (SELECT FROM Employee WHERE name = 'Charlie')").sqlCommand("COMMIT")
+      g.yql("BEGIN").yql("CREATE EDGE Knows FROM (SELECT FROM Employee WHERE name = 'Alice') TO (SELECT FROM Employee WHERE name = 'Charlie')").yql("COMMIT")
       """
     When iterated to list
     # MATCH returning multiple vertices
     And the traversal of
       """
-      g.sqlCommand("BEGIN").sqlCommand("MATCH {class: Employee, as: p, where: (name = 'Alice')}.out('Knows'){as: friend} RETURN expand(friend)").hasLabel("Employee").values("name")
+      g.yql("BEGIN").yql("MATCH {class: Employee, as: p, where: (name = 'Alice')}.out('Knows'){as: friend} RETURN expand(friend)").hasLabel("Employee").values("name")
       """
     When iterated to list
     Then the result should be unordered
       | result  |
       | Bob     |
       | Charlie |
+

@@ -11,7 +11,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * Tests for {@code sqlCommand()} on {@code YTDBGraphTraversalSource}.
+ * Tests for {@code yql()} on {@code YTDBGraphTraversalSource}.
  * Verifies that SQL queries executed through the Gremlin traversal source return
  * correctly typed results: vertices, edges, projected scalars, and link references.
  */
@@ -31,7 +31,7 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
     graph.tx().commit();
 
     var results = graph.traversal()
-        .sqlCommand("SELECT FROM Person WHERE name = 'Alice'")
+        .yql("SELECT FROM Person WHERE name = 'Alice'")
         .toList();
 
     Assert.assertEquals(1, results.size());
@@ -52,7 +52,7 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
     graph.tx().commit();
 
     var results = graph.traversal()
-        .sqlCommand("SELECT FROM Knows")
+        .yql("SELECT FROM Knows")
         .toList();
 
     Assert.assertEquals(1, results.size());
@@ -151,7 +151,7 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
 
   private Map<String, Object> executeSingleProjection(String sql) {
     var results = graph.traversal()
-        .sqlCommand(sql)
+        .yql(sql)
         .toList();
 
     Assert.assertEquals(1, results.size());
