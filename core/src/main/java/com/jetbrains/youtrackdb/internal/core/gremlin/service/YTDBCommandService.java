@@ -116,7 +116,7 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Emit a single placeholder so chaining works (Streaming needs an input traverser).
-      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(true));
+      case SqlCommandExecutionResult.Unit ignored -> CloseableIterator.of(IteratorUtils.of(true));
       case SqlCommandExecutionResult.Results r -> r.iterator();
     };
   }
@@ -135,7 +135,7 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Pass through the input traverser for Streaming mode
-      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(in.get()));
+      case SqlCommandExecutionResult.Unit ignored -> CloseableIterator.of(IteratorUtils.of(in.get()));
       case SqlCommandExecutionResult.Results r -> r.iterator();
     };
   }
