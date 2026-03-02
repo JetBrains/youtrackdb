@@ -48,19 +48,20 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
 
   @Override
   public void close() {
+    Exception firstException = null;
     if (currentChildStream != null) {
-      try {
-        currentChildStream.close();
-      } catch (Exception e) {
-        throw new RuntimeException("Failed to close child stream", e);
-      }
+      try { currentChildStream.close(); }
+      catch (Exception e) { firstException = e; }
     }
     if (upstream != null) {
-      try {
-        upstream.close();
-      } catch (Exception e) {
-        throw new RuntimeException("Failed to close upstream iterator", e);
+      try { upstream.close(); }
+      catch (Exception e) {
+        if (firstException != null) firstException.addSuppressed(e);
+        else firstException = e;
       }
+    }
+    if (firstException != null) {
+      throw new RuntimeException("Failed to close stream", firstException);
     }
   }
 }
