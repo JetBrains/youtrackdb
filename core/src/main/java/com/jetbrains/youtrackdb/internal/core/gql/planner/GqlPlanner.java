@@ -78,7 +78,7 @@ public class GqlPlanner {
     if (routerVisitor.hasMatch()) {
       var matchVisitor = new GqlMatchVisitor();
       matchVisitor.visit(routerVisitor.getMatchContext());
-      var statement = new GqlMatchStatement(matchVisitor.getNodePatterns());
+      var statement = new GqlMatchStatement(matchVisitor.getMatchFilters());
       statement.setOriginalStatement(query);
       return statement;
     }

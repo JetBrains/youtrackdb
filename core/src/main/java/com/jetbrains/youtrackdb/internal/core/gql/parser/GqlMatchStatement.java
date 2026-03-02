@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
@@ -14,17 +15,17 @@ import javax.annotation.Nullable;
 
 /// Represents a parsed GQL MATCH statement.
 ///
-/// Builds the shared MATCH IR ([Pattern] + alias maps) directly from GQL node patterns
+/// Builds the shared MATCH IR ([Pattern] + alias maps) directly from GQL match filters (unified YQL IR)
 /// and delegates execution to the unified YQL [MatchExecutionPlanner].
 public class GqlMatchStatement implements GqlStatement {
 
   private static final String DEFAULT_TYPE = "V";
 
-  private final List<GqlMatchVisitor.NodePattern> patterns;
+  private final List<SQLMatchFilter> matchFilters;
   private String originalStatement;
 
-  public GqlMatchStatement(List<GqlMatchVisitor.NodePattern> patterns) {
-    this.patterns = patterns;
+  public GqlMatchStatement(List<SQLMatchFilter> matchFilters) {
+    this.matchFilters = matchFilters;
   }
 
   public void setOriginalStatement(String originalStatement) {
@@ -37,8 +38,8 @@ public class GqlMatchStatement implements GqlStatement {
   }
 
   @SuppressWarnings("unused")
-  public @Nullable List<GqlMatchVisitor.NodePattern> getPatterns() {
-    return patterns;
+  public @Nullable List<SQLMatchFilter> getMatchFilters() {
+    return matchFilters;
   }
 
   @Override
@@ -75,23 +76,27 @@ public class GqlMatchStatement implements GqlStatement {
   }
 
   private GqlExecutionPlan buildPlan(GqlExecutionContext ctx) {
-    if (patterns.isEmpty()) {
+    if (matchFilters.isEmpty()) {
       return GqlExecutionPlan.empty();
     }
 
+    // Convert YQL IR (SQLMatchFilter) to Pattern + PatternNode for execution planning
     var pattern = new Pattern();
     var aliasClasses = new LinkedHashMap<String, String>();
     var anonymousCounter = 0;
 
-    for (var p : patterns) {
-      var alias = effectiveAlias(p.alias(), anonymousCounter);
-      if (p.alias() == null || p.alias().isBlank()) {
+    for (var filter : matchFilters) {
+      var rawAlias = filter.getAlias();
+      var alias = effectiveAlias(rawAlias, anonymousCounter);
+      if (rawAlias == null || rawAlias.isBlank()) {
         anonymousCounter++;
       }
       var node = new PatternNode();
       node.alias = alias;
       pattern.aliasToNode.put(alias, node);
-      aliasClasses.put(alias, effectiveType(p.label()));
+
+      var className = filter.getClassName(null);
+      aliasClasses.put(alias, effectiveType(className));
     }
 
     var commandContext = new BasicCommandContext(ctx.session());

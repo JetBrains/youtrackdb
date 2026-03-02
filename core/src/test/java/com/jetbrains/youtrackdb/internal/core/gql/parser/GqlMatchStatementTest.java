@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
@@ -17,7 +18,7 @@ import org.junit.Test;
  *   multiple anonymous ($c0/$c1), mixed named+anonymous, null label→V, blank label→V
  * - createExecutionPlan: single-arg overload (cache=true), cache false, null originalStatement,
  *   cache hit returns copy
- * - getters: originalStatement, patterns
+ * - getters: originalStatement, matchFilters
  * - setOriginalStatement(null) → NPE
  */
 @SuppressWarnings("resource")
@@ -29,6 +30,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     return new GqlExecutionContext(gi, tx.getDatabaseSession());
   }
+
+  /// Helper to create SQLMatchFilter (unified YQL IR) from alias and label.
+  private static SQLMatchFilter filter(String alias, String label) {
+    return SQLMatchFilter.fromGqlNode(alias, label);
+  }
+
 
   // ── buildPlan: empty patterns ──
 
@@ -53,7 +60,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.tx().commit();
 
     var statement = new GqlMatchStatement(
-        List.of(new GqlMatchVisitor.NodePattern(null, "MatchStA")));
+        List.of(filter(null, "MatchStA")));
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
@@ -75,7 +82,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.tx().commit();
 
     var statement = new GqlMatchStatement(
-        List.of(new GqlMatchVisitor.NodePattern("", "MatchStB")));
+        List.of(filter("", "MatchStB")));
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
@@ -96,7 +103,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.tx().commit();
 
     var statement = new GqlMatchStatement(
-        List.of(new GqlMatchVisitor.NodePattern("myAlias", "MatchStC")));
+        List.of(filter("myAlias", "MatchStC")));
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
@@ -117,8 +124,8 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.tx().commit();
 
     var patterns = List.of(
-        new GqlMatchVisitor.NodePattern(null, "MatchStD"),
-        new GqlMatchVisitor.NodePattern(null, "MatchStD"));
+        filter(null, "MatchStD"),
+        filter(null, "MatchStD"));
     var statement = new GqlMatchStatement(patterns);
     var ctx = createCtx();
     try {
@@ -142,8 +149,8 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.tx().commit();
 
     var patterns = List.of(
-        new GqlMatchVisitor.NodePattern("x", "MatchStE"),
-        new GqlMatchVisitor.NodePattern(null, "MatchStE"));
+        filter("x", "MatchStE"),
+        filter(null, "MatchStE"));
     var statement = new GqlMatchStatement(patterns);
     var ctx = createCtx();
     try {
@@ -169,7 +176,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(graphInternal, session);
       var statement = new GqlMatchStatement(
-          List.of(new GqlMatchVisitor.NodePattern("x", null)));
+          List.of(filter("x", null)));
       var plan = statement.createExecutionPlan(ctx, false);
       Assert.assertNotNull(plan);
       var stream = plan.start(session);
@@ -192,7 +199,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(graphInternal, session);
       var statement = new GqlMatchStatement(
-          List.of(new GqlMatchVisitor.NodePattern("y", "")));
+          List.of(filter("y", "")));
       var plan = statement.createExecutionPlan(ctx, false);
       Assert.assertNotNull(plan);
     } finally {
@@ -248,7 +255,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   @Test
   public void createExecutionPlan_noOriginalStatement_skipsCache() {
     var statement = new GqlMatchStatement(
-        List.of(new GqlMatchVisitor.NodePattern("n", "OUser")));
+        List.of(filter("n", "OUser")));
 
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
@@ -303,12 +310,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   }
 
   @Test
-  public void getPatterns_returnsConstructorPatterns() {
+  public void getPatterns_returnsConstructorFilters() {
     var patterns = List.of(
-        new GqlMatchVisitor.NodePattern("a", "Person"),
-        new GqlMatchVisitor.NodePattern("b", "Animal"));
+        filter("a", "Person"),
+        filter("b", "Animal"));
     var statement = new GqlMatchStatement(patterns);
-    Assert.assertEquals(patterns, statement.getPatterns());
+    Assert.assertEquals(patterns, statement.getMatchFilters());
   }
 
   @Test(expected = NullPointerException.class)
