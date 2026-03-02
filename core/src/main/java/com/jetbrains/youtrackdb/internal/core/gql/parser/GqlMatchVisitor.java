@@ -2,36 +2,29 @@ package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLBaseVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLParser;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.ArrayList;
 import java.util.List;
 
-/// Visitor that extracts node patterns from the MATCH clause.
+/// Visitor that extracts node patterns from the MATCH clause using unified YQL IR.
 ///
 /// For `MATCH (a:Person)`:
-/// - Collects NodePattern(alias="a", label="Person")
+/// - Builds SQLMatchFilter with alias="a", className="Person" (YQL IR)
 /// - Result: Map with binding {"a": vertex}
 ///
 /// For `MATCH (:Person)`:
-/// - Collects NodePattern(alias=null, label="Person")
+/// - Builds SQLMatchFilter with alias=null, className="Person" (YQL IR)
 /// - Result: just the Vertex directly (no Map wrapper)
 ///
 /// For `MATCH (a:Person), (b:Work)`:
-/// - Collects [NodePattern("a", "Person"), NodePattern("b", "Work")]
+/// - Builds [SQLMatchFilter("a", "Person"), SQLMatchFilter("b", "Work")]
 ///
-/// Returns raw parsed values - default handling is applied by the planner.
+/// Uses unified YQL IR (SQLMatchFilter) directly via factory method, which are then converted
+/// to Pattern + PatternNode in GqlMatchStatement.buildPlan().
 @SuppressWarnings({"unused", "ConstantConditions"})
 public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
-  /// Represents a node pattern like (a:Person) in the MATCH clause.
-  /// Contains raw parsed values (may be null if not specified in query).
-  ///
-  /// If alias is null/blank, the execution returns Vertex directly.
-  /// If alias is provided, the execution returns Map<String, Object> with the binding.
-  public record NodePattern(String alias, String label) {
-
-  }
-
-  private final List<NodePattern> nodePatterns = new ArrayList<>();
+  private final List<SQLMatchFilter> matchFilters = new ArrayList<>();
 
   @Override
   public Void visitNode_pattern(GQLParser.Node_patternContext ctx) {
@@ -52,12 +45,14 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
       }
     }
 
-    nodePatterns.add(new NodePattern(alias, label));
+    // Build SQLMatchFilter using YQL IR factory method
+    matchFilters.add(SQLMatchFilter.fromGqlNode(alias, label));
     return null;
   }
 
-  /// Returns all node patterns from MATCH clause.
-  public List<NodePattern> getNodePatterns() {
-    return nodePatterns;
+  /// Returns all match filters (unified YQL IR) from MATCH clause.
+  /// These SQLMatchFilter instances are converted to Pattern + PatternNode in GqlMatchStatement.buildPlan().
+  public List<SQLMatchFilter> getMatchFilters() {
+    return matchFilters;
   }
 }

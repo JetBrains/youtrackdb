@@ -50,6 +50,25 @@ public class SQLMatchFilter extends SimpleNode {
     }
   }
 
+  /// Factory method for GQL parser: creates SQLMatchFilter from simple alias and class name.
+  /// Constructs proper YQL IR structure without exposing internal parser-generated type complexity.
+  public static SQLMatchFilter fromGqlNode(String alias, String className) {
+    var filter = new SQLMatchFilter(-1);
+    if (alias != null && !alias.isBlank()) {
+      filter.setAlias(alias);
+    }
+    if (className != null && !className.isBlank()) {
+      // className is SQLExpression - use SQLExpression(SQLIdentifier) constructor
+      var item = new SQLMatchFilterItem(-1);
+      var sqlIdentifier = new SQLIdentifier(className);
+      var expression = new SQLExpression(sqlIdentifier);
+      item.className = expression;
+      filter.items.add(item);
+    }
+    return filter;
+  }
+
+
   @Nullable
   public SQLWhereClause getFilter() {
     for (var item : items) {
