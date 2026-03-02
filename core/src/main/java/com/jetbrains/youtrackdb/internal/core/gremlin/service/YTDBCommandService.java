@@ -74,20 +74,10 @@ public class YTDBCommandService implements Service<Object, Object> {
         }
       } else if (safeParams.get(ARGUMENTS) instanceof java.util.List<?> argsList
           && !argsList.isEmpty()) {
-        if (argsList.getFirst() instanceof String cmd) {
-          finalCommand = cmd;
-          if (argsList.size() > 1) {
-            var rest = argsList.size() - 1;
-            if (rest % 2 != 0) {
-              throw new IllegalArgumentException(
-                  "Arguments must be provided in key-value pairs");
-            }
-            var map = new java.util.LinkedHashMap<>();
-            for (var i = 1; i + 1 < argsList.size(); i += 2) {
-              map.put(argsList.get(i), argsList.get(i + 1));
-            }
-            finalCommandParams = map;
-          }
+        if (argsList.getFirst() instanceof String) {
+          var parsed = VarargsParser.parseVarargs(argsList);
+          finalCommand = parsed.command();
+          finalCommandParams = parsed.arguments();
         }
       }
 
