@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import javax.annotation.Nullable;
 
 /// Represents a parsed GQL MATCH statement.
@@ -104,14 +103,14 @@ public class GqlMatchStatement implements GqlStatement {
       var node = new PatternNode();
       node.alias = alias;
       pattern.aliasToNode.put(alias, node);
-      aliasClasses.put(alias, effectiveType(p.label()));
 
       var className = filter.getClassName(null);
       aliasClasses.put(alias, effectiveType(className));
-      aliasClasses.put(alias, effectiveType(filter.label()));
 
-      if (!filter.properties().isEmpty()) {
-        aliasFilters.put(alias, buildWhereClause(filter.properties()));
+      // If the filter has inline property conditions, add them to aliasFilters
+      var inlineFilter = filter.getFilter();
+      if (inlineFilter != null) {
+        aliasFilters.put(alias, inlineFilter);
       }
     }
 

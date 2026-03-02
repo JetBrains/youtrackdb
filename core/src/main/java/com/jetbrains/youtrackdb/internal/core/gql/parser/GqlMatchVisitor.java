@@ -13,7 +13,6 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nullable;
 
 /// Visitor that extracts node patterns from the MATCH clause using unified YQL IR.
 ///
@@ -61,7 +60,15 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
     }
 
     // Build SQLMatchFilter using YQL IR factory method
-    matchFilters.add(SQLMatchFilter.fromGqlNode(alias, label, properties));
+    var filter = SQLMatchFilter.fromGqlNode(alias, label);
+
+    // If inline properties exist, convert them to SQLWhereClause and attach
+    if (!properties.isEmpty()) {
+      var whereClause = GqlMatchStatement.buildWhereClause(properties);
+      filter.setFilter(whereClause);
+    }
+
+    matchFilters.add(filter);
     return null;
   }
 
