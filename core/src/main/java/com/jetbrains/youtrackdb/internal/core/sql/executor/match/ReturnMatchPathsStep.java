@@ -26,8 +26,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
  * {@link MatchExecutionPlanner#DEFAULT_ALIAS_PREFIX}) for intermediate nodes. At this
  * point in the pipeline, the {@code $matched} context variable also holds the same
  * row with both user-defined and auto-generated aliases — the variable is set by
- * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultSetEdgeTraverser#next}
- * after each edge traversal. Compare with {@link ReturnMatchPatternsStep} which strips
+ * {@link MatchEdgeTraverser#next} after each edge traversal. Compare with
+ * {@link ReturnMatchPatternsStep} which strips
  * auto-generated aliases, and {@link ReturnMatchElementsStep} which unrolls each
  * user-defined alias into a separate row.
  * <p>

@@ -20,6 +20,12 @@ import javax.annotation.Nullable;
 
 /**
  * Base class for all MATCH edge traversers; default behavior is **forward** traversal.
+ * <p>
+ * Implements {@link ExecutionStream} directly, with built-in null-skipping: the
+ * {@link #computeNext} method may return {@code null} to signal a rejected candidate
+ * (e.g. consistency check failure), and {@link #hasNext} will transparently skip
+ * such nulls, only exposing valid results to the consumer. After each result is consumed
+ * via {@link #next}, the context variable {@code $matched} is updated.
  *
  * <pre>
  *                       MatchEdgeTraverser  (forward, default)
@@ -68,7 +74,7 @@ import javax.annotation.Nullable;
  * <p>
  * | Variable         | Set by                          | Purpose                                         |
  * |------------------|---------------------------------|-------------------------------------------------|
- * | `$matched`       | {@link com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultSetEdgeTraverser ResultSetEdgeTraverser} | Current result row; used by downstream WHERE     |
+ * | `$matched`       | {@link #next}                    | Current result row; used by downstream WHERE     |
  * |                  |                                 | clauses to reference previously matched aliases  |
  * |                  |                                 | via {@code $matched.<alias>}.                    |
  * | `$currentMatch`  | {@link #executeTraversal}        | The candidate record being evaluated in a filter |
@@ -83,7 +89,7 @@ import javax.annotation.Nullable;
  * @see MatchMultiEdgeTraverser
  * @see OptionalMatchEdgeTraverser
  */
-public class MatchEdgeTraverser {
+public class MatchEdgeTraverser implements ExecutionStream {
 
   /** The upstream result row containing all previously matched aliases. */
   protected Result sourceRecord;
@@ -96,6 +102,12 @@ public class MatchEdgeTraverser {
 
   /** Lazily initialized stream of traversal results. */
   protected ExecutionStream downstream;
+
+  /** Buffered next non-null result. */
+  private Result bufferedResult;
+
+  /** True when the downstream stream is exhausted and no buffered result remains. */
+  private boolean exhausted;
 
   /**
    * Constructs a traverser from a scheduled edge traversal (normal use case).
@@ -125,25 +137,67 @@ public class MatchEdgeTraverser {
     this.item = item;
   }
 
+  /**
+   * Returns {@code true} if there is a next non-null result. Internally advances
+   * the downstream stream, skipping any {@code null} results (rejected candidates),
+   * until a valid result is found or the stream is exhausted.
+   */
+  @Override
   public boolean hasNext(CommandContext ctx) {
+    if (bufferedResult != null) {
+      return true;
+    }
+    if (exhausted) {
+      return false;
+    }
     init(ctx);
-    return downstream.hasNext(ctx);
+    while (downstream.hasNext(ctx)) {
+      var result = computeNext(ctx);
+      if (result != null) {
+        bufferedResult = result;
+        return true;
+      }
+    }
+    exhausted = true;
+    return false;
   }
 
   /**
-   * Returns the next result row, or `null` if the traversed record conflicts with a
-   * previously bound value for the same alias (consistency check).
-   * <p>
-   * Each returned row is a copy of the upstream row augmented with the new alias
-   * mapping. If the edge's filter defines a `depthAlias` or `pathAlias`, the
-   * corresponding metadata (`$depth`, `$matchPath`) is also stored as a property.
+   * Returns the next non-null result and updates the {@code $matched} context variable
+   * so downstream WHERE clauses can reference previously matched aliases.
    */
-  @Nullable
+  @Override
   public Result next(CommandContext ctx) {
-    init(ctx);
-    if (!downstream.hasNext(ctx)) {
+    if (!hasNext(ctx)) {
       throw new IllegalStateException();
     }
+    var result = bufferedResult;
+    bufferedResult = null;
+    ctx.setSystemVariable(CommandContext.VAR_MATCHED, result);
+    return result;
+  }
+
+  @Override
+  public void close(CommandContext ctx) {
+    if (downstream != null) {
+      downstream.close(ctx);
+    }
+  }
+
+  /**
+   * Produces the next result row, or {@code null} if the traversed record conflicts with
+   * a previously bound value for the same alias (consistency check).
+   * <p>
+   * Each returned row is a copy of the upstream row augmented with the new alias
+   * mapping. If the edge's filter defines a {@code depthAlias} or {@code pathAlias}, the
+   * corresponding metadata ({@code $depth}, {@code $matchPath}) is also stored as a
+   * property.
+   * <p>
+   * Subclasses (e.g. {@link OptionalMatchEdgeTraverser}) override this method to
+   * implement different merging semantics.
+   */
+  @Nullable
+  protected Result computeNext(CommandContext ctx) {
     var endPointAlias = getEndpointAlias();
     var nextR = downstream.next(ctx);
     var session = ctx.getDatabaseSession();
@@ -301,6 +355,12 @@ public class MatchEdgeTraverser {
       // The starting point is NOT included; only immediate neighbors that pass the
       // filter are returned.
       var queryResult = traversePatternEdge(startingPoint, iCommandContext);
+
+      // Skip FilterExecutionStream when no filter criteria exist
+      if (filter == null && className == null && targetRid == null) {
+        return queryResult;
+      }
+
       final var theFilter = filter;
       final var theClassName = className;
       final var theTargetRid = targetRid;

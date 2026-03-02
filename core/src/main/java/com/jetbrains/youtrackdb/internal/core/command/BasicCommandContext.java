@@ -98,6 +98,9 @@ public class BasicCommandContext implements CommandContext {
     return false;
   }
 
+  // Invariant: system variables must never be set to null. The get/has methods use
+  // null-return from Int2ObjectOpenHashMap.get() to distinguish "not present" from
+  // "present". If this invariant changes, switch to containsKey() guards.
   @Nullable
   @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override

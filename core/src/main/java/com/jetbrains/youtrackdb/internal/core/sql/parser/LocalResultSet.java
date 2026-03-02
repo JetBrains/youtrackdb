@@ -1,17 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.QueryLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class LocalResultSet implements ResultSet {
+
+  private static final AtomicLong counter = new AtomicLong(0);
 
   private ExecutionStream stream = null;
   private final InternalExecutionPlan executionPlan;
@@ -20,9 +26,14 @@ public class LocalResultSet implements ResultSet {
 
   private boolean closed = false;
 
+  // Lifecycle tracking (merged from LocalResultSetLifecycleDecorator)
+  private List<QueryLifecycleListener> lifecycleListeners;
+  private final String queryId;
+
   public LocalResultSet(DatabaseSessionEmbedded session, InternalExecutionPlan executionPlan) {
     this.executionPlan = executionPlan;
     this.session = session;
+    this.queryId = System.currentTimeMillis() + "_" + counter.incrementAndGet();
 
     start();
   }
@@ -32,6 +43,17 @@ public class LocalResultSet implements ResultSet {
     checkClosed();
 
     stream = executionPlan.start();
+  }
+
+  public void addLifecycleListener(QueryLifecycleListener listener) {
+    if (lifecycleListeners == null) {
+      lifecycleListeners = new ArrayList<>(2);
+    }
+    lifecycleListeners.add(listener);
+  }
+
+  public String getQueryId() {
+    return queryId;
   }
 
   @Override
@@ -67,6 +89,12 @@ public class LocalResultSet implements ResultSet {
     executionPlan.close();
     session = null;
     closed = true;
+
+    // Notify lifecycle listeners (merged from LocalResultSetLifecycleDecorator)
+    if (lifecycleListeners != null) {
+      lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
+      lifecycleListeners.clear();
+    }
   }
 
   @Override

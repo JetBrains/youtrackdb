@@ -78,12 +78,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
    */
   @Override
   @Nullable
-  public Result next(CommandContext ctx) {
-    init(ctx);
-    if (!downstream.hasNext(ctx)) {
-      throw new IllegalStateException();
-    }
-
+  protected Result computeNext(CommandContext ctx) {
     var endPointAlias = getEndpointAlias();
     var prevValue = sourceRecord.getProperty(endPointAlias);
     var next = downstream.next(ctx);

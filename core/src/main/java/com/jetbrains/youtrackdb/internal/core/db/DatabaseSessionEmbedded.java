@@ -643,9 +643,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               "Cannot execute query on non idempotent statement: " + query);
         }
         var original = statement.execute(this, args, true);
-        var result = new LocalResultSetLifecycleDecorator(original);
-        queryStarted(result);
-        return result;
+        return queryStartedLifecycle(original);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -686,9 +684,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         }
         @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
-        var result = new LocalResultSetLifecycleDecorator(original);
-        queryStarted(result);
-        return result;
+        return queryStartedLifecycle(original);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -742,20 +738,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           default -> original = statement.execute(this, new Object[]{args}, true);
         }
 
-        LocalResultSetLifecycleDecorator result;
         if (!statement.isIdempotent()) {
           // fetch all, close and detach
           var prefetched = new InternalResultSet(this);
           original.forEachRemaining(prefetched::add);
           original.close();
-          result = new LocalResultSetLifecycleDecorator(prefetched);
+          var result = new LocalResultSetLifecycleDecorator(prefetched);
+          return result;
         } else {
           // stream, keep open and attach to the current DB
-          result = new LocalResultSetLifecycleDecorator(original);
-          queryStarted(result);
+          return queryStartedLifecycle(original);
         }
-
-        return result;
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -797,9 +790,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         } finally {
           this.storage.fireConfigurationUpdateNotifications();
         }
-        var result = new LocalResultSetLifecycleDecorator(original);
-        queryStarted(result);
-        return result;
+        return queryStartedLifecycle(original);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -809,12 +800,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-
-  private void queryStarted(LocalResultSetLifecycleDecorator result) {
-
-    this.queryStarted(result.getQueryId(), result);
-
-    result.addLifecycleListener(this);
+  /**
+   * Registers the result set for lifecycle tracking. If the result set is already a
+   * {@link LocalResultSet}, adds lifecycle tracking directly to avoid the decorator
+   * overhead. Otherwise, wraps in a {@link LocalResultSetLifecycleDecorator}.
+   */
+  private ResultSet queryStartedLifecycle(ResultSet original) {
+    if (original instanceof LocalResultSet localResult) {
+      this.queryStarted(localResult.getQueryId(), localResult);
+      localResult.addLifecycleListener(this);
+      return localResult;
+    } else {
+      var result = new LocalResultSetLifecycleDecorator(original);
+      this.queryStarted(result.getQueryId(), result);
+      result.addLifecycleListener(this);
+      return result;
+    }
   }
 
   public ResultSet computeScript(String language, String script, Map<String, ?> args) {
@@ -851,9 +852,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           this.storage.fireConfigurationUpdateNotifications();
         }
 
-        var result = new LocalResultSetLifecycleDecorator(original);
-        queryStarted(result);
-        return result;
+        return queryStartedLifecycle(original);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -864,7 +863,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   }
 
-  public LocalResultSetLifecycleDecorator query(ExecutionPlan plan, Map<Object, Object> params) {
+  public ResultSet query(ExecutionPlan plan, Map<Object, Object> params) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -885,9 +884,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         ctx.setInputParameters(params);
 
         var result = new LocalResultSet(this, (InternalExecutionPlan) plan);
-        var decorator = new LocalResultSetLifecycleDecorator(result);
-        queryStarted(decorator);
-        return decorator;
+        this.queryStarted(result.getQueryId(), result);
+        result.addLifecycleListener(this);
+        return result;
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }

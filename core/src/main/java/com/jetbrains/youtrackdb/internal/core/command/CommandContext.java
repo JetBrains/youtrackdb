@@ -45,6 +45,7 @@ public interface CommandContext {
   int VAR_MATCHED = 2;
   /** The current recursion depth in a MATCH WHILE/maxDepth traversal. */
   int VAR_DEPTH = 3;
+  // Next available ID: 4
 
   void registerBooleanExpression(SQLBooleanExpression expression);
 
