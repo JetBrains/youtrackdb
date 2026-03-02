@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results-${{ steps.params.outputs.trigger }}-sf${{ steps.params.outputs.scale_factor }}-${{ github.run_id }}
           path: perf/${{ steps.benchmark.outputs.results_dir }}
