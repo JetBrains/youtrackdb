@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
-import java.util.Objects;
 import java.util.function.Function;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /// Stream backed by an iterator with optional mapping.
@@ -18,13 +18,13 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
   private boolean closed;
 
   /// Create a stream that passes elements through unchanged.
-  public IteratorGqlExecutionStream(Iterator<?> source) {
-    this(Objects.requireNonNull(source), Function.identity());
+  public IteratorGqlExecutionStream(@Nonnull Iterator<?> source) {
+    this(source, Function.identity());
   }
 
   /// Create a stream that maps elements using the given function.
   @SuppressWarnings("unchecked")
-  public <S> IteratorGqlExecutionStream(Iterator<S> source, Function<S, ?> mapper) {
+  public <S> IteratorGqlExecutionStream(@Nonnull Iterator<S> source, @Nonnull Function<S, ?> mapper) {
     this.source = (Iterator<T>) source;
     this.mapper = (Function<T, ?>) mapper;
   }
@@ -35,7 +35,7 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
       return false;
     }
     try {
-      final var hasNext = Objects.requireNonNull(source).hasNext();
+      final var hasNext = source.hasNext();
       if (!hasNext) {
         close();
       }
@@ -52,7 +52,7 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
       throw new java.util.NoSuchElementException();
     }
     try {
-      return Objects.requireNonNull(mapper).apply(Objects.requireNonNull(source).next());
+      return mapper.apply(source.next());
     } catch (Exception e) {
       close();
       throw e;

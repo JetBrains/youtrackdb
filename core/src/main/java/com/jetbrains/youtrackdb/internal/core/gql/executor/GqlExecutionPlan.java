@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutio
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.NoSuchElementException;
-import java.util.Objects;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /// Execution plan for GQL queries.
@@ -24,9 +24,9 @@ public class GqlExecutionPlan {
 
   /// Creates an execution plan that wraps an [InternalExecutionPlan] from the
   /// unified MATCH planner.
-  public static GqlExecutionPlan forSqlMatchPlan(InternalExecutionPlan sqlPlan) {
+  public static GqlExecutionPlan forSqlMatchPlan(@Nonnull InternalExecutionPlan sqlPlan) {
     var plan = new GqlExecutionPlan();
-    plan.sqlPlan = Objects.requireNonNull(sqlPlan);
+    plan.sqlPlan = sqlPlan;
     return plan;
   }
 
@@ -40,7 +40,7 @@ public class GqlExecutionPlan {
   /// The session parameter rebinds the underlying plan's context to the caller's
   /// current session. This is essential for cached plans whose context still references
   /// a session from a previous request (potentially on a different thread).
-  /// Pass null only for empty plans (no underlying SQL plan).
+  /// For non-empty plans, session must not be null.
   ///
   /// The session is assumed to already be active on the current thread (activated by
   /// the session/server layer that invoked this execution).
@@ -48,7 +48,6 @@ public class GqlExecutionPlan {
     if (sqlPlan == null) {
       return GqlExecutionStream.empty();
     }
-    Objects.requireNonNull(session, "session required for non-empty plan");
     sqlPlan.getContext().setDatabaseSession(session);
     var stream = sqlPlan.start();
     return new SqlStreamAdapter(stream, sqlPlan.getContext());
