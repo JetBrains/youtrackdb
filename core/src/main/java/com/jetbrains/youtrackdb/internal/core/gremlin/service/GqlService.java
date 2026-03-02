@@ -118,8 +118,8 @@ public class GqlService implements Service<Object, Object> {
       // 2. Get the query statement (from cache if available)
       var statement = GqlPlanner.getStatement(query, session);
 
-      // 3. Create execution context
-      var executionCtx = new GqlExecutionContext(graph, session);
+      // 3. Create execution context (executor layer uses session only, not graph)
+      var executionCtx = new GqlExecutionContext(session);
 
       // 4. Create execution plan from statement
       executionPlan = Objects.requireNonNull(statement).createExecutionPlan(executionCtx);
