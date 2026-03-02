@@ -1,17 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Set;
 
 public class PropertyAccess {
 
-  private final Set<String> filtered;
+  /** Singleton for the common case where no property filtering is needed. */
+  public static final PropertyAccess NO_FILTER = new PropertyAccess((Set<String>) null);
 
-  public PropertyAccess(DatabaseSessionEmbedded session, EntityImpl entity,
-      SecurityInternal security) {
-    filtered = security.getFilteredProperties(session, entity);
-  }
+  private final Set<String> filtered;
 
   public PropertyAccess(Set<String> filtered) {
     this.filtered = filtered;
