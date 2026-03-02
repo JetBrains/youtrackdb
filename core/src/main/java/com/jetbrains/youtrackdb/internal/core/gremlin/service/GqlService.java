@@ -142,14 +142,28 @@ public class GqlService implements Service<Object, Object> {
   /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption.
   /// Converts internal Result rows to Gremlin types (vertex, edge, Map) via
   /// the shared [GremlinResultMapper] used by both GQL and YQL services.
-  private record GqlResultIterator(@Nullable GqlExecutionStream stream,
-                                   GqlExecutionPlan plan,
-                                   YTDBGraphInternal graph,
-                                   ImmutableSchema schema) implements
-      CloseableIterator<Object> {
+  @SuppressWarnings("DuplicatedCode")
+  private static final class GqlResultIterator implements CloseableIterator<Object> {
+
+    private final GqlExecutionStream stream;
+    private final GqlExecutionPlan plan;
+    private final YTDBGraphInternal graph;
+    private final ImmutableSchema schema;
+    private boolean closed;
+
+    GqlResultIterator(GqlExecutionStream stream, GqlExecutionPlan plan,
+        YTDBGraphInternal graph, ImmutableSchema schema) {
+      this.stream = stream;
+      this.plan = plan;
+      this.graph = graph;
+      this.schema = schema;
+    }
 
     @Override
     public boolean hasNext() {
+      if (closed) {
+        return false;
+      }
       try {
         final var hasNext = Objects.requireNonNull(stream).hasNext();
         if (!hasNext) {
@@ -164,6 +178,9 @@ public class GqlService implements Service<Object, Object> {
 
     @Override
     public @Nullable Object next() {
+      if (closed) {
+        throw new java.util.NoSuchElementException();
+      }
       try {
         var raw = Objects.requireNonNull(stream).next();
         if (raw instanceof Result result) {
@@ -178,6 +195,10 @@ public class GqlService implements Service<Object, Object> {
 
     @Override
     public void close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
       Objects.requireNonNull(stream).close();
       Objects.requireNonNull(plan).close();
     }
