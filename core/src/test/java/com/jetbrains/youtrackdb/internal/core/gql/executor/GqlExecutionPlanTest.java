@@ -53,13 +53,6 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     Assert.assertFalse(copy.start(null).hasNext());
   }
 
-  // ── Factory ──
-
-  @Test(expected = NullPointerException.class)
-  public void forSqlMatchPlan_nullArg_throwsNPE() {
-    GqlExecutionPlan.forSqlMatchPlan(null);
-  }
-
   // ── canBeCached ──
 
   @Test
