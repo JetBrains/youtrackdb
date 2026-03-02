@@ -1,10 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
-import java.util.Objects;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
-import javax.annotation.Nullable;
+import javax.annotation.Nonnull;
 
 /// Stream of GQL execution results.
 ///
@@ -23,18 +22,17 @@ public interface GqlExecutionStream extends CloseableIterator<Object> {
   }
 
   /// Create a stream from an iterator (no mapping).
-  static GqlExecutionStream fromIterator(Iterator<?> iterator) {
-    return new IteratorGqlExecutionStream<>(Objects.requireNonNull(iterator));
+  static GqlExecutionStream fromIterator(@Nonnull Iterator<?> iterator) {
+    return new IteratorGqlExecutionStream<>(iterator);
   }
 
   /// Create a stream from an iterator with mapping function.
-  static <T> GqlExecutionStream fromIterator(@Nullable Iterator<T> iterator,
-      Function<T, ?> mapper) {
-    return new IteratorGqlExecutionStream<>(Objects.requireNonNull(iterator),
-        Objects.requireNonNull(mapper));
+  static <T> GqlExecutionStream fromIterator(@Nonnull Iterator<T> iterator,
+      @Nonnull Function<T, ?> mapper) {
+    return new IteratorGqlExecutionStream<>(iterator, mapper);
   }
 
-  default GqlExecutionStream flatMap(Function<Object, GqlExecutionStream> mapper) {
-    return new FlatMapGqlExecutionStream(this, Objects.requireNonNull(mapper));
+  default GqlExecutionStream flatMap(@Nonnull Function<Object, GqlExecutionStream> mapper) {
+    return new FlatMapGqlExecutionStream(this, mapper);
   }
 }

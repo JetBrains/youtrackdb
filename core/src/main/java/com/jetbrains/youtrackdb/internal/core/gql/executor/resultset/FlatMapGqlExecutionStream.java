@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
-import java.util.Objects;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class FlatMapGqlExecutionStream implements GqlExecutionStream {
@@ -11,8 +11,8 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
   private final Function<Object, GqlExecutionStream> mapper;
   private @Nullable GqlExecutionStream currentChildStream = null;
 
-  public FlatMapGqlExecutionStream(CloseableIterator<Object> upstream,
-      Function<Object, GqlExecutionStream> mapper) {
+  public FlatMapGqlExecutionStream(@Nonnull CloseableIterator<Object> upstream,
+      @Nonnull Function<Object, GqlExecutionStream> mapper) {
     this.upstream = upstream;
     this.mapper = mapper;
   }
@@ -20,7 +20,7 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
   @Override
   public boolean hasNext() {
     while (currentChildStream == null || !currentChildStream.hasNext()) {
-      if (!Objects.requireNonNull(upstream).hasNext()) {
+      if (!upstream.hasNext()) {
         upstream.close();
         if (currentChildStream != null) {
           currentChildStream.close();
@@ -33,7 +33,7 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
         currentChildStream.close();
       }
 
-      currentChildStream = Objects.requireNonNull(mapper).apply(upstream.next());
+      currentChildStream = mapper.apply(upstream.next());
     }
     return true;
   }
@@ -43,7 +43,7 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
     if (!hasNext()) {
       throw new java.util.NoSuchElementException();
     }
-    return Objects.requireNonNull(currentChildStream).next();
+    return currentChildStream.next();
   }
 
   @Override

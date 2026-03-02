@@ -4,7 +4,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import java.util.Objects;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -23,13 +23,14 @@ public class GqlStatementCache {
         : null;
   }
 
-  public static @Nullable GqlStatement get(String statement, DatabaseSessionEmbedded session) {
+  public static @Nullable GqlStatement get(@Nonnull String statement,
+      @Nullable DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(statement);
     }
 
-    var resource = Objects.requireNonNull(session.getSharedContext()).getGqlStatementCache();
-    return Objects.requireNonNull(resource).getCached(statement);
+    var resource = session.getSharedContext().getGqlStatementCache();
+    return resource.getCached(statement);
   }
 
   protected static GqlStatement parse(@Nullable String statement) {
@@ -37,11 +38,11 @@ public class GqlStatementCache {
   }
 
   @SuppressWarnings("unused")
-  public boolean contains(String statement) {
+  public boolean contains(@Nonnull String statement) {
     if (capacity == 0) {
       return false;
     }
-    return Objects.requireNonNull(cache).asMap().containsKey(statement);
+    return cache.asMap().containsKey(statement);
   }
 
   public GqlStatement getCached(@Nullable String statement) {
@@ -52,7 +53,7 @@ public class GqlStatementCache {
     try {
       // Atomic cache.get(key, loader) eliminates TOCTOU race:
       // only one thread will parse for a given key, others will wait and reuse the result
-      return Objects.requireNonNull(cache).get(statement, () -> parse(statement));
+      return cache.get(statement, () -> parse(statement));
     } catch (Exception e) {
       throw new RuntimeException("Failed to parse GQL statement: " + statement, e);
     }

@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
-import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -10,8 +9,8 @@ import javax.annotation.Nullable;
 ///
 /// Contains the database session and query parameters.
 /// The executor layer works with session and YTDB entities only, not graph instances.
-public record GqlExecutionContext(DatabaseSessionEmbedded session,
-                                  Map<String, Object> parameters) {
+public record GqlExecutionContext(@Nonnull DatabaseSessionEmbedded session,
+                                  @Nonnull Map<String, Object> parameters) {
 
   public GqlExecutionContext(@Nonnull DatabaseSessionEmbedded session) {
     this(session, Map.of());
@@ -25,7 +24,7 @@ public record GqlExecutionContext(DatabaseSessionEmbedded session,
   }
 
   @SuppressWarnings("unused")
-  public @Nullable Object getParameter(String name) {
-    return Objects.requireNonNull(parameters).get(name);
+  public @Nullable Object getParameter(@Nonnull String name) {
+    return parameters.get(name);
   }
 }
