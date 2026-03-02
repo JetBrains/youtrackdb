@@ -93,7 +93,7 @@ boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression 
 
 comparison_expression: value_expression comparison_operator value_expression;
 
-value_expression: RID | ID | PARAMETER | property_reference | STRING | math_expression |
+value_expression: RID | BOOL | ID | PARAMETER | property_reference | STRING | math_expression |
                   list_literal | map_literal | temporal_literal | path_function |
                   case_expression | aggregate_function | exists_predicate;
 

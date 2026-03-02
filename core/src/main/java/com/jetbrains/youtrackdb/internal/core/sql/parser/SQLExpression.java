@@ -523,6 +523,7 @@ public class SQLExpression extends SimpleNode {
         arrayConcatExpression == null ? null : arrayConcatExpression.copy();
     result.json = json == null ? null : json.copy();
     result.booleanValue = booleanValue;
+    result.value = value;
 
     return result;
   }

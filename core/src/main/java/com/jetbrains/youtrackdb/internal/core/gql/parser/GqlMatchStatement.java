@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -13,7 +14,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Date;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -100,6 +104,7 @@ public class GqlMatchStatement implements GqlStatement {
       var node = new PatternNode();
       node.alias = alias;
       pattern.aliasToNode.put(alias, node);
+      aliasClasses.put(alias, effectiveType(p.label()));
 
       var className = filter.getClassName(null);
       aliasClasses.put(alias, effectiveType(className));
@@ -136,17 +141,31 @@ public class GqlMatchStatement implements GqlStatement {
     return whereClause;
   }
 
+  /// Converts a parsed Java literal value into an `SQLExpression` that the SQL engine
+  /// can evaluate. Uses dedicated SQL AST nodes where available (strings → `SQLBaseExpression`,
+  /// RIDs → `SQLRid`) and falls back to `jjtSetValue()` for types where `SQLExpression.execute()`
+  /// returns the raw value via its fallback path.
   private static SQLExpression toLiteral(Object value) {
     var expr = new SQLExpression(-1);
     if (value instanceof String s) {
       expr.setMathExpression(new SQLBaseExpression(s));
       return expr;
     }
-    if (value instanceof Number) {
-      expr.jjtSetValue(value);
+    if (value instanceof RecordIdInternal rid) {
+      var sqlRid = new SQLRid(-1);
+      var collection = new SQLInteger(-1);
+      collection.setValue(rid.getCollectionId());
+      var position = new SQLInteger(-1);
+      position.setValue(rid.getCollectionPosition());
+      sqlRid.setCollection(collection);
+      sqlRid.setPosition(position);
+      sqlRid.setLegacy(true);
+      expr.setRid(sqlRid);
       return expr;
     }
-    if (value instanceof Boolean) {
+    if (value instanceof Number || value instanceof Boolean
+        || value instanceof Date || value instanceof List<?>
+        || value instanceof Map<?, ?> || value instanceof byte[]) {
       expr.jjtSetValue(value);
       return expr;
     }

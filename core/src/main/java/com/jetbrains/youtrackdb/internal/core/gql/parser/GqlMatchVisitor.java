@@ -1,9 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLBaseVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLParser;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,22 +82,44 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
     return result;
   }
 
-  /// Extracts a Java literal value from a GQL value_expression parse context.
-  /// Supports: string literals, integers, floating-point numbers, and booleans.
+  /// Extracts a Java literal value from a GQL `value_expression` parse context.
+  ///
+  /// Supports all literal types usable in inline property filters:
+  /// - STRING: `'text'`
+  /// - BOOLEAN: `true` / `false`
+  /// - Integer numbers: `42` (→ Long, covers BYTE/SHORT/INTEGER/LONG)
+  /// - Decimal numbers: `3.14` (→ Double, covers FLOAT/DOUBLE/DECIMAL)
+  /// - RID: `#12:0` (→ RecordIdInternal, covers LINK)
+  /// - Temporal: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'` (→ Date)
+  /// - List: `[1, 2, 3]` (→ List, covers EMBEDDEDLIST/EMBEDDEDSET/LINKLIST/LINKSET)
+  /// - Map: `{key: 'value'}` (→ Map, covers EMBEDDEDMAP/LINKMAP/EMBEDDED)
   static Object extractLiteralValue(GQLParser.Value_expressionContext valueCtx) {
     if (valueCtx.STRING() != null) {
       var text = valueCtx.STRING().getText();
       return text.substring(1, text.length() - 1);
     }
 
-    var text = valueCtx.getText();
+    if (valueCtx.RID() != null) {
+      return RecordIdInternal.fromString(valueCtx.RID().getText(), false);
+    }
 
-    if ("true".equalsIgnoreCase(text)) {
-      return true;
+    if (valueCtx.temporal_literal() != null) {
+      return extractTemporalValue(valueCtx.temporal_literal());
     }
-    if ("false".equalsIgnoreCase(text)) {
-      return false;
+
+    if (valueCtx.list_literal() != null) {
+      return extractListValue(valueCtx.list_literal());
     }
+
+    if (valueCtx.map_literal() != null) {
+      return extractMapValue(valueCtx.map_literal());
+    }
+
+    if (valueCtx.BOOL() != null) {
+      return "true".equalsIgnoreCase(valueCtx.BOOL().getText());
+    }
+
+    var text = valueCtx.getText();
 
     if (valueCtx.math_expression() != null) {
       try {
@@ -105,7 +133,57 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
     }
 
     throw new IllegalArgumentException(
-        "Unsupported inline property value: " + text
-            + ". Only string, numeric, and boolean literals are supported.");
+        "Unsupported inline property value: " + text);
+  }
+
+  private static Date extractTemporalValue(GQLParser.Temporal_literalContext ctx) {
+    var str = ctx.STRING().getText();
+    str = str.substring(1, str.length() - 1);
+
+    try {
+      if (ctx.DATE() != null) {
+        return new SimpleDateFormat(StorageConfiguration.DEFAULT_DATE_FORMAT).parse(str);
+      } else if (ctx.TIMESTAMP() != null) {
+        return new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT).parse(str);
+      } else if (ctx.TIME() != null) {
+        return new SimpleDateFormat("HH:mm:ss").parse(str);
+      }
+    } catch (ParseException e) {
+      throw new IllegalArgumentException("Failed to parse temporal value: " + str, e);
+    }
+
+    throw new IllegalArgumentException(
+        "Unsupported temporal type in inline property filter: " + ctx.getText());
+  }
+
+  private static List<Object> extractListValue(GQLParser.List_literalContext ctx) {
+    var result = new ArrayList<Object>();
+    for (var valueCtx : ctx.value_expression()) {
+      result.add(extractLiteralValue(valueCtx));
+    }
+    return result;
+  }
+
+  private static Map<String, Object> extractMapValue(GQLParser.Map_literalContext ctx) {
+    var result = new LinkedHashMap<String, Object>();
+    for (var entry : ctx.map_entry()) {
+      String key;
+      if (entry.ID() != null) {
+        key = entry.ID().getText();
+      } else {
+        var keyText = entry.STRING().getText();
+        key = keyText.substring(1, keyText.length() - 1);
+      }
+      var value = extractLiteralValue(entry.value_expression());
+      result.put(key, value);
+    }
+    return result;
+  }
+
+  /// Decodes a Base64-encoded string into a byte array.
+  /// Used for BINARY property filters: `{data: 'SGVsbG8='}` where the
+  /// string value is interpreted as Base64 when compared to a BINARY property.
+  static byte[] decodeBase64(String base64) {
+    return Base64.getDecoder().decode(base64);
   }
 }

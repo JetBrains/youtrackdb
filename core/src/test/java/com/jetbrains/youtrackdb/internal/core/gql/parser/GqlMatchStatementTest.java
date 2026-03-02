@@ -5,9 +5,12 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -315,5 +318,176 @@ public class GqlMatchStatementTest extends GraphBaseTest {
         filter("b", "Animal"));
     var statement = new GqlMatchStatement(patterns);
     Assert.assertEquals(patterns, statement.getMatchFilters());
+  }
+
+  // ── extractLiteralValue: RID ──
+
+  @Test
+  public void extractLiteralValue_rid_parsesRecordId() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {link: #12:0})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertNotNull(props.get("link"));
+    Assert.assertTrue(props.get("link") instanceof RecordIdInternal);
+    var rid = (RecordIdInternal) props.get("link");
+    Assert.assertEquals(12, rid.getCollectionId());
+    Assert.assertEquals(0, rid.getCollectionPosition());
+  }
+
+  // ── extractLiteralValue: temporal DATE ──
+
+  @Test
+  public void extractLiteralValue_date_parsesDate() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {birthday: DATE '2024-01-15'})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertNotNull(props.get("birthday"));
+    Assert.assertTrue(props.get("birthday") instanceof Date);
+  }
+
+  // ── extractLiteralValue: temporal TIMESTAMP ──
+
+  @Test
+  public void extractLiteralValue_timestamp_parsesDatetime() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {created: TIMESTAMP '2024-01-15 10:30:00'})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertNotNull(props.get("created"));
+    Assert.assertTrue(props.get("created") instanceof Date);
+  }
+
+  // ── extractLiteralValue: list literal ──
+
+  @Test
+  public void extractLiteralValue_list_parsesList() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {tags: ['alpha', 'beta']})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertNotNull(props.get("tags"));
+    Assert.assertTrue(props.get("tags") instanceof List<?>);
+    @SuppressWarnings("unchecked")
+    var list = (List<Object>) props.get("tags");
+    Assert.assertEquals(2, list.size());
+    Assert.assertEquals("alpha", list.get(0));
+    Assert.assertEquals("beta", list.get(1));
+  }
+
+  // ── extractLiteralValue: map literal ──
+
+  @Test
+  public void extractLiteralValue_map_parsesMap() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {meta: {key: 'value', num: 42}})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertNotNull(props.get("meta"));
+    Assert.assertTrue(props.get("meta") instanceof Map<?, ?>);
+    @SuppressWarnings("unchecked")
+    var map = (Map<String, Object>) props.get("meta");
+    Assert.assertEquals("value", map.get("key"));
+    Assert.assertEquals(42L, map.get("num"));
+  }
+
+  // ── extractLiteralValue: boolean ──
+
+  @Test
+  public void extractLiteralValue_boolean_parsesBoolean() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {active: true, deleted: false})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertEquals(true, props.get("active"));
+    Assert.assertEquals(false, props.get("deleted"));
+  }
+
+  // ── extractLiteralValue: double ──
+
+  @Test
+  public void extractLiteralValue_double_parsesDouble() {
+    var stmt = (GqlMatchStatement) GqlPlanner.parse(
+        "MATCH (a:V {score: 3.14})");
+    var props = stmt.getPatterns().get(0).properties();
+    Assert.assertTrue(props.get("score") instanceof Double);
+    Assert.assertEquals(3.14, (Double) props.get("score"), 0.001);
+  }
+
+  // ── buildWhereClause with RID value ──
+
+  @Test
+  public void buildWhereClause_ridValue_createsValidClause() {
+    var rid = RecordIdInternal.fromString("#12:0", false);
+    var clause = GqlMatchStatement.buildWhereClause(Map.of("link", rid));
+    Assert.assertNotNull(clause);
+    Assert.assertNotNull(clause.getBaseExpression());
+  }
+
+  // ── buildWhereClause with Date value ──
+
+  @Test
+  public void buildWhereClause_dateValue_createsValidClause() {
+    var clause = GqlMatchStatement.buildWhereClause(
+        Map.of("created", new Date()));
+    Assert.assertNotNull(clause);
+    Assert.assertNotNull(clause.getBaseExpression());
+  }
+
+  // ── buildWhereClause with List value ──
+
+  @Test
+  public void buildWhereClause_listValue_createsValidClause() {
+    var clause = GqlMatchStatement.buildWhereClause(
+        Map.of("tags", List.of("a", "b")));
+    Assert.assertNotNull(clause);
+    Assert.assertNotNull(clause.getBaseExpression());
+  }
+
+  // ── End-to-end: inline numeric filter ──
+
+  @Test
+  public void buildPlan_numericFilter_matchesVertex() {
+    graph.addVertex(T.label, "MatchNumF", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "MatchNumF", "name", "Bob", "age", 25);
+    graph.tx().commit();
+
+    var statement = new GqlMatchStatement(
+        List.of(new GqlMatchVisitor.NodePattern("a", "MatchNumF",
+            Map.of("age", 30L))));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      int count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for age=30", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline boolean filter ──
+
+  @Test
+  public void buildPlan_booleanFilter_matchesVertex() {
+    graph.addVertex(T.label, "MatchBoolF", "name", "Active", "active", true);
+    graph.addVertex(T.label, "MatchBoolF", "name", "Inactive", "active", false);
+    graph.tx().commit();
+
+    var statement = new GqlMatchStatement(
+        List.of(new GqlMatchVisitor.NodePattern("a", "MatchBoolF",
+            Map.of("active", true))));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      int count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for active=true", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
   }
 }
