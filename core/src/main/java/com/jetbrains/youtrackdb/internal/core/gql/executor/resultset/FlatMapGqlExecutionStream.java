@@ -53,11 +53,13 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
       try { currentChildStream.close(); }
       catch (Exception e) { firstException = e; }
     }
-    if (upstream != null) {
-      try { upstream.close(); }
-      catch (Exception e) {
-        if (firstException != null) firstException.addSuppressed(e);
-        else firstException = e;
+    try {
+      upstream.close();
+    } catch (Exception e) {
+      if (firstException != null) {
+        firstException.addSuppressed(e);
+      } else {
+        firstException = e;
       }
     }
     if (firstException != null) {
