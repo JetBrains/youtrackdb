@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Objects;
 import javax.annotation.Nullable;
 
 /// Represents a parsed GQL MATCH statement.
@@ -29,7 +28,7 @@ public class GqlMatchStatement implements GqlStatement {
   }
 
   public void setOriginalStatement(String originalStatement) {
-    this.originalStatement = Objects.requireNonNull(originalStatement);
+    this.originalStatement = originalStatement;
   }
 
   @SuppressWarnings("unused")
@@ -44,16 +43,15 @@ public class GqlMatchStatement implements GqlStatement {
 
   @Override
   public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx) {
-    return createExecutionPlan(Objects.requireNonNull(ctx), true);
+    return createExecutionPlan(ctx, true);
   }
 
   /// Create an execution plan, optionally using cache.
   public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
-    var session = Objects.requireNonNull(ctx).session();
+    var session = ctx.session();
 
     if (useCache && originalStatement != null) {
-      var cachedPlan = GqlExecutionPlanCache.get(originalStatement, ctx,
-          Objects.requireNonNull(session));
+      var cachedPlan = GqlExecutionPlanCache.get(originalStatement, ctx, session);
       if (cachedPlan != null) {
         return cachedPlan;
       }
@@ -66,10 +64,8 @@ public class GqlMatchStatement implements GqlStatement {
     if (useCache
         && originalStatement != null
         && GqlExecutionPlan.canBeCached()
-        && GqlExecutionPlanCache.getLastInvalidation(Objects.requireNonNull(session))
-        < planningStart) {
-      GqlExecutionPlanCache.put(Objects.requireNonNull(originalStatement),
-          Objects.requireNonNull(plan), session);
+        && GqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      GqlExecutionPlanCache.put(originalStatement, plan, session);
     }
 
     return plan;

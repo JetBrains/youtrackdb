@@ -7,8 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -31,9 +31,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
         : null;
   }
 
-  public static long getLastInvalidation(DatabaseSessionEmbedded db) {
-    return Objects.requireNonNull(
-        Objects.requireNonNull(instance(Objects.requireNonNull(db))).lastInvalidation).get();
+  public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
+    return instance(db).lastInvalidation.get();
   }
 
   /**
@@ -43,11 +42,11 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @return true if the corresponding execution plan is present in the cache
    */
   @SuppressWarnings("unused")
-  public boolean contains(String statement) {
+  public boolean contains(@Nonnull String statement) {
     if (capacity == 0) {
       return false;
     }
-    return Objects.requireNonNull(cache).asMap().containsKey(statement);
+    return cache.asMap().containsKey(statement);
   }
 
   /**
@@ -60,16 +59,9 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @Nullable
   public static GqlExecutionPlan get(
-      String statement, GqlExecutionContext ctx, DatabaseSessionEmbedded db) {
-    if (db == null) {
-      throw new IllegalArgumentException("DB cannot be null");
-    }
-    if (statement == null) {
-      return null;
-    }
-
-    var resource = Objects.requireNonNull(db.getSharedContext()).getGqlExecutionPlanCache();
-    return Objects.requireNonNull(resource).getInternal(statement, Objects.requireNonNull(ctx));
+      @Nonnull String statement, @Nonnull GqlExecutionContext ctx, @Nonnull DatabaseSessionEmbedded db) {
+    var resource = db.getSharedContext().getGqlExecutionPlanCache();
+    return resource.getInternal(statement, ctx);
   }
 
   /**
@@ -79,27 +71,19 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param plan      the execution plan to cache
    * @param db        the current DB instance
    */
-  public static void put(String statement, GqlExecutionPlan plan, DatabaseSessionEmbedded db) {
-    if (db == null) {
-      throw new IllegalArgumentException("DB cannot be null");
-    }
-    if (statement == null) {
-      return;
-    }
-
-    var resource = Objects.requireNonNull(db.getSharedContext()).getGqlExecutionPlanCache();
-    Objects.requireNonNull(resource).putInternal(statement, Objects.requireNonNull(plan));
+  public static void put(@Nonnull String statement, @Nonnull GqlExecutionPlan plan, @Nonnull DatabaseSessionEmbedded db) {
+    var resource = db.getSharedContext().getGqlExecutionPlanCache();
+    resource.putInternal(statement, plan);
   }
 
   /**
    * Internal method to store a plan in cache.
    */
-  public void putInternal(String statement, GqlExecutionPlan plan) {
-    if (statement == null || capacity == 0) {
+  public void putInternal(@Nonnull String statement, @Nonnull GqlExecutionPlan plan) {
+    if (capacity == 0) {
       return;
     }
-    Objects.requireNonNull(cache).put(statement, Objects.requireNonNull(
-        Objects.requireNonNull(plan).copy()));
+    cache.put(statement, plan.copy());
   }
 
   /**
@@ -111,11 +95,11 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @SuppressWarnings("unused")
   @Nullable
-  public GqlExecutionPlan getInternal(String statement, GqlExecutionContext ctx) {
-    if (statement == null || capacity == 0) {
+  public GqlExecutionPlan getInternal(@Nonnull String statement, @Nonnull GqlExecutionContext ctx) {
+    if (capacity == 0) {
       return null;
     }
-    var cached = Objects.requireNonNull(cache).getIfPresent(statement);
+    var cached = cache.getIfPresent(statement);
     return cached != null ? cached.copy() : null;
   }
 
@@ -153,12 +137,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     invalidate();
   }
 
-  public static @Nullable GqlExecutionPlanCache instance(
-      DatabaseSessionEmbedded db) {
-    if (db == null) {
-      throw new IllegalArgumentException("DB cannot be null");
-    }
-
-    return Objects.requireNonNull(db.getSharedContext()).getGqlExecutionPlanCache();
+  public static @Nullable GqlExecutionPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {
+    return db.getSharedContext().getGqlExecutionPlanCache();
   }
 }
