@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
+import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
@@ -38,7 +40,9 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected LiveQueryHook.LiveQueryOps liveQueryOps;
   protected LiveQueryOps liveQueryOpsV2;
   protected StatementCache statementCache;
+  protected GqlStatementCache gqlStatementCache;
   protected ExecutionPlanCache executionPlanCache;
+  protected GqlExecutionPlanCache gqlExecutionPlanCache;
   protected QueryStats queryStats;
   protected volatile boolean loaded = false;
   protected Map<String, Object> resources;
@@ -75,6 +79,11 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
             storage
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
+    gqlStatementCache =
+        new GqlStatementCache(
+            storage
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
 
     executionPlanCache =
         new ExecutionPlanCache(
@@ -82,6 +91,13 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
     this.registerListener(executionPlanCache);
+
+    gqlExecutionPlanCache =
+        new GqlExecutionPlanCache(
+            storage
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
+    this.registerListener(gqlExecutionPlanCache);
 
     queryStats = new QueryStats();
     storage
@@ -130,7 +146,9 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       scheduler.close();
       sequenceLibrary.close();
       statementCache.clear();
+      gqlStatementCache.clear();
       executionPlanCache.invalidate();
+      gqlExecutionPlanCache.invalidate();
       liveQueryOps.close();
       liveQueryOpsV2.close();
       loaded = false;
@@ -244,8 +262,16 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     return statementCache;
   }
 
+  public GqlStatementCache getGqlStatementCache() {
+    return gqlStatementCache;
+  }
+
   public ExecutionPlanCache getExecutionPlanCache() {
     return executionPlanCache;
+  }
+
+  public GqlExecutionPlanCache getGqlExecutionPlanCache() {
+    return gqlExecutionPlanCache;
   }
 
   public QueryStats getQueryStats() {

@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -285,6 +286,30 @@ public class MatchExecutionPlanner {
    * during the nested-loop pattern matching.
    */
   private static final long THRESHOLD = 100;
+
+  /**
+   * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
+   * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
+   * Intended for non-SQL front-ends (e.g. GQL) that build the match IR directly.
+   *
+   * @param pattern      the pattern graph (nodes and edges)
+   * @param aliasClasses maps each alias to the schema class name it is constrained to
+   */
+  public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses) {
+    this.matchExpressions = List.of();
+    this.notMatchExpressions = List.of();
+    this.returnItems = List.of();
+    this.returnAliases = List.of();
+    this.returnNestedProjections = List.of();
+    this.groupBy = null;
+    this.orderBy = null;
+    this.unwind = null;
+
+    this.pattern = Objects.requireNonNull(pattern);
+    this.aliasClasses = Objects.requireNonNull(aliasClasses);
+    this.aliasFilters = Map.of();
+    this.aliasRids = Map.of();
+  }
 
   /**
    * Creates a planner by **deep-copying** every mutable component from the parsed
