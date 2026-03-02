@@ -62,7 +62,7 @@ public class SubQueryStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    ctx.setVariable("$current", result);
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT, result);
     return result;
   }
 

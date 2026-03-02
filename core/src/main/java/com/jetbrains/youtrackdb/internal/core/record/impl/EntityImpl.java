@@ -3680,8 +3680,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   public void initPropertyAccess() {
-    propertyAccess = new PropertyAccess(session, this,
-        session.getSharedContext().getSecurity());
+    var security = session.getSharedContext().getSecurity();
+    var filtered = security.getFilteredProperties(session, this);
+    propertyAccess = filtered.isEmpty()
+        ? PropertyAccess.NO_FILTER
+        : new PropertyAccess(filtered);
     propertyEncryption = PropertyEncryptionNone.instance();
   }
 

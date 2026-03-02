@@ -118,19 +118,19 @@ public class SQLMatchPathItem extends SimpleNode {
       }
 
       for (var origin : queryResult) {
-        var previousMatch = iCommandContext.getVariable("$currentMatch");
-        iCommandContext.setVariable("$currentMatch", origin);
+        var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
+        iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, origin);
         if ((oClass == null || matchesClass(db, origin, oClass))
             && (filter == null || filter.matchesFilters(origin, iCommandContext))) {
           result.add(origin);
         }
-        iCommandContext.setVariable("$currentMatch", previousMatch);
+        iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
       }
     } else { // in this case also zero level (starting point) is considered and traversal depth is
       // given by the while condition
-      iCommandContext.setVariable("$depth", depth);
-      var previousMatch = iCommandContext.getVariable("$currentMatch");
-      iCommandContext.setVariable("$currentMatch", startingPoint);
+      iCommandContext.setSystemVariable(CommandContext.VAR_DEPTH, depth);
+      var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
+      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
       if ((oClass == null || matchesClass(db, startingPoint, oClass))
           && (filter == null || filter.matchesFilters(startingPoint, iCommandContext))) {
         result.add(startingPoint);
@@ -156,7 +156,7 @@ public class SQLMatchPathItem extends SimpleNode {
           }
         }
       }
-      iCommandContext.setVariable("$currentMatch", previousMatch);
+      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
     }
     return result;
   }
@@ -204,6 +204,16 @@ public class SQLMatchPathItem extends SimpleNode {
     return (qR instanceof Iterable && !(qR instanceof EntityImpl))
         ? (Iterable) qR
         : Collections.singleton((Identifiable) qR);
+  }
+
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    if (method != null && !method.isCacheable(session)) {
+      return false;
+    }
+    if (filter != null && !filter.isCacheable(session)) {
+      return false;
+    }
+    return true;
   }
 
   @Override

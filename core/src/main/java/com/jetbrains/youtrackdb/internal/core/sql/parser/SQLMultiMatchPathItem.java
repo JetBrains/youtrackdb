@@ -3,6 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -77,6 +78,21 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
       }
     }
     return result;
+  }
+
+  @Override
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    if (!super.isCacheable(session)) {
+      return false;
+    }
+    if (items != null) {
+      for (var item : items) {
+        if (!item.isCacheable(session)) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   @Override

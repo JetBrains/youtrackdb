@@ -111,9 +111,14 @@ public class MatchFirstStep extends AbstractExecutionStep {
         (result, context) -> {
           var newResult = new ResultInternal(context.getDatabaseSession());
           newResult.setProperty(getAlias(), result);
-          context.setVariable("$matched", newResult);
+          context.setSystemVariable(CommandContext.VAR_MATCHED, newResult);
           return newResult;
         });
+  }
+
+  @Override
+  public boolean canBeCached() {
+    return executionPlan == null || executionPlan.canBeCached();
   }
 
   @Override

@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultSetEdgeTraverser;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 
@@ -46,9 +45,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
  *                                         │
  *                           (internally per row)
  *                                         ▼
- *                               ResultSetEdgeTraverser
+ *                               MatchEdgeTraverser
  *                                ┌───────────────────┐
- *                                │ MatchEdgeTraverser │
+ *                                │  implements        │
+ *                                │  ExecutionStream   │
  *                                │  .init()           │
  *                                │  .traverseEdge()   │
  *                                │  .filter/join      │
@@ -90,12 +90,11 @@ public class MatchStep extends AbstractExecutionStep {
   }
 
   /**
-   * Wraps the traverser for a single upstream record into an {@link ExecutionStream}
-   * via {@link ResultSetEdgeTraverser}.
+   * Creates an {@link ExecutionStream} for a single upstream record by instantiating the
+   * appropriate {@link MatchEdgeTraverser} subclass.
    */
   public ExecutionStream createNextResultSet(Result lastUpstreamRecord, CommandContext ctx) {
-    var trav = createTraverser(lastUpstreamRecord);
-    return new ResultSetEdgeTraverser(trav);
+    return createTraverser(lastUpstreamRecord);
   }
 
   /**
@@ -114,6 +113,11 @@ public class MatchStep extends AbstractExecutionStep {
     } else {
       return new MatchReverseEdgeTraverser(lastUpstreamRecord, edge);
     }
+  }
+
+  @Override
+  public boolean canBeCached() {
+    return true;
   }
 
   @Override

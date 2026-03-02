@@ -32,6 +32,21 @@ import javax.annotation.Nullable;
  */
 public interface CommandContext {
 
+  // ---- System variable IDs for hot-path context variables ----
+  // These bypass all string processing in getVariable/setVariable and use a fast
+  // int-keyed map. SQL expressions that reference these names (e.g. "$matched.alias")
+  // still work through the string-based getVariable fallback.
+
+  /** The current record being processed (used by projections, method calls, etc.). */
+  int VAR_CURRENT = 0;
+  /** The candidate record being evaluated in a MATCH filter or WHILE condition. */
+  int VAR_CURRENT_MATCH = 1;
+  /** The current MATCH result row (used by downstream WHERE clauses via $matched). */
+  int VAR_MATCHED = 2;
+  /** The current recursion depth in a MATCH WHILE/maxDepth traversal. */
+  int VAR_DEPTH = 3;
+  // Next available ID: 4
+
   void registerBooleanExpression(SQLBooleanExpression expression);
 
   List<SQLBooleanExpression> getParentWhereExpressions();

@@ -49,6 +49,11 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return true;
+  }
+
+  @Override
   public String prettyPrint(int depth, int indent) {
     assert depth >= 0 : "depth must be non-negative";
     assert indent >= 0 : "indent must be non-negative";

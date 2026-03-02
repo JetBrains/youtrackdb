@@ -59,6 +59,11 @@ public class ReturnMatchElementsStep extends AbstractUnrollStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return true;
+  }
+
+  @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ UNROLL $elements";

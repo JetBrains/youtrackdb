@@ -44,14 +44,14 @@ public class MatchFieldTraverser extends MatchEdgeTraverser {
   @Override
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
-    var prevCurrent = iCommandContext.getVariable("$current");
-    iCommandContext.setVariable("$current", startingPoint);
+    var prevCurrent = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT);
+    iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, startingPoint);
     Object qR;
     try {
       // Evaluate the field/expression (e.g. "address", "name.toLowerCase()")
       qR = ((SQLFieldMatchPathItem) this.item).getExp().execute(startingPoint, iCommandContext);
     } finally {
-      iCommandContext.setVariable("$current", prevCurrent);
+      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, prevCurrent);
     }
 
     return toExecutionStream(qR, iCommandContext.getDatabaseSession());
