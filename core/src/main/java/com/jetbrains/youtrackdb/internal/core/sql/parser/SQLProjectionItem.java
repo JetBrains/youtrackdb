@@ -39,6 +39,8 @@ public class SQLProjectionItem extends SimpleNode {
 
   protected SQLNestedProjection nestedProjection;
 
+  private Boolean cachedIsAll;
+
   public SQLProjectionItem(
       SQLExpression expression, SQLIdentifier alias, SQLNestedProjection nestedProjection) {
     super(-1);
@@ -59,7 +61,10 @@ public class SQLProjectionItem extends SimpleNode {
     if (all) {
       return true;
     }
-    return expression != null && "*".equals(expression.toString());
+    if (cachedIsAll == null) {
+      cachedIsAll = expression != null && "*".equals(expression.toString());
+    }
+    return cachedIsAll;
   }
 
   public void setAll(boolean all) {
