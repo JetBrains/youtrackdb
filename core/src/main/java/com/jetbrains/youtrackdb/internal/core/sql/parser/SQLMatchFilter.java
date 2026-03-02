@@ -14,7 +14,7 @@ import javax.annotation.Nullable;
 public class SQLMatchFilter extends SimpleNode {
 
   // TODO transform in a map
-  protected List<SQLMatchFilterItem> items = new ArrayList<SQLMatchFilterItem>();
+  protected List<SQLMatchFilterItem> items = new ArrayList<>();
 
   public SQLMatchFilter(int id) {
     super(id);
@@ -61,8 +61,7 @@ public class SQLMatchFilter extends SimpleNode {
       // className is SQLExpression - use SQLExpression(SQLIdentifier) constructor
       var item = new SQLMatchFilterItem(-1);
       var sqlIdentifier = new SQLIdentifier(className);
-      var expression = new SQLExpression(sqlIdentifier);
-      item.className = expression;
+      item.className = new SQLExpression(sqlIdentifier);
       filter.items.add(item);
     }
     return filter;
