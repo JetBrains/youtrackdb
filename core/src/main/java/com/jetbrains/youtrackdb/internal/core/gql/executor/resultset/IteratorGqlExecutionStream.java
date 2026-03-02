@@ -8,10 +8,14 @@ import javax.annotation.Nullable;
 /// Stream backed by an iterator with optional mapping.
 ///
 /// Properly closes the underlying iterator if it implements AutoCloseable.
+/// Uses a closed boolean guard to ensure close() is idempotent, preventing
+/// multiple close() calls (from hasNext() exhaustion and error handling).
+@SuppressWarnings("DuplicatedCode")
 public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   private final Iterator<T> source;
   private final Function<T, ?> mapper;
+  private boolean closed;
 
   /// Create a stream that passes elements through unchanged.
   public IteratorGqlExecutionStream(Iterator<?> source) {
@@ -27,6 +31,9 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   @Override
   public boolean hasNext() {
+    if (closed) {
+      return false;
+    }
     try {
       final var hasNext = Objects.requireNonNull(source).hasNext();
       if (!hasNext) {
@@ -41,6 +48,9 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   @Override
   public @Nullable Object next() {
+    if (closed) {
+      throw new java.util.NoSuchElementException();
+    }
     try {
       return Objects.requireNonNull(mapper).apply(Objects.requireNonNull(source).next());
     } catch (Exception e) {
@@ -51,6 +61,10 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+    closed = true;
     if (source instanceof AutoCloseable closeable) {
       try {
         closeable.close();
