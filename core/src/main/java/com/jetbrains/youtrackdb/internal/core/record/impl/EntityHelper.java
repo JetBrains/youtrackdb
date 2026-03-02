@@ -1072,6 +1072,28 @@ public class EntityHelper {
       final DatabaseSessionEmbedded iOtherDb,
       RIDMapper ridMapper,
       final boolean iCheckAlsoIdentity) {
+    return hasSameContentOf(iCurrent, iMyDb, iOther, iOtherDb, ridMapper, iCheckAlsoIdentity,
+        Collections.emptySet());
+  }
+
+  /**
+   * Makes a deep comparison field by field to check if the passed EntityImpl instance is identical
+   * in the content to the current one. Instead equals() just checks if the RID are the same. If
+   * some fields must be excluded from the comparison, pass their names in the excludedProperties.
+   *
+   * @param iOther EntityImpl instance
+   * @return true if the two document are identical, otherwise false
+   * @see #equals(Object)
+   */
+  @SuppressWarnings("unchecked")
+  public static boolean hasSameContentOf(
+      final EntityImpl iCurrent,
+      final DatabaseSessionInternal iMyDb,
+      final EntityImpl iOther,
+      final DatabaseSessionInternal iOtherDb,
+      RIDMapper ridMapper,
+      final boolean iCheckAlsoIdentity,
+      final Set<String> excludedProperties) {
     if (iOther == null) {
       return false;
     }
@@ -1095,6 +1117,9 @@ public class EntityHelper {
 
     var propertyNames = iCurrent.getPropertyNames();
     for (var name : propertyNames) {
+      if (excludedProperties != null && excludedProperties.contains(name)) {
+        continue;
+      }
       myFieldValue = iCurrent.getProperty(name);
       otherFieldValue = iOther.getProperty(name);
 
