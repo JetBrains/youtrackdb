@@ -38,17 +38,18 @@ public class GqlExecutionPlan {
   /// Start execution and return a stream of results.
   ///
   /// The session parameter rebinds the underlying plan's context to the caller's
-  /// current session and activates it on the current thread.  This is essential for
-  /// cached plans whose context still references a session from a previous request
-  /// (potentially on a different thread).
+  /// current session. This is essential for cached plans whose context still references
+  /// a session from a previous request (potentially on a different thread).
   /// Pass null only for empty plans (no underlying SQL plan).
+  ///
+  /// The session is assumed to already be active on the current thread (activated by
+  /// the session/server layer that invoked this execution).
   public GqlExecutionStream start(@Nullable DatabaseSessionEmbedded session) {
     if (sqlPlan == null) {
       return GqlExecutionStream.empty();
     }
     Objects.requireNonNull(session, "session required for non-empty plan");
     sqlPlan.getContext().setDatabaseSession(session);
-    session.activateOnCurrentThread();
     var stream = sqlPlan.start();
     return new SqlStreamAdapter(stream, sqlPlan.getContext());
   }
