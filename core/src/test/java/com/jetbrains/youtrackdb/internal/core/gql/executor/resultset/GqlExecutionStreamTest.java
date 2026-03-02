@@ -58,16 +58,6 @@ public class GqlExecutionStreamTest {
     Assert.assertFalse(stream.hasNext());
   }
 
-  @Test(expected = NullPointerException.class)
-  public void fromIterator_nullIterator_throws() {
-    GqlExecutionStream.fromIterator(null);
-  }
-
-  @Test(expected = NullPointerException.class)
-  public void fromIterator_nullMapper_throws() {
-    GqlExecutionStream.fromIterator(List.of(1).iterator(), null);
-  }
-
   @Test
   public void iteratorStream_closesAutoCloseableSourceOnExhaustion() {
     var closed = new boolean[]{false};

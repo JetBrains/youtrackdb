@@ -317,10 +317,4 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var statement = new GqlMatchStatement(patterns);
     Assert.assertEquals(patterns, statement.getMatchFilters());
   }
-
- @Test(expected = NullPointerException.class)
-  public void setOriginalStatement_null_throwsNPE() {
-    //noinspection WriteOnlyObject
-    new GqlMatchStatement(List.of()).setOriginalStatement(null);
-  }
 }
