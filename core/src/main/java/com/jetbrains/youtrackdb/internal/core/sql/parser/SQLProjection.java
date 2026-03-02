@@ -25,6 +25,7 @@ public class SQLProjection extends SimpleNode {
 
   // runtime
   private Set<String> excludes;
+  private Boolean cachedIsExpand;
 
   public SQLProjection(List<SQLProjectionItem> items, boolean distinct) {
     super(-1);
@@ -47,6 +48,8 @@ public class SQLProjection extends SimpleNode {
 
   public void setItems(List<SQLProjectionItem> items) {
     this.items = items;
+    this.cachedIsExpand = null;
+    this.excludes = null;
   }
 
   @Override
@@ -223,13 +226,14 @@ public class SQLProjection extends SimpleNode {
   }
 
   public boolean isExpand() {
-    final var isExpand = items != null && items.stream().anyMatch(SQLProjectionItem::isExpand);
-    if (isExpand && items.size() > 1) {
-      throw new CommandSQLParsingException(
-          "Cannot execute a query with expand() together with other projections");
+    if (cachedIsExpand == null) {
+      cachedIsExpand = items != null && items.stream().anyMatch(SQLProjectionItem::isExpand);
+      if (cachedIsExpand && items.size() > 1) {
+        throw new CommandSQLParsingException(
+            "Cannot execute a query with expand() together with other projections");
+      }
     }
-
-    return isExpand;
+    return cachedIsExpand;
   }
 
   @Nullable
