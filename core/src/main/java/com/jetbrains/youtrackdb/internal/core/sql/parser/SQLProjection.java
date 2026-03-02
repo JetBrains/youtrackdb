@@ -155,13 +155,13 @@ public class SQLProjection extends SimpleNode {
           return projectionResult;
         }
 
-        var result = new ResultInternal(session);
+        var result = new ResultInternal(session, 1);
         result.setProperty(item.getProjectionAliasAsString(), executionResult);
         return result;
       }
     }
 
-    var result = new ResultInternal(session);
+    var result = new ResultInternal(session, items.size());
     for (var item : items) {
       if (item.exclude) {
         continue;

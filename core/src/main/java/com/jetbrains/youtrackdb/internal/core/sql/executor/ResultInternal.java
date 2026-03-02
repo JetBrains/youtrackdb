@@ -63,6 +63,18 @@ public class ResultInternal implements Result, BasicResultInternal {
     this.session = session;
   }
 
+  /**
+   * Creates a result with a right-sized content map.
+   *
+   * @param expectedProperties expected number of properties (used to size the
+   *                           internal HashMap and avoid wasted capacity)
+   */
+  public ResultInternal(@Nullable DatabaseSessionEmbedded session, int expectedProperties) {
+    // Load factor 1.0 prevents resize when we stay within the expected count.
+    content = new HashMap<>(Math.max(expectedProperties, 1), 1.0f);
+    this.session = session;
+  }
+
   public ResultInternal(@Nullable DatabaseSessionEmbedded session,
       @Nonnull Map<String, ?> data) {
     content = new HashMap<>();
