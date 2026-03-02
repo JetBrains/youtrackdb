@@ -1,29 +1,26 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
 
 /**
- * LRU cache for already parsed GQL statements.
+ * LRU cache for already parsed GQL statements using Guava Cache.
+ * Eliminates TOCTOU race between cache lookup and parse via atomic cache.get(key, loader).
  */
 public class GqlStatementCache {
 
-  private final Map<String, GqlStatement> map;
-  private final int mapSize;
+  private final int capacity;
+  private final Cache<String, GqlStatement> cache;
 
   public GqlStatementCache(int size) {
-    this.mapSize = size;
-    this.map = new LinkedHashMap<>(size) {
-      @Override
-      protected boolean removeEldestEntry(final Map.Entry<String, GqlStatement> eldest) {
-        return super.size() > mapSize;
-      }
-    };
+    this.capacity = size;
+    this.cache = size > 0
+        ? CacheBuilder.newBuilder().maximumSize(size).build()
+        : null;
   }
 
   public static @Nullable GqlStatement get(String statement, DatabaseSessionEmbedded session) {
@@ -41,39 +38,29 @@ public class GqlStatementCache {
 
   @SuppressWarnings("unused")
   public boolean contains(String statement) {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (capacity == 0) {
       return false;
     }
-    synchronized (Objects.requireNonNull(map)) {
-      return map.containsKey(statement);
-    }
+    return Objects.requireNonNull(cache).asMap().containsKey(statement);
   }
 
   public GqlStatement getCached(@Nullable String statement) {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (capacity == 0) {
       return parse(statement);
     }
 
-    GqlStatement result;
-    synchronized (Objects.requireNonNull(map)) {
-      result = map.remove(statement);
-      if (result != null) {
-        map.put(statement, result);
-      }
+    try {
+      // Atomic cache.get(key, loader) eliminates TOCTOU race:
+      // only one thread will parse for a given key, others will wait and reuse the result
+      return Objects.requireNonNull(cache).get(statement, () -> parse(statement));
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to parse GQL statement: " + statement, e);
     }
-
-    if (result == null) {
-      result = parse(statement);
-      synchronized (map) {
-        map.put(statement, result);
-      }
-    }
-    return result;
   }
 
   public void clear() {
-    synchronized (Objects.requireNonNull(map)) {
-      map.clear();
+    if (cache != null) {
+      cache.invalidateAll();
     }
   }
 }
