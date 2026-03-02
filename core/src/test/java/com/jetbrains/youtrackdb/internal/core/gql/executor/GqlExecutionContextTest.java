@@ -10,17 +10,17 @@ import java.util.Map;
 
 /**
  * Tests for GqlExecutionContext record: constructors and getParameter.
+ * Context now contains only session (not graph), as executor layer works with YTDB entities only.
  */
 public class GqlExecutionContextTest extends GraphBaseTest {
 
   @Test
-  public void contextWithTwoArgs_usesEmptyParameters() {
+  public void contextWithOneArg_usesEmptyParameters() {
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
     tx.readWrite();
     var session = tx.getDatabaseSession();
-    var ctx = new GqlExecutionContext(graphInternal, session);
-    Assert.assertSame(graphInternal, ctx.graph());
+    var ctx = new GqlExecutionContext(session);
     Assert.assertSame(session, ctx.session());
     Assert.assertTrue(ctx.parameters().isEmpty());
     Assert.assertNull(ctx.getParameter("name"));
@@ -36,7 +36,7 @@ public class GqlExecutionContextTest extends GraphBaseTest {
     Map<String, Object> params = new HashMap<>();
     params.put("name", "Maria");
     params.put("age", 30);
-    var ctx = new GqlExecutionContext(graphInternal, session, params);
+    var ctx = new GqlExecutionContext(session, params);
     Assert.assertEquals("Maria", ctx.getParameter("name"));
     Assert.assertEquals(30, ctx.getParameter("age"));
     Assert.assertNull(ctx.getParameter("missing"));
@@ -49,7 +49,7 @@ public class GqlExecutionContextTest extends GraphBaseTest {
     var tx = graphInternal.tx();
     tx.readWrite();
     var session = tx.getDatabaseSession();
-    var ctx = new GqlExecutionContext(graphInternal, session, new HashMap<>());
+    var ctx = new GqlExecutionContext(session, new HashMap<>());
     Assert.assertTrue(ctx.parameters().isEmpty());
     tx.commit();
   }

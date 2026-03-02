@@ -28,7 +28,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var gi = (YTDBGraphInternal) graph;
     var tx = gi.tx();
     tx.readWrite();
-    return new GqlExecutionContext(gi, tx.getDatabaseSession());
+    return new GqlExecutionContext(tx.getDatabaseSession());
   }
 
   /// Helper to create SQLMatchFilter (unified YQL IR) from alias and label.
@@ -174,7 +174,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var statement = new GqlMatchStatement(
           List.of(filter("x", null)));
       var plan = statement.createExecutionPlan(ctx, false);
@@ -197,7 +197,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var statement = new GqlMatchStatement(
           List.of(filter("y", "")));
       var plan = statement.createExecutionPlan(ctx, false);
@@ -220,7 +220,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var plan = statement.createExecutionPlan(ctx);
       Assert.assertNotNull(plan);
       Assert.assertTrue(GqlExecutionPlanCache.instance(session).contains(query));
@@ -241,7 +241,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var plan1 = statement.createExecutionPlan(ctx, false);
       var plan2 = statement.createExecutionPlan(ctx, false);
       Assert.assertNotSame(plan1, plan2);
@@ -262,7 +262,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var plan = statement.createExecutionPlan(ctx, true);
       Assert.assertNotNull(plan);
     } finally {
@@ -283,7 +283,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var plan1 = statement.createExecutionPlan(ctx, true);
       var plan2 = statement.createExecutionPlan(ctx, true);
       Assert.assertNotNull(plan1);
