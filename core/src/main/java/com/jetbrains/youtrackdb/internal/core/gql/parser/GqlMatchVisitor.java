@@ -164,7 +164,7 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
   }
 
   private static List<Object> extractListValue(GQLParser.List_literalContext ctx) {
-    var result = new ArrayList<Object>();
+    var result = new ArrayList<>();
     for (var valueCtx : ctx.value_expression()) {
       result.add(extractLiteralValue(valueCtx));
     }
