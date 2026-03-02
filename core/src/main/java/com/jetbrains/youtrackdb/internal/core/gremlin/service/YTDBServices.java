@@ -14,10 +14,11 @@ public final class YTDBServices {
     {
       registerService(new YTDBRemovePropertyService.Factory<>());
       registerService(new YTDBCommandService.Factory());
-      registerService(new YTDBCommandService.SqlCommandFactory());
+      registerService(new YTDBCommandService.YqlFactory());
       registerService(new YTDBFullBackupService.Factory());
       registerService(new YTDBIncrementalBackupService.Factory());
       registerService(new YTDBGraphUuidService.Factory());
+      registerService(new GqlService.Factory());
       frozen = true;
     }
 
