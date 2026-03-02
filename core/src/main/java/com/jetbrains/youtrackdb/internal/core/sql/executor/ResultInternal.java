@@ -85,6 +85,15 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
   }
 
+  /**
+   * Creates a result without allocating a content map. Intended for subclasses
+   * (like {@code MatchResultRow}) that manage their own property storage and
+   * would immediately discard the map.
+   */
+  protected ResultInternal(@Nullable DatabaseSessionEmbedded session, @SuppressWarnings("unused") boolean noContentMap) {
+    this.session = session;
+  }
+
   public ResultInternal(@Nullable DatabaseSessionEmbedded session, @Nonnull Identifiable ident) {
     setIdentifiable(ident);
     this.session = session;

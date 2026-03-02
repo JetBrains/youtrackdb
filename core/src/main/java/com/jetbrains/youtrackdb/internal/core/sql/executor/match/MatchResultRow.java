@@ -63,10 +63,7 @@ class MatchResultRow extends ResultInternal {
       Result parent,
       String newAlias,
       Object newValue) {
-    super(session);
-    // Discard the empty HashMap allocated by the super constructor; we lazily
-    // create it only if additional properties (beyond newAlias) are set.
-    this.content = null;
+    super(session, true);
     this.parent = parent;
     this.newAlias = newAlias;
     this.newValue = convertPropertyValue(newValue);
