@@ -206,6 +206,16 @@ public class SQLMatchPathItem extends SimpleNode {
         : Collections.singleton((Identifiable) qR);
   }
 
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    if (method != null && !method.isCacheable(session)) {
+      return false;
+    }
+    if (filter != null && !filter.isCacheable(session)) {
+      return false;
+    }
+    return true;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {

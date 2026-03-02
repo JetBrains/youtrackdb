@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -220,6 +221,9 @@ public class MatchExecutionPlanner {
    */
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
+  /** The original parsed `MATCH` statement, used for execution plan caching. */
+  private final SQLMatchStatement statement;
+
   /** Positive `MATCH` expressions (the main graph pattern). */
   protected List<SQLMatchExpression> matchExpressions;
 
@@ -294,6 +298,7 @@ public class MatchExecutionPlanner {
    * @param stm the parsed `MATCH` statement AST node
    */
   public MatchExecutionPlanner(SQLMatchStatement stm) {
+    this.statement = stm;
     // Deep-copy all mutable AST components to allow safe in-place mutation during planning
     this.matchExpressions =
         stm.getMatchExpressions().stream().map(SQLMatchExpression::copy)
@@ -335,11 +340,27 @@ public class MatchExecutionPlanner {
    * @param context          the command execution context (holds the database session,
    *                         variables, etc.)
    * @param enableProfiling  when `true`, each step will collect timing/count statistics
+   * @param useCache         when `true`, attempts to retrieve/store the plan from/to the
+   *                         {@link ExecutionPlanCache}
    * @return the assembled execution plan, ready to be {@linkplain InternalExecutionPlan#start()
    *         started}
    */
   public InternalExecutionPlan createExecutionPlan(
-      CommandContext context, boolean enableProfiling) {
+      CommandContext context, boolean enableProfiling, boolean useCache) {
+
+    var session = context.getDatabaseSession();
+
+    // --- Check the plan cache before doing any work ---
+    if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
+      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), context, session);
+      if (plan != null) {
+        return (InternalExecutionPlan) plan;
+      }
+    }
+
+    // Record the timestamp so we can avoid caching a stale plan if the schema
+    // was modified concurrently during planning.
+    var planningStart = System.currentTimeMillis();
 
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
@@ -455,6 +476,15 @@ public class MatchExecutionPlanner {
 
       SelectExecutionPlanner.optimizeQuery(info, context);
       SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+    }
+
+    // --- Store the assembled plan in the cache for future reuse ---
+    if (useCache
+        && !enableProfiling
+        && statement.executinPlanCanBeCached(session)
+        && result.canBeCached()
+        && ExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      ExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
     }
 
     return result;

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 
@@ -30,6 +31,16 @@ public class OptionalMatchStep extends MatchStep {
   @Override
   protected MatchEdgeTraverser createTraverser(Result lastUpstreamRecord) {
     return new OptionalMatchEdgeTraverser(lastUpstreamRecord, edge);
+  }
+
+  @Override
+  public boolean canBeCached() {
+    return true;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new OptionalMatchStep(ctx, edge.copy(), profilingEnabled);
   }
 
   @Override

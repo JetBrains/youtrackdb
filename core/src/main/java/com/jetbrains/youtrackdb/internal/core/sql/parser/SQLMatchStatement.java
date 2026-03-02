@@ -164,9 +164,42 @@ public final class SQLMatchStatement extends SQLStatement {
   }
 
   @Override
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
+    if (originalStatement == null) {
+      setOriginalStatement(this.toString());
+    }
+    for (var expr : matchExpressions) {
+      if (!expr.isCacheable(session)) {
+        return false;
+      }
+    }
+    for (var expr : notMatchExpressions) {
+      if (!expr.isCacheable(session)) {
+        return false;
+      }
+    }
+    for (var item : returnItems) {
+      if (!item.isCacheable(session)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new MatchExecutionPlanner(this);
-    var result = planner.createExecutionPlan(ctx, enableProfiling);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, true);
+    result.setStatement(originalStatement);
+    result.setGenericStatement(this.toGenericStatement());
+    return result;
+  }
+
+  @Override
+  public InternalExecutionPlan createExecutionPlanNoCache(
+      CommandContext ctx, boolean enableProfiling) {
+    var planner = new MatchExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, false);
     result.setStatement(originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;

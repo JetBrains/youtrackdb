@@ -117,6 +117,11 @@ public class MatchFirstStep extends AbstractExecutionStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return executionPlan == null || executionPlan.canBeCached();
+  }
+
+  @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     var result = new StringBuilder();

@@ -3,6 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -198,6 +199,15 @@ public class SQLMatchFilter extends SimpleNode {
       first = false;
     }
     builder.append("}");
+  }
+
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    for (var item : items) {
+      if (!item.isCacheable(session)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
