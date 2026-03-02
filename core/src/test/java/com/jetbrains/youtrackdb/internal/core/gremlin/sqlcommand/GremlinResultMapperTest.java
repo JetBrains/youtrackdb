@@ -300,7 +300,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
     graph.tx().commit();
 
     var results = graph.traversal()
-        .sqlCommand("SELECT FROM Person WHERE name = :name", "name", "Alice")
+        .yql("SELECT FROM Person WHERE name = :name", "name", "Alice")
         .toList();
 
     Assert.assertEquals(1, results.size());
@@ -309,7 +309,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
   }
 
   private List<Object> sqlCommand(String sql) {
-    return graph.traversal().sqlCommand(sql).toList();
+    return graph.traversal().yql(sql).toList();
   }
 
   private Map<String, Object> singleProjection(String sql) {
