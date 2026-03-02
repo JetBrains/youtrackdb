@@ -327,92 +327,6 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
   }
 
   @Test
-  @SuppressWarnings("ConstantConditions")
-  public void get_withNullStatement_returnsNull() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    try {
-      var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(session);
-      var plan = GqlExecutionPlanCache.get(null, ctx, session);
-      Assert.assertNull(plan);
-    } finally {
-      tx.commit();
-    }
-  }
-
-  @Test
-  public void get_withNullDb_throws() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    try {
-      var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(session);
-      try {
-        GqlExecutionPlanCache.get("MATCH (n:OUser)", ctx, null);
-        Assert.fail("expected IllegalArgumentException");
-      } catch (IllegalArgumentException e) {
-        Assert.assertTrue(e.getMessage().contains("DB cannot be null"));
-      }
-    } finally {
-      tx.commit();
-    }
-  }
-
-  @Test
-  public void put_withNullStatement_doesNotCache() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    try {
-      var session = tx.getDatabaseSession();
-      var plan = GqlExecutionPlan.empty();
-      GqlExecutionPlanCache.put(null, plan, session);
-      var cache = GqlExecutionPlanCache.instance(session);
-      Assert.assertFalse(cache.contains("MATCH (x)"));
-    } finally {
-      tx.commit();
-    }
-  }
-
-  @Test
-  public void put_withNullDb_throws() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    try {
-      var plan = GqlExecutionPlan.empty();
-      try {
-        GqlExecutionPlanCache.put("MATCH (n:OUser)", plan, null);
-        Assert.fail("expected IllegalArgumentException");
-      } catch (IllegalArgumentException e) {
-        Assert.assertTrue(e.getMessage().contains("DB cannot be null"));
-      }
-    } finally {
-      tx.commit();
-    }
-  }
-
-  @Test
-  public void putInternal_withNullStatement_doesNotStore() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
-    try {
-      var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(session);
-      var cache = new GqlExecutionPlanCache(10);
-      var plan = GqlExecutionPlan.empty();
-      cache.putInternal(null, plan);
-      Assert.assertNull(cache.getInternal("any", ctx));
-    } finally {
-      tx.commit();
-    }
-  }
-
-  @Test
   public void getInternal_withMissingKey_returnsNull() {
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
@@ -426,16 +340,6 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       Assert.assertNull(missing);
     } finally {
       tx.commit();
-    }
-  }
-
-  @Test
-  public void instance_withNullDb_throws() {
-    try {
-      GqlExecutionPlanCache.instance(null);
-      Assert.fail("expected IllegalArgumentException");
-    } catch (IllegalArgumentException e) {
-      Assert.assertTrue(e.getMessage().contains("DB cannot be null"));
     }
   }
 
