@@ -25,7 +25,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     var session = tx.getDatabaseSession();
     Assert.assertNotNull(session);
 
-    var ctx = new GqlExecutionContext(graphInternal, session);
+    var ctx = new GqlExecutionContext(session);
     var cache = GqlExecutionPlanCache.instance(session);
 
     // 1) Cache should not contain this statement before the first planning
@@ -79,7 +79,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         var session = tx.getDatabaseSession();
         Assert.assertNotNull(session);
 
-        var ctx = new GqlExecutionContext(graphInternal, session);
+        var ctx = new GqlExecutionContext(session);
         var cache = GqlExecutionPlanCache.instance(session);
 
         Assert.assertFalse(cache.contains(query));
@@ -131,7 +131,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         var session = tx.getDatabaseSession();
         Assert.assertNotNull(session);
 
-        var ctx = new GqlExecutionContext(graphInternal, session);
+        var ctx = new GqlExecutionContext(session);
         var cache = GqlExecutionPlanCache.instance(session);
 
         var plan = statement.createExecutionPlan(ctx);
@@ -182,7 +182,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
 
       var cache = new GqlExecutionPlanCache(2);
 
@@ -225,7 +225,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
 
       // Create cache with size 0 (disabled)
       var cache = new GqlExecutionPlanCache(0);
@@ -263,7 +263,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
         tx.readWrite();
         try {
           var session = tx.getDatabaseSession();
-          var ctx = new GqlExecutionContext(graphInternal, session);
+          var ctx = new GqlExecutionContext(session);
 
           for (var i = 0; i < plansPerThread; i++) {
             var query = "MATCH (n:OUser) WHERE n.id = " + threadId + "_" + i;
@@ -334,7 +334,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var plan = GqlExecutionPlanCache.get(null, ctx, session);
       Assert.assertNull(plan);
     } finally {
@@ -349,7 +349,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       try {
         GqlExecutionPlanCache.get("MATCH (n:OUser)", ctx, null);
         Assert.fail("expected IllegalArgumentException");
@@ -402,7 +402,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var cache = new GqlExecutionPlanCache(10);
       var plan = GqlExecutionPlan.empty();
       cache.putInternal(null, plan);
@@ -419,7 +419,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var cache = new GqlExecutionPlanCache(10);
       cache.putInternal("MATCH (a:A)", GqlExecutionPlan.empty());
       var missing = cache.getInternal("MATCH (b:B)", ctx);
@@ -446,7 +446,7 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     tx.readWrite();
     try {
       var session = tx.getDatabaseSession();
-      var ctx = new GqlExecutionContext(graphInternal, session);
+      var ctx = new GqlExecutionContext(session);
       var cache = new GqlExecutionPlanCache(5);
       var stmt = GqlPlanner.getStatement("MATCH (n:OUser)", session);
       cache.putInternal("MATCH (n:OUser)", stmt.createExecutionPlan(ctx));
