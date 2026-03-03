@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -106,8 +108,7 @@ public class YouTrackDBEnginesManagerPoolsTest {
   @Test
   public void createExecutorReturnsNonNullAndIsIdempotent() {
     var manager = YouTrackDBEnginesManager.instance();
-    var config = (YouTrackDBConfigImpl) com.jetbrains.youtrackdb.internal.core.config
-        .YouTrackDBConfig.defaultConfig();
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig();
 
     ExecutorService first = manager.createExecutor(config);
     ExecutorService second = manager.createExecutor(config);
@@ -123,8 +124,7 @@ public class YouTrackDBEnginesManagerPoolsTest {
   @Test
   public void createExecutorAcceptsTasks() throws Exception {
     var manager = YouTrackDBEnginesManager.instance();
-    var config = (YouTrackDBConfigImpl) com.jetbrains.youtrackdb.internal.core.config
-        .YouTrackDBConfig.defaultConfig();
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig();
     manager.createExecutor(config);
 
     var latch = new CountDownLatch(1);
@@ -132,14 +132,125 @@ public class YouTrackDBEnginesManagerPoolsTest {
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
   }
 
+  @Test
+  public void createIoExecutorReturnsNullWhenDisabled() {
+    // Build config with IO pool explicitly disabled.
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED, false)
+        .build();
+
+    ExecutorService result = YouTrackDBEnginesManager.instance().createIoExecutor(config);
+    assertThat(result).isNull();
+  }
+
+  // -- executorMaxSize / executorBaseSize helpers ---------------------------
+
+  @Test
+  public void executorMaxSizeUsesConfiguredPositiveValue() {
+    // Test the happy path: config provides a positive value.
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE, 16)
+        .build();
+    int result = YouTrackDBEnginesManager.executorMaxSize(
+        config, GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
+    assertThat(result).isEqualTo(16);
+  }
+
+  @Test
+  public void executorMaxSizeFallsToCpuCountWhenZero() {
+    // When the configured value is 0, executorMaxSize should log a warning
+    // and fall back to the number of available CPUs.
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE, 0)
+        .build();
+    int result = YouTrackDBEnginesManager.executorMaxSize(
+        config, GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
+    assertThat(result).isEqualTo(Runtime.getRuntime().availableProcessors());
+  }
+
+  @Test
+  public void executorMaxSizeFallsToCpuCountWhenNegative() {
+    // When the configured value is -1, executorMaxSize should use CPU count.
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE, -1)
+        .build();
+    int result = YouTrackDBEnginesManager.executorMaxSize(
+        config, GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
+    assertThat(result).isEqualTo(Runtime.getRuntime().availableProcessors());
+  }
+
+  @Test
+  public void executorBaseSizeForLargePool() {
+    // size > 10: baseSize should be size / 10
+    assertThat(YouTrackDBEnginesManager.executorBaseSize(20)).isEqualTo(2);
+    assertThat(YouTrackDBEnginesManager.executorBaseSize(100)).isEqualTo(10);
+  }
+
+  @Test
+  public void executorBaseSizeForMediumPool() {
+    // 4 < size <= 10: baseSize should be size / 2
+    assertThat(YouTrackDBEnginesManager.executorBaseSize(6)).isEqualTo(3);
+    assertThat(YouTrackDBEnginesManager.executorBaseSize(10)).isEqualTo(5);
+  }
+
+  @Test
+  public void executorBaseSizeForSmallPool() {
+    // size <= 4: baseSize should be size itself
+    assertThat(YouTrackDBEnginesManager.executorBaseSize(4)).isEqualTo(4);
+    assertThat(YouTrackDBEnginesManager.executorBaseSize(1)).isEqualTo(1);
+  }
+
+  // -- shutdownExecutor ----------------------------------------------------
+
+  /** Normal case: executor terminates within timeout. */
+  @Test
+  public void shutdownExecutorTerminatesGracefully() throws Exception {
+    var exec = java.util.concurrent.Executors.newSingleThreadExecutor();
+    // Submit a quick task so the executor has something to do.
+    exec.submit(() -> {});
+    YouTrackDBEnginesManager.shutdownExecutor(exec, "test", 5, TimeUnit.SECONDS);
+    assertThat(exec.isShutdown()).isTrue();
+  }
+
+  /** When executor does not terminate within timeout, shutdownNow() is called. */
+  @Test
+  public void shutdownExecutorForcesTerminationOnTimeout() throws Exception {
+    var exec = java.util.concurrent.Executors.newSingleThreadExecutor();
+    // Submit a task that blocks for a long time.
+    var started = new CountDownLatch(1);
+    exec.submit(() -> {
+      started.countDown();
+      try {
+        Thread.sleep(60_000);
+      } catch (InterruptedException e) {
+        // Expected — shutdownNow() will interrupt this.
+      }
+      return null;
+    });
+    // Wait for the task to start before shutting down.
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+    // With a very short timeout, awaitTermination returns false → shutdownNow() is called.
+    YouTrackDBEnginesManager.shutdownExecutor(exec, "test", 1, TimeUnit.MILLISECONDS);
+    assertThat(exec.isShutdown()).isTrue();
+  }
+
+  /** Passing null executor is a safe no-op. */
+  @Test
+  public void shutdownExecutorHandlesNull() {
+    YouTrackDBEnginesManager.shutdownExecutor(null, "none", 1, TimeUnit.SECONDS);
+    // No exception means success.
+  }
+
   // -- Thread groups -------------------------------------------------------
 
   @Test
-  public void storageThreadGroupIsChildOfMainThreadGroup() {
+  public void storageThreadGroupIsNotChildOfMainThreadGroup() {
+    // The storage thread group must NOT be a descendant of the main thread group,
+    // so that threadGroup.interrupt() during shutdown does not disrupt storage operations.
     var manager = YouTrackDBEnginesManager.instance();
     assertThat(manager.getStorageThreadGroup()).isNotNull();
     assertThat(manager.getStorageThreadGroup().getParent())
-        .isSameAs(manager.getThreadGroup());
+        .isNotSameAs(manager.getThreadGroup());
   }
 
   @Test

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.profiler;
 
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -57,5 +58,28 @@ public class GranularTickerTest {
     } finally {
       scheduler.shutdownNow();
     }
+  }
+
+  /** Calling stop() on a ticker that was never started should be a safe no-op. */
+  @Test
+  public void stopWithoutStartIsNoOp() {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try {
+      var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(10),
+          TimeUnit.MILLISECONDS.toNanos(50), scheduler);
+      // stop() without start() — the scheduled futures are null, so nothing to cancel.
+      ticker.stop();
+      // No exception means success.
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /** Constructor should reject null executor. */
+  @Test
+  public void constructorRejectsNullExecutor() {
+    assertThatThrownBy(
+        () -> new GranularTicker(10_000_000, 10_000_000, null))
+        .isInstanceOf(NullPointerException.class);
   }
 }

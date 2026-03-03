@@ -1190,7 +1190,8 @@ public final class WOWCache extends AbstractWriteCache
     } finally {
       filesLock.releaseReadLock();
     }
-    commitExecutor().submit(new EnsurePageIsValidInFileTask(internalFileId(fileId), pageIndex, this));
+    commitExecutor().submit(
+        new EnsurePageIsValidInFileTask(internalFileId(fileId), pageIndex, this));
 
     return pageIndex;
   }

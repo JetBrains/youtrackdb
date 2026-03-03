@@ -33,10 +33,10 @@ import com.jetbrains.youtrackdb.internal.common.util.ClassLoaderHelper;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCacheFactory;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCacheFactoryImpl;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategyFactory;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
@@ -211,7 +211,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     this.insideWebContainer = insideWebContainer;
     this.os = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
     threadGroup = new ThreadGroup("YouTrackDB");
-    storageThreadGroup = new ThreadGroup(threadGroup, "YouTrackDB Storage");
+    // Storage thread group is intentionally NOT a child of threadGroup so that
+    // threadGroup.interrupt() during shutdown does not disrupt in-progress WAL
+    // or cache flush operations.
+    storageThreadGroup = new ThreadGroup("YouTrackDB Storage");
 
     // Storage pools — single-threaded for sequential execution guarantees.
     walFlushExecutor = ThreadPoolExecutors.newSingleThreadScheduledPool(
@@ -725,7 +728,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
-  private static int executorMaxSize(YouTrackDBConfigImpl config, GlobalConfiguration param) {
+  static int executorMaxSize(YouTrackDBConfigImpl config, GlobalConfiguration param) {
     var size = config.getConfiguration().getValueAsInteger(param);
     if (size == 0) {
       LogManager.instance()
@@ -739,7 +742,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return size;
   }
 
-  private static int executorBaseSize(int size) {
+  static int executorBaseSize(int size) {
     int baseSize;
     if (size > 10) {
       baseSize = size / 10;
@@ -749,6 +752,29 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       baseSize = size;
     }
     return baseSize;
+  }
+
+  /**
+   * Gracefully shuts down an executor: calls {@code shutdown()}, waits up to the given timeout,
+   * and falls back to {@code shutdownNow()} if the executor does not terminate in time or the
+   * waiting thread is interrupted.
+   */
+  static void shutdownExecutor(
+      @Nullable ExecutorService exec, String name, long timeout, TimeUnit unit) {
+    if (exec == null) {
+      return;
+    }
+    exec.shutdown();
+    try {
+      if (!exec.awaitTermination(timeout, unit)) {
+        LogManager.instance()
+            .warn(YouTrackDBEnginesManager.class, "Forcing shutdown of %s", name);
+        exec.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      exec.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 
   public DatabaseThreadLocalFactory getDatabaseThreadFactory() {
@@ -922,7 +948,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * <p>Infrastructure pools (storage pools, scheduled pool) are NOT shut down here because
    * they are created in the constructor and must survive across shutdown/startup cycles
    * (tests call {@link #shutdown()} then {@link #startup()} on the same instance).
-   * These pools are terminated when the JVM shuts down or the manager is garbage-collected.
+   * These pools use daemon threads and are terminated automatically when the JVM shuts down.
    */
   private class ShutdownPendingThreadsHandler implements ShutdownHandler {
 
@@ -937,29 +963,13 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
       // Shut down lazily-created main/IO executors and reset to null
       // so they can be re-created on next startup.
-      shutdownExecutor(executor, "main executor");
+      shutdownExecutor(executor, "main executor", 1, TimeUnit.MINUTES);
       executor = null;
-      shutdownExecutor(ioExecutor, "IO executor");
+      shutdownExecutor(ioExecutor, "IO executor", 1, TimeUnit.MINUTES);
       ioExecutor = null;
 
       if (threadGroup != null) {
         threadGroup.interrupt();
-      }
-    }
-
-    private void shutdownExecutor(@Nullable ExecutorService exec, String name) {
-      if (exec == null) {
-        return;
-      }
-      exec.shutdown();
-      try {
-        if (!exec.awaitTermination(1, TimeUnit.MINUTES)) {
-          LogManager.instance().warn(this, "Forcing shutdown of %s", name);
-          exec.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        exec.shutdownNow();
-        Thread.currentThread().interrupt();
       }
     }
 

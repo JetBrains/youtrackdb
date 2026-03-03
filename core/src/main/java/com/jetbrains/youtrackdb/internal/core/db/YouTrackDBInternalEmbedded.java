@@ -151,9 +151,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     }
   }
 
-
-
-
   private boolean getBoolConfig(GlobalConfiguration config) {
     return this.configuration.getConfiguration().getValueAsBoolean(config);
   }
@@ -165,9 +162,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private long getLongConfig(GlobalConfiguration config) {
     return this.configuration.getConfiguration().getValueAsLong(config);
   }
-
-
-
 
   private CachedDatabasePoolFactory createCachedDatabasePoolFactory() {
     var capacity = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CAPACITY);

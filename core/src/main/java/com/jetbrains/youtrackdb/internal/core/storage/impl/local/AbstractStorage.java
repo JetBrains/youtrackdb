@@ -34,7 +34,6 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
-
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
@@ -164,7 +163,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -200,8 +198,6 @@ public abstract class AbstractStorage
   private static final Comparator<RecordOperation> COMMIT_RECORD_OPERATION_COMPARATOR =
       Comparator.comparing(
           o -> o.record.getIdentity());
-
-
 
   protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 

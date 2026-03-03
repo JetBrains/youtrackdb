@@ -19,25 +19,21 @@ public final class YouTrackDBScheduler {
 
   public ScheduledFuture<?> scheduleTask(final Runnable task, final long delay,
       final long period) {
-    // Wrap task to catch exceptions and keep periodic tasks alive.
+    // Wrap task to catch throwables and keep periodic tasks alive.
     // An uncaught exception in scheduleWithFixedDelay silently stops all future executions.
-    // Error is intentionally rethrown to stop the task on serious failures.
     Runnable safeTask = () -> {
       try {
         task.run();
-      } catch (Exception e) {
+      } catch (Throwable e) {
         LogManager.instance()
             .error(
                 this,
                 "Error during execution of task " + task.getClass().getSimpleName(),
                 e);
-      } catch (Error e) {
-        LogManager.instance()
-            .error(
-                this,
-                "Error during execution of task " + task.getClass().getSimpleName(),
-                e);
-        throw e;
+        // Re-throw errors (OutOfMemoryError, etc.) to stop the task on serious failures.
+        if (e instanceof Error err) {
+          throw err;
+        }
       }
     };
 

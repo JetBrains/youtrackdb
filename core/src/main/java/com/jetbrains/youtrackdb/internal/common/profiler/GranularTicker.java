@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.profiler;
 
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -24,17 +25,13 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   public GranularTicker(long granularityNanos, long timestampRefreshRate,
       ScheduledExecutorService executor) {
-    this.executor = executor;
+    this.executor = Objects.requireNonNull(executor, "ScheduledExecutorService must not be null");
     this.timestampRefreshRate = timestampRefreshRate;
     this.granularity = granularityNanos;
   }
 
   @Override
   public void start() {
-    if (executor == null) {
-      throw new IllegalStateException(
-          "Cannot start GranularTicker without a ScheduledExecutorService");
-    }
     assert nanoTime == 0 : "Ticker is already started";
     this.nanoTime = System.nanoTime();
     this.nanoTimeDifference = System.currentTimeMillis() - this.nanoTime / 1_000_000;
