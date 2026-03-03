@@ -401,4 +401,193 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       ((YTDBGraphInternal) graph).tx().commit();
     }
   }
+
+  // ── End-to-end: inline string filter ──
+
+  @Test
+  public void buildPlan_stringFilter_matchesVertex() {
+    graph.addVertex(T.label, "MatchStrF", "name", "Alice", "city", "NYC");
+    graph.addVertex(T.label, "MatchStrF", "name", "Bob", "city", "LA");
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchStrF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("city", "NYC")));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for city='NYC'", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline double filter ──
+
+  @Test
+  public void buildPlan_doubleFilter_matchesVertex() {
+    graph.addVertex(T.label, "MatchDblF", "name", "Product1", "price", 19.99);
+    graph.addVertex(T.label, "MatchDblF", "name", "Product2", "price", 29.99);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchDblF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("price", 19.99)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for price=19.99", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline RID filter ──
+
+  @Test
+  public void buildPlan_ridFilter_matchesVertex() {
+    var v1 = graph.addVertex(T.label, "MatchRidF", "name", "RefSource");
+    var v2 = graph.addVertex(T.label, "MatchRidF", "name", "RefTarget");
+    var rid2 = (v2).id();
+    v1.property("ref", rid2);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchRidF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("ref", rid2)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for ref=<rid>", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline list filter ──
+
+  @Test
+  public void buildPlan_listFilter_matchesVertex() {
+    var tags = List.of("java", "database");
+    graph.addVertex(T.label, "MatchListF", "name", "Item1", "tags", tags);
+    graph.addVertex(T.label, "MatchListF", "name", "Item2", "tags", List.of("python", "ml"));
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchListF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("tags", tags)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for tags=['java','database']", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline map filter ──
+
+  @Test
+  public void buildPlan_mapFilter_matchesVertex() {
+    var meta = Map.of("version", "1.0", "author", "Alice");
+    graph.addVertex(T.label, "MatchMapF", "name", "Doc1", "metadata", meta);
+    graph.addVertex(T.label, "MatchMapF", "name", "Doc2", "metadata", Map.of("version", "2.0"));
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchMapF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("metadata", meta)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for metadata={...}", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline date filter ──
+
+  @Test
+  public void buildPlan_dateFilter_matchesVertex() {
+    var date1 = new Date(1704067200000L); // 2024-01-01 00:00:00 UTC
+    var date2 = new Date(1735689600000L); // 2025-01-01 00:00:00 UTC
+    graph.addVertex(T.label, "MatchDateF", "name", "Event1", "eventDate", date1);
+    graph.addVertex(T.label, "MatchDateF", "name", "Event2", "eventDate", date2);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchDateF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("eventDate", date1)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for eventDate=2024-01-01", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline multiple properties filter ──
+
+  @Test
+  public void buildPlan_multiplePropertiesFilter_matchesVertex() {
+    graph.addVertex(T.label, "MatchMultiF", "name", "Alice", "age", 30, "city", "NYC");
+    graph.addVertex(T.label, "MatchMultiF", "name", "Bob", "age", 30, "city", "LA");
+    graph.addVertex(T.label, "MatchMultiF", "name", "Charlie", "age", 25, "city", "NYC");
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchMultiF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("age", 30, "city", "NYC")));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for age=30 AND city='NYC'", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
 }
