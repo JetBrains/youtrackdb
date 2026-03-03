@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
@@ -111,6 +112,21 @@ public interface AtomicOperation {
    * shared index.
    */
   boolean containsVisibilityEntry(VisibilityKey key);
+
+  /**
+   * Returns the histogram delta holder for this transaction, or {@code null}
+   * if no histogram operations have occurred in this transaction yet.
+   */
+  @javax.annotation.Nullable
+  HistogramDeltaHolder getHistogramDeltas();
+
+  /**
+   * Returns the histogram delta holder for this transaction, creating it
+   * lazily if absent. Used by {@code IndexHistogramManager.onPut/onRemove}
+   * to accumulate per-engine deltas within the transaction scope.
+   */
+  @Nonnull
+  HistogramDeltaHolder getOrCreateHistogramDeltas();
 
   @SuppressWarnings("unused")
   boolean isActive();
