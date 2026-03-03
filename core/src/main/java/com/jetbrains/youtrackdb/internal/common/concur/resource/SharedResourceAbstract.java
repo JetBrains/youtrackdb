@@ -19,29 +19,33 @@
  */
 package com.jetbrains.youtrackdb.internal.common.concur.resource;
 
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.StampedLock;
 
 /**
  * Shared resource abstract class. Sub classes can acquire and release shared and exclusive locks.
+ *
+ * <p>Uses {@link StampedLock} internally. The read/write lock views returned by
+ * {@link StampedLock#asReadLock()}/{@link StampedLock#asWriteLock()} provide the same
+ * mutual-exclusion semantics as {@link java.util.concurrent.locks.ReentrantReadWriteLock}
+ * but avoid the AQS CAS overhead on the uncontended read path.
  */
 public abstract class SharedResourceAbstract {
 
-  protected final ReadWriteLock lock = new ReentrantReadWriteLock();
+  protected final StampedLock stampedLock = new StampedLock();
 
   protected void acquireSharedLock() {
-    lock.readLock().lock();
+    stampedLock.asReadLock().lock();
   }
 
   protected void releaseSharedLock() {
-    lock.readLock().unlock();
+    stampedLock.asReadLock().unlock();
   }
 
   protected void acquireExclusiveLock() {
-    lock.writeLock().lock();
+    stampedLock.asWriteLock().lock();
   }
 
   protected void releaseExclusiveLock() {
-    lock.writeLock().unlock();
+    stampedLock.asWriteLock().unlock();
   }
 }

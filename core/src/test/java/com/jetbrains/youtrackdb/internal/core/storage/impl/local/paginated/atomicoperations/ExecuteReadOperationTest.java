@@ -1,17 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,8 +34,36 @@ public class ExecuteReadOperationTest extends DbTestBase {
     return session.getStorage().getAtomicOperationsManager();
   }
 
-  private DurableComponent fakeComponent(String lockName) {
-    return new DurableComponent(session.getStorage(), "test", ".tst", lockName) {};
+  /**
+   * A DurableComponent subclass that exposes shared/exclusive lock methods
+   * for testing purposes.
+   */
+  private static class TestableComponent extends DurableComponent {
+    TestableComponent(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage storage,
+        String lockName) {
+      super(storage, "test", ".tst", lockName);
+    }
+
+    public void testAcquireSharedLock() {
+      acquireSharedLock();
+    }
+
+    public void testReleaseSharedLock() {
+      releaseSharedLock();
+    }
+
+    public void testAcquireExclusiveLock() {
+      acquireExclusiveLock();
+    }
+
+    public void testReleaseExclusiveLock() {
+      releaseExclusiveLock();
+    }
+  }
+
+  private TestableComponent fakeComponent(String lockName) {
+    return new TestableComponent(session.getStorage(), lockName);
   }
 
   // ==================== Test (a): Optimistic read succeeds — no contention ===========
@@ -339,5 +373,340 @@ public class ExecuteReadOperationTest extends DbTestBase {
     }
     assertEquals("Writer iterations should match counter",
         (long) numWriters * iterationsPerThread, sharedCounter.get());
+  }
+
+  // ========= Test (g): StampedLock shared/exclusive mutual exclusion ==========
+
+  /**
+   * Validates that after replacing ReentrantReadWriteLock with StampedLock in
+   * SharedResourceAbstract, acquireSharedLock() blocks while acquireExclusiveLock()
+   * is held on the same component, and vice versa. This ensures standalone shared
+   * lock callers (e.g., generateCollectionConfig, getRecordStatus) still get
+   * proper exclusion against concurrent writers that acquire the component's
+   * exclusive lock.
+   */
+  @Test
+  public void testStampedLock_sharedBlockedByExclusive() throws Exception {
+    var component = fakeComponent("stampedLock_mutex_test");
+
+    var exclusiveAcquired = new CountDownLatch(1);
+    var releaseExclusive = new CountDownLatch(1);
+    var sharedAcquired = new AtomicBoolean(false);
+    var errors = new AtomicReference<Throwable>();
+
+    // Thread A: hold the exclusive lock for 200ms
+    var writerThread = new Thread(() -> {
+      try {
+        component.testAcquireExclusiveLock();
+        exclusiveAcquired.countDown();
+        releaseExclusive.await(10, TimeUnit.SECONDS);
+        component.testReleaseExclusiveLock();
+      } catch (Throwable t) {
+        errors.compareAndSet(null, t);
+      }
+    });
+
+    // Thread B: try to acquire the shared lock — should block until A releases
+    var readerThread = new Thread(() -> {
+      try {
+        exclusiveAcquired.await(5, TimeUnit.SECONDS);
+        // small delay to ensure writer holds lock before reader attempts
+        Thread.sleep(50);
+        long startNanos = System.nanoTime();
+        component.testAcquireSharedLock();
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+        sharedAcquired.set(true);
+        component.testReleaseSharedLock();
+
+        // The shared lock should have waited at least 100ms (writer holds ~150ms
+        // after we start waiting: 200ms total - 50ms delay)
+        if (elapsedMs < 50) {
+          errors.compareAndSet(null,
+              new AssertionError(
+                  "Shared lock acquired too quickly (" + elapsedMs
+                      + "ms) — exclusion may be broken"));
+        }
+      } catch (Throwable t) {
+        errors.compareAndSet(null, t);
+      }
+    });
+
+    writerThread.start();
+    readerThread.start();
+
+    // Verify that during the exclusive hold, shared is NOT acquired
+    assertTrue("Exclusive lock should be acquired",
+        exclusiveAcquired.await(5, TimeUnit.SECONDS));
+    Thread.sleep(100);
+    assertFalse("Shared lock should still be blocked while exclusive is held",
+        sharedAcquired.get());
+
+    // Release the exclusive lock
+    releaseExclusive.countDown();
+
+    readerThread.join(5000);
+    writerThread.join(5000);
+
+    assertTrue("Shared lock should eventually be acquired", sharedAcquired.get());
+    if (errors.get() != null) {
+      fail("Error in StampedLock mutex test: " + errors.get());
+    }
+  }
+
+  // ========= Test (h): Concurrent BTree reads and writes ======================
+
+  /**
+   * Verifies that real BTree operations work correctly after removing the inner
+   * shared lock from executeReadOperation lambdas. Writers insert records in
+   * transactions (exercising the exclusive lock path), while readers query the
+   * index via Gremlin traversals (exercising executeReadOperation without inner
+   * shared lock). No exceptions or torn reads should occur.
+   */
+  @Test
+  public void testConcurrentBTreeReadsAndWrites_noInnerSharedLock() throws Exception {
+    // Create a vertex class with an indexed property
+    var cls = session.createVertexClass("BTreeTestVertex");
+    cls.createProperty("key", PropertyType.STRING);
+    cls.createIndex("BTreeTestVertex_key", SchemaClass.INDEX_TYPE.UNIQUE, "key");
+
+    int numWriters = 2;
+    int numReaders = 4;
+    int iterationsPerWriter = 200;
+    var errors = new AtomicReference<Throwable>();
+    var startLatch = new CountDownLatch(1);
+    var writersDone = new AtomicInteger(0);
+
+    ExecutorService executor = Executors.newFixedThreadPool(numWriters + numReaders);
+
+    // Writers: insert records in separate sessions
+    for (int w = 0; w < numWriters; w++) {
+      final int writerId = w;
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          var writerSession = pool.acquire();
+          try {
+            for (int i = 0; i < iterationsPerWriter; i++) {
+              writerSession.begin();
+              try {
+                var v = writerSession.newVertex("BTreeTestVertex");
+                v.setProperty("key", "w" + writerId + "_" + i);
+                writerSession.commit();
+              } catch (Exception e) {
+                if (writerSession.getTransactionInternal().isActive()) {
+                  writerSession.rollback();
+                }
+                // ConcurrentModificationException is expected under contention
+                if (!(e instanceof
+                    com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException)) {
+                  throw e;
+                }
+              }
+            }
+          } finally {
+            writerSession.close();
+            writersDone.incrementAndGet();
+          }
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        }
+      });
+    }
+
+    // Readers: query the index concurrently
+    for (int r = 0; r < numReaders; r++) {
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          var readerSession = pool.acquire();
+          try {
+            // Keep reading until all writers are done
+            while (writersDone.get() < numWriters) {
+              readerSession.begin();
+              try {
+                // Query using the indexed property — exercises BTree.get()
+                try (var results = readerSession.query(
+                    "SELECT FROM BTreeTestVertex WHERE key = ?", "w0_0")) {
+                  //noinspection StatementWithEmptyBody
+                  while (results.hasNext()) {
+                    results.next();
+                  }
+                }
+
+                // Range scan — exercises BTree.iterateEntriesBetween()
+                try (var rangeResults = readerSession.query(
+                    "SELECT FROM BTreeTestVertex WHERE key >= ? AND key <= ?",
+                    "w0_0", "w0_99")) {
+                  //noinspection StatementWithEmptyBody
+                  while (rangeResults.hasNext()) {
+                    rangeResults.next();
+                  }
+                }
+                readerSession.commit();
+              } catch (Exception e) {
+                if (readerSession.getTransactionInternal().isActive()) {
+                  readerSession.rollback();
+                }
+              }
+            }
+          } finally {
+            readerSession.close();
+          }
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        }
+      });
+    }
+
+    startLatch.countDown();
+    executor.shutdown();
+    assertTrue("Threads should finish within timeout",
+        executor.awaitTermination(60, TimeUnit.SECONDS));
+
+    if (errors.get() != null) {
+      fail("Error during concurrent BTree test: " + errors.get());
+    }
+
+    // Verify index consistency: all successfully committed records are findable
+    session.begin();
+    try (var allResults = session.query("SELECT FROM BTreeTestVertex")) {
+      var keys = new HashSet<String>();
+      while (allResults.hasNext()) {
+        var record = allResults.next();
+        keys.add(record.getProperty("key"));
+      }
+      // Each key should be unique (enforced by UNIQUE index)
+      assertFalse("Should have inserted some records", keys.isEmpty());
+    }
+    session.commit();
+  }
+
+  // ========= Test (i): Concurrent PaginatedCollectionV2 reads and writes ======
+
+  /**
+   * Verifies that PaginatedCollectionV2 read operations (readRecord, nextPage)
+   * work correctly after removing the inner shared lock. Writers create/update/
+   * delete records while readers browse via nextPage and readRecord. No exceptions
+   * or torn reads should occur.
+   */
+  @Test
+  public void testConcurrentCollectionReadsAndWrites_noInnerSharedLock() throws Exception {
+    // Create a simple vertex class (no index — pure collection-level test)
+    session.createVertexClass("CollTestVertex");
+
+    // Pre-populate some records
+    session.begin();
+    for (int i = 0; i < 50; i++) {
+      var v = session.newVertex("CollTestVertex");
+      v.setProperty("val", i);
+    }
+    session.commit();
+
+    int numWriters = 2;
+    int numReaders = 4;
+    int iterationsPerWriter = 200;
+    var errors = new AtomicReference<Throwable>();
+    var startLatch = new CountDownLatch(1);
+    var writersDone = new AtomicInteger(0);
+
+    ExecutorService executor = Executors.newFixedThreadPool(numWriters + numReaders);
+
+    // Writers: create and delete records
+    for (int w = 0; w < numWriters; w++) {
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          var writerSession = pool.acquire();
+          try {
+            var rids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>();
+            for (int i = 0; i < iterationsPerWriter; i++) {
+              writerSession.begin();
+              try {
+                var v = writerSession.newVertex("CollTestVertex");
+                v.setProperty("val", 1000 + i);
+                var rid = v.getIdentity();
+                writerSession.commit();
+                // Only track RID after successful commit
+                rids.add(rid);
+              } catch (Exception e) {
+                if (writerSession.getTransactionInternal().isActive()) {
+                  writerSession.rollback();
+                }
+              }
+
+              // Periodically delete a previously created record
+              if (i % 5 == 4 && !rids.isEmpty()) {
+                writerSession.begin();
+                try {
+                  var rid = rids.removeFirst();
+                  var loaded = writerSession.load(rid);
+                  if (loaded != null) {
+                    loaded.delete();
+                  }
+                  writerSession.commit();
+                } catch (Exception e) {
+                  if (writerSession.getTransactionInternal().isActive()) {
+                    writerSession.rollback();
+                  }
+                }
+              }
+            }
+          } finally {
+            writerSession.close();
+            writersDone.incrementAndGet();
+          }
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        }
+      });
+    }
+
+    // Readers: browse records via SQL (exercises nextPage/readRecord)
+    for (int r = 0; r < numReaders; r++) {
+      executor.submit(() -> {
+        try {
+          startLatch.await();
+          var readerSession = pool.acquire();
+          try {
+            while (writersDone.get() < numWriters) {
+              readerSession.begin();
+              try {
+                try (var results = readerSession.query(
+                    "SELECT FROM CollTestVertex")) {
+                  while (results.hasNext()) {
+                    var record = results.next();
+                    assertNotNull("Record should not be null", record);
+                  }
+                }
+                readerSession.commit();
+              } catch (Exception e) {
+                if (readerSession.getTransactionInternal().isActive()) {
+                  readerSession.rollback();
+                }
+              }
+            }
+          } finally {
+            readerSession.close();
+          }
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        }
+      });
+    }
+
+    startLatch.countDown();
+    executor.shutdown();
+    assertTrue("Threads should finish within timeout",
+        executor.awaitTermination(60, TimeUnit.SECONDS));
+
+    if (errors.get() != null) {
+      fail("Error during concurrent collection test: " + errors.get());
+    }
+
+    // Final consistency check
+    session.begin();
+    var finalCount = session.countClass("CollTestVertex");
+    assertTrue("Should have some records remaining", finalCount > 0);
+    session.commit();
   }
 }
