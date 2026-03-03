@@ -392,12 +392,11 @@ public final class LockFreeReadCache implements ReadCache {
 
   private void afterRead(final CacheEntry entry) {
     var batch = readBatch.get();
+    batch.entries[batch.size++] = entry;
 
     if (batch.size >= READ_BATCH_SIZE) {
       flushReadBatch(batch);
     }
-
-    batch.entries[batch.size++] = entry;
   }
 
   private void flushReadBatch(final ReadBatch batch) {
