@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -164,6 +166,21 @@ class MatchResultRow extends ResultInternal {
     } else if (content != null) {
       content.remove(name);
     }
+  }
+
+  @Nullable
+  @Override
+  public RID getLink(@Nonnull String name) {
+    assert checkSession();
+    // Override to go through the layered getProperty() rather than the inherited
+    // implementation which would skip the parent chain (content and identifiable
+    // are both null in MatchResultRow).
+    Object result = getProperty(name);
+    return switch (result) {
+      case null -> null;
+      case Identifiable id -> id.getIdentity();
+      default -> throw new IllegalStateException("Property " + name + " is not a link");
+    };
   }
 
   @Override

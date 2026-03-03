@@ -604,7 +604,17 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public RID getLink(@Nonnull String name) {
     assert checkSession();
-    Object result = getProperty(name);
+    // Delegate to entity's getLink() directly instead of getProperty() to avoid
+    // lazy-loading the linked record into the local cache. EntityImpl.getLink()
+    // uses getPropertyInternal(name, false) which returns the raw RID without
+    // resolving it, while getProperty() uses lazyLoad=true which would call
+    // session.load(rid) and pollute the cache.
+    Object result = null;
+    if (content != null && content.containsKey(name)) {
+      result = content.get(name);
+    } else if (isEntity()) {
+      return asEntity().getLink(name);
+    }
 
     return switch (result) {
       case null -> null;
