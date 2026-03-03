@@ -160,6 +160,67 @@ public class UTF8Serializer implements BinarySerializer<String> {
   }
 
   @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    // Read UTF-8 byte lengths from both sources
+    final var pageByteLen = buffer.getShort(bufferOffset) & INT_MASK;
+    final var searchByteLen =
+        ShortSerializer.INSTANCE.deserializeNative(serializedKey, keyOffset) & INT_MASK;
+
+    var pagePos = bufferOffset + ShortSerializer.SHORT_SIZE;
+    var searchPos = keyOffset + ShortSerializer.SHORT_SIZE;
+
+    final var pageEnd = pagePos + pageByteLen;
+    final var searchEnd = searchPos + searchByteLen;
+
+    // Decode one UTF-8 char at a time from each side and compare as UTF-16 code units.
+    // This preserves String.compareTo() semantics.
+    while (pagePos < pageEnd && searchPos < searchEnd) {
+      final var pb0 = buffer.get(pagePos) & 0xFF;
+      final var sb0 = serializedKey[searchPos] & 0xFF;
+
+      final char pageChar;
+      if (pb0 < 0x80) {
+        pageChar = (char) pb0;
+        pagePos++;
+      } else if ((pb0 >> 5) == 0x06) {
+        pageChar = (char) (((pb0 & 0x1F) << 6) | (buffer.get(pagePos + 1) & 0x3F));
+        pagePos += 2;
+      } else {
+        pageChar = (char) (((pb0 & 0x0F) << 12)
+            | ((buffer.get(pagePos + 1) & 0x3F) << 6)
+            | (buffer.get(pagePos + 2) & 0x3F));
+        pagePos += 3;
+      }
+
+      final char searchChar;
+      if (sb0 < 0x80) {
+        searchChar = (char) sb0;
+        searchPos++;
+      } else if ((sb0 >> 5) == 0x06) {
+        searchChar = (char) (((sb0 & 0x1F) << 6) | (serializedKey[searchPos + 1] & 0x3F));
+        searchPos += 2;
+      } else {
+        searchChar = (char) (((sb0 & 0x0F) << 12)
+            | ((serializedKey[searchPos + 1] & 0x3F) << 6)
+            | (serializedKey[searchPos + 2] & 0x3F));
+        searchPos += 3;
+      }
+
+      if (pageChar != searchChar) {
+        return Character.compare(pageChar, searchChar);
+      }
+    }
+
+    // If one side has remaining chars, that side is greater
+    final var pageRemaining = pageEnd - pagePos;
+    final var searchRemaining = searchEnd - searchPos;
+    return Integer.compare(pageRemaining, searchRemaining);
+  }
+
+  @Override
   public byte[] serializeNativeAsWhole(BinarySerializerFactory serializerFactory, String object,
       Object... hints) {
     final var encoded = object.getBytes(StandardCharsets.UTF_8);

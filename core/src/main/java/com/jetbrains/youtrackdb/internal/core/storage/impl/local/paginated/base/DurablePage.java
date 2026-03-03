@@ -231,6 +231,30 @@ public class DurablePage {
     return binarySerializer.getObjectSizeInByteBuffer(buffer, changes, offset);
   }
 
+  /**
+   * Compares a key stored on this page against a pre-serialized search key without deserializing
+   * the on-page key. On the hot path (no WAL changes), delegates to the serializer's in-buffer
+   * comparison. Falls back to deserialization when WAL changes are present.
+   */
+  @SuppressWarnings("unchecked")
+  protected final <T> int compareKeyInDirectMemory(
+      final BinarySerializer<T> serializer, BinarySerializerFactory serializerFactory,
+      final int pageOffset, final byte[] searchKey, final int searchKeyOffset) {
+    if (changes == null) {
+      assert buffer != null;
+      assert buffer.order() == ByteOrder.nativeOrder();
+
+      return serializer.compareInByteBuffer(
+          serializerFactory, pageOffset, buffer, searchKey, searchKeyOffset);
+    }
+    // WAL changes present: fall back to deserialization
+    T pageValue = serializer.deserializeFromByteBufferObject(
+        serializerFactory, buffer, changes, pageOffset);
+    T searchValue = serializer.deserializeNativeObject(
+        serializerFactory, searchKey, searchKeyOffset);
+    return ((Comparable<T>) pageValue).compareTo(searchValue);
+  }
+
   protected final <T> T deserializeFromDirectMemory(
       final BinarySerializer<T> binarySerializer, BinarySerializerFactory serializerFactory,
       final int offset) {

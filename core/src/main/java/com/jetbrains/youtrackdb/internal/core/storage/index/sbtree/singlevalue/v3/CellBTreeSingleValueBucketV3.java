@@ -110,6 +110,38 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     return -(low + 1); // key not found.
   }
 
+  /**
+   * Binary search using a pre-serialized search key, comparing directly in the page buffer
+   * without deserializing on-page keys. Eliminates object allocation during search.
+   */
+  public int find(final byte[] serializedKey, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
+    var low = 0;
+    var high = size() - 1;
+
+    while (low <= high) {
+      final var mid = (low + high) >>> 1;
+      var entryPosition = getPointer(mid);
+
+      if (!isLeaf()) {
+        entryPosition += 2 * IntegerSerializer.INT_SIZE;
+      }
+
+      final var cmp = compareKeyInDirectMemory(
+          keySerializer, serializerFactory, entryPosition, serializedKey, 0);
+
+      if (cmp < 0) {
+        low = mid + 1;
+      } else if (cmp > 0) {
+        high = mid - 1;
+      } else {
+        return mid;
+      }
+    }
+
+    return -(low + 1);
+  }
+
   public int removeLeafEntry(final int entryIndex, byte[] key) {
     final var entryPosition = getPointer(entryIndex);
 

@@ -454,4 +454,67 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
   public int getObjectSizeInByteBuffer(ByteBuffer buffer, WALChanges walChanges, int offset) {
     return walChanges.getIntValue(buffer, offset);
   }
+
+  /**
+   * Compares a composite key stored in a page ByteBuffer against a serialized search key byte[]
+   * without deserializing either side. Walks fields in both the page buffer and search key,
+   * delegating to each field's serializer's compareInByteBuffer(). Stops at first non-zero
+   * comparison or when the shorter key is exhausted.
+   */
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    // Skip total size int in both
+    bufferOffset += IntegerSerializer.INT_SIZE;
+    keyOffset += IntegerSerializer.INT_SIZE;
+
+    // Read number of keys from both
+    final var pageKeysSize = buffer.getInt(bufferOffset);
+    final var searchKeysSize = IntegerSerializer.deserializeNative(serializedKey, keyOffset);
+
+    bufferOffset += IntegerSerializer.INT_SIZE;
+    keyOffset += IntegerSerializer.INT_SIZE;
+
+    final var minKeys = Math.min(pageKeysSize, searchKeysSize);
+    for (var i = 0; i < minKeys; i++) {
+      final var pageSerializerId = buffer.get(bufferOffset);
+      final var searchSerializerId = serializedKey[keyOffset];
+
+      bufferOffset += BinarySerializerFactory.TYPE_IDENTIFIER_SIZE;
+      keyOffset += BinarySerializerFactory.TYPE_IDENTIFIER_SIZE;
+
+      // Both null - equal, continue to next field
+      if (pageSerializerId == NullSerializer.ID && searchSerializerId == NullSerializer.ID) {
+        continue;
+      }
+      // Page null < any non-null
+      if (pageSerializerId == NullSerializer.ID) {
+        return -1;
+      }
+      // Any non-null > search null
+      if (searchSerializerId == NullSerializer.ID) {
+        return 1;
+      }
+
+      @SuppressWarnings("unchecked")
+      var pageSerializer =
+          (BinarySerializer<Object>) serializerFactory.getObjectSerializer(pageSerializerId);
+
+      final var cmp = pageSerializer.compareInByteBuffer(
+          serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      if (cmp != 0) {
+        return cmp;
+      }
+
+      // Advance both positions past this field
+      bufferOffset += pageSerializer.getObjectSizeInByteBuffer(
+          serializerFactory, bufferOffset, buffer);
+      keyOffset += pageSerializer.getObjectSizeNative(
+          serializerFactory, serializedKey, keyOffset);
+    }
+
+    return Integer.compare(pageKeysSize, searchKeysSize);
+  }
 }
