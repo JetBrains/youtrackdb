@@ -141,20 +141,12 @@ public class GqlMatchStatement implements GqlStatement {
   }
 
   /// Converts a parsed Java literal value into an `SQLExpression` that the SQL engine
-  /// can evaluate. Uses dedicated SQL AST nodes where available (strings → `SQLBaseExpression`,
-  /// RIDs → `SQLRid`) and falls back to `jjtSetValue()` for types where `SQLExpression.execute()`
-  /// returns the raw value via its fallback path.
-  ///
-  /// Supported types:
-  /// - String → SQLBaseExpression
-  /// - RecordIdInternal (LINK) → SQLRid
-  /// - Number (Long, Double, BigDecimal, etc.) → jjtSetValue
-  /// - Boolean → jjtSetValue
-  /// - Date (DATE, DATETIME, TIMESTAMP) → jjtSetValue
-  /// - List (EMBEDDEDLIST, LINKLIST) → jjtSetValue
-  /// - Set (EMBEDDEDSET, LINKSET) → jjtSetValue
-  /// - Map (EMBEDDEDMAP, LINKMAP, EMBEDDED) → jjtSetValue
-  /// - byte[] (BINARY) → jjtSetValue
+  /// can evaluate. Uses dedicated SQL AST fields that survive `SQLExpression.copy()`:
+  /// - String → `SQLBaseExpression` via `setMathExpression`
+  /// - RecordIdInternal (LINK) → `SQLRid` via `setRid`
+  /// - Number → `SQLBaseExpression(SQLInteger)` via `setMathExpression`
+  /// - Boolean → `setBooleanValue`
+  /// - Date, List, Set, Map, byte[] → `setLiteralValue` (opaque value preserved through copy)
   private static SQLExpression toLiteral(Object value) {
     var expr = new SQLExpression(-1);
     if (value instanceof String s) {
@@ -173,11 +165,20 @@ public class GqlMatchStatement implements GqlStatement {
       expr.setRid(sqlRid);
       return expr;
     }
-    if (value instanceof Number || value instanceof Boolean
-        || value instanceof Date || value instanceof List<?>
+    if (value instanceof Number n) {
+      var integer = new SQLInteger(-1);
+      integer.setValue(n);
+      expr.setMathExpression(new SQLBaseExpression(integer));
+      return expr;
+    }
+    if (value instanceof Boolean b) {
+      expr.setBooleanValue(b);
+      return expr;
+    }
+    if (value instanceof Date || value instanceof List<?>
         || value instanceof Map<?, ?> || value instanceof byte[]
         || value instanceof java.util.Set<?>) {
-      expr.jjtSetValue(value);
+      expr.setLiteralValue(value);
       return expr;
     }
     throw new IllegalArgumentException("Unsupported property value type: " + value.getClass());
