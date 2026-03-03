@@ -95,10 +95,13 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
   /// - STRING: `'text'`
   /// - BOOLEAN: `true` / `false`
   /// - Integer numbers: `42` (→ Long, covers BYTE/SHORT/INTEGER/LONG)
-  /// - Decimal numbers: `3.14` (→ Double, covers FLOAT/DOUBLE/DECIMAL)
+  /// - Decimal numbers: `3.14` (→ Double, covers FLOAT/DOUBLE)
+  /// - DECIMAL: `DECIMAL '123.456'` (→ BigDecimal, for precision)
+  /// - BINARY: `BINARY 'SGVsbG8='` (→ byte[], Base64 encoded)
   /// - RID: `#12:0` (→ RecordIdInternal, covers LINK)
   /// - Temporal: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'` (→ Date)
-  /// - List: `[1, 2, 3]` (→ List, covers EMBEDDEDLIST/EMBEDDEDSET/LINKLIST/LINKSET)
+  /// - List: `[1, 2, 3]` (→ List, covers EMBEDDEDLIST/LINKLIST)
+  /// - Set: `SET [1, 2, 3]` (→ Set, covers EMBEDDEDSET/LINKSET)
   /// - Map: `{key: 'value'}` (→ Map, covers EMBEDDEDMAP/LINKMAP/EMBEDDED)
   static Object extractLiteralValue(GQLParser.Value_expressionContext valueCtx) {
     if (valueCtx.STRING() != null) {
@@ -112,6 +115,14 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
     if (valueCtx.temporal_literal() != null) {
       return extractTemporalValue(valueCtx.temporal_literal());
+    }
+
+    if (valueCtx.binary_literal() != null) {
+      return extractBinaryValue(valueCtx.binary_literal());
+    }
+
+    if (valueCtx.decimal_literal() != null) {
+      return extractDecimalValue(valueCtx.decimal_literal());
     }
 
     if (valueCtx.list_literal() != null) {
@@ -185,6 +196,22 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
       result.put(key, value);
     }
     return result;
+  }
+
+  /// Extracts a BINARY literal value: `BINARY 'SGVsbG8='` → byte[]
+  /// The string is decoded from Base64.
+  private static byte[] extractBinaryValue(GQLParser.Binary_literalContext ctx) {
+    var base64 = ctx.STRING().getText();
+    base64 = base64.substring(1, base64.length() - 1); // Remove quotes
+    return Base64.getDecoder().decode(base64);
+  }
+
+  /// Extracts a DECIMAL literal value: `DECIMAL '123.456'` → BigDecimal
+  /// Provides arbitrary precision for financial/scientific calculations.
+  private static java.math.BigDecimal extractDecimalValue(GQLParser.Decimal_literalContext ctx) {
+    var decimalStr = ctx.STRING().getText();
+    decimalStr = decimalStr.substring(1, decimalStr.length() - 1); // Remove quotes
+    return new java.math.BigDecimal(decimalStr);
   }
 
   /// Decodes a Base64-encoded string into a byte array.

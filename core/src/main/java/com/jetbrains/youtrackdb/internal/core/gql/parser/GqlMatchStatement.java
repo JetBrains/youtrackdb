@@ -144,6 +144,17 @@ public class GqlMatchStatement implements GqlStatement {
   /// can evaluate. Uses dedicated SQL AST nodes where available (strings → `SQLBaseExpression`,
   /// RIDs → `SQLRid`) and falls back to `jjtSetValue()` for types where `SQLExpression.execute()`
   /// returns the raw value via its fallback path.
+  ///
+  /// Supported types:
+  /// - String → SQLBaseExpression
+  /// - RecordIdInternal (LINK) → SQLRid
+  /// - Number (Long, Double, BigDecimal, etc.) → jjtSetValue
+  /// - Boolean → jjtSetValue
+  /// - Date (DATE, DATETIME, TIMESTAMP) → jjtSetValue
+  /// - List (EMBEDDEDLIST, LINKLIST) → jjtSetValue
+  /// - Set (EMBEDDEDSET, LINKSET) → jjtSetValue
+  /// - Map (EMBEDDEDMAP, LINKMAP, EMBEDDED) → jjtSetValue
+  /// - byte[] (BINARY) → jjtSetValue
   private static SQLExpression toLiteral(Object value) {
     var expr = new SQLExpression(-1);
     if (value instanceof String s) {
@@ -164,7 +175,8 @@ public class GqlMatchStatement implements GqlStatement {
     }
     if (value instanceof Number || value instanceof Boolean
         || value instanceof Date || value instanceof List<?>
-        || value instanceof Map<?, ?> || value instanceof byte[]) {
+        || value instanceof Map<?, ?> || value instanceof byte[]
+        || value instanceof java.util.Set<?>) {
       expr.jjtSetValue(value);
       return expr;
     }

@@ -5,9 +5,9 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -460,7 +460,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   public void buildPlan_ridFilter_matchesVertex() {
     var v1 = graph.addVertex(T.label, "MatchRidF", "name", "RefSource");
     var v2 = graph.addVertex(T.label, "MatchRidF", "name", "RefTarget");
-    var rid2 = (v2).id();
+    var rid2 = v2.id();
     v1.property("ref", rid2);
     graph.tx().commit();
 
@@ -586,6 +586,127 @@ public class GqlMatchStatementTest extends GraphBaseTest {
         count++;
       }
       Assert.assertEquals("Expected exactly 1 match for age=30 AND city='NYC'", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline BINARY filter ──
+
+  @Test
+  public void buildPlan_binaryFilter_matchesVertex() {
+    var data1 = "Hello".getBytes();
+    var data2 = "World".getBytes();
+    graph.addVertex(T.label, "MatchBinF", "name", "File1", "data", data1);
+    graph.addVertex(T.label, "MatchBinF", "name", "File2", "data", data2);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchBinF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("data", data1)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for data=<binary>", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline DECIMAL filter ──
+
+  @Test
+  public void buildPlan_decimalFilter_matchesVertex() {
+    var price1 = new java.math.BigDecimal("19.99");
+    var price2 = new java.math.BigDecimal("29.99");
+    graph.addVertex(T.label, "MatchDecF", "name", "Item1", "price", price1);
+    graph.addVertex(T.label, "MatchDecF", "name", "Item2", "price", price2);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchDecF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("price", price1)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for price=19.99 (BigDecimal)", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline Set (EMBEDDEDSET) filter ──
+
+  @Test
+  public void buildPlan_setFilter_matchesVertex() {
+    var tags1 = java.util.Set.of("java", "database");
+    var tags2 = java.util.Set.of("python", "ml");
+    graph.addVertex(T.label, "MatchSetF", "name", "Item1", "tags", tags1);
+    graph.addVertex(T.label, "MatchSetF", "name", "Item2", "tags", tags2);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchSetF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("tags", tags1)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for tags={java,database}", 1, count);
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── End-to-end: inline Set of RIDs (LINKSET) filter ──
+
+  @Test
+  public void buildPlan_linksetFilter_matchesVertex() {
+    var v1 = graph.addVertex(T.label, "MatchLinksetF", "name", "Target1");
+    var v2 = graph.addVertex(T.label, "MatchLinksetF", "name", "Target2");
+    var v3 = graph.addVertex(T.label, "MatchLinksetF", "name", "Target3");
+    var rid1 = v1.id();
+    var rid2 = v2.id();
+    var rid3 = v3.id();
+
+    var refs1 = java.util.Set.of(rid1, rid2);
+    var refs2 = java.util.Set.of(rid3);
+    var source1 = graph.addVertex(T.label, "MatchLinksetF", "name", "Source1");
+    var source2 = graph.addVertex(T.label, "MatchLinksetF", "name", "Source2");
+    source1.property("refs", refs1);
+    source2.property("refs", refs2);
+    graph.tx().commit();
+
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchLinksetF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("refs", refs1)));
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      Assert.assertEquals("Expected exactly 1 match for refs={rid1,rid2}", 1, count);
     } finally {
       ((YTDBGraphInternal) graph).tx().commit();
     }
