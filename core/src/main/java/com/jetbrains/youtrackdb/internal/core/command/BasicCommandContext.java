@@ -135,22 +135,7 @@ public class BasicCommandContext implements CommandContext {
     // The hot-path variables ("current", "currentMatch", "matched") always take this
     // branch, avoiding the expensive quote-aware getLowerIndexOf scan.
     if (iName.indexOf('.') < 0 && iName.indexOf('[') < 0) {
-      // Check for special keywords (CONTEXT=7, PARENT=6, ROOT=4) using length
-      // as a fast pre-filter to avoid equalsIgnoreCase for most variable names.
-      int len = iName.length();
-      if (len == 7 && iName.equalsIgnoreCase("CONTEXT")) {
-        result = getVariables();
-      } else if (len == 6 && iName.equalsIgnoreCase("PARENT")) {
-        result = parent;
-      } else if (len == 4 && iName.equalsIgnoreCase("ROOT")) {
-        CommandContext p = this;
-        while (p.getParent() != null) {
-          p = p.getParent();
-        }
-        result = p;
-      } else {
-        result = lookupVariable(iName);
-      }
+      result = lookupVariable(iName);
       return result != null ? resolveValue(result) : iDefault;
     }
 
@@ -195,19 +180,7 @@ public class BasicCommandContext implements CommandContext {
       lastPart = null;
     }
 
-    if (firstPart.equalsIgnoreCase("CONTEXT")) {
-      result = getVariables();
-    } else if (firstPart.equalsIgnoreCase("PARENT")) {
-      result = parent;
-    } else if (firstPart.equalsIgnoreCase("ROOT")) {
-      CommandContext p = this;
-      while (p.getParent() != null) {
-        p = p.getParent();
-      }
-      result = p;
-    } else {
-      result = lookupVariable(firstPart);
-    }
+    result = lookupVariable(firstPart);
 
     if (pos > -1) {
       result = EntityHelper.getFieldValue(getDatabaseSession(), result, lastPart, this);
@@ -217,10 +190,26 @@ public class BasicCommandContext implements CommandContext {
   }
 
   /**
-   * Looks up a simple variable name in the local variables map, then system variables
-   * (for hot-path names like "current", "matched"), falling back to child/parent hierarchy.
+   * Looks up a variable name: first checks special keywords (CONTEXT, PARENT, ROOT),
+   * then system variables for hot-path names ("current", "matched"), then local
+   * variables, child context, and finally parent hierarchy.
    */
   private Object lookupVariable(String name) {
+    // Special keywords take precedence over user-defined variables.
+    int len = name.length();
+    if (len == 7 && name.equalsIgnoreCase("CONTEXT")) {
+      return getVariables();
+    }
+    if (len == 6 && name.equalsIgnoreCase("PARENT")) {
+      return parent;
+    }
+    if (len == 4 && name.equalsIgnoreCase("ROOT")) {
+      CommandContext p = this;
+      while (p.getParent() != null) {
+        p = p.getParent();
+      }
+      return p;
+    }
     if (variables != null && variables.containsKey(name)) {
       return variables.get(name);
     }
