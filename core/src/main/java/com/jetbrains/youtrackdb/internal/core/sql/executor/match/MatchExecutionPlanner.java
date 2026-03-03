@@ -324,7 +324,7 @@ public class MatchExecutionPlanner {
 
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
-    this.aliasFilters = Map.of();
+    this.aliasFilters = aliasFilters;
     this.aliasRids = Map.of();
   }
 
