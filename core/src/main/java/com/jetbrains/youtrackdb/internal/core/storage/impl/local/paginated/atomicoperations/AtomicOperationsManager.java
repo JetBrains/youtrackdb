@@ -21,7 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -38,7 +37,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -54,9 +55,14 @@ public class AtomicOperationsManager {
 
   @Nonnull
   private final WriteAheadLog writeAheadLog;
-  private final OneEntryPerKeyLockManager<String> lockManager =
-      new OneEntryPerKeyLockManager<>(
-          true, -1, GlobalConfiguration.COMPONENTS_LOCK_CACHE.getValueAsInteger());
+  private final StampedLock[] componentLocks;
+  // Tracks the thread that holds the write lock on each stripe. Used by
+  // executeReadOperation to detect write-lock reentrancy (StampedLock is
+  // non-reentrant). Only the owning thread can match == Thread.currentThread(),
+  // so plain (non-volatile) access is sufficient — single-thread consistency
+  // guarantees the writing thread sees its own store.
+  private final Thread[] stripeWriteOwners;
+  private final int stripeMask;
   private final ReadCache readCache;
   private final WriteCache writeCache;
 
@@ -75,6 +81,26 @@ public class AtomicOperationsManager {
 
     this.idGen = storage.getIdGen();
     this.atomicOperationsTable = atomicOperationsTable;
+
+    int stripeCount = closestPowerOfTwo(
+        GlobalConfiguration.ENVIRONMENT_LOCK_MANAGER_CONCURRENCY_LEVEL.getValueAsInteger());
+    this.componentLocks = new StampedLock[stripeCount];
+    this.stripeWriteOwners = new Thread[stripeCount];
+    for (int i = 0; i < stripeCount; i++) {
+      this.componentLocks[i] = new StampedLock();
+    }
+    this.stripeMask = stripeCount - 1;
+  }
+
+  private static int closestPowerOfTwo(int value) {
+    if (value <= 1) {
+      return 1;
+    }
+    return 1 << (32 - Integer.numberOfLeadingZeros(value - 1));
+  }
+
+  int stripeIndex(String lockName) {
+    return lockName.hashCode() & 0x7fffffff & stripeMask;
   }
 
   public AtomicOperation startAtomicOperation() {
@@ -242,14 +268,15 @@ public class AtomicOperationsManager {
         }
 
       } finally {
+        // Clear name tracking
         final var lockedObjectIterator = operation.lockedObjects().iterator();
-
         while (lockedObjectIterator.hasNext()) {
-          final var lockedObject = lockedObjectIterator.next();
+          lockedObjectIterator.next();
           lockedObjectIterator.remove();
-
-          lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
         }
+
+        // Release each unique stripe once and clear the set
+        releaseStripes(operation);
 
         operation.deactivate();
       }
@@ -259,18 +286,36 @@ public class AtomicOperationsManager {
   }
 
   public void ensureThatComponentsUnlocked(@Nonnull final AtomicOperation operation) {
+    // Clear name tracking
     final var lockedObjectIterator = operation.lockedObjects().iterator();
-
     while (lockedObjectIterator.hasNext()) {
-      final var lockedObject = lockedObjectIterator.next();
+      lockedObjectIterator.next();
       lockedObjectIterator.remove();
-
-      lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
     }
+
+    // Release each unique stripe once and clear the set
+    releaseStripes(operation);
+  }
+
+  private void releaseStripes(AtomicOperation operation) {
+    var stripes = operation.lockedStripes();
+    var stripesIter = stripes.intIterator();
+    while (stripesIter.hasNext()) {
+      int stripe = stripesIter.nextInt();
+      // Must null out owner BEFORE unlock to avoid racing with the next writer
+      // who would set their own thread here after acquiring the lock.
+      stripeWriteOwners[stripe] = null;
+      componentLocks[stripe].asWriteLock().unlock();
+    }
+    // Clear separately — fastutil IntOpenHashSet.intIterator() does not support
+    // remove during iteration.
+    stripes.clear();
   }
 
   /**
    * Acquires exclusive lock with the given lock name in the given atomic operation.
+   * If two component names hash to the same stripe, the second write lock acquisition
+   * is skipped because the stripe is already exclusively held.
    *
    * @param operation the atomic operation to acquire the lock in.
    * @param lockName  the lock name to acquire.
@@ -283,7 +328,12 @@ public class AtomicOperationsManager {
       return;
     }
 
-    lockManager.acquireLock(lockName, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
+    int stripe = stripeIndex(lockName);
+    if (!operation.containsLockedStripe(stripe)) {
+      componentLocks[stripe].asWriteLock().lock();
+      stripeWriteOwners[stripe] = Thread.currentThread();
+      operation.addLockedStripe(stripe);
+    }
     operation.addLockedObject(lockName);
   }
 
@@ -298,17 +348,80 @@ public class AtomicOperationsManager {
     acquireExclusiveLockTillOperationComplete(operation, durableComponent.getLockName());
   }
 
-  public void acquireReadLock(DurableComponent durableComponent) {
-    assert durableComponent.getLockName() != null;
+  /**
+   * Executes a read operation under an optimistic StampedLock with automatic fallback
+   * to a blocking read lock on contention. The happy path (no concurrent writer) costs
+   * only two volatile reads and zero CAS operations.
+   *
+   * <p>The protocol:
+   * <ol>
+   *   <li>Try an optimistic read (volatile read, no CAS)</li>
+   *   <li>Execute the action</li>
+   *   <li>If the stamp is still valid, return the result</li>
+   *   <li>If an exception occurred and the stamp is valid, it's a real error — rethrow</li>
+   *   <li>Otherwise, acquire a blocking read lock and retry the action</li>
+   * </ol>
+   *
+   * @param component the durable component whose stripe lock to use
+   * @param action    the read action to execute (must be idempotent and retryable —
+   *                  it may be invoked twice if the optimistic read is invalidated)
+   * @return the result of the action
+   */
+  public <T> T executeReadOperation(
+      DurableComponent component, Callable<T> action) throws IOException {
+    int stripe = stripeIndex(component.getLockName());
+    var lock = componentLocks[stripe];
 
-    lockManager.acquireLock(durableComponent.getLockName(), OneEntryPerKeyLockManager.LOCK.SHARED);
+    // Fast path: if the current thread already holds the write lock on this stripe
+    // (e.g., a read method called during an active atomic operation), execute directly.
+    // StampedLock is non-reentrant — acquiring a read lock would deadlock.
+    if (stripeWriteOwners[stripe] == Thread.currentThread()) {
+      try {
+        return action.call();
+      } catch (Exception e) {
+        throwAsIOOrRuntime(e);
+        return null; // unreachable
+      }
+    }
+
+    // Attempt 1: optimistic read (no CAS)
+    long stamp = lock.tryOptimisticRead();
+    if (stamp != 0) {
+      try {
+        T result = action.call();
+        if (lock.validate(stamp)) {
+          return result;
+        }
+      } catch (Exception e) {
+        if (lock.validate(stamp)) {
+          // Real error, not caused by concurrent modification
+          throwAsIOOrRuntime(e);
+        }
+        // Concurrent modification caused the exception — fall through to a single
+        // bounded retry under the blocking read lock. If the error is genuine, it
+        // will re-surface on the retry.
+      }
+    }
+
+    // Attempt 2: blocking read lock (CAS only on contention)
+    stamp = lock.readLock();
+    try {
+      return action.call();
+    } catch (Exception e) {
+      throwAsIOOrRuntime(e);
+      return null; // unreachable
+    } finally {
+      lock.unlockRead(stamp);
+    }
   }
 
-  public void releaseReadLock(DurableComponent durableComponent) {
-    assert durableComponent.getName() != null;
-    assert durableComponent.getLockName() != null;
-
-    lockManager.releaseLock(
-        this, durableComponent.getLockName(), OneEntryPerKeyLockManager.LOCK.SHARED);
+  private static void throwAsIOOrRuntime(Exception e) throws IOException {
+    if (e instanceof IOException ioe) {
+      throw ioe;
+    }
+    if (e instanceof RuntimeException re) {
+      throw re;
+    }
+    throw new IOException(e);
   }
 }

@@ -275,16 +275,21 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public boolean exists(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
-        return isFileExists(atomicOperation, getFullName());
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        acquireSharedLock();
+        try {
+          return isFileExists(atomicOperation, getFullName());
+        } finally {
+          releaseSharedLock();
+        }
+      });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new PaginatedCollectionException(storageName,
+              "Error during checking existence of '"
+                  + getName() + "' collection", this),
+          e, storageName);
     }
   }
 
@@ -859,17 +864,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Nonnull
   public RawBuffer readRecord(final long collectionPosition, AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         return doReadRecord(collectionPosition, atomicOperation);
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   /// Reads a record from the collection at the specified position, with tombstone awareness
@@ -1433,8 +1435,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public PhysicalPosition getPhysicalPosition(final PhysicalPosition position,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         final var collectionPosition = position.collectionPosition;
@@ -1476,16 +1477,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public boolean exists(long collectionPosition, AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         final var positionEntry =
@@ -1505,74 +1503,71 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public long getEntries(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
-        var snapshot = atomicOperation.getAtomicOperationsSnapshot();
-        var commitTs = atomicOperation.getCommitTsUnsafe();
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        acquireSharedLock();
+        try {
+          var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+          var commitTs = atomicOperation.getCommitTsUnsafe();
 
-        var count = new long[]{0};
-        // Single pass over all position map entries (FILLED and REMOVED).
-        // FILLED entries are counted when their version is visible.
-        // REMOVED entries (tombstones) are counted only when the deletion
-        // is NOT visible (i.e., the record was deleted after the reader's
-        // snapshot started) AND a visible historical version exists.
-        collectionPositionMap.forEachEntry(atomicOperation,
-            (position, status, recordVersion) -> {
-              if (status == CollectionPositionMapBucket.FILLED) {
-                if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
-                  count[0]++;
+          var count = new long[]{0};
+          // Single pass over all position map entries (FILLED and REMOVED).
+          // FILLED entries are counted when their version is visible.
+          // REMOVED entries (tombstones) are counted only when the deletion
+          // is NOT visible (i.e., the record was deleted after the reader's
+          // snapshot started) AND a visible historical version exists.
+          collectionPositionMap.forEachEntry(atomicOperation,
+              (position, status, recordVersion) -> {
+                if (status == CollectionPositionMapBucket.FILLED) {
+                  if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
+                    count[0]++;
+                  } else {
+                    var historical = findHistoricalPositionEntry(
+                        position, commitTs, snapshot, atomicOperation);
+                    if (historical != null) {
+                      count[0]++;
+                    }
+                  }
                 } else {
+                  // REMOVED: skip positions deleted by the current transaction
+                  if (commitTs >= 0
+                      && atomicOperation.containsVisibilityEntry(
+                      new VisibilityKey(commitTs, id, position))) {
+                    return;
+                  }
+
+                  // For REMOVED entries, recordVersion holds the deletion timestamp.
+                  // If the deletion is visible to the reader, the record is gone.
+                  if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
+                    return;
+                  }
+
+                  // The deletion is not yet visible - check if there's a historical
+                  // version that the reader can see.
                   var historical = findHistoricalPositionEntry(
                       position, commitTs, snapshot, atomicOperation);
                   if (historical != null) {
                     count[0]++;
                   }
                 }
-              } else {
-                // REMOVED: skip positions deleted by the current transaction
-                if (commitTs >= 0
-                    && atomicOperation.containsVisibilityEntry(
-                    new VisibilityKey(commitTs, id, position))) {
-                  return;
-                }
+              });
 
-                // For REMOVED entries, recordVersion holds the deletion timestamp.
-                // If the deletion is visible to the reader, the record is gone.
-                if (isRecordVersionVisible(recordVersion, commitTs, snapshot)) {
-                  return;
-                }
-
-                // The deletion is not yet visible - check if there's a historical
-                // version that the reader can see.
-                var historical = findHistoricalPositionEntry(
-                    position, commitTs, snapshot, atomicOperation);
-                if (historical != null) {
-                  count[0]++;
-                }
-              }
-            });
-
-        return count[0];
-      } finally {
-        releaseSharedLock();
-      }
+          return count[0];
+        } finally {
+          releaseSharedLock();
+        }
+      });
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
           new PaginatedCollectionException(storageName,
               "Error during retrieval of size of '"
                   + getName() + "' collection", this),
           ioe, storageName);
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -1583,46 +1578,45 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public long getFirstPosition(AtomicOperation atomicOperation) throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         return collectionPositionMap.getFirstPosition(atomicOperation);
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public long getLastPosition(AtomicOperation atomicOperation) throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         return collectionPositionMap.getLastPosition(atomicOperation);
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public String getFileName() {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
-        return writeCache.fileNameById(fileId);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        acquireSharedLock();
+        try {
+          return writeCache.fileNameById(fileId);
+        } finally {
+          releaseSharedLock();
+        }
+      });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new PaginatedCollectionException(storageName,
+              "Error during getting file name of '"
+                  + getName() + "' collection", this),
+          e, storageName);
     }
   }
 
@@ -1641,17 +1635,23 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public void synch() {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
-        writeCache.flush(fileId);
-        collectionPositionMap.flush();
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
+      atomicOperationsManager.executeReadOperation(this, () -> {
+        acquireSharedLock();
+        try {
+          writeCache.flush(fileId);
+          collectionPositionMap.flush();
+          return null;
+        } finally {
+          releaseSharedLock();
+        }
+      });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new PaginatedCollectionException(storageName,
+              "Error during synch of '"
+                  + getName() + "' collection", this),
+          e, storageName);
     }
   }
 
@@ -1659,8 +1659,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public PhysicalPosition[] higherPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         final var collectionPositions =
@@ -1670,17 +1669,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public PhysicalPosition[] ceilingPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         final var collectionPositions =
@@ -1690,17 +1686,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public PhysicalPosition[] lowerPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         final var collectionPositions =
@@ -1710,17 +1703,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public PhysicalPosition[] floorPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
         final var collectionPositions =
@@ -1730,9 +1720,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
@@ -2013,17 +2001,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       long prevPagePosition,
       final boolean forwards,
       AtomicOperation atomicOperation) throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
+    final long effectivePrevPagePosition = prevPagePosition < 0 ? -1 : prevPagePosition;
+    return atomicOperationsManager.executeReadOperation(this, () -> {
       acquireSharedLock();
       try {
-        if (prevPagePosition < 0) {
-          prevPagePosition = -1;
-        }
-
         final var nextPositions = forwards ?
-            collectionPositionMap.higherPositionsEntries(prevPagePosition, atomicOperation) :
-            collectionPositionMap.lowerPositionsEntriesReversed(prevPagePosition, atomicOperation);
+            collectionPositionMap.higherPositionsEntries(
+                effectivePrevPagePosition, atomicOperation) :
+            collectionPositionMap.lowerPositionsEntriesReversed(
+                effectivePrevPagePosition, atomicOperation);
 
         if (nextPositions.length > 0) {
           var snapshot = atomicOperation.getAtomicOperationsSnapshot();
@@ -2071,9 +2057,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       } finally {
         releaseSharedLock();
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override

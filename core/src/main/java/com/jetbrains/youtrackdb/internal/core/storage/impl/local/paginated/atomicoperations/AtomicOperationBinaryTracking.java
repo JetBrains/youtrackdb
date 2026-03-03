@@ -38,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import it.unimi.dsi.fastutil.ints.IntCollection;
 import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -76,6 +77,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private boolean rollback;
 
   private final Set<String> lockedObjects = new HashSet<>();
+  private final IntOpenHashSet lockedStripes = new IntOpenHashSet();
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
@@ -678,6 +680,21 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public Iterable<String> lockedObjects() {
     return lockedObjects;
+  }
+
+  @Override
+  public boolean containsLockedStripe(int stripeIndex) {
+    return lockedStripes.contains(stripeIndex);
+  }
+
+  @Override
+  public void addLockedStripe(int stripeIndex) {
+    lockedStripes.add(stripeIndex);
+  }
+
+  @Override
+  public IntCollection lockedStripes() {
+    return lockedStripes;
   }
 
   // --- Snapshot / Visibility index proxy methods ---
