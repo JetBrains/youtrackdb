@@ -9,6 +9,15 @@ public final class CASObjectArray<T> {
   private final AtomicInteger size = new AtomicInteger();
   private final AtomicReferenceArray<AtomicReferenceArray<T>> containers =
       new AtomicReferenceArray<>(32);
+  private final T defaultPlaceholder;
+
+  public CASObjectArray() {
+    this(null);
+  }
+
+  public CASObjectArray(T defaultPlaceholder) {
+    this.defaultPlaceholder = defaultPlaceholder;
+  }
 
   public int add(T value) {
     Objects.requireNonNull(value);
@@ -34,7 +43,18 @@ public final class CASObjectArray<T> {
     }
   }
 
+  public void set(int index, T value) {
+    if (defaultPlaceholder == null) {
+      throw new UnsupportedOperationException(
+          "set without placeholder only works with new CASObjectArray(defaultPlaceholder) constructed object. Please use set(index, value, placeholder) instead.");
+    }
+    set(index, value, defaultPlaceholder);
+  }
+
   public void set(int index, T value, T placeholder) {
+    if (index < 0) {
+      throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
+    }
     Objects.requireNonNull(value);
     Objects.requireNonNull(placeholder);
 
@@ -70,7 +90,7 @@ public final class CASObjectArray<T> {
 
     final var size = this.size.get();
 
-    if (size <= index) {
+    if (index < 0 || size <= index) {
       throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
     }
 
@@ -91,11 +111,25 @@ public final class CASObjectArray<T> {
     return container.compareAndSet(indexInsideContainer, oldValue, value);
   }
 
+  public T getOrDefault(int index) {
+    return get(index, false);
+  }
+
   public T get(int index) {
+    return get(index, true);
+  }
+
+  private T get(int index, boolean throwOnOutOfBounds) {
+    if (index < 0) {
+      throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
+    }
     final var size = this.size.get();
 
     if (size <= index) {
-      throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
+      if (throwOnOutOfBounds) {
+        throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
+      }
+      return defaultPlaceholder;
     }
 
     final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
