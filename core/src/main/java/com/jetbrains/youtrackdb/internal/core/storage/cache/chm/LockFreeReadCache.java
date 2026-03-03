@@ -49,6 +49,14 @@ public final class LockFreeReadCache implements ReadCache {
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
 
+  /**
+   * Batch size for accumulating read buffer entries before flushing to the striped buffer.
+   * This amortizes the per-entry overhead of striped buffer probe lookup, volatile table
+   * read, CAS contention, and drain-status check — all of which are paid once per batch
+   * instead of once per cache hit.
+   */
+  private static final int READ_BATCH_SIZE = 16;
+
   private final ConcurrentHashMap<PageKey, CacheEntry> data;
   private final Lock evictionLock = new ReentrantLock();
 
@@ -63,6 +71,14 @@ public final class LockFreeReadCache implements ReadCache {
    * Status which indicates whether flush of buffers should be performed or may be delayed.
    */
   private final AtomicReference<DrainStatus> drainStatus = new AtomicReference<>(DrainStatus.IDLE);
+
+  /**
+   * Thread-local batch for accumulating cache entries before offering them to the
+   * striped read buffer. Access is single-threaded (thread-local), so no synchronization
+   * is needed on the batch or its index.
+   */
+  private final ThreadLocal<ReadBatch> readBatch =
+      ThreadLocal.withInitial(() -> new ReadBatch(READ_BATCH_SIZE));
 
   private final int pageSize;
 
@@ -375,10 +391,38 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   private void afterRead(final CacheEntry entry) {
-    final var bufferOverflow = readBuffer.offer(entry) == Buffer.FULL;
+    var batch = readBatch.get();
+    batch.entries[batch.size++] = entry;
+
+    if (batch.size >= READ_BATCH_SIZE) {
+      flushReadBatch(batch);
+    }
+  }
+
+  private void flushReadBatch(final ReadBatch batch) {
+    var bufferOverflow = false;
+    for (int i = 0; i < batch.size; i++) {
+      var result = readBuffer.offer(batch.entries[i]);
+      batch.entries[i] = null; // release reference
+      if (result == Buffer.FULL) {
+        bufferOverflow = true;
+      }
+    }
+    batch.size = 0;
 
     if (drainStatus.get().shouldBeDrained(bufferOverflow)) {
       tryToDrainBuffers();
+    }
+  }
+
+  /**
+   * Flushes the current thread's read batch to the striped buffer. Call this before any
+   * operation that needs the eviction policy to be fully up-to-date (clear, assertSize, etc.).
+   */
+  private void flushCurrentThreadReadBatch() {
+    var batch = readBatch.get();
+    if (batch.size > 0) {
+      flushReadBatch(batch);
     }
   }
 
@@ -417,7 +461,6 @@ public final class LockFreeReadCache implements ReadCache {
 
   private void checkWriteBuffer() {
     if (!writeBuffer.isEmpty()) {
-
       drainStatus.lazySet(DrainStatus.REQUIRED);
       tryToDrainBuffers();
     }
@@ -488,6 +531,7 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public void clear() {
+    flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
@@ -571,6 +615,7 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   private void clearFile(final long fileId, final int filledUpTo, final WriteCache writeCache) {
+    flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
@@ -606,6 +651,7 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   void assertSize() {
+    flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
@@ -616,6 +662,7 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   void assertConsistency() {
+    flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
@@ -646,6 +693,16 @@ public final class LockFreeReadCache implements ReadCache {
     };
 
     abstract boolean shouldBeDrained(boolean readBufferOverflow);
+  }
+
+  private static final class ReadBatch {
+
+    final CacheEntry[] entries;
+    int size;
+
+    ReadBatch(final int capacity) {
+      this.entries = new CacheEntry[capacity];
+    }
   }
 
   @SuppressWarnings("SameParameterValue")

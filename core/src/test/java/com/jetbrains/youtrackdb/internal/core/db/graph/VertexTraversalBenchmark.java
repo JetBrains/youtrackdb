@@ -33,7 +33,8 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  * path (which loads edge records first, then follows to the opposite vertex).
  *
  * <p>Setup: star graph with 1 center vertex connected to 1000 outer vertices
- * via heavyweight "HeavyEdge" class, in a MEMORY database (no disk I/O noise).
+ * via heavyweight "HeavyEdge" class, in a DISK database to exercise the page
+ * cache read path (LockFreeReadCache).
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -57,7 +58,7 @@ public class VertexTraversalBenchmark {
     if (youTrackDB.exists(DB_NAME)) {
       youTrackDB.drop(DB_NAME);
     }
-    youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
+    youTrackDB.create(DB_NAME, DatabaseType.DISK,
         new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
     session = youTrackDB.open(DB_NAME, "admin", "adminpwd");
 
