@@ -51,8 +51,11 @@ is the minimal foundation that enables:
 2. Traverse+filter vs index-seek decisions at intermediate MATCH steps (future)
 3. Accurate cost ranking for SELECT index candidate selection (replace `Integer.MAX_VALUE`)
 
-There is no separate ANALYZE command — statistics are incrementally maintained and always
-up to date.
+Statistics are incrementally maintained and always up to date. In addition, an explicit
+`ANALYZE INDEX` SQL command is provided for on-demand histogram rebuilds — useful for
+benchmarks (force histogram build before running queries), post-bulk-import scenarios
+(trigger rebuild without waiting for the automatic rebalance threshold), and DBA control
+over statistics freshness. See Section 5.7.1 for full semantics.
 
 ---
 
@@ -404,10 +407,10 @@ update). Currently, the public `put()` method (line 239) discards this return va
 and `BTree.put()` (implementation, line 239) from `void` to `boolean`, simply returning
 the result of the existing `update()` call — no logic change, just a signature change. The
 engine then propagates this as `boolean wasInsert = sbTree.put(op, key, value)`. The
-histogram manager only increments `totalCountDelta` and `distinctCountDelta` when
-`wasInsert == true`. Without this distinction, update-heavy workloads would inflate
-`totalCount` and `distinctCount` between rebalances. For multi-value indexes this is not
-needed — every `put(key, value)` always inserts a new composite entry `(key, RID)`.
+histogram manager only increments `totalCountDelta` when `wasInsert == true`. Without
+this distinction, update-heavy workloads would inflate `totalCount` between rebalances.
+For multi-value indexes this is not needed — every `put(key, value)` always inserts a
+new composite entry `(key, RID)`.
 
 **Delta accumulation model:** The `onPut()`/`onRemove()` calls do **not** modify the
 CHM cache directly. Instead, they accumulate deltas in a transaction-local
@@ -422,7 +425,6 @@ CHM cache directly. Instead, they accumulate deltas in a transaction-local
 class HistogramDelta {
     long totalCountDelta;
     long nullCountDelta;
-    long distinctCountDelta;     // meaningful only for single-value indexes
     int[] frequencyDeltas;       // per-bucket deltas (null if no histogram);
                                  // int suffices — bounded by mutations in a single
                                  // transaction, well within Integer.MAX_VALUE
@@ -642,7 +644,8 @@ better-than-uniform approximation until it becomes too stale.
  *
  * @param totalCount     total number of entries in the index (including nulls)
  * @param distinctCount  number of distinct keys (NDV)
- *                       - single-value: always equals totalCount
+ *                       - single-value: always equals totalCount (derived in applyDelta,
+ *                         no separate delta field — see HistogramDelta)
  *                       - multi-value: updated incrementally via HLL estimate on each commit
  *                         (~3.25% error); exact value recomputed during rebalance (Section 6.2)
  * @param nullCount      number of entries with null key
@@ -1314,7 +1317,8 @@ fixed; only frequencies change. Per-bucket `distinctCounts[]` are **NOT updated
 incrementally** — only recomputed during build/rebalance.
 
 **Global NDV tracking:**
-- Single-value indexes: `distinctCount` always equals `totalCount` (trivially maintained).
+- Single-value indexes: `distinctCount` always equals `totalCount` (derived in `applyDelta`,
+  no separate delta field needed).
 - Multi-value indexes: `distinctCount` tracked incrementally via HyperLogLog sketch
   (Section 6.2). The HLL is updated on put (O(1) hash + register update) but not on
   remove (insert-only). Exact NDV recomputed on rebalance.
@@ -1340,7 +1344,7 @@ effectiveKey = extractLeadingField(key)   // identity for single-field indexes
 snapshot = cache.get(engineId)
 
 // For single-value updates (wasInsert == false), the key already exists in the index.
-// The B-tree's treeSize is unchanged, so totalCount/distinctCount must not change either.
+// The B-tree's treeSize is unchanged, so totalCount must not change either.
 // Only wasInsert == true (genuine new entry) increments counters and frequencies.
 if wasInsert:
   delta.totalCountDelta++
@@ -1350,14 +1354,14 @@ if wasInsert:
     if snapshot is not null AND snapshot.histogram is not null:
       B = findBucket(effectiveKey, snapshot.histogram)  // in-memory binary search, O(log B)
       delta.frequencyDeltas[B]++
-  if single-value index:
-    delta.distinctCountDelta++
-  else:
+  if multi-value index:
     // Lazy HLL: only update if the snapshot has an HLL sketch (i.e., the index
     // has crossed HISTOGRAM_MIN_SIZE and built its first histogram). Below the
     // threshold, the HLL is null and this is a no-op (Section 6.2).
     if snapshot is not null AND snapshot.hllSketch is not null:
       delta.hllSketch.add(hash(effectiveKey))    // O(1) HLL register update (Section 6.2)
+  // Single-value: distinctCount == totalCount (Section 6.2), so no separate
+  // distinct-count tracking is needed — derived in applyDelta.
 else:
   // Update-in-place for single-value index: no counter changes.
   // The HLL is not updated either — the key is already counted from the original insert.
@@ -1381,8 +1385,8 @@ else:
   if snapshot is not null AND snapshot.histogram is not null:
     B = findBucket(effectiveKey, snapshot.histogram)
     delta.frequencyDeltas[B]--
-if single-value index:
-  delta.distinctCountDelta--
+// Single-value: distinctCount == totalCount — no separate tracking needed.
+// Multi-value: HLL is insert-only and not updated on remove (Section 6.2).
 ```
 
 #### On transaction commit (after `commitIndexes()` succeeds):
@@ -1403,18 +1407,21 @@ for each (engineId, delta) in atomicOperation.histogramDeltas:
     //     frequencyDeltas — the new histogram's frequencies are already accurate
     //     from the full key scan; the stale per-bucket deltas (indexed against old
     //     boundaries) cannot be meaningfully re-mapped. Only the scalar deltas
-    //     (totalCountDelta, nullCountDelta, distinctCountDelta, mutationCount,
-    //     hllSketch) are applied. Subsequent incremental updates will naturally
+    //     (totalCountDelta, nullCountDelta, mutationCount, hllSketch) are
+    //     applied. Subsequent incremental updates will naturally
     //     correct the new histogram's frequencies.
     //   - nonNullCount: recompute as sum(clamped frequencies) — NOT tracked
     //     incrementally, to maintain the invariant nonNullCount == sum(frequencies)
     //     (independent clamping of per-bucket frequencies and a separate aggregate
     //     counter can diverge; see Section 5.4 "Negative frequency clamping")
     //   - mutationsSinceRebalance: += delta.mutationCount
-    //   - multi-value: clone old HLL sketch, merge delta.hllSketch into clone;
-    //     update distinctCount = (long) mergedHll.estimate() — the persisted HLL
-    //     retains all historical inserts, so the estimate is always meaningful
-    //     (no stale-on-restart risk; see Section 6.2)
+    //   - distinctCount:
+    //     - single-value: set distinctCount = newTotalCount (always equal;
+    //       no separate delta field needed)
+    //     - multi-value: clone old HLL sketch, merge delta.hllSketch into
+    //       clone; update distinctCount = (long) mergedHll.estimate() — the
+    //       persisted HLL retains all historical inserts, so the estimate is
+    //       always meaningful (no stale-on-restart risk; see Section 6.2)
   })
   // cache.compute() ensures atomicity with concurrent rebalance snapshots.
   // The null guard handles the case where the engine was closed/deleted between
@@ -1591,9 +1598,10 @@ boundaries were used for `findBucket()` during delta accumulation. On commit,
   The stale per-bucket deltas were indexed against the old bucket boundaries and cannot
   be meaningfully re-mapped to the new layout without the original keys (which the delta
   does not store). Only the scalar deltas (`totalCountDelta`, `nullCountDelta`,
-  `distinctCountDelta`, `mutationCount`, `hllSketch`) are applied — these are
-  bucket-independent. Subsequent incremental updates will naturally correct the new
-  histogram's per-bucket frequencies.
+  `mutationCount`, `hllSketch`) are applied — these are bucket-independent.
+  `distinctCount` is derived (= `totalCount` for single-value, HLL estimate for
+  multi-value). Subsequent incremental updates will naturally correct the new histogram's
+  per-bucket frequencies.
 
 This design ensures that a rebalance is never silently overwritten by a stale delta, and
 the accuracy cost (briefly stale per-bucket frequencies for mutations during the rebalance
@@ -1607,6 +1615,72 @@ window) is minimal and self-correcting.
 Rejected. Split/merge is complex (variable-length boundary array manipulation), degrades
 boundary quality over many cycles, and a full O(N) sequential rebuild is fast enough for
 YouTrackDB index sizes.
+
+### 5.7.1 Explicit `ANALYZE INDEX` Command
+
+While histograms are automatically maintained and rebalanced (Section 5.7), an explicit
+SQL command provides on-demand control:
+
+```sql
+ANALYZE INDEX <name>    -- synchronous histogram rebuild for one index
+ANALYZE INDEX *         -- synchronous histogram rebuild for all automatic indexes
+```
+
+**Use cases:**
+1. **Benchmarks** — force histogram build before running queries to ensure optimal plans
+   from the start, without waiting for automatic rebalance thresholds
+2. **Post-bulk-import** — trigger rebuild immediately after a large data load
+3. **DBA control** — explicit statistics refresh when the administrator knows data
+   distribution has changed significantly
+
+**Execution model:** Runs **synchronously** on the caller's thread, consistent with
+`REBUILD INDEX`. Does not use the IO executor or the storage-level rebalance semaphore
+(bypasses background throttling). This means `ANALYZE INDEX` is not subject to
+`MAX_CONCURRENT_REBALANCES` limits — the caller explicitly chose to pay the cost.
+
+**Concurrency with background rebalance:** Uses the existing per-index
+`AtomicBoolean rebalanceInProgress` CAS flag:
+- CAS `false → true` succeeds: run the rebalance logic (same steps 4–8 from
+  Section 5.7 "How to rebalance") synchronously on the caller's thread. On completion,
+  reset the flag in `finally`.
+- CAS fails (background rebalance already in progress): **sleep-poll** on the flag
+  (100 ms intervals, bounded by a timeout) until it clears, then return the freshly
+  updated snapshot from the CHM. No redundant double scan — the background rebalance
+  produces the same result.
+
+**Threshold bypass:** Unlike automatic rebalancing, `ANALYZE INDEX` skips the
+`HISTOGRAM_MIN_SIZE` threshold — it always builds a histogram if the index has any
+non-null entries. This is important for benchmark indexes which may be small but still
+need histogram-based cost estimates.
+
+**Return value:** The command returns a result set with one row per analyzed index,
+containing the following properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `operation` | String | `"analyze index"` |
+| `indexName` | String | Fully qualified index name |
+| `totalCount` | Long | Total entries in the index (including nulls) |
+| `distinctCount` | Long | Approximate number of distinct keys |
+| `nullCount` | Long | Number of null entries |
+| `bucketCount` | Integer | Number of histogram buckets (0 if no histogram built) |
+
+**Error handling:** If the specified index does not exist, the command throws a
+`CommandExecutionException`. `ANALYZE INDEX *` silently skips manual/internal indexes
+(same filtering as `REBUILD INDEX *`).
+
+**Grammar:**
+```
+<ANALYZE> <INDEX> ( name=IndexName() | <STAR> )
+```
+
+The `ANALYZE` token is case-insensitive (same pattern as `REBUILD`). The grammar rule
+is wired into `StatementInternal()` alongside `RebuildIndexStatement`.
+
+**Implementation class:** `SQLAnalyzeIndexStatement` extends `SQLSimpleExecStatement`
+(same pattern as `SQLRebuildIndexStatement`). The `executeSimple()` method calls
+`Index.analyzeHistogram(session)` which delegates to
+`IndexHistogramManager.analyzeIndex()`.
 
 ### 5.8 Statistics Storage
 
@@ -2215,6 +2289,13 @@ public class IndexHistogramManager extends DurableComponent {
   void buildHistogram(AtomicOperation op, Stream<Object> sortedKeys, long totalCount,
                       long nullCount, int keyFieldCount)
 
+  // Explicit analyze (called by ANALYZE INDEX command; Section 5.7.1)
+  // Runs rebalance synchronously on caller's thread, bypassing storage-level semaphore.
+  // If a background rebalance is in progress, waits for it to complete instead.
+  // Skips HISTOGRAM_MIN_SIZE threshold — always builds if index has non-null entries.
+  // Returns the refreshed HistogramSnapshot (for result set population).
+  HistogramSnapshot analyzeIndex()
+
   // Reset on index clear/truncate (called by engine after doClearTree())
   void resetOnClear(AtomicOperation op)      // zero all counters, discard histogram, persist empty page
 
@@ -2275,7 +2356,9 @@ pass their result through `clamp()` before returning (see Section 5.4).
 - `BaseIndexEngine.java` — add default methods returning `null` (safe default for
   non-B-tree engines such as hash indexes; these engines have no sorted key stream
   and cannot support histograms)
-- `Index.java` — add `getStatistics()` / `getHistogram()`
+- `Index.java` — add `getStatistics()` / `getHistogram()` / `analyzeHistogram(session)`
+- `IndexAbstract.java` — stub `analyzeHistogram()` as no-op (before histogram manager
+  exists); will delegate to `IndexHistogramManager.analyzeIndex()` once wired
 - `BTreeSingleValueIndexEngine.java` — delegate to `histogramManager`
 - `BTreeMultiValueIndexEngine.java` — delegate to `histogramManager`
 - `IndexOneValue.java` / `IndexMultiValues.java` — delegate through storage
@@ -2310,7 +2393,7 @@ public boolean put(AtomicOperation op, Object key, RID value) {
   // key's value was updated in-place (BTree.update() already computes this via
   // sizeDiff; this plan changes the public put() from void to boolean to expose it).
   // The histogram manager must distinguish these cases to avoid inflating
-  // totalCount/distinctCount on updates.
+  // totalCount on updates (distinctCount is derived, not tracked separately).
   boolean wasInsert = sbTree.put(op, key, value);
   histogramManager.onPut(op, key, /* isSingleValue= */ true, wasInsert);
   return wasInsert;
@@ -2524,17 +2607,17 @@ double estimateFanOut(String edgeType, String sourceClass, Direction direction,
 **File:** `GlobalConfiguration.java`
 
 ```java
-QUERY_STATS_DEFAULT_SELECTIVITY("query.stats.defaultSelectivity", ..., Double.class, 0.1),
-QUERY_STATS_DEFAULT_FAN_OUT("query.stats.defaultFanOut", ..., Double.class, 10.0),
-QUERY_STATS_HISTOGRAM_BUCKETS("query.stats.histogramBuckets", ..., Integer.class, 128),
-QUERY_STATS_HISTOGRAM_MIN_SIZE("query.stats.histogramMinSize", ..., Integer.class, 1000),
-QUERY_STATS_REBALANCE_MUTATION_FRACTION("query.stats.rebalanceMutationFraction", ..., Double.class, 0.3),
-QUERY_STATS_MIN_REBALANCE_MUTATIONS("query.stats.minRebalanceMutations", ..., Long.class, 1000L),
-QUERY_STATS_MAX_REBALANCE_MUTATIONS("query.stats.maxRebalanceMutations", ..., Long.class, 10_000_000L),
-QUERY_STATS_MAX_BOUNDARY_BYTES("query.stats.maxBoundaryBytes", ..., Integer.class, 256),
-QUERY_STATS_PERSIST_BATCH_SIZE("query.stats.persistBatchSize", ..., Integer.class, 500),
-QUERY_STATS_REBALANCE_FAILURE_COOLDOWN("query.stats.rebalanceFailureCooldown", ..., Long.class, 60_000L),
-QUERY_STATS_MAX_CONCURRENT_REBALANCES("query.stats.maxConcurrentRebalances", ..., Integer.class, -1),
+QUERY_STATS_DEFAULT_SELECTIVITY("youtrackdb.query.stats.defaultSelectivity", ..., Double.class, 0.1),
+QUERY_STATS_DEFAULT_FAN_OUT("youtrackdb.query.stats.defaultFanOut", ..., Double.class, 10.0),
+QUERY_STATS_HISTOGRAM_BUCKETS("youtrackdb.query.stats.histogramBuckets", ..., Integer.class, 128),
+QUERY_STATS_HISTOGRAM_MIN_SIZE("youtrackdb.query.stats.histogramMinSize", ..., Integer.class, 1000),
+QUERY_STATS_REBALANCE_MUTATION_FRACTION("youtrackdb.query.stats.rebalanceMutationFraction", ..., Double.class, 0.3),
+QUERY_STATS_MIN_REBALANCE_MUTATIONS("youtrackdb.query.stats.minRebalanceMutations", ..., Long.class, 1000L),
+QUERY_STATS_MAX_REBALANCE_MUTATIONS("youtrackdb.query.stats.maxRebalanceMutations", ..., Long.class, 10_000_000L),
+QUERY_STATS_MAX_BOUNDARY_BYTES("youtrackdb.query.stats.maxBoundaryBytes", ..., Integer.class, 256),
+QUERY_STATS_PERSIST_BATCH_SIZE("youtrackdb.query.stats.persistBatchSize", ..., Integer.class, 500),
+QUERY_STATS_REBALANCE_FAILURE_COOLDOWN("youtrackdb.query.stats.rebalanceFailureCooldown", ..., Long.class, 60_000L),
+QUERY_STATS_MAX_CONCURRENT_REBALANCES("youtrackdb.query.stats.maxConcurrentRebalances", ..., Integer.class, -1),
 // -1 = auto: max(2, availableProcessors / 4)
 ```
 
@@ -2546,18 +2629,19 @@ QUERY_STATS_MAX_CONCURRENT_REBALANCES("query.stats.maxConcurrentRebalances", ...
 
 | Step | Description | Files | LOC est. |
 |---|---|---|---|
-| 1 | `IndexStatistics`, `EquiDepthHistogram` records (incl. MCV fields) + serialization + `findBucket()`, and `HyperLogLogSketch` (Section 6.2.1) | New: 3 files | ~400 |
-| 2 | `IndexHistogramManager` — DurableComponent with stats page, `HistogramDelta` accumulator, delta application on commit (incl. `hasDriftedBuckets` flag), batched persistence, build/rebalance (incl. MCV tracking + adaptive bucket count + drift-biased trigger), HLL page overflow, lazy HLL init, `resetOnClear()`, rebalance scalar counter preservation | New: 2 files (`IndexHistogramManager` + `HistogramDelta`) | ~700 |
-| 3 | `SelectivityEstimator` + `ScalarConversion` — three-tier estimation (incl. MCV short-circuit + out-of-range equality short-circuit + single-value bucket optimization) + char-based string-to-scalar | New: 2 files | ~350 |
-| 4 | Add `getStatistics()` / `getHistogram()` to engine and index interfaces | `BaseIndexEngine`, `Index`, engine + index impls | ~100 |
-| 5 | Wire histogram manager into engine put/remove/lifecycle/clear + register `.ixs` in `DiskStorage` + change B-tree `put()` return type from `void` to `boolean` + rebalance semaphore on `DiskStorage` | `CellBTreeSingleValue`, `BTree`, `V1IndexEngine`, `BTreeSingleValueIndexEngine`, `BTreeMultiValueIndexEngine`, `DiskStorage` | ~170 |
-| 6 | Initial build on create/rebuild + migration (missing `.ixs` file) | Engine impls, `IndexAbstract` | ~100 |
-| 7 | Wire into `SQLWhereClause.estimate()` | `SQLWhereClause.java` | ~40 |
-| 8 | Wire into `IndexSearchDescriptor.cost()` | `IndexSearchDescriptor.java` | ~30 |
-| 9 | Edge fan-out estimation helper | `MatchExecutionPlanner` or new utility | ~30 |
-| 10 | Configuration parameters | `GlobalConfiguration.java` | ~30 |
-| 11 | Tests (incl. HLL unit tests, MCV tests, adaptive bucket count tests, out-of-range, single-value bucket, truncate, rebalance throttling, drift-biased rebalance, lazy HLL) | New test classes | ~1500 |
-| | **Subtotal** | | **~3430** |
+| - [x] 1 | `IndexStatistics`, `EquiDepthHistogram` records (incl. MCV fields) + serialization + `findBucket()`, and `HyperLogLogSketch` (Section 6.2.1) | New: 3 files | ~400 |
+| - [ ] 2 | `IndexHistogramManager` — DurableComponent with stats page, `HistogramDelta` accumulator, delta application on commit (incl. `hasDriftedBuckets` flag), batched persistence, build/rebalance (incl. MCV tracking + adaptive bucket count + drift-biased trigger), HLL page overflow, lazy HLL init, `resetOnClear()`, rebalance scalar counter preservation | New: 2 files (`IndexHistogramManager` + `HistogramDelta`) | ~700 |
+| - [ ] 3 | `SelectivityEstimator` + `ScalarConversion` — three-tier estimation (incl. MCV short-circuit + out-of-range equality short-circuit + single-value bucket optimization) + char-based string-to-scalar | New: 2 files | ~350 |
+| - [ ] 4 | Add `getStatistics()` / `getHistogram()` to engine and index interfaces | `BaseIndexEngine`, `Index`, engine + index impls | ~100 |
+| - [ ] 5 | Wire histogram manager into engine put/remove/lifecycle/clear + register `.ixs` in `DiskStorage` + change B-tree `put()` return type from `void` to `boolean` + rebalance semaphore on `DiskStorage` | `CellBTreeSingleValue`, `BTree`, `V1IndexEngine`, `BTreeSingleValueIndexEngine`, `BTreeMultiValueIndexEngine`, `DiskStorage` | ~170 |
+| - [ ] 6 | Initial build on create/rebuild + migration (missing `.ixs` file) | Engine impls, `IndexAbstract` | ~100 |
+| - [ ] 7 | Wire into `SQLWhereClause.estimate()` | `SQLWhereClause.java` | ~40 |
+| - [ ] 8 | Wire into `IndexSearchDescriptor.cost()` | `IndexSearchDescriptor.java` | ~30 |
+| - [ ] 9 | Edge fan-out estimation helper | `MatchExecutionPlanner` or new utility | ~30 |
+| - [ ] 10 | Configuration parameters | `GlobalConfiguration.java` | ~30 |
+| - [ ] 11 | `ANALYZE INDEX` SQL command — grammar rule (`ANALYZE` token + `AnalyzeIndexStatement`), statement class (`SQLAnalyzeIndexStatement`), `analyzeHistogram()` on `Index`/`IndexAbstract` | `YouTrackDBSql.jjt`, new `SQLAnalyzeIndexStatement.java`, `Index.java`, `IndexAbstract.java` | ~200 |
+| - [ ] 12 | Tests (incl. HLL unit tests, MCV tests, adaptive bucket count tests, out-of-range, single-value bucket, truncate, rebalance throttling, drift-biased rebalance, lazy HLL, ANALYZE INDEX parser + execution tests) | New test classes | ~1600 |
+| | **Subtotal** | | **~3730** |
 
 ### Phase 1B: Improved MATCH Planner Estimates
 
@@ -2569,7 +2653,7 @@ QUERY_STATS_MAX_CONCURRENT_REBALANCES("query.stats.maxConcurrentRebalances", ...
 | 4 | Tests | New test classes | ~200 |
 | | **Subtotal** | | **~370** |
 
-**Total: ~3800 LOC**
+**Total: ~4100 LOC**
 
 **Phase 1B note:** The MATCH planner already uses cost-driven root selection via
 `estimateRootEntries()` → `SQLWhereClause.estimate()`. Phase 1A Step 7 directly improves
@@ -2600,9 +2684,32 @@ Step 1 (records + HyperLogLogSketch)        Depends on 1A steps 1-8
   │           └─→ Step 8 (IndexSearchDescriptor)
   │
   └─→ Steps 9-10 (fan-out + config) — independent
+
+Step 11 (ANALYZE INDEX) depends on Steps 2 + 4
+  (needs IndexHistogramManager.analyzeIndex() + Index.analyzeHistogram())
 ```
 
 Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
+Step 11 (ANALYZE INDEX) can be developed in parallel with Steps 5-8 once Steps 2 and 4
+are complete (it only needs the manager's `analyzeIndex()` method and the `Index`
+interface additions).
+
+### Implementation Progress
+
+| | Step | Name | What was done |
+|---|---|---|---|
+| - [x] | 1 | `IndexStatistics` + `EquiDepthHistogram` + `HyperLogLogSketch` | Created 3 files: `IndexStatistics.java` (record with totalCount/distinctCount/nullCount), `EquiDepthHistogram.java` (record with findBucket() linear/binary search, byte-array serialize/deserialize, compact constructor assertions, MCV fields), `HyperLogLogSketch.java` (1024-register HLL with add/estimate/merge/clone/rebuildFrom, byte-array writeTo/readFrom). Serialization uses byte arrays (not CacheEntry) — page I/O deferred to Step 2's DurablePage subclass. |
+| - [ ] | 2 | `IndexHistogramManager` + `HistogramDelta` | |
+| - [ ] | 3 | `SelectivityEstimator` + `ScalarConversion` | |
+| - [ ] | 4 | Engine and index interface additions | |
+| - [ ] | 5 | Engine lifecycle and put/remove wiring | |
+| - [ ] | 6 | Initial build / rebuild / migration | |
+| - [ ] | 7 | `SQLWhereClause.estimate()` integration | |
+| - [ ] | 8 | `IndexSearchDescriptor.cost()` integration | |
+| - [ ] | 9 | Edge fan-out estimation | |
+| - [ ] | 10 | Configuration parameters | |
+| - [ ] | 11 | `ANALYZE INDEX` SQL command | |
+| - [ ] | 12 | Tests | |
 
 ---
 
@@ -2756,7 +2863,30 @@ Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
 - MCV vs bucket average: for skewed data, MCV selectivity > bucket-averaged selectivity
 - MCV miss: equality on non-MCV value falls through to standard bucket formula
 
-### 10.9 Cost Model and End-to-End Tests
+### 10.9 ANALYZE INDEX Tests
+
+#### 10.9.1 Parser Tests (`AnalyzeIndexStatementTest`)
+
+- `ANALYZE INDEX *` — parses successfully, `all` flag set
+- `ANALYZE INDEX Foo` — parses successfully, name = `Foo`
+- `analyze index Foo` — case-insensitive parsing
+- `ANALYZE INDEX Foo.bar` — dotted index name
+- `ANALYZE INDEX Foo.bar.baz` — multi-dotted index name
+- Negative: `ANALYZE INDEX Foo.bar foo` — trailing token causes parse error
+
+#### 10.9.2 Execution Tests (`AnalyzeIndexStatementExecutionTest`)
+
+- Create class with property + index, insert records, run `ANALYZE INDEX <name>` →
+  verify result properties (`operation`, `indexName`, `totalCount`, `distinctCount`,
+  `nullCount`, `bucketCount`)
+- `ANALYZE INDEX *` succeeds on a database with multiple indexes, returns one row per
+  automatic index
+- `ANALYZE INDEX nonExistent` throws `CommandExecutionException`
+- `ANALYZE INDEX <name>` on an empty index → `totalCount = 0`, `bucketCount = 0`
+- `ANALYZE INDEX <name>` while a background rebalance is in progress → waits for
+  background rebalance to complete, returns refreshed snapshot (no redundant scan)
+
+### 10.10 Cost Model and End-to-End Tests
 
 - Index seek preferred over scan at low selectivity
 - Scan preferred at high selectivity
@@ -2770,7 +2900,7 @@ Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Histogram drift between rebalances | Medium | Reduced range accuracy | Automatic rebalancing; `REBUILD INDEX` restores balance |
+| Histogram drift between rebalances | Medium | Reduced range accuracy | Automatic rebalancing; `REBUILD INDEX` or `ANALYZE INDEX` restores balance |
 | Rebalance scan sees concurrent mutations | Medium | Slightly inconsistent histogram | Self-correcting via subsequent incremental updates |
 | Variable-length keys exceed page after truncation | Low | Reduced bucket count | Truncation (Strategy 1) + bucket halving (Strategy 2); minimum 4 buckets or fall back to uniform |
 | Multi-value NDV approximation | Low | ~3.25% error from HLL sketch (1024 registers) | HyperLogLog tracks inserts incrementally and is persisted to `.ixs` page; `distinctCount` updated from HLL on every commit; exact NDV recomputed on rebalance; insert-only means NDV can only overestimate (safe direction) |
@@ -2803,7 +2933,7 @@ Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
 | Composite indexes | Histogram on leading field only | Handles prefix queries (primary access pattern); full-key equality uses 1/NDV |
 | In-memory cache | Storage-level `ConcurrentHashMap<Integer, HistogramSnapshot>` keyed by engine ID; updated via `compute()` on commit (delta application) and rebalance; versioned snapshots detect stale deltas — `frequencyDeltas` discarded on version mismatch, scalar deltas always applied | Single lookup point for planners; lock-free reads; always reflects committed state; no rollback handling needed |
 | Background rebalance | Live scan on IO executor (`YouTrackDBInternalEmbedded.getIoExecutor()`) | Scaling thread pool for background I/O; non-blocking for planner; avoids contention with checkpoint/WAL executors |
-| Insert-vs-update detection | `wasInsert` boolean from B-tree `put()` (return type changed from `void` to `boolean` — minimal signature change, no logic change) propagated to `onPut()` | Prevents totalCount/distinctCount inflation for single-value updates; multi-value always inserts (wasInsert=true) |
+| Insert-vs-update detection | `wasInsert` boolean from B-tree `put()` (return type changed from `void` to `boolean` — minimal signature change, no logic change) propagated to `onPut()` | Prevents totalCount inflation for single-value updates; multi-value always inserts (wasInsert=true) |
 | Update model | Delta accumulation in `AtomicOperation`; applied to CHM on commit only | Rollback-safe by construction (deltas discarded); CHM always reflects committed state; consistent with write-nothing-on-error model |
 | Persistence model | Batched: `.ixs` page flushed every `PERSIST_BATCH_SIZE` committed mutations + on fuzzy checkpoint + on close | Near-zero WAL overhead; at most `PERSIST_BATCH_SIZE` mutations lost on crash; acceptable for approximate statistics |
 | Rebalance trigger | Check on planner read, not on write | Avoids overhead on write-heavy workloads |
@@ -2820,6 +2950,7 @@ Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
 | Drift-biased rebalance | Halve rebalance threshold when any bucket frequency is clamped to 0 | Triggers earlier correction for indexes with accumulated negative drift from deletions; cheap check (boolean flag, no frequency scan on read) |
 | Lazy HLL initialization | HLL sketch allocated only when multi-value index crosses `HISTOGRAM_MIN_SIZE` | Avoids 1 KB allocation per small multi-value index; populated from key stream on first histogram build |
 | Rebalance scalar counter preservation | `cache.compute()` uses CHM's `totalCount`/`nullCount` (incrementally maintained), scan's exact NDV for `distinctCount` | Preserves concurrent commit deltas; uses most accurate source for each counter type |
+| ANALYZE INDEX command | Synchronous rebalance on caller's thread; bypasses storage semaphore; waits for in-progress background rebalance via sleep-poll on `rebalanceInProgress`; skips `HISTOGRAM_MIN_SIZE` threshold | Consistent with `REBUILD INDEX` (synchronous execution). Semaphore bypass: user explicitly chose to pay the cost. Sleep-poll avoidance of redundant scan: if background rebalance is running, its result is equally fresh. Threshold bypass: benchmarks/small indexes still need histograms |
 
 ---
 
@@ -2827,17 +2958,17 @@ Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `query.stats.defaultSelectivity` | 0.1 | Non-indexed predicate default |
-| `query.stats.defaultFanOut` | 10.0 | Edge traversal default fan-out |
-| `query.stats.histogramBuckets` | 128 | Target bucket count (may be reduced for large keys) |
-| `query.stats.histogramMinSize` | 1000 | Min entries before histogram is built |
-| `query.stats.rebalanceMutationFraction` | 0.3 | Fraction of totalCount mutations triggering rebalance |
-| `query.stats.minRebalanceMutations` | 1000 | Floor for rebalance trigger (small index guard) |
-| `query.stats.maxRebalanceMutations` | 10,000,000 | Cap for rebalance trigger (large index guard) |
-| `query.stats.maxBoundaryBytes` | 256 | Max serialized size per boundary key (truncation threshold) |
-| `query.stats.persistBatchSize` | 500 | Mutations accumulated in-memory before flushing to `.ixs` page (Section 3.2) |
-| `query.stats.rebalanceFailureCooldown` | 60,000 (ms) | Minimum wait time after a failed rebalance before re-triggering (Section 5.7) |
-| `query.stats.maxConcurrentRebalances` | -1 (auto) | Max concurrent rebalance tasks across all indexes; -1 = `max(2, availableProcessors / 4)` (Section 5.7) |
+| `youtrackdb.query.stats.defaultSelectivity` | 0.1 | Non-indexed predicate default |
+| `youtrackdb.query.stats.defaultFanOut` | 10.0 | Edge traversal default fan-out |
+| `youtrackdb.query.stats.histogramBuckets` | 128 | Target bucket count (may be reduced for large keys) |
+| `youtrackdb.query.stats.histogramMinSize` | 1000 | Min entries before histogram is built |
+| `youtrackdb.query.stats.rebalanceMutationFraction` | 0.3 | Fraction of totalCount mutations triggering rebalance |
+| `youtrackdb.query.stats.minRebalanceMutations` | 1000 | Floor for rebalance trigger (small index guard) |
+| `youtrackdb.query.stats.maxRebalanceMutations` | 10,000,000 | Cap for rebalance trigger (large index guard) |
+| `youtrackdb.query.stats.maxBoundaryBytes` | 256 | Max serialized size per boundary key (truncation threshold) |
+| `youtrackdb.query.stats.persistBatchSize` | 500 | Mutations accumulated in-memory before flushing to `.ixs` page (Section 3.2) |
+| `youtrackdb.query.stats.rebalanceFailureCooldown` | 60,000 (ms) | Minimum wait time after a failed rebalance before re-triggering (Section 5.7) |
+| `youtrackdb.query.stats.maxConcurrentRebalances` | -1 (auto) | Max concurrent rebalance tasks across all indexes; -1 = `max(2, availableProcessors / 4)` (Section 5.7) |
 
 Existing parameters relevant to histogram I/O:
 
@@ -2900,6 +3031,13 @@ All paths relative to `core/src/main/java/com/jetbrains/youtrackdb/`.
 | `internal/core/index/engine/IndexHistogramManager.java` | DurableComponent — stats page, CHM cache, incremental updates, build/rebalance |
 | `internal/core/index/engine/SelectivityEstimator.java` | Three-tier selectivity estimation |
 | `internal/core/index/engine/ScalarConversion.java` | Char-based string-to-scalar (UTF-16 code unit encoding) and type-generic interpolation |
+| `internal/core/sql/parser/SQLAnalyzeIndexStatement.java` | `ANALYZE INDEX` statement — synchronous histogram rebuild (Section 5.7.1) |
+
+**SQL grammar (MODIFIED by this plan):**
+
+| File | Role |
+|------|------|
+| `core/src/main/grammar/YouTrackDBSql.jjt` | Add `ANALYZE` token + `AnalyzeIndexStatement()` rule |
 
 **Infrastructure (UNCHANGED, reference only):**
 
