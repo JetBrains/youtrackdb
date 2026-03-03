@@ -48,8 +48,15 @@ class Meter {
   private final Ticker ticker;
   private final Mode mode;
 
+  /**
+   * Default number of records between volatile tick reads. At 100K records/sec per thread
+   * this checks ~400 times/sec, well within the 1-second flush granularity.
+   */
+  static final int DEFAULT_TICK_CHECK_INTERVAL = 256;
+
   private final long flushRateTicks;
   private final long periodTicks;
+  private final int tickCheckInterval;
 
   private final Bucket[] buckets; // two overlapping buckets
 
@@ -59,13 +66,7 @@ class Meter {
       ThreadLocal.withInitial(ThreadLocalMeter::new);
 
   /**
-   * Creates a new meter.
-   *
-   * @param ticker         Ticker to use for time measurements.
-   * @param mode           Mode of the meter. See {@link Mode}.
-   * @param flushRateTicks Rate (in ticks) at which the meter will flush its data to the shared
-   *                       state.
-   * @param periodTicks    Period (in ticks) over which the meter will collect data.
+   * Creates a new meter with the default tick check interval.
    */
   Meter(
       Ticker ticker,
@@ -73,13 +74,37 @@ class Meter {
       long flushRateTicks,
       long periodTicks
   ) {
+    this(ticker, mode, flushRateTicks, periodTicks, DEFAULT_TICK_CHECK_INTERVAL);
+  }
+
+  /**
+   * Creates a new meter.
+   *
+   * @param ticker             Ticker to use for time measurements.
+   * @param mode               Mode of the meter. See {@link Mode}.
+   * @param flushRateTicks     Rate (in ticks) at which the meter will flush its data to the
+   *                           shared state.
+   * @param periodTicks        Period (in ticks) over which the meter will collect data.
+   * @param tickCheckInterval  Number of records between volatile tick reads. Higher values
+   *                           reduce overhead but delay flush detection. Use 1 in tests that
+   *                           need per-record flushing.
+   */
+  Meter(
+      Ticker ticker,
+      Mode mode,
+      long flushRateTicks,
+      long periodTicks,
+      int tickCheckInterval
+  ) {
     this.mode = mode;
     Validate.isTrue(periodTicks > 0, "Period must be positive");
     Validate.isTrue(flushRateTicks > 0, "Flush rate must be positive");
     Validate.isTrue(periodTicks % flushRateTicks == 0, "Period must be a multiple of flush rate");
+    Validate.isTrue(tickCheckInterval > 0, "Tick check interval must be positive");
     this.ticker = ticker;
     this.flushRateTicks = flushRateTicks;
     this.periodTicks = periodTicks;
+    this.tickCheckInterval = tickCheckInterval;
 
     final var currentTick = ticker.getTick();
     final var currentNanoTime = currentNanoTime();
@@ -145,6 +170,7 @@ class Meter {
   private final class ThreadLocalMeter {
 
     private long lastFlushTick = ticker.getTick();
+    private int recordsSinceTickCheck;
 
     private long localSuccess;
     private long localTotal;
@@ -153,6 +179,17 @@ class Meter {
       // accumulating the data
       localSuccess += success;
       localTotal += total;
+
+      // Only check the tick every tickCheckInterval records to reduce volatile reads.
+      // The tick is used to decide when to flush thread-local counters to shared state
+      // (~1x per second). Checking on every record is wasteful — at 100K records/sec
+      // the default interval of 256 reduces volatile reads by ~256x while delaying flush
+      // by at most 256 records.
+      if (++recordsSinceTickCheck < tickCheckInterval) {
+        return;
+      }
+      recordsSinceTickCheck = 0;
+
       long currentTick = ticker.getTick();
 
       // checking if it's time to flush the data
