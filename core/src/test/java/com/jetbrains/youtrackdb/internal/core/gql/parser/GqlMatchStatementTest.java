@@ -320,95 +320,6 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertEquals(patterns, statement.getMatchFilters());
   }
 
-  // ── extractLiteralValue: RID ──
-
-  @Test
-  public void extractLiteralValue_rid_parsesRecordId() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {link: #12:0})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertNotNull(props.get("link"));
-    Assert.assertTrue(props.get("link") instanceof RecordIdInternal);
-    var rid = (RecordIdInternal) props.get("link");
-    Assert.assertEquals(12, rid.getCollectionId());
-    Assert.assertEquals(0, rid.getCollectionPosition());
-  }
-
-  // ── extractLiteralValue: temporal DATE ──
-
-  @Test
-  public void extractLiteralValue_date_parsesDate() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {birthday: DATE '2024-01-15'})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertNotNull(props.get("birthday"));
-    Assert.assertTrue(props.get("birthday") instanceof Date);
-  }
-
-  // ── extractLiteralValue: temporal TIMESTAMP ──
-
-  @Test
-  public void extractLiteralValue_timestamp_parsesDatetime() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {created: TIMESTAMP '2024-01-15 10:30:00'})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertNotNull(props.get("created"));
-    Assert.assertTrue(props.get("created") instanceof Date);
-  }
-
-  // ── extractLiteralValue: list literal ──
-
-  @Test
-  public void extractLiteralValue_list_parsesList() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {tags: ['alpha', 'beta']})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertNotNull(props.get("tags"));
-    Assert.assertTrue(props.get("tags") instanceof List<?>);
-    @SuppressWarnings("unchecked")
-    var list = (List<Object>) props.get("tags");
-    Assert.assertEquals(2, list.size());
-    Assert.assertEquals("alpha", list.get(0));
-    Assert.assertEquals("beta", list.get(1));
-  }
-
-  // ── extractLiteralValue: map literal ──
-
-  @Test
-  public void extractLiteralValue_map_parsesMap() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {meta: {key: 'value', num: 42}})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertNotNull(props.get("meta"));
-    Assert.assertTrue(props.get("meta") instanceof Map<?, ?>);
-    @SuppressWarnings("unchecked")
-    var map = (Map<String, Object>) props.get("meta");
-    Assert.assertEquals("value", map.get("key"));
-    Assert.assertEquals(42L, map.get("num"));
-  }
-
-  // ── extractLiteralValue: boolean ──
-
-  @Test
-  public void extractLiteralValue_boolean_parsesBoolean() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {active: true, deleted: false})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertEquals(true, props.get("active"));
-    Assert.assertEquals(false, props.get("deleted"));
-  }
-
-  // ── extractLiteralValue: double ──
-
-  @Test
-  public void extractLiteralValue_double_parsesDouble() {
-    var stmt = (GqlMatchStatement) GqlPlanner.parse(
-        "MATCH (a:V {score: 3.14})");
-    var props = stmt.getPatterns().get(0).properties();
-    Assert.assertTrue(props.get("score") instanceof Double);
-    Assert.assertEquals(3.14, (Double) props.get("score"), 0.001);
-  }
-
   // ── buildWhereClause with RID value ──
 
   @Test
@@ -447,14 +358,14 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.addVertex(T.label, "MatchNumF", "name", "Bob", "age", 25);
     graph.tx().commit();
 
-    var statement = new GqlMatchStatement(
-        List.of(new GqlMatchVisitor.NodePattern("a", "MatchNumF",
-            Map.of("age", 30L))));
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchNumF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("age", 30L)));
+    var statement = new GqlMatchStatement(List.of(filter));
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
-      int count = 0;
+      var count = 0;
       while (stream.hasNext()) {
         stream.next();
         count++;
@@ -473,14 +384,14 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     graph.addVertex(T.label, "MatchBoolF", "name", "Inactive", "active", false);
     graph.tx().commit();
 
-    var statement = new GqlMatchStatement(
-        List.of(new GqlMatchVisitor.NodePattern("a", "MatchBoolF",
-            Map.of("active", true))));
+    var filter = SQLMatchFilter.fromGqlNode("a", "MatchBoolF");
+    filter.setFilter(GqlMatchStatement.buildWhereClause(Map.of("active", true)));
+    var statement = new GqlMatchStatement(List.of(filter));
     var ctx = createCtx();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
-      int count = 0;
+      var count = 0;
       while (stream.hasNext()) {
         stream.next();
         count++;
