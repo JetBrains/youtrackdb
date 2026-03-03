@@ -1232,17 +1232,11 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private Spliterator<RawPair<K, RID>> iterateEntriesMajorDesc(K key, final boolean inclusive,
       AtomicOperation atomicOperation) {
-    acquireSharedLock();
-    try {
-      key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
-      key = enhanceCompositeKeyMajorDesc(key, inclusive);
+    key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+    key = enhanceCompositeKeyMajorDesc(key, inclusive);
 
-      return new SpliteratorBackward<>(this, key, null, inclusive, false,
-          atomicOperation);
-
-    } finally {
-      releaseSharedLock();
-    }
+    return new SpliteratorBackward<>(this, key, null, inclusive, false,
+        atomicOperation);
   }
 
   private K enhanceCompositeKeyMajorAsc(K key, final boolean inclusive) {
