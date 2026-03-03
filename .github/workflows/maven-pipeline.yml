@@ -319,7 +319,7 @@ jobs:
             echo "No VMLens report directory found at $REPORT_DIR"
           fi
       - name: Upload VMLens Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: "!cancelled()"
         with:
           name: vmlens-report-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
@@ -338,7 +338,7 @@ jobs:
           comment_mode: off
           check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: "!cancelled()"
         with:
           name: test-diagnostics-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
@@ -349,7 +349,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - name: Upload Coverage Data
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
         with:
           name: coverage-data
@@ -357,7 +357,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - name: Upload Ekstazi Exclude Files
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
         with:
           name: ekstazi-excludes
@@ -405,7 +405,7 @@ jobs:
           comment_mode: off
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: "!cancelled()"
         with:
           name: test-diagnostics-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}
