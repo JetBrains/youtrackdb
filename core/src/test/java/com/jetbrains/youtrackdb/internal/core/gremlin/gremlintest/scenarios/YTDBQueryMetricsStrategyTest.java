@@ -37,10 +37,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   public static void beforeClass() {
     var granularity =
         YouTrackDBEnginesManager.instance().getTicker().getGranularity();
-    var granularityMillis = granularity / 1_000_000;
 
-    TICKER_POSSIBLE_LAG_NANOS = (long) (granularity * 1.5);
-    TICKER_POSSIBLE_LAG_MILLIS = (long) (granularityMillis * 1.5);
+    // The ticker background thread fires at fixed-rate intervals of `granularity`, but actual
+    // scheduling jitter can be significant — especially on Windows CI where the OS timer
+    // resolution is ~15.6 ms and thread scheduling under load adds further delay. A 3x
+    // multiplier provides enough headroom to absorb worst-case jitter while still being a
+    // meaningful upper bound on ticker staleness.
+    TICKER_POSSIBLE_LAG_NANOS = granularity * 3;
+    TICKER_POSSIBLE_LAG_MILLIS = TICKER_POSSIBLE_LAG_NANOS / 1_000_000;
   }
 
   @Before
