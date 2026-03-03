@@ -327,7 +327,6 @@
           </execution>
         </executions>
         <configuration>
-          <skip>${skipVmlens}</skip>
           <includes>
             <include>**/*MTTest.java</include>
           </includes>
