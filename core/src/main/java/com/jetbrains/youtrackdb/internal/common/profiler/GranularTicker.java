@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.profiler;
 
-import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /// Default implementation of [Ticker] that updates its internal time at a certain granularity in a
@@ -19,24 +19,31 @@ public class GranularTicker implements Ticker, AutoCloseable {
   private volatile long nanoTimeDifference;
 
   private final ScheduledExecutorService executor;
+  private volatile ScheduledFuture<?> nanoTimeFuture;
+  private volatile ScheduledFuture<?> nanoTimeDifferenceFuture;
 
-  public GranularTicker(long granularityNanos, long timestampRefreshRate) {
-    this.executor = ThreadPoolExecutors.newSingleThreadScheduledPool("GranularTicker");
+  public GranularTicker(long granularityNanos, long timestampRefreshRate,
+      ScheduledExecutorService executor) {
+    this.executor = executor;
     this.timestampRefreshRate = timestampRefreshRate;
     this.granularity = granularityNanos;
   }
 
   @Override
   public void start() {
+    if (executor == null) {
+      throw new IllegalStateException(
+          "Cannot start GranularTicker without a ScheduledExecutorService");
+    }
     assert nanoTime == 0 : "Ticker is already started";
     this.nanoTime = System.nanoTime();
     this.nanoTimeDifference = System.currentTimeMillis() - this.nanoTime / 1_000_000;
 
-    executor.scheduleAtFixedRate(
+    nanoTimeFuture = executor.scheduleAtFixedRate(
         () -> nanoTime = System.nanoTime(),
         granularity, granularity, TimeUnit.NANOSECONDS
     );
-    executor.scheduleAtFixedRate(
+    nanoTimeDifferenceFuture = executor.scheduleAtFixedRate(
         () -> nanoTimeDifference = System.currentTimeMillis() - System.nanoTime() / 1_000_000,
         timestampRefreshRate, timestampRefreshRate, TimeUnit.NANOSECONDS
     );
@@ -69,7 +76,14 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   @Override
   public void stop() {
-    executor.shutdown();
+    var f1 = nanoTimeFuture;
+    if (f1 != null) {
+      f1.cancel(false);
+    }
+    var f2 = nanoTimeDifferenceFuture;
+    if (f2 != null) {
+      f2.cancel(false);
+    }
   }
 
   @Override

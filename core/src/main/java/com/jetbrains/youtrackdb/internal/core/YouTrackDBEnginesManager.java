@@ -27,10 +27,13 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Profiler;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
+import com.jetbrains.youtrackdb.internal.common.thread.SourceTraceExecutorService;
+import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.common.util.ClassLoaderHelper;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCacheFactory;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCacheFactoryImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategyFactory;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
@@ -55,6 +58,9 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -83,7 +89,21 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   private final AtomicReference<List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>>>
       dbLifecycleListeners = new AtomicReference<>(List.of());
   private final ThreadGroup threadGroup;
+  private final ThreadGroup storageThreadGroup;
   private final ReadWriteLock engineLock = new ReentrantReadWriteLock();
+
+  // Storage pools — single-threaded for sequential execution guarantees.
+  private final ScheduledExecutorService walFlushExecutor;
+  private final ExecutorService walWriteExecutor;
+  private final ScheduledExecutorService fuzzyCheckpointExecutor;
+  private final ScheduledExecutorService wowCacheFlushExecutor;
+
+  // Shared scheduled pool — replaces per-instance Timers.
+  private final ScheduledExecutorService scheduledPool;
+
+  // Main/IO executors — created lazily via factory methods, shared across all embedded instances.
+  private volatile ExecutorService executor;
+  private volatile ExecutorService ioExecutor;
   private final RecordConflictStrategyFactory recordConflictStrategy =
       new RecordConflictStrategyFactory();
   private final ReferenceQueue<YouTrackDBStartupListener> removedStartupListenersQueue =
@@ -191,6 +211,23 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     this.insideWebContainer = insideWebContainer;
     this.os = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
     threadGroup = new ThreadGroup("YouTrackDB");
+    storageThreadGroup = new ThreadGroup(threadGroup, "YouTrackDB Storage");
+
+    // Storage pools — single-threaded for sequential execution guarantees.
+    walFlushExecutor = ThreadPoolExecutors.newSingleThreadScheduledPool(
+        "YouTrackDB WAL Flush Task", storageThreadGroup);
+    walWriteExecutor = ThreadPoolExecutors.newSingleThreadPool(
+        "YouTrackDB WAL Write Task Thread", storageThreadGroup);
+    fuzzyCheckpointExecutor = ThreadPoolExecutors.newSingleThreadScheduledPool(
+        "Fuzzy Checkpoint", storageThreadGroup);
+    wowCacheFlushExecutor = ThreadPoolExecutors.newSingleThreadScheduledPool(
+        "YouTrackDB Write Cache Flush Task", storageThreadGroup);
+
+    // Shared scheduled pool replaces per-instance Timer instances.
+    // Two threads: one dedicated to GranularTicker high-frequency updates,
+    // the other for eviction, auto-close, cron events, etc.
+    scheduledPool = ThreadPoolExecutors.newScheduledThreadPool(
+        "YouTrackDB Scheduler", threadGroup, 2);
   }
 
   public boolean isInsideWebContainer() {
@@ -261,7 +298,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return this;
       }
 
-      profiler = new Profiler(scheduler);
+      profiler = new Profiler(scheduler, scheduledPool);
 
       registerWeakYouTrackDBStartupListener(profiler);
       registerWeakYouTrackDBShutdownListener(profiler);
@@ -589,6 +626,131 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return threadGroup;
   }
 
+  public ThreadGroup getStorageThreadGroup() {
+    return storageThreadGroup;
+  }
+
+  public ScheduledExecutorService getWalFlushExecutor() {
+    return walFlushExecutor;
+  }
+
+  public ExecutorService getWalWriteExecutor() {
+    return walWriteExecutor;
+  }
+
+  public ScheduledExecutorService getFuzzyCheckpointExecutor() {
+    return fuzzyCheckpointExecutor;
+  }
+
+  public ScheduledExecutorService getWowCacheFlushExecutor() {
+    return wowCacheFlushExecutor;
+  }
+
+  public ScheduledExecutorService getScheduledPool() {
+    return scheduledPool;
+  }
+
+  public ExecutorService getExecutor() {
+    return executor;
+  }
+
+  @Nullable
+  public ExecutorService getIoExecutor() {
+    return ioExecutor;
+  }
+
+  /**
+   * Creates the main work executor if not already created. Called by
+   * {@link YouTrackDBInternalEmbedded} during its construction. Subsequent calls return the
+   * already-created executor.
+   */
+  public ExecutorService createExecutor(YouTrackDBConfigImpl config) {
+    var result = executor;
+    if (result != null) {
+      return result;
+    }
+
+    synchronized (this) {
+      result = executor;
+      if (result != null) {
+        return result;
+      }
+
+      var maxSize = executorMaxSize(config, GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
+      result = ThreadPoolExecutors.newScalingThreadPool(
+          "YouTrackDBEmbedded", threadGroup, 1, executorBaseSize(maxSize),
+          maxSize, 30, TimeUnit.MINUTES);
+      if (config.getConfiguration()
+          .getValueAsBoolean(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
+        result = new SourceTraceExecutorService(result);
+      }
+      executor = result;
+      return result;
+    }
+  }
+
+  /**
+   * Creates the IO executor if not already created. Called by
+   * {@link YouTrackDBInternalEmbedded} during its construction. Returns null if IO pool is
+   * disabled in configuration.
+   */
+  @Nullable
+  public ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
+    if (!config.getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED)) {
+      return null;
+    }
+
+    var result = ioExecutor;
+    if (result != null) {
+      return result;
+    }
+
+    synchronized (this) {
+      result = ioExecutor;
+      if (result != null) {
+        return result;
+      }
+
+      var ioSize = executorMaxSize(config, GlobalConfiguration.EXECUTOR_POOL_IO_MAX_SIZE);
+      result = ThreadPoolExecutors.newScalingThreadPool(
+          "YouTrackDB-IO", threadGroup, 1, executorBaseSize(ioSize),
+          ioSize, 30, TimeUnit.MINUTES);
+      if (config.getConfiguration()
+          .getValueAsBoolean(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
+        result = new SourceTraceExecutorService(result);
+      }
+      ioExecutor = result;
+      return result;
+    }
+  }
+
+  private static int executorMaxSize(YouTrackDBConfigImpl config, GlobalConfiguration param) {
+    var size = config.getConfiguration().getValueAsInteger(param);
+    if (size == 0) {
+      LogManager.instance()
+          .warn(YouTrackDBEnginesManager.class,
+              "Configuration " + param.getKey()
+                  + " has a value 0 using number of CPUs as base value");
+      size = Runtime.getRuntime().availableProcessors();
+    } else if (size <= -1) {
+      size = Runtime.getRuntime().availableProcessors();
+    }
+    return size;
+  }
+
+  private static int executorBaseSize(int size) {
+    int baseSize;
+    if (size > 10) {
+      baseSize = size / 10;
+    } else if (size > 4) {
+      baseSize = size / 2;
+    } else {
+      baseSize = size;
+    }
+    return baseSize;
+  }
+
   public DatabaseThreadLocalFactory getDatabaseThreadFactory() {
     return databaseThreadFactory;
   }
@@ -754,8 +916,13 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   /**
-   * Interrupts all threads in YouTrackDB thread group and stops all tasks that are being run on the
-   * YouTrackDB scheduler.
+   * Interrupts all threads in YouTrackDB thread group, shuts down lazily-created executors,
+   * and stops the scheduler.
+   *
+   * <p>Infrastructure pools (storage pools, scheduled pool) are NOT shut down here because
+   * they are created in the constructor and must survive across shutdown/startup cycles
+   * (tests call {@link #shutdown()} then {@link #startup()} on the same instance).
+   * These pools are terminated when the JVM shuts down or the manager is garbage-collected.
    */
   private class ShutdownPendingThreadsHandler implements ShutdownHandler {
 
@@ -766,13 +933,34 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
     @Override
     public void shutdown() throws Exception {
-      if (threadGroup != null)
-      // STOP ALL THE PENDING THREADS
-      {
+      scheduler.shutdown();
+
+      // Shut down lazily-created main/IO executors and reset to null
+      // so they can be re-created on next startup.
+      shutdownExecutor(executor, "main executor");
+      executor = null;
+      shutdownExecutor(ioExecutor, "IO executor");
+      ioExecutor = null;
+
+      if (threadGroup != null) {
         threadGroup.interrupt();
       }
+    }
 
-      scheduler.shutdown();
+    private void shutdownExecutor(@Nullable ExecutorService exec, String name) {
+      if (exec == null) {
+        return;
+      }
+      exec.shutdown();
+      try {
+        if (!exec.awaitTermination(1, TimeUnit.MINUTES)) {
+          LogManager.instance().warn(this, "Forcing shutdown of %s", name);
+          exec.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        exec.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
     }
 
     @Override

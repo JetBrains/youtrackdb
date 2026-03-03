@@ -51,8 +51,8 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.TimerTask;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
@@ -836,13 +836,13 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void schedule(TimerTask task, long delay, long period) {
-      internal.schedule(task, delay, period);
+    public ScheduledFuture<?> schedule(Runnable task, long delay, long period) {
+      return internal.schedule(task, delay, period);
     }
 
     @Override
-    public void scheduleOnce(TimerTask task, long delay) {
-      internal.scheduleOnce(task, delay);
+    public ScheduledFuture<?> scheduleOnce(Runnable task, long delay) {
+      return internal.scheduleOnce(task, delay);
     }
 
     @Override

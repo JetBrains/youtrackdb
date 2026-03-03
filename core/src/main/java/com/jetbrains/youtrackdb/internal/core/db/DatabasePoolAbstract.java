@@ -39,8 +39,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,13 +53,13 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   protected Object owner;
   private final int maxSize;
   private final int timeout;
-  private volatile Timer evictionTask;
+  private volatile ScheduledFuture<?> evictionFuture;
   private Evictor evictor;
 
   /**
-   * The idle object evictor {@link TimerTask}.
+   * The idle object evictor task.
    */
-  class Evictor extends TimerTask {
+  class Evictor implements Runnable {
 
     private final HashMap<String, Object2LongOpenHashMap<DatabaseSessionEmbedded>> evictionMap =
         new HashMap<>();
@@ -147,10 +147,10 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
     YouTrackDBEnginesManager.instance().registerListener(this);
 
     if (idleTimeoutMillis > 0 && timeBetweenEvictionRunsMillis > 0) {
-      this.evictionTask = new Timer();
       this.evictor = new Evictor(idleTimeoutMillis);
-      this.evictionTask.schedule(
-          evictor, timeBetweenEvictionRunsMillis, timeBetweenEvictionRunsMillis);
+      this.evictionFuture = YouTrackDBEnginesManager.instance().getScheduledPool()
+          .scheduleWithFixedDelay(evictor, timeBetweenEvictionRunsMillis,
+              timeBetweenEvictionRunsMillis, TimeUnit.MILLISECONDS);
     }
   }
 
@@ -287,8 +287,9 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
     lock();
     try {
 
-      if (this.evictionTask != null) {
-        this.evictionTask.cancel();
+      var ef = evictionFuture;
+      if (ef != null) {
+        ef.cancel(false);
       }
 
       for (var pool :

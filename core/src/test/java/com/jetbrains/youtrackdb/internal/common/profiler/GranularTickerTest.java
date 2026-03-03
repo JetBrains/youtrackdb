@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.common.profiler;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
@@ -12,7 +13,8 @@ public class GranularTickerTest {
   public void testTimeApproximation() throws Exception {
     final var granularityNanos = TimeUnit.MILLISECONDS.toNanos(10);
     final var timeAdjustmentNanos = TimeUnit.MILLISECONDS.toNanos(50);
-    try (var ticker = new GranularTicker(granularityNanos, timeAdjustmentNanos)) {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try (var ticker = new GranularTicker(granularityNanos, timeAdjustmentNanos, scheduler)) {
 
       ticker.start();
       final var granularityMillis = TimeUnit.NANOSECONDS.toMillis(granularityNanos);
@@ -52,6 +54,8 @@ public class GranularTickerTest {
       assertThat(totalTickerNanos)
           .as("ticker should advance over 20 iterations")
           .isGreaterThanOrEqualTo(totalRealNanos - 2 * granularityNanos);
+    } finally {
+      scheduler.shutdownNow();
     }
   }
 }

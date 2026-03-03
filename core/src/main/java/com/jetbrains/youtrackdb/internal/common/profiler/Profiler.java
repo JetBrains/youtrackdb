@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBScheduler;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBShutdownListener;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBStartupListener;
+import java.util.concurrent.ScheduledExecutorService;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -34,15 +35,18 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
 
   private static final Logger logger = LoggerFactory.getLogger(Profiler.class);
 
-  private final Ticker ticker = new GranularTicker(
-      GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong(),
-      GlobalConfiguration.PROFILER_TICKER_ADJUSTMENT_RATE.getValueAsLong()
-  );
-  private final MetricsRegistry metricsRegistry = new MetricsRegistry(ticker);
+  private final Ticker ticker;
+  private final MetricsRegistry metricsRegistry;
   private final YouTrackDBScheduler scheduler;
 
-  public Profiler(YouTrackDBScheduler scheduler) {
+  public Profiler(YouTrackDBScheduler scheduler, ScheduledExecutorService scheduledPool) {
     this.scheduler = scheduler;
+    this.ticker = new GranularTicker(
+        GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong(),
+        GlobalConfiguration.PROFILER_TICKER_ADJUSTMENT_RATE.getValueAsLong(),
+        scheduledPool
+    );
+    this.metricsRegistry = new MetricsRegistry(ticker);
   }
 
   public MetricsRegistry getMetricsRegistry() {

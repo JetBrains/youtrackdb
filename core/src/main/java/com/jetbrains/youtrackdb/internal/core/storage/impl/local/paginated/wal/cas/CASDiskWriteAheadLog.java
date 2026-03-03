@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
+
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableLong;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -18,7 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.EncryptionKeyAbsentExcep
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidStorageEncryptionKeyException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointRequestListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -93,17 +92,12 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   static final int DEFAULT_MAX_CACHE_SIZE = Integer.MAX_VALUE;
 
-  private static final ScheduledExecutorService commitExecutor;
-  private static final ExecutorService writeExecutor;
+  private static ScheduledExecutorService commitExecutor() {
+    return YouTrackDBEnginesManager.instance().getWalFlushExecutor();
+  }
 
-  static {
-    commitExecutor =
-        ThreadPoolExecutors.newSingleThreadScheduledPool(
-            "YouTrackDB WAL Flush Task", AbstractStorage.storageThreadGroup);
-
-    writeExecutor =
-        ThreadPoolExecutors.newSingleThreadPool(
-            "YouTrackDB WAL Write Task Thread", AbstractStorage.storageThreadGroup);
+  private static ExecutorService writeExecutor() {
+    return YouTrackDBEnginesManager.instance().getWalWriteExecutor();
   }
 
   private final boolean keepSingleWALSegment;
@@ -316,7 +310,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     assert writeBufferTwo.position() == 0;
 
     this.recordsWriterFuture =
-        commitExecutor.scheduleWithFixedDelay(
+        commitExecutor().scheduleWithFixedDelay(
             new RecordsWriter(this, false, false), commitDelay, commitDelay, TimeUnit.MILLISECONDS);
 
     log(new EmptyWALRecord());
@@ -840,7 +834,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       final var potentiallyUpdatedLocalFlushedLsn = flushedLSN;
       if (potentiallyUpdatedLocalFlushedLsn != null
           && lsn.compareTo(potentiallyUpdatedLocalFlushedLsn) <= 0) {
-        commitExecutor.execute(() -> fireEventsFor(potentiallyUpdatedLocalFlushedLsn));
+        commitExecutor().execute(() -> fireEventsFor(potentiallyUpdatedLocalFlushedLsn));
       }
     }
   }
@@ -1371,7 +1365,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   }
 
   private void doFlush(final boolean forceSync) {
-    final var future = commitExecutor.submit(new RecordsWriter(this, forceSync, true));
+    final var future = commitExecutor().submit(new RecordsWriter(this, forceSync, true));
     try {
       future.get();
     } catch (final Exception e) {
@@ -1921,7 +1915,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           assert walFile == null || walFile.position() == currentPosition;
 
           writeFuture =
-              writeExecutor.submit(
+              writeExecutor().submit(
                   (Callable<?>)
                       () -> {
                         executeSyncAndCloseFile();
@@ -2066,7 +2060,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     final var expectedPosition = currentPosition;
 
     writeFuture =
-        writeExecutor.submit(
+        writeExecutor().submit(
             (Callable<?>)
                 () -> {
                   executeWriteBuffer(file, buffer, lastLSN, limit, expectedPosition);

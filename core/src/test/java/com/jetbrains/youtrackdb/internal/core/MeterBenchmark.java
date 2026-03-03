@@ -30,7 +30,8 @@ public class MeterBenchmark {
 
   @Setup
   public void setup() {
-    ticker = new GranularTicker(10_000_000, 10_000_000);
+    ticker = new GranularTicker(10_000_000, 10_000_000,
+        java.util.concurrent.Executors.newScheduledThreadPool(1));
     meter = TimeRate.create(
         ticker,
         TimeInterval.of(10, TimeUnit.MILLISECONDS),

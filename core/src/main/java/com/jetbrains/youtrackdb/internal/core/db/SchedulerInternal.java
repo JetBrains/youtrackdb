@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import java.util.TimerTask;
+import java.util.concurrent.ScheduledFuture;
 
 public interface SchedulerInternal {
 
-  void schedule(TimerTask task, long delay, long period);
+  ScheduledFuture<?> schedule(Runnable task, long delay, long period);
 
-  void scheduleOnce(TimerTask task, long delay);
+  ScheduledFuture<?> scheduleOnce(Runnable task, long delay);
 }

@@ -4,7 +4,7 @@ import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-import java.util.TimerTask;
+import java.util.concurrent.ScheduledFuture;
 
 /**
  * Default implementation of {@link CachedDatabasePoolFactory}
@@ -28,6 +28,7 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
   private final ConcurrentLinkedHashMap<String, DatabasePoolInternal> poolCache;
   private final YouTrackDBInternal youTrackDB;
   private final long timeout;
+  private volatile ScheduledFuture<?> cleanUpFuture;
 
   /**
    * @param youtrackDB instance of {@link YouTrackDB} which will be used for create new database
@@ -47,19 +48,19 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
     scheduleCleanUpCache(createCleanUpTask());
   }
 
-  protected void scheduleCleanUpCache(TimerTask task) {
-    youTrackDB.schedule(task, timeout, timeout);
+  protected void scheduleCleanUpCache(Runnable task) {
+    cleanUpFuture = youTrackDB.schedule(task, timeout, timeout);
   }
 
-  private TimerTask createCleanUpTask() {
-    return new TimerTask() {
-      @Override
-      public void run() {
-        if (closed) {
-          cancel();
-        } else {
-          cleanUpCache();
+  private Runnable createCleanUpTask() {
+    return () -> {
+      if (closed) {
+        var f = cleanUpFuture;
+        if (f != null) {
+          f.cancel(false);
         }
+      } else {
+        cleanUpCache();
       }
     };
   }

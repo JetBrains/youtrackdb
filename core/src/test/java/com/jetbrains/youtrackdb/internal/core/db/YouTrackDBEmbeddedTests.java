@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageDoesNotExistExcep
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
-import java.util.TimerTask;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -561,27 +560,12 @@ public class YouTrackDBEmbeddedTests {
             config);
     var internal = YouTrackDBInternal.extract(youTrackDb);
     var latch = new CountDownLatch(2);
-    internal.schedule(
-        new TimerTask() {
-          @Override
-          public void run() {
-            latch.countDown();
-          }
-        },
-        10,
-        10);
+    internal.schedule(latch::countDown, 10, 10);
 
     assertTrue(latch.await(5, TimeUnit.MINUTES));
 
     var once = new CountDownLatch(1);
-    internal.scheduleOnce(
-        new TimerTask() {
-          @Override
-          public void run() {
-            once.countDown();
-          }
-        },
-        10);
+    internal.scheduleOnce(once::countDown, 10);
 
     assertTrue(once.await(5, TimeUnit.MINUTES));
   }
