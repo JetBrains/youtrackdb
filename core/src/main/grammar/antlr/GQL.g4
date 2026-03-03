@@ -118,7 +118,8 @@ math_expression_inner: '(' math_expression ')' | sub '(' math_expression ')' |
 comparison_operator: EQ | NEQ | GT | GTE | LT | LTE | IN;
 sub: DASH;
 numeric_literal: (sub)? (NUMBER | INT);
-property_reference : ID (DOT ID)* ;
+property_reference : identifier (DOT identifier)* ;
+identifier: ID | QUOTED_ID;
 
 MATCH:   M A T C H;
 CALL:    C A L L;
@@ -202,6 +203,7 @@ DOT : '.' ;
 DASH: '-';
 RID: '#' [0-9]+ ':' [0-9]+ ;
 PARAMETER: '$' [a-zA-Z_][a-zA-Z_0-9]*;
+QUOTED_ID: '`' ( ~'`' | '\\`' )* '`' ;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 INT: [0-9]+;
 NUMBER: [0-9]+ (DOT [0-9]+)? ([eE] [+-]? [0-9]+)?;

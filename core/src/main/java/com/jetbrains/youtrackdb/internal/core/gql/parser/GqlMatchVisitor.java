@@ -50,7 +50,7 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
       var labelCondition = patternFiller.is_label_condition();
       if (labelCondition != null && labelCondition.label_expression() != null) {
-        label = labelCondition.label_expression().getText();
+        label = stripBackticks(labelCondition.label_expression().getText());
       }
 
       var propFilters = patternFiller.property_filters();
@@ -219,5 +219,17 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
   /// string value is interpreted as Base64 when compared to a BINARY property.
   static byte[] decodeBase64(String base64) {
     return Base64.getDecoder().decode(base64);
+  }
+
+  /// Removes surrounding backticks from GQL quoted identifiers.
+  /// GQL uses backticks to quote identifiers (e.g. `` `Person` ``).
+  /// This matches SQL parser behavior which strips backticks during tokenization.
+  private static String stripBackticks(String text) {
+    if (text != null && !text.isEmpty() && text.charAt(0) == '`'
+        && text.charAt(text.length() - 1) == '`'
+        && text.length() >= 2) {
+      return text.substring(1, text.length() - 1);
+    }
+    return text;
   }
 }
