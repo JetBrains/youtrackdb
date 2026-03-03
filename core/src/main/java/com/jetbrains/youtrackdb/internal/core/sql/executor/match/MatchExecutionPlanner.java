@@ -45,7 +45,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Objects;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -309,8 +308,8 @@ public class MatchExecutionPlanner {
     this.orderBy = null;
     this.unwind = null;
 
-    this.pattern = Objects.requireNonNull(pattern);
-    this.aliasClasses = Objects.requireNonNull(aliasClasses);
+    this.pattern = pattern;
+    this.aliasClasses = aliasClasses;
     this.aliasFilters = Map.of();
     this.aliasRids = Map.of();
   }
