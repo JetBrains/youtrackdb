@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
@@ -107,6 +108,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private TreeMap<SnapshotKey, PositionEntry> localSnapshotBuffer;
   @Nullable
   private HashMap<VisibilityKey, SnapshotKey> localVisibilityBuffer;
+
+  // Histogram delta accumulator — lazily allocated to avoid overhead for
+  // transactions that do not modify indexed data.
+  @Nullable
+  private HistogramDeltaHolder histogramDeltas;
 
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -651,6 +657,21 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public void deactivate() {
     active = false;
+  }
+
+  @Override
+  @Nullable
+  public HistogramDeltaHolder getHistogramDeltas() {
+    return histogramDeltas;
+  }
+
+  @Override
+  @Nonnull
+  public HistogramDeltaHolder getOrCreateHistogramDeltas() {
+    if (histogramDeltas == null) {
+      histogramDeltas = new HistogramDeltaHolder();
+    }
+    return histogramDeltas;
   }
 
   @Override
