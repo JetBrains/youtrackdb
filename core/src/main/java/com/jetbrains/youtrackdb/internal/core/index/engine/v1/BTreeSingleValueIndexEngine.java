@@ -88,6 +88,10 @@ public final class BTreeSingleValueIndexEngine
     try {
       doClearTree(atomicOperation);
       sbTree.delete(atomicOperation);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.deleteStatsFile(atomicOperation);
+      }
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during deletion of index " + name), e,
@@ -124,7 +128,14 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public boolean remove(AtomicOperation atomicOperation, Object key) {
     try {
-      return sbTree.remove(atomicOperation, key) != null;
+      var removed = sbTree.remove(atomicOperation, key) != null;
+      if (removed) {
+        var mgr = histogramManager;
+        if (mgr != null) {
+          mgr.onRemove(atomicOperation, key, true);
+        }
+      }
+      return removed;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -137,6 +148,10 @@ public final class BTreeSingleValueIndexEngine
   public void clear(Storage storage, AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.resetOnClear(atomicOperation);
+      }
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during clear of index " + name),
@@ -147,6 +162,10 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public void close() {
     sbTree.close();
+    var mgr = histogramManager;
+    if (mgr != null) {
+      mgr.closeStatsFile();
+    }
   }
 
   @Override
@@ -184,9 +203,14 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void put(AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean put(AtomicOperation atomicOperation, Object key, RID value) {
     try {
-      sbTree.put(atomicOperation, key, value);
+      boolean wasInsert = sbTree.put(atomicOperation, key, value);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.onPut(atomicOperation, key, true, wasInsert);
+      }
+      return wasInsert;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -202,7 +226,15 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       IndexEngineValidator<Object, RID> validator) {
     try {
-      return sbTree.validatedPut(atomicOperation, key, value, validator);
+      boolean wasInsert = sbTree.validatedPut(atomicOperation, key, value, validator);
+      // validatedPut returns false both for IGNORE (validator rejected) and for
+      // update (key existed). In the IGNORE case the B-tree is unchanged, so
+      // calling onPut with wasInsert=false is safe — it only bumps mutationCount.
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.onPut(atomicOperation, key, true, wasInsert);
+      }
+      return wasInsert;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -261,6 +293,7 @@ public final class BTreeSingleValueIndexEngine
     this.histogramManager = histogramManager;
   }
 
+  @Override
   @Nullable
   public IndexHistogramManager getHistogramManager() {
     return histogramManager;

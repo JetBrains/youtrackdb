@@ -81,6 +81,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTran
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
@@ -2035,6 +2036,17 @@ public abstract class AbstractStorage
             } else {
               endTxCommit(atomicOperation);
               try {
+                applyHistogramDeltas(atomicOperation);
+              } catch (final RuntimeException e) {
+                // Delta application is a cache-only operation — its failure
+                // must never mask a successful commit. The cache will be
+                // reconstructed from the .ixs page on next restart.
+                LogManager.instance()
+                    .warn(this,
+                        "Histogram delta application failed after successful commit",
+                        e);
+              }
+              try {
                 cleanupSnapshotIndex();
               } catch (final RuntimeException e) {
                 // Cleanup is best-effort — its failure must never mask a successful commit.
@@ -2111,6 +2123,33 @@ public abstract class AbstractStorage
         }
         case CLEAR -> {
           // SHOULD NEVER BE THE CASE HANDLE BY cleared FLAG
+        }
+      }
+    }
+  }
+
+  /**
+   * Applies histogram deltas accumulated during the transaction to the
+   * in-memory CHM cache. Called after {@code endTxCommit()} succeeds so
+   * that the cache always reflects committed state only.
+   */
+  private void applyHistogramDeltas(AtomicOperation atomicOperation) {
+    var holder = atomicOperation.getHistogramDeltas();
+    if (holder == null) {
+      return;
+    }
+    for (var entry : holder.getDeltas().entrySet()) {
+      var engineId = entry.getKey();
+      var delta = entry.getValue();
+      // Engine may have been dropped concurrently — the commit is already
+      // durable, so the delta for a removed engine is stale and safe to skip.
+      if (engineId < indexEngines.size()) {
+        var engine = indexEngines.get(engineId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var mgr = btreeEngine.getHistogramManager();
+          if (mgr != null) {
+            mgr.applyDelta(delta);
+          }
         }
       }
     }
