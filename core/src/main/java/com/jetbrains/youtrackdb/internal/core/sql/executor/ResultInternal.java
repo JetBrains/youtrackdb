@@ -40,6 +40,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -63,6 +64,18 @@ public class ResultInternal implements Result, BasicResultInternal {
     this.session = session;
   }
 
+  /**
+   * Creates a result with a right-sized content map.
+   *
+   * @param expectedProperties expected number of properties (used to size the
+   *                           internal HashMap and avoid wasted capacity)
+   */
+  public ResultInternal(@Nullable DatabaseSessionEmbedded session, int expectedProperties) {
+    // Load factor 1.0 prevents resize when we stay within the expected count.
+    content = new HashMap<>(Math.max(expectedProperties, 1), 1.0f);
+    this.session = session;
+  }
+
   public ResultInternal(@Nullable DatabaseSessionEmbedded session,
       @Nonnull Map<String, ?> data) {
     content = new HashMap<>();
@@ -71,6 +84,15 @@ public class ResultInternal implements Result, BasicResultInternal {
     for (var entry : data.entrySet()) {
       setProperty(entry.getKey(), entry.getValue());
     }
+  }
+
+  /**
+   * Creates a result without allocating a content map. Intended for subclasses
+   * (like {@code MatchResultRow}) that manage their own property storage and
+   * would immediately discard the map.
+   */
+  protected ResultInternal(@Nullable DatabaseSessionEmbedded session, @SuppressWarnings("unused") boolean noContentMap) {
+    this.session = session;
   }
 
   public ResultInternal(@Nullable DatabaseSessionEmbedded session, @Nonnull Identifiable ident) {
@@ -213,7 +235,7 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   @Nullable
-  private Object convertPropertyValue(Object value) {
+  protected Object convertPropertyValue(Object value) {
     if (value == null) {
       return null;
     }
@@ -499,29 +521,19 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Entity getEntity(@Nonnull String name) {
     assert checkSession();
-
-    Object result = null;
-    if (content != null && content.containsKey(name)) {
-      result = content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getEntity(name);
-      }
-    }
+    Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
+      checkSessionForRecords();
       var transaction = session.getActiveTransaction();
       result = transaction.loadEntity(id);
     }
-
     if (result instanceof Entity entity) {
       return entity;
     }
-
     if (result == null) {
       return null;
     }
-
     throw new DatabaseException("Property " + name + " is not an entity");
   }
 
@@ -529,103 +541,62 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Result getResult(@Nonnull String name) {
     assert checkSession();
-
-    Object result = null;
-    if (content != null && content.containsKey(name)) {
-      result = content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getResult(name);
-      }
-    }
+    Object result = getProperty(name);
 
     if (result instanceof Result res) {
       return res;
     }
-
     if (result == null) {
       return null;
     }
-
     throw new DatabaseException("Property " + name + " is not a result.");
   }
 
   @Override
   public Vertex getVertex(@Nonnull String name) {
     checkSessionForRecords();
-
-    Object result = null;
-    if (content != null && content.containsKey(name)) {
-      result = content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getVertex(name);
-      }
-    }
+    Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
       var transaction = session.getActiveTransaction();
       return transaction.loadVertex(id);
     }
-
     if (result == null) {
       return null;
     }
-
     throw new DatabaseException("Property " + name + " is not a vertex");
   }
 
   @Override
   public Edge getEdge(@Nonnull String name) {
     checkSessionForRecords();
-
-    Object result = null;
-    if (content != null && content.containsKey(name)) {
-      result = content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getEdge(name);
-      }
-    }
+    Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
       var transaction = session.getActiveTransaction();
       return transaction.loadEdge(id);
     }
-
     if (result instanceof Edge edge) {
       return edge;
     }
-
     if (result == null) {
       return null;
     }
-
     throw new DatabaseException("Property " + name + " is not an edge");
   }
 
   @Override
   public Blob getBlob(@Nonnull String name) {
     checkSessionForRecords();
-
-    Object result = null;
-    if (content != null && content.containsKey(name)) {
-      result = content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getProperty(name);
-      }
-    }
+    Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
       var transaction = session.getActiveTransaction();
       return transaction.loadBlob(id);
     }
-
     if (result == null) {
       return null;
     }
-
     throw new DatabaseException("Property " + name + " is not a blob");
   }
 
@@ -633,14 +604,16 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public RID getLink(@Nonnull String name) {
     assert checkSession();
-
+    // Delegate to entity's getLink() directly instead of getProperty() to avoid
+    // lazy-loading the linked record into the local cache. EntityImpl.getLink()
+    // uses getPropertyInternal(name, false) which returns the raw RID without
+    // resolving it, while getProperty() uses lazyLoad=true which would call
+    // session.load(rid) and pollute the cache.
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getLink(name);
-      }
+    } else if (isEntity()) {
+      return asEntity().getLink(name);
     }
 
     return switch (result) {
@@ -648,7 +621,6 @@ public class ResultInternal implements Result, BasicResultInternal {
       case Identifiable id -> id.getIdentity();
       default -> throw new IllegalStateException("Property " + name + " is not a link");
     };
-
   }
 
   @Override
@@ -695,21 +667,12 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
 
     var detached = new ResultInternal(null);
-
-    if (content != null) {
-      var detachedMap = new HashMap<String, Object>(content.size());
-
-      for (var entry : content.entrySet()) {
-        detachedMap.put(entry.getKey(), toMapValue(entry.getValue(), false));
-      }
-
-      detached.content = detachedMap;
+    for (var prop : getPropertyNames()) {
+      detached.setProperty(prop, toMapValue(getProperty(prop), false));
     }
-
     if (identifiable != null) {
       detached.identifiable = identifiable.getIdentity();
     }
-
     return detached;
   }
 
@@ -1285,11 +1248,12 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (relation != null) {
       return "relation:" + relation.toJSON();
     }
-    return "content:{\n"
-        + content.entrySet().stream()
-        .map(x -> x.getKey() + ": " + x.getValue())
-        .reduce("", (a, b) -> a + b + "\n")
-        + "}\n";
+    var sb = new StringBuilder("content:{\n");
+    for (var prop : getPropertyNames()) {
+      sb.append(prop).append(": ").append((Object) getProperty(prop)).append('\n');
+    }
+    sb.append("}\n");
+    return sb.toString();
   }
 
   @Override
@@ -1297,57 +1261,35 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (this == obj) {
       return true;
     }
-
-    if (!(obj instanceof ResultInternal resultObj)) {
-      if (obj instanceof Result result) {
-        if (result.isIdentifiable() && identifiable != null) {
-          return identifiable.equals(result.getIdentity());
-        } else if (result.isEdge() && relation instanceof Edge edge) {
-          return edge.equals(result.getIdentity());
-        } else if (result.isProjection() && content != null) {
-          var propNames = result.getPropertyNames();
-
-          if (propNames.size() != content.size()) {
-            return false;
-          }
-
-          //noinspection ObjectInstantiationInEqualsHashCode
-          for (var prop : propNames) {
-            var thisValue = content.get(prop);
-            var otherValue = result.getProperty(prop);
-            if (thisValue == null && otherValue == null) {
-              continue;
-            }
-            if (thisValue == null || otherValue == null) {
-              return false;
-            }
-            if (!thisValue.equals(otherValue)) {
-              return false;
-            }
-          }
-
-          return true;
-        }
+    if (!(obj instanceof Result other)) {
+      return false;
+    }
+    if (other.isIdentifiable() || other.isRelation()) {
+      if (identifiable != null) {
+        var otherIdentity = other.getIdentity();
+        return otherIdentity != null && identifiable.getIdentity().equals(otherIdentity);
       }
-
+      if (relation != null) {
+        return Objects.equals(relation, other.isRelation() ? other.asRelation() : null);
+      }
       return false;
     }
-
-    if (session != resultObj.session) {
+    if (identifiable != null || relation != null) {
       return false;
     }
-
-    if (relation != null) {
-      return relation.equals(resultObj.relation);
-    } else if (identifiable != null) {
-      return identifiable.equals(resultObj.identifiable);
+    // Projection-to-projection comparison using virtual methods so
+    // subclasses (like MatchResultRow) get correct layered behavior.
+    var myNames = getPropertyNames();
+    var otherNames = other.getPropertyNames();
+    if (myNames.size() != otherNames.size()) {
+      return false;
     }
-
-    if (content != null) {
-      return this.content.equals(resultObj.content);
-    } else {
-      return resultObj.content == null;
+    for (var prop : myNames) {
+      if (!Objects.equals(getProperty(prop), other.getProperty(prop))) {
+        return false;
+      }
     }
+    return true;
   }
 
   @Override
@@ -1358,11 +1300,12 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (identifiable != null) {
       return identifiable.hashCode();
     }
-    if (content != null) {
-      return content.hashCode();
-    } else {
-      return super.hashCode();
+    int h = 0;
+    for (var prop : getPropertyNames()) {
+      Object val = getProperty(prop);
+      h += prop.hashCode() ^ (val == null ? 0 : val.hashCode());
     }
+    return h;
   }
 
   @Nullable

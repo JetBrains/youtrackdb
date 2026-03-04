@@ -125,7 +125,7 @@ public class SQLMethodCall extends SimpleNode {
       String name,
       List<SQLExpression> iParams,
       Iterable<Identifiable> iPossibleResults) {
-    var val = ctx.getVariable("$current");
+    var val = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
     if (val == null && targetObjects == null) {
       return null;
     }
@@ -162,7 +162,7 @@ public class SQLMethodCall extends SimpleNode {
       Iterable<Identifiable> iPossibleResults,
       List<Object> paramValues) {
     if (graphFunction instanceof SQLFunctionFiltered) {
-      var current = ctx.getVariable("$current");
+      var current = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
       if (current instanceof Result result) {
         if (result.isEntity()) {
           current = result.asEntity();
@@ -179,7 +179,7 @@ public class SQLMethodCall extends SimpleNode {
               iPossibleResults,
               ctx);
     } else {
-      var current = ctx.getVariable("$current");
+      var current = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
       if (current instanceof Result result) {
         return graphFunction.execute(
             targetObjects,
@@ -199,7 +199,7 @@ public class SQLMethodCall extends SimpleNode {
       CommandContext ctx,
       String name,
       List<SQLExpression> iParams) {
-    var val = ctx.getVariable("$current");
+    var val = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
     if (val == null && targetObjects == null) {
       return null;
     }

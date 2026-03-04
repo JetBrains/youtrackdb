@@ -9,8 +9,8 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -26,7 +26,11 @@ public class ImmutableUser implements SecurityUser {
   private final String name;
   private final String password;
 
-  private final Set<ImmutableRole> roles = new HashSet<ImmutableRole>();
+  // Use List instead of HashSet to avoid HashMap$KeyIterator allocations
+  // on every iteration. Users typically have 1-2 roles, and the roles are
+  // iterated multiple times per record load in security checks.
+  private final List<ImmutableRole> roles;
+  private final Set<ImmutableRole> rolesSet;
 
   private final STATUSES status;
   private final RID rid;
@@ -40,9 +44,13 @@ public class ImmutableUser implements SecurityUser {
     this.rid = user.getIdentity().getIdentity();
     this.userType = user.getUserType();
 
-    for (var role : user.getRoles()) {
-      roles.add(new ImmutableRole(session, role));
+    var userRoles = user.getRoles();
+    var roleList = new ArrayList<ImmutableRole>(userRoles.size());
+    for (var role : userRoles) {
+      roleList.add(new ImmutableRole(session, role));
     }
+    this.roles = List.copyOf(roleList);
+    this.rolesSet = Set.copyOf(roleList);
   }
 
   public ImmutableUser(DatabaseSessionEmbedded session, String name, String userType) {
@@ -64,7 +72,11 @@ public class ImmutableUser implements SecurityUser {
       } else {
         immutableRole = new ImmutableRole(session, role);
       }
-      roles.add(immutableRole);
+      this.roles = List.of(immutableRole);
+      this.rolesSet = Set.of(immutableRole);
+    } else {
+      this.roles = List.of();
+      this.rolesSet = Set.of();
     }
   }
 
@@ -218,7 +230,7 @@ public class ImmutableUser implements SecurityUser {
 
   @Override
   public Set<ImmutableRole> getRoles() {
-    return Collections.unmodifiableSet(roles);
+    return rolesSet;
   }
 
   @Override

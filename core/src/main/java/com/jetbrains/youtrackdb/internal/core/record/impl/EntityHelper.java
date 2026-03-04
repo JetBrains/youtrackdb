@@ -933,7 +933,7 @@ public class EntityHelper {
           StringSerializerHelper.getParameters(iFunction.substring(iFunction.indexOf('(')));
 
       final var currentRecord =
-          iContext != null ? (Entity) iContext.getVariable("$current") : null;
+          iContext != null ? (Entity) iContext.getSystemVariable(CommandContext.VAR_CURRENT) : null;
       for (var i = 0; i < args.size(); ++i) {
         final var arg = args.get(i);
         final var o = SQLHelper.getValue(arg, currentRecord, iContext);

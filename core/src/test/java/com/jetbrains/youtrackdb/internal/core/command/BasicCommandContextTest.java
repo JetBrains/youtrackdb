@@ -1,0 +1,165 @@
+package com.jetbrains.youtrackdb.internal.core.command;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import org.junit.Test;
+
+/**
+ * Unit tests for BasicCommandContext verifying variable resolution behavior:
+ * system variable shortcuts, dot-path navigation, and parent context hierarchy.
+ */
+public class BasicCommandContextTest extends DbTestBase {
+
+  /**
+   * Verifies that system variables set via setSystemVariable are accessible
+   * through getVariable using their well-known names ("current", "matched", etc.).
+   * This exercises the resolveNamedSystemVariable fast path.
+   */
+  @Test
+  public void testNamedSystemVariableResolution() {
+    var ctx = new BasicCommandContext(session);
+    var currentVal = "record1";
+    var matchedVal = "matchRow";
+
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT, currentVal);
+    ctx.setSystemVariable(CommandContext.VAR_MATCHED, matchedVal);
+    ctx.setSystemVariable(CommandContext.VAR_DEPTH, 5);
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, "candidateX");
+
+    // Access via getVariable should resolve through named system variable shortcut
+    assertSame(currentVal, ctx.getVariable("$current"));
+    assertSame(matchedVal, ctx.getVariable("$matched"));
+    assertEquals(5, ctx.getVariable("$depth"));
+    assertEquals("candidateX", ctx.getVariable("$currentMatch"));
+  }
+
+  /**
+   * Verifies that getVariable returns the default value when the variable name
+   * is not a known system variable and is not set as a regular variable.
+   */
+  @Test
+  public void testGetVariableReturnsDefault() {
+    var ctx = new BasicCommandContext(session);
+    var defaultVal = "fallback";
+    assertEquals(defaultVal, ctx.getVariable("unknownVar", defaultVal));
+  }
+
+  /**
+   * Verifies that getVariable with dot-path notation navigates via the PARENT
+   * keyword. This exercises the slow path (variable name contains '.').
+   * The "$PARENT.$nested" form navigates to the parent context and resolves
+   * the variable by name.
+   */
+  @Test
+  public void testGetVariableWithDotPathParent() {
+    var parent = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    parent.setChild(child);
+
+    parent.setVariable("nested", "parentValue");
+    // "$PARENT.$nested" navigates to parent, then resolves "$nested" as a variable
+    assertEquals("parentValue", child.getVariable("$PARENT.$nested"));
+  }
+
+  /**
+   * Verifies that setVariable stores simple variable names directly without
+   * path parsing.
+   */
+  @Test
+  public void testSetVariableSimpleName() {
+    var ctx = new BasicCommandContext(session);
+    ctx.setVariable("counter", 42);
+    assertEquals(42, ctx.getVariable("counter"));
+  }
+
+  /**
+   * Verifies that setVariable for a variable that exists in the parent context
+   * propagates to the parent, except for "current" and "parent" which are bound
+   * locally.
+   */
+  @Test
+  public void testSetVariableExistingInParent() {
+    var parent = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    parent.setChild(child);
+
+    parent.setVariable("shared", "fromParent");
+
+    // Setting "shared" in child should propagate to parent
+    child.setVariable("shared", "updated");
+    assertEquals("updated", parent.getVariable("shared"));
+  }
+
+  /**
+   * Verifies that setVariable for "current" is always bound locally even if
+   * the parent has a variable with the same name.
+   */
+  @Test
+  public void testSetVariableCurrentBoundLocally() {
+    var parent = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    parent.setChild(child);
+
+    parent.setVariable("current", "parentCurrent");
+
+    // "current" should be bound locally in the child, not propagated
+    child.setVariable("current", "childCurrent");
+    assertEquals("childCurrent", child.getVariable("current"));
+    assertEquals("parentCurrent", parent.getVariable("current"));
+  }
+
+  /**
+   * Verifies that setVariable for a new variable (not in parent) creates it
+   * in the current context. Note: the parent can still see it through the child
+   * context delegation, which is the expected behavior.
+   */
+  @Test
+  public void testSetVariableNewInCurrentContext() {
+    var parent = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    parent.setChild(child);
+
+    child.setVariable("localOnly", "value");
+    assertEquals("value", child.getVariable("localOnly"));
+    // Parent sees child variables through the child context (by design)
+    assertEquals("value", parent.getVariable("localOnly"));
+  }
+
+  /**
+   * Verifies that getVariable("$ROOT") navigates to the root context
+   * in a parent chain.
+   */
+  @Test
+  public void testRootVariableLookup() {
+    var root = new BasicCommandContext(session);
+    var mid = new BasicCommandContext(session);
+    var leaf = new BasicCommandContext(session);
+    root.setChild(mid);
+    mid.setChild(leaf);
+
+    root.setVariable("rootVal", "atRoot");
+
+    // $ROOT should return the root context
+    var rootCtx = leaf.getVariable("$ROOT");
+    assertSame(root, rootCtx);
+  }
+
+  /**
+   * Verifies that getVariable with dot path "ROOT.$varName" resolves a
+   * variable from the root context.
+   */
+  @Test
+  public void testRootDotPathVariableResolution() {
+    var root = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    root.setChild(child);
+
+    root.setVariable("greeting", "hello");
+
+    // "ROOT.$greeting" should navigate to root, then resolve "greeting"
+    assertEquals("hello", child.getVariable("$ROOT.$greeting"));
+  }
+}

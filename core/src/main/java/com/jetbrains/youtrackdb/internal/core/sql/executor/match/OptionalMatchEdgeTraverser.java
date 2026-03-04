@@ -78,12 +78,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
    */
   @Override
   @Nullable
-  public Result next(CommandContext ctx) {
-    init(ctx);
-    if (!downstream.hasNext(ctx)) {
-      throw new IllegalStateException();
-    }
-
+  protected Result computeNext(CommandContext ctx) {
     var endPointAlias = getEndpointAlias();
     var prevValue = sourceRecord.getProperty(endPointAlias);
     var next = downstream.next(ctx);
@@ -118,26 +113,24 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     }
 
     var session = ctx.getDatabaseSession();
-    var result = new ResultInternal(session);
-    for (var prop : sourceRecord.getPropertyNames()) {
-      result.setProperty(prop, sourceRecord.getProperty(prop));
-    }
+    // Determine the value to store for the endpoint alias
+    Object endPointValue;
     if (next.isEntity()) {
       // The traversal found a matching entity — bind it to the alias
-      result.setProperty(endPointAlias, toResult(session, next.asEntity()));
+      endPointValue = toResult(session, next.asEntity());
     } else if (next.isRelation()) {
       // The traversal found a matching relation (edge record) — bind it to the alias
-      result.setProperty(endPointAlias,
-          ResultInternal.toResultInternal(next.asRelation(), ctx.getDatabaseSession(),
-              null));
+      endPointValue = ResultInternal.toResultInternal(
+          next.asRelation(), ctx.getDatabaseSession(), null);
     } else {
       // EMPTY_OPTIONAL sentinel or an unrecognized result type — set alias to null.
       // The sentinel case is the normal "no match found" path for optional nodes;
       // RemoveEmptyOptionalsStep will finalize the null later.
-      result.setProperty(endPointAlias, null);
+      endPointValue = null;
     }
 
-    return result;
+    // Layer the new alias on top of the upstream row
+    return new MatchResultRow(session, sourceRecord, endPointAlias, endPointValue);
   }
 
   /**

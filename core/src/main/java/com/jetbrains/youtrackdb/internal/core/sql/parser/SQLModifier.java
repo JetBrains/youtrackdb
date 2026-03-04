@@ -108,8 +108,8 @@ public class SQLModifier extends SimpleNode {
   }
 
   public Object execute(Identifiable iCurrentRecord, Object result, CommandContext ctx) {
-    if (ctx.getVariable("$current") == null) {
-      ctx.setVariable("$current", iCurrentRecord);
+    if (ctx.getSystemVariable(CommandContext.VAR_CURRENT) == null) {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, iCurrentRecord);
     }
     if (methodCall != null) {
       result = methodCall.execute(result, ctx);
@@ -142,8 +142,8 @@ public class SQLModifier extends SimpleNode {
    * Execute this modifier without stepping down to `next`.
    */
   Object executeOneLevel(Result iCurrentRecord, Object result, CommandContext ctx) {
-    if (ctx.getVariable("$current") == null) {
-      ctx.setVariable("$current", iCurrentRecord);
+    if (ctx.getSystemVariable(CommandContext.VAR_CURRENT) == null) {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, iCurrentRecord);
     }
     if (methodCall != null) {
       result = methodCall.execute(result, ctx);

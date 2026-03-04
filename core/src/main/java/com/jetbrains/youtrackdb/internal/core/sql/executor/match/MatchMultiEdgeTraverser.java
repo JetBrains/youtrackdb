@@ -86,7 +86,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
     nextStep.add(startingPoint);
 
     var db = iCommandContext.getDatabaseSession();
-    var oldCurrent = iCommandContext.getVariable("$current");
+    var oldCurrent = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT);
 
     // Process each sub-item in sequence
     for (var sub : item.getItems()) {
@@ -113,7 +113,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
 
         } else {
           // Simple single-hop expansion via the sub-item's method
-          iCommandContext.setVariable("$current", o);
+          iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, o);
           var nextSteps = method.execute(o, possibleResults, iCommandContext);
 
           // Normalize the heterogeneous return types into ResultInternal, applying
@@ -128,7 +128,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
       result = rightSide;
     }
 
-    iCommandContext.setVariable("$current", oldCurrent);
+    iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, oldCurrent);
     return ExecutionStream.resultIterator(result.iterator());
   }
 

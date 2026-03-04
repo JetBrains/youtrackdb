@@ -2786,6 +2786,307 @@ public class MatchStepUnitTest extends DbTestBase {
     }
   }
 
+  // -- MatchResultRow tests --
+
+  /**
+   * Verifies that MatchResultRow returns the new alias value for the assigned alias
+   * and delegates to the parent for all other property lookups.
+   */
+  @Test
+  public void testMatchResultRowLayeredPropertyAccess() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+    parent.setProperty("b", "Bob");
+
+    var row = new MatchResultRow(session, parent, "c", "Carol");
+
+    // New alias is accessible
+    assertEquals("Carol", row.<String>getProperty("c"));
+    // Parent properties are accessible via delegation
+    assertEquals("Alice", row.<String>getProperty("a"));
+    assertEquals("Bob", row.<String>getProperty("b"));
+    // Non-existent property returns null
+    assertNull(row.getProperty("nonexistent"));
+  }
+
+  /**
+   * Verifies that setProperty on the new alias updates it directly, and setting
+   * a different property creates a local content override.
+   */
+  @Test
+  public void testMatchResultRowSetProperty() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+
+    var row = new MatchResultRow(session, parent, "b", "Bob");
+
+    // Overwrite the new alias
+    row.setProperty("b", "Bobby");
+    assertEquals("Bobby", row.<String>getProperty("b"));
+
+    // Add a new local property (stored in content map)
+    row.setProperty("depth", 3);
+    assertEquals(3, (int) row.<Integer>getProperty("depth"));
+    // Parent is unaffected
+    assertEquals("Alice", row.<String>getProperty("a"));
+  }
+
+  /**
+   * Verifies that hasProperty correctly checks the new alias, local content,
+   * and parent delegation.
+   */
+  @Test
+  public void testMatchResultRowHasProperty() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+
+    var row = new MatchResultRow(session, parent, "b", "Bob");
+
+    assertTrue(row.hasProperty("b"));   // new alias
+    assertTrue(row.hasProperty("a"));   // parent property
+    assertFalse(row.hasProperty("z"));  // does not exist
+
+    // Add a local content property
+    row.setProperty("extra", "val");
+    assertTrue(row.hasProperty("extra"));
+  }
+
+  /**
+   * Verifies that getPropertyNames merges the parent names, the new alias,
+   * and any local content properties into a single list.
+   */
+  @Test
+  public void testMatchResultRowGetPropertyNamesMergesAllSources() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+    parent.setProperty("b", "Bob");
+
+    var row = new MatchResultRow(session, parent, "c", "Carol");
+    // Add a local content property (e.g. $depth alias from WHILE traversal)
+    row.setProperty("depth", 0);
+
+    var names = row.getPropertyNames();
+    assertTrue(names.contains("a"));
+    assertTrue(names.contains("b"));
+    assertTrue(names.contains("c"));
+    assertTrue(names.contains("depth"));
+    assertEquals(4, names.size());
+  }
+
+  /**
+   * Verifies that removing the new alias hides it from getProperty, hasProperty,
+   * and getPropertyNames.
+   */
+  @Test
+  public void testMatchResultRowRemoveNewAlias() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+
+    var row = new MatchResultRow(session, parent, "b", "Bob");
+    row.removeProperty("b");
+
+    // New alias is hidden after removal
+    assertNull(row.getProperty("b"));
+    assertFalse(row.hasProperty("b"));
+    assertFalse(row.getPropertyNames().contains("b"));
+    // Parent property is still accessible
+    assertEquals("Alice", row.<String>getProperty("a"));
+  }
+
+  /**
+   * Verifies that removing a parent property shadows it with a sentinel,
+   * hiding it without modifying the parent.
+   */
+  @Test
+  public void testMatchResultRowRemoveParentProperty() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+    parent.setProperty("b", "Bob");
+
+    var row = new MatchResultRow(session, parent, "c", "Carol");
+    row.removeProperty("a");
+
+    // Removed parent property is hidden
+    assertNull(row.getProperty("a"));
+    assertFalse(row.hasProperty("a"));
+    assertFalse(row.getPropertyNames().contains("a"));
+    // Other parent property is still accessible
+    assertEquals("Bob", row.<String>getProperty("b"));
+    // New alias is still accessible
+    assertEquals("Carol", row.<String>getProperty("c"));
+  }
+
+  /**
+   * Verifies that removing a property that only exists in local content
+   * (not in parent) removes it from the content map rather than adding a sentinel.
+   */
+  @Test
+  public void testMatchResultRowRemoveLocalContentProperty() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+
+    var row = new MatchResultRow(session, parent, "b", "Bob");
+    row.setProperty("depth", 5);
+
+    // Verify content property exists
+    assertEquals(5, (int) row.<Integer>getProperty("depth"));
+
+    // Remove the content-only property
+    row.removeProperty("depth");
+
+    // It should no longer be accessible via any accessor
+    assertNull(row.getProperty("depth"));
+    assertFalse(row.hasProperty("depth"));
+    assertFalse(row.getPropertyNames().contains("depth"));
+  }
+
+  /**
+   * Verifies that getPropertyNames correctly excludes the new alias from
+   * parent names when the alias exists in both parent and this row but has
+   * been removed via removeProperty.
+   */
+  @Test
+  public void testMatchResultRowGetPropertyNamesExcludesRemovedNewAliasFromParent() {
+    var parent = new ResultInternal(session);
+    parent.setProperty("a", "Alice");
+    // Parent already has a property with the same key as the new alias
+    parent.setProperty("b", "OldBob");
+
+    var row = new MatchResultRow(session, parent, "b", "NewBob");
+
+    // Before removal: newAlias overrides the parent value
+    assertEquals("NewBob", row.<String>getProperty("b"));
+    assertTrue(row.getPropertyNames().contains("b"));
+
+    // After removal: the alias is hidden even though parent has it
+    row.removeProperty("b");
+    assertNull(row.getProperty("b"));
+    assertFalse(row.hasProperty("b"));
+    assertFalse(row.getPropertyNames().contains("b"));
+  }
+
+  /**
+   * Verifies that getLink returns the RID of an Identifiable-valued property
+   * accessed through the layered getProperty mechanism.
+   */
+  @Test
+  public void testMatchResultRowGetLinkReturnsRid() {
+    session.createClassIfNotExist("MatchLinkV", "V");
+    session.begin();
+    try {
+      var vertex = session.newVertex("MatchLinkV");
+      var rid = vertex.getIdentity();
+
+      var parent = new ResultInternal(session);
+      var row = new MatchResultRow(session, parent, "target", vertex);
+
+      // getLink should extract the RID from the Identifiable
+      var link = row.getLink("target");
+      assertNotNull(link);
+      assertEquals(rid, link);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Verifies that getLink returns null when the property does not exist.
+   */
+  @Test
+  public void testMatchResultRowGetLinkReturnsNullForMissing() {
+    var parent = new ResultInternal(session);
+    var row = new MatchResultRow(session, parent, "a", "text");
+
+    // Property "missing" does not exist → null
+    assertNull(row.getLink("missing"));
+  }
+
+  /**
+   * Verifies that getLink throws IllegalStateException when the property
+   * value is neither null nor Identifiable (e.g. a plain String).
+   */
+  @Test(expected = IllegalStateException.class)
+  public void testMatchResultRowGetLinkThrowsForNonIdentifiable() {
+    var parent = new ResultInternal(session);
+    var row = new MatchResultRow(session, parent, "a", "plainText");
+
+    // "a" is a String, not an Identifiable → should throw
+    row.getLink("a");
+  }
+
+  /**
+   * Verifies that isProjection returns true for MatchResultRow, which is
+   * always a projection (computed row, not backed by a stored record).
+   */
+  @Test
+  public void testMatchResultRowIsProjection() {
+    var parent = new ResultInternal(session);
+    var row = new MatchResultRow(session, parent, "a", "value");
+    assertTrue(row.isProjection());
+  }
+
+  /**
+   * Verifies that MatchResultRow correctly chains multiple layers of parent
+   * delegation, simulating a multi-step MATCH pipeline.
+   */
+  @Test
+  public void testMatchResultRowMultiLayerChain() {
+    var root = new ResultInternal(session);
+    root.setProperty("person", "Alice");
+
+    // First traversal step: add "friend" alias
+    var layer1 = new MatchResultRow(session, root, "friend", "Bob");
+    // Second traversal step: add "colleague" alias
+    var layer2 = new MatchResultRow(session, layer1, "colleague", "Carol");
+
+    // All aliases are accessible through the chain
+    assertEquals("Alice", layer2.<String>getProperty("person"));
+    assertEquals("Bob", layer2.<String>getProperty("friend"));
+    assertEquals("Carol", layer2.<String>getProperty("colleague"));
+
+    var names = layer2.getPropertyNames();
+    assertEquals(3, names.size());
+    assertTrue(names.contains("person"));
+    assertTrue(names.contains("friend"));
+    assertTrue(names.contains("colleague"));
+  }
+
+  /**
+   * Verifies that setProperty on the new alias after it was removed re-activates it.
+   */
+  @Test
+  public void testMatchResultRowReAddRemovedAlias() {
+    var parent = new ResultInternal(session);
+    var row = new MatchResultRow(session, parent, "x", "original");
+
+    row.removeProperty("x");
+    assertNull(row.getProperty("x"));
+
+    // Re-set the alias
+    row.setProperty("x", "restored");
+    assertEquals("restored", row.<String>getProperty("x"));
+    assertTrue(row.hasProperty("x"));
+    assertTrue(row.getPropertyNames().contains("x"));
+  }
+
+  /**
+   * Verifies that MatchResultRow works correctly with a non-ResultInternal parent
+   * (any Result implementation), validating the interface-based delegation.
+   */
+  @Test
+  public void testMatchResultRowWithNonResultInternalParent() {
+    var parent = new NonResultInternalStub("name", "Alice");
+    var row = new MatchResultRow(session, parent, "age", 30);
+
+    assertEquals("Alice", row.<String>getProperty("name"));
+    assertEquals(30, (int) row.<Integer>getProperty("age"));
+
+    var names = row.getPropertyNames();
+    assertTrue(names.contains("name"));
+    assertTrue(names.contains("age"));
+    assertEquals(2, names.size());
+  }
+
   // -- Helper methods --
 
   /** Creates a SQLMultiMatchPathItem with one out(edgeLabel) sub-item per label. */

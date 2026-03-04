@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.util.Collections;
 import java.util.Map;
@@ -48,6 +49,17 @@ public class SQLMatchPathItemFirst extends SQLMatchPathItem {
       CommandContext iCommandContext) {
     var qR = this.function.execute(startingPoint, iCommandContext);
     return (qR instanceof Iterable) ? (Iterable) qR : Collections.singleton((Identifiable) qR);
+  }
+
+  @Override
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    if (!super.isCacheable(session)) {
+      return false;
+    }
+    if (function != null && !function.isCacheable(session)) {
+      return false;
+    }
+    return true;
   }
 
   @Override

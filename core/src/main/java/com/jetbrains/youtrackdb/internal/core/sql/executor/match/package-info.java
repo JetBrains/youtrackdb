@@ -206,12 +206,13 @@
  *
  * <h2>Traverser Hierarchy</h2>
  *
- * <p>Each {@code MatchStep} wraps its traverser in a
- * {@code ResultSetEdgeTraverser} (from the {@code resultset} package), which drives
- * iteration and updates the {@code $matched} context variable to point to the current
- * result row after each successful traversal. This makes all previously bound aliases
- * available to downstream WHERE filters via {@code $matched.<alias>}. The traverser
- * itself encapsulates per-edge navigation, filtering, and join logic:
+ * <p>Each {@code MatchStep} creates the appropriate {@code MatchEdgeTraverser} subclass,
+ * which implements {@code ExecutionStream} directly. The traverser drives iteration,
+ * skips null results (rejected candidates), and updates the {@code $matched} context
+ * variable to point to the current result row after each successful traversal. This
+ * makes all previously bound aliases available to downstream WHERE filters via
+ * {@code $matched.<alias>}. The traverser encapsulates per-edge navigation, filtering,
+ * and join logic:
  *
  * <pre>
  *   MatchEdgeTraverser  (base: forward traversal, filtering, join checks)
@@ -325,7 +326,7 @@
  * <pre>
  *   Variable                                     | Set by                          | Purpose
  *   ---------------------------------------------+---------------------------------+-----------------------------
- *   $matched                                     | ResultSetEdgeTraverser.next()    | The current result row containing
+ *   $matched                                     | MatchEdgeTraverser.next()        | The current result row containing
  *                                                | and MatchFirstStep              | all aliases bound so far. After
  *                                                |                                 | matching p and friend, the value
  *                                                |                                 | is {p: Person#1, friend: Person#2}.

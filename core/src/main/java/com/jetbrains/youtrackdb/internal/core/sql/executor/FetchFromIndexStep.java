@@ -186,7 +186,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("key", convertKey(key));
     result.setProperty("rid", value);
-    ctx.setVariable("$current", result);
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT, result);
     return result;
   }
 

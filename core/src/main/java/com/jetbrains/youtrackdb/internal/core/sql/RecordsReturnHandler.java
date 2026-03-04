@@ -64,7 +64,7 @@ public abstract class RecordsReturnHandler implements ReturnHandler {
       return record;
     } else {
       final Object itemResult;
-      context.setVariable("current", record);
+      context.setSystemVariable(CommandContext.VAR_CURRENT, record);
 
       var session = context.getDatabaseSession();
       var transaction = session.getActiveTransaction();

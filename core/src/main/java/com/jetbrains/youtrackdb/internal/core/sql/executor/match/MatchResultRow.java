@@ -1,0 +1,190 @@
+package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
+
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+/**
+ * A layered MATCH result row that wraps a parent {@link Result} and adds one new alias
+ * without copying all upstream properties.
+ * <p>
+ * In the MATCH pipeline, each traversal step produces a new result row containing all
+ * previously matched aliases plus the newly matched alias. The naive approach copies every
+ * upstream property into a fresh {@link HashMap}. This class avoids that copy by storing
+ * only the new alias/value pair and delegating lookups for other properties to the parent.
+ * <p>
+ * Additional properties (e.g. depth/path aliases from WHILE traversals) are stored in the
+ * inherited {@code content} map, which is lazily created on the first such write.
+ * <p>
+ * Properties can be removed (e.g. by {@link ReturnMatchPatternsStep} stripping default
+ * aliases). Removing a parent property stores a {@link #REMOVED_SENTINEL} in the local
+ * {@code content} map to shadow the parent value. Removing the {@code newAlias} sets the
+ * {@link #newAliasRemoved} flag.
+ * <p>
+ * Typed accessors ({@code getEntity}, {@code getVertex}, etc.), {@code equals},
+ * {@code hashCode}, {@code toMap}, {@code detach}, and {@code toString} are inherited
+ * from {@link ResultInternal}, which delegates through the virtual {@code getProperty}/
+ * {@code getPropertyNames} methods and therefore gets correct layered behavior
+ * automatically.
+ */
+class MatchResultRow extends ResultInternal {
+
+  /**
+   * Sentinel stored in the local {@code content} map to indicate that a parent property
+   * has been removed. Identity comparison is used.
+   */
+  private static final Object REMOVED_SENTINEL = new Object();
+
+  private final Result parent;
+  private final String newAlias;
+  private Object newValue;
+  private boolean newAliasRemoved;
+
+  /**
+   * Creates a layered result row.
+   *
+   * @param session  the database session
+   * @param parent   the upstream result row (all previously matched aliases)
+   * @param newAlias the alias being added by this traversal step
+   * @param newValue the value for the new alias (will be normalized via
+   *                 {@link #convertPropertyValue})
+   */
+  MatchResultRow(
+      @Nullable DatabaseSessionEmbedded session,
+      Result parent,
+      String newAlias,
+      Object newValue) {
+    super(session, true);
+    this.parent = parent;
+    this.newAlias = newAlias;
+    this.newValue = convertPropertyValue(newValue);
+  }
+
+  @Override
+  public void setProperty(@Nonnull String name, Object value) {
+    assert checkSession();
+    value = convertPropertyValue(value);
+    if (name.equals(newAlias)) {
+      newValue = value;
+      newAliasRemoved = false;
+      return;
+    }
+    if (content == null) {
+      content = new HashMap<>();
+    }
+    content.put(name, value);
+  }
+
+  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Override
+  public <T> T getProperty(@Nonnull String name) {
+    assert checkSession();
+    if (name.equals(newAlias)) {
+      //noinspection unchecked
+      return newAliasRemoved ? null : (T) newValue;
+    }
+    if (content != null && content.containsKey(name)) {
+      var val = content.get(name);
+      //noinspection unchecked
+      return val == REMOVED_SENTINEL ? null : (T) val;
+    }
+    return parent.getProperty(name);
+  }
+
+  @Override
+  public boolean hasProperty(@Nonnull String propName) {
+    assert checkSession();
+    if (propName.equals(newAlias)) {
+      return !newAliasRemoved;
+    }
+    if (content != null && content.containsKey(propName)) {
+      return content.get(propName) != REMOVED_SENTINEL;
+    }
+    return parent.hasProperty(propName);
+  }
+
+  @Override
+  public @Nonnull List<String> getPropertyNames() {
+    assert checkSession();
+    var parentNames = parent.getPropertyNames();
+    int extraCapacity = 1 + (content != null ? content.size() : 0);
+    var result = new ArrayList<String>(parentNames.size() + extraCapacity);
+
+    // Add parent names, skipping any that have been removed (via REMOVED_SENTINEL
+    // in content, or via newAliasRemoved when the alias shadows a parent property)
+    for (var name : parentNames) {
+      if (name.equals(newAlias) && newAliasRemoved) {
+        continue;
+      }
+      if (content != null && content.get(name) == REMOVED_SENTINEL) {
+        continue;
+      }
+      result.add(name);
+    }
+
+    // Add the new alias if not already in parent and not removed
+    if (!newAliasRemoved && !parentNames.contains(newAlias)) {
+      result.add(newAlias);
+    }
+
+    // Add local override keys that are new (not in parent, not newAlias, not removed)
+    if (content != null) {
+      for (var entry : content.entrySet()) {
+        var key = entry.getKey();
+        if (entry.getValue() != REMOVED_SENTINEL
+            && !key.equals(newAlias)
+            && !parentNames.contains(key)) {
+          result.add(key);
+        }
+      }
+    }
+
+    return Collections.unmodifiableList(result);
+  }
+
+  @Override
+  public void removeProperty(String name) {
+    assert checkSession();
+    if (name.equals(newAlias)) {
+      newAliasRemoved = true;
+      return;
+    }
+    // If the property exists in the parent, shadow it with the sentinel
+    if (parent.hasProperty(name)) {
+      if (content == null) {
+        content = new HashMap<>();
+      }
+      content.put(name, REMOVED_SENTINEL);
+    } else if (content != null) {
+      content.remove(name);
+    }
+  }
+
+  @Nullable
+  @Override
+  public RID getLink(@Nonnull String name) {
+    assert checkSession();
+    // Override to go through the layered getProperty() rather than the inherited
+    // implementation which would skip the parent chain (content and identifiable
+    // are both null in MatchResultRow).
+    Object result = getProperty(name);
+    return switch (result) {
+      case null -> null;
+      case Identifiable id -> id.getIdentity();
+      default -> throw new IllegalStateException("Property " + name + " is not a link");
+    };
+  }
+
+  @Override
+  public boolean isProjection() {
+    return true;
+  }
+}

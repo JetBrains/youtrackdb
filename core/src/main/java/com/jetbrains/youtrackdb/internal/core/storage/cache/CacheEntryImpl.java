@@ -148,10 +148,11 @@ public class CacheEntryImpl implements CacheEntry {
     return null;
   }
 
-  @Nullable
   @Override
   public LogSequenceNumber getInitialLSN() {
-    return null;
+    // Return a non-null sentinel so that DurablePage.<init> skips the
+    // LSN-read block on the read path, avoiding a wasted allocation.
+    return LogSequenceNumber.NOT_TRACKED;
   }
 
   @Override

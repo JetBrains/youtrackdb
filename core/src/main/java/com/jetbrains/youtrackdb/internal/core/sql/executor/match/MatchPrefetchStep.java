@@ -101,6 +101,11 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return prefetchExecutionPlan == null || prefetchExecutionPlan.canBeCached();
+  }
+
+  @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces

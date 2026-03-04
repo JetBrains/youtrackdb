@@ -115,6 +115,11 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return subSteps.stream().allMatch(ExecutionStepInternal::canBeCached);
+  }
+
+  @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     var result = new StringBuilder();

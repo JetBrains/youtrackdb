@@ -25,6 +25,16 @@ import java.io.IOException;
  */
 public class LogSequenceNumber implements Comparable<LogSequenceNumber> {
 
+  /**
+   * Sentinel value used by {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl} to indicate that
+   * LSN tracking is not needed (read-only path). Returning this from
+   * {@code getInitialLSN()} instead of {@code null} prevents
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage}
+   * from allocating a throwaway LSN object on every page access.
+   */
+  public static final LogSequenceNumber NOT_TRACKED = new LogSequenceNumber(-1, -1);
+
   private final long segment;
   private final int position;
 

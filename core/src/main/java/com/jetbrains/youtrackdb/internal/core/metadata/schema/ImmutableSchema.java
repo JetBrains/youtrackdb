@@ -210,6 +210,13 @@ public class ImmutableSchema implements SchemaInternal {
       return null;
     }
 
+    // Fast path: try exact match first (class names are usually already lowercased
+    // in the map, and callers often pass the canonical name). Avoids a
+    // String.toLowerCase() allocation on every lookup.
+    var result = classes.get(iClassName);
+    if (result != null) {
+      return result;
+    }
     return classes.get(iClassName.toLowerCase(Locale.ENGLISH));
   }
 
