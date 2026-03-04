@@ -147,7 +147,7 @@ public class GqlMatchStatement implements GqlStatement {
   /// - RecordIdInternal (LINK) → `SQLRid` via `setRid`
   /// - Number (Long, Double, BigDecimal) → `SQLBaseExpression(SQLInteger)` via `setMathExpression`
   /// - Boolean → `setBooleanValue`
-  /// - Date, List, Map, byte[] → `setLiteralValue` (opaque value preserved through copy)
+  /// - Date, List, Set, Map, byte[] → `setLiteralValue` (opaque value preserved through copy)
   private static SQLExpression toLiteral(Object value) {
     var expr = new SQLExpression(-1);
     if (value instanceof String s) {
@@ -177,7 +177,8 @@ public class GqlMatchStatement implements GqlStatement {
       return expr;
     }
     if (value instanceof Date || value instanceof List<?>
-        || value instanceof Map<?, ?> || value instanceof byte[]) {
+        || value instanceof java.util.Set<?> || value instanceof Map<?, ?>
+        || value instanceof byte[]) {
       expr.setLiteralValue(value);
       return expr;
     }
