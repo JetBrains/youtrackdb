@@ -141,12 +141,13 @@ public class GqlMatchStatement implements GqlStatement {
   }
 
   /// Converts a parsed Java literal value into an `SQLExpression` that the SQL engine
-  /// can evaluate. Uses dedicated SQL AST fields that survive `SQLExpression.copy()`:
-  /// - String → `SQLBaseExpression` via `setMathExpression`
+  /// can evaluate. Each type maps to a dedicated SQL AST field that survives
+  /// `SQLExpression.copy()` (called by `SelectExecutionPlanner` during plan creation):
+  /// - String → `SQLBaseExpression` via `setMathExpression` (encoded/decoded, not an identifier)
   /// - RecordIdInternal (LINK) → `SQLRid` via `setRid`
-  /// - Number → `SQLBaseExpression(SQLInteger)` via `setMathExpression`
+  /// - Number (Long, Double, BigDecimal) → `SQLBaseExpression(SQLInteger)` via `setMathExpression`
   /// - Boolean → `setBooleanValue`
-  /// - Date, List, Set, Map, byte[] → `setLiteralValue` (opaque value preserved through copy)
+  /// - Date, List, Map, byte[] → `setLiteralValue` (opaque value preserved through copy)
   private static SQLExpression toLiteral(Object value) {
     var expr = new SQLExpression(-1);
     if (value instanceof String s) {
@@ -176,8 +177,7 @@ public class GqlMatchStatement implements GqlStatement {
       return expr;
     }
     if (value instanceof Date || value instanceof List<?>
-        || value instanceof Map<?, ?> || value instanceof byte[]
-        || value instanceof java.util.Set<?>) {
+        || value instanceof Map<?, ?> || value instanceof byte[]) {
       expr.setLiteralValue(value);
       return expr;
     }

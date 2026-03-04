@@ -5,9 +5,12 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
-import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import java.math.BigDecimal;
+import java.text.SimpleDateFormat;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -710,5 +713,439 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     } finally {
       ((YTDBGraphInternal) graph).tx().commit();
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // GQL Parser path tests — exercise GqlMatchVisitor.extractLiteralValue()
+  // and helper methods through full GQL parsing pipeline
+  // ══════════════════════════════════════════════════════════════════
+
+  private static GqlMatchStatement parseMatch(String gql) {
+    return (GqlMatchStatement) GqlPlanner.parse(gql);
+  }
+
+  private static SQLMatchFilter firstFilter(GqlMatchStatement stm) {
+    Assert.assertNotNull(stm.getMatchFilters());
+    Assert.assertFalse(stm.getMatchFilters().isEmpty());
+    return stm.getMatchFilters().getFirst();
+  }
+
+  // ── Parser: string literal ──
+
+  @Test
+  public void parse_stringProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {name: 'Karl'})");
+    var filter = firstFilter(stm);
+    Assert.assertEquals("a", filter.getAlias());
+    Assert.assertNotNull(filter.getFilter());
+  }
+
+  // ── Parser: integer literal ──
+
+  @Test
+  public void parse_integerProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {age: 42})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: double literal ──
+
+  @Test
+  public void parse_doubleProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {price: 3.14})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: negative number ──
+
+  @Test
+  public void parse_negativeNumber_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {temp: -5})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: boolean literal ──
+
+  @Test
+  public void parse_booleanTrue_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {active: true})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  @Test
+  public void parse_booleanFalse_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {active: false})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: RID literal ──
+
+  @Test
+  public void parse_ridProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {link: #12:0})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: DATE temporal literal ──
+
+  @Test
+  public void parse_dateProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {d: DATE '2024-01-15'})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: TIMESTAMP temporal literal ──
+
+  @Test
+  public void parse_timestampProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {d: TIMESTAMP '2024-01-15 10:30:00'})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: TIME temporal literal ──
+
+  @Test
+  public void parse_timeProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {t: TIME '10:30:00'})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: BINARY literal ──
+
+  @Test
+  public void parse_binaryProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {data: BINARY 'SGVsbG8='})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: DECIMAL literal ──
+
+  @Test
+  public void parse_decimalProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {price: DECIMAL '123.456'})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: list literal ──
+
+  @Test
+  public void parse_listProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {tags: [1, 2, 3]})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  @Test
+  public void parse_emptyList_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {tags: []})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  @Test
+  public void parse_nestedList_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {data: [1, 'two', true]})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: map literal ──
+
+  @Test
+  public void parse_mapProperty_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {meta: {key: 'value'}})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  @Test
+  public void parse_mapWithStringKey_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {meta: {'my key': 'value'}})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  @Test
+  public void parse_emptyMap_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {meta: {}})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: multiple properties ──
+
+  @Test
+  public void parse_multipleProperties_createsFilter() {
+    var stm = parseMatch("MATCH (a:V {name: 'Karl', age: 30, active: true})");
+    Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  // ── Parser: backtick-quoted label ──
+
+  @Test
+  public void parse_backtickLabel_stripsBackticks() {
+    var stm = parseMatch("MATCH (a:`MyClass` {name: 'test'})");
+    var filter = firstFilter(stm);
+    Assert.assertEquals("MyClass", filter.getClassName(null));
+  }
+
+  @Test
+  public void parse_backtickLabel_noProperties() {
+    var stm = parseMatch("MATCH (a:`QuotedLabel`)");
+    var filter = firstFilter(stm);
+    Assert.assertEquals("QuotedLabel", filter.getClassName(null));
+    Assert.assertNull(filter.getFilter());
+  }
+
+  // ── Parser: unsupported literal throws ──
+
+  @Test(expected = IllegalArgumentException.class)
+  public void parse_invalidTemporal_throws() {
+    parseMatch("MATCH (a:V {d: DATE 'not-a-date'})");
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // End-to-end: parser → planner → execution for all literal types
+  // ══════════════════════════════════════════════════════════════════
+
+  @Test
+  public void parseAndExecute_stringFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsStrF", "name", "Alice");
+    graph.addVertex(T.label, "PrsStrF", "name", "Bob");
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsStrF {name: 'Alice'})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_integerFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsIntF", "name", "A", "age", 30);
+    graph.addVertex(T.label, "PrsIntF", "name", "B", "age", 25);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsIntF {age: 30})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_doubleFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsDblF", "name", "A", "price", 3.14);
+    graph.addVertex(T.label, "PrsDblF", "name", "B", "price", 2.71);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsDblF {price: 3.14})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_booleanFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsBoolF", "name", "Active", "active", true);
+    graph.addVertex(T.label, "PrsBoolF", "name", "Inactive", "active", false);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsBoolF {active: true})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_negativeNumberFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsNegF", "name", "Cold", "temp", -10);
+    graph.addVertex(T.label, "PrsNegF", "name", "Hot", "temp", 30);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsNegF {temp: -10})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_dateFilter_matchesVertex() throws Exception {
+    var targetDate = new SimpleDateFormat("yyyy-MM-dd").parse("2024-01-01");
+    var otherDate = new SimpleDateFormat("yyyy-MM-dd").parse("2020-06-15");
+    graph.addVertex(T.label, "PrsDateF", "name", "New", "created", targetDate);
+    graph.addVertex(T.label, "PrsDateF", "name", "Old", "created", otherDate);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsDateF {created: DATE '2024-01-01'})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_binaryFilter_matchesVertex() {
+    var hello = "Hello".getBytes();
+    var world = "World".getBytes();
+    graph.addVertex(T.label, "PrsBinF", "name", "F1", "data", hello);
+    graph.addVertex(T.label, "PrsBinF", "name", "F2", "data", world);
+    graph.tx().commit();
+
+    var base64 = Base64.getEncoder().encodeToString(hello);
+    var stm = parseMatch("MATCH (a:PrsBinF {data: BINARY '" + base64 + "'})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_decimalFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsDecF", "name", "A", "amount",
+        new BigDecimal("123.456"));
+    graph.addVertex(T.label, "PrsDecF", "name", "B", "amount",
+        new BigDecimal("999.99"));
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsDecF {amount: DECIMAL '123.456'})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_listFilter_matchesVertex() {
+    graph.addVertex(T.label, "PrsLstF", "name", "A", "tags",
+        List.of("java", "db"));
+    graph.addVertex(T.label, "PrsLstF", "name", "B", "tags",
+        List.of("python"));
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsLstF {tags: ['java', 'db']})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_mapFilter_matchesVertex() {
+    var meta1 = Map.of("v", "1.0");
+    var meta2 = Map.of("v", "2.0");
+    graph.addVertex(T.label, "PrsMapF", "name", "A", "meta", meta1);
+    graph.addVertex(T.label, "PrsMapF", "name", "B", "meta", meta2);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsMapF {meta: {v: '1.0'}})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_mapWithStringKey_matchesVertex() {
+    var meta1 = Map.of("my key", "val1");
+    var meta2 = Map.of("my key", "val2");
+    graph.addVertex(T.label, "PrsMapSF", "name", "A", "meta", meta1);
+    graph.addVertex(T.label, "PrsMapSF", "name", "B", "meta", meta2);
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:PrsMapSF {meta: {'my key': 'val1'}})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  @Test
+  public void parseAndExecute_backtickLabel_matchesVertex() {
+    graph.addVertex(T.label, "PrsBtF", "name", "X");
+    graph.tx().commit();
+
+    var stm = parseMatch("MATCH (a:`PrsBtF` {name: 'X'})");
+    var ctx = createCtx();
+    try {
+      var plan = stm.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      stream.next();
+      Assert.assertFalse(stream.hasNext());
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
+  // ── toLiteral: unsupported type throws ──
+
+  @Test(expected = IllegalArgumentException.class)
+  public void buildWhereClause_unsupportedType_throws() {
+    GqlMatchStatement.buildWhereClause(Map.of("x", new Object()));
   }
 }

@@ -4,9 +4,9 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLBaseVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLParser;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
@@ -31,6 +31,15 @@ import java.util.Map;
 /// to Pattern + PatternNode in GqlMatchStatement.buildPlan().
 @SuppressWarnings({"unused", "ConstantConditions"})
 public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
+
+  private static final ThreadLocal<SimpleDateFormat> DATE_FORMAT =
+      ThreadLocal.withInitial(
+          () -> new SimpleDateFormat(StorageConfiguration.DEFAULT_DATE_FORMAT));
+  private static final ThreadLocal<SimpleDateFormat> DATETIME_FORMAT =
+      ThreadLocal.withInitial(
+          () -> new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT));
+  private static final ThreadLocal<SimpleDateFormat> TIME_FORMAT =
+      ThreadLocal.withInitial(() -> new SimpleDateFormat("HH:mm:ss"));
 
   private final List<SQLMatchFilter> matchFilters = new ArrayList<>();
 
@@ -91,18 +100,17 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
   /// Extracts a Java literal value from a GQL `value_expression` parse context.
   ///
-  /// Supports all literal types usable in inline property filters:
-  /// - STRING: `'text'`
-  /// - BOOLEAN: `true` / `false`
-  /// - Integer numbers: `42` (→ Long, covers BYTE/SHORT/INTEGER/LONG)
-  /// - Decimal numbers: `3.14` (→ Double, covers FLOAT/DOUBLE)
-  /// - DECIMAL: `DECIMAL '123.456'` (→ BigDecimal, for precision)
-  /// - BINARY: `BINARY 'SGVsbG8='` (→ byte[], Base64 encoded)
-  /// - RID: `#12:0` (→ RecordIdInternal, covers LINK)
-  /// - Temporal: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'` (→ Date)
-  /// - List: `[1, 2, 3]` (→ List, covers EMBEDDEDLIST/LINKLIST)
-  /// - Set: `SET [1, 2, 3]` (→ Set, covers EMBEDDEDSET/LINKSET)
-  /// - Map: `{key: 'value'}` (→ Map, covers EMBEDDEDMAP/LINKMAP/EMBEDDED)
+  /// Supports all PropertyType literal values (except LINKBAG) in inline property filters:
+  /// - STRING: `'text'` → String
+  /// - BOOLEAN: `true` / `false` → Boolean
+  /// - Integer numbers: `42` → Long (covers BYTE, SHORT, INTEGER, LONG)
+  /// - Decimal numbers: `3.14` → Double (covers FLOAT, DOUBLE)
+  /// - DECIMAL: `DECIMAL '123.456'` → BigDecimal
+  /// - BINARY: `BINARY 'SGVsbG8='` → byte[] (Base64 encoded)
+  /// - RID: `#12:0` → RecordIdInternal (covers LINK)
+  /// - Temporal: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'` → Date (covers DATE, DATETIME)
+  /// - List: `[1, 2, 3]` → List (covers EMBEDDEDLIST, LINKLIST, EMBEDDEDSET, LINKSET via type coercion)
+  /// - Map: `{key: 'value'}` → Map (covers EMBEDDEDMAP, LINKMAP, EMBEDDED)
   static Object extractLiteralValue(GQLParser.Value_expressionContext valueCtx) {
     if (valueCtx.STRING() != null) {
       var text = valueCtx.STRING().getText();
@@ -160,11 +168,11 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
     try {
       if (ctx.DATE() != null) {
-        return new SimpleDateFormat(StorageConfiguration.DEFAULT_DATE_FORMAT).parse(str);
+        return DATE_FORMAT.get().parse(str);
       } else if (ctx.TIMESTAMP() != null) {
-        return new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT).parse(str);
+        return DATETIME_FORMAT.get().parse(str);
       } else if (ctx.TIME() != null) {
-        return new SimpleDateFormat("HH:mm:ss").parse(str);
+        return TIME_FORMAT.get().parse(str);
       }
     } catch (ParseException e) {
       throw new IllegalArgumentException("Failed to parse temporal value: " + str, e);
@@ -212,13 +220,6 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
     var decimalStr = ctx.STRING().getText();
     decimalStr = decimalStr.substring(1, decimalStr.length() - 1); // Remove quotes
     return new java.math.BigDecimal(decimalStr);
-  }
-
-  /// Decodes a Base64-encoded string into a byte array.
-  /// Used for BINARY property filters: `{data: 'SGVsbG8='}` where the
-  /// string value is interpreted as Base64 when compared to a BINARY property.
-  static byte[] decodeBase64(String base64) {
-    return Base64.getDecoder().decode(base64);
   }
 
   /// Removes surrounding backticks from GQL quoted identifiers.
