@@ -231,7 +231,7 @@ public class IndexHistogramManager extends DurableComponent {
     // Install snapshot with initial counters (no histogram)
     var stats = new IndexStatistics(totalCount, distinctCount, nullCount);
     var snapshot = new HistogramSnapshot(
-        stats, null, 0, 0, 0, false, null);
+        stats, null, 0, 0, 0, false, null, false);
     cache.put(engineId, snapshot);
 
     // Persist the counters to the page
@@ -466,7 +466,8 @@ public class IndexHistogramManager extends DurableComponent {
         current.totalCountAtLastBuild(),
         current.version(),
         hasDrifted,
-        newHll
+        newHll,
+        current.hllOnPage1()
     );
   }
 
@@ -535,7 +536,7 @@ public class IndexHistogramManager extends DurableComponent {
       var stats = new IndexStatistics(totalCount,
           isSingleValue ? totalCount : nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
-          stats, null, 0, totalCount, 0, false, null);
+          stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
       return;
@@ -563,14 +564,14 @@ public class IndexHistogramManager extends DurableComponent {
       var stats = new IndexStatistics(totalCount,
           isSingleValue ? totalCount : 0, nullCount);
       var snapshot = new HistogramSnapshot(
-          stats, null, 0, totalCount, 0, false, null);
+          stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
       return;
     }
 
     // Apply boundary truncation and page budget check
-    var histogram = fitToPage(result, nonNullCount);
+    var fitResult = fitToPage(result, nonNullCount);
 
     // Build HLL sketch for multi-value indexes.
     // TODO(Step 5/6): Populate HLL during the key scan pass (requires
@@ -579,14 +580,18 @@ public class IndexHistogramManager extends DurableComponent {
     // NDV which is correct at build time. Incremental HLL updates start
     // once the manager is wired into the engine (Step 5).
     HyperLogLogSketch hll = null;
+    boolean hllOnPage1 = false;
     if (!isSingleValue) {
       hll = new HyperLogLogSketch();
+      hllOnPage1 = fitResult != null && fitResult.hllOnPage1;
     }
 
+    EquiDepthHistogram histogram =
+        fitResult != null ? fitResult.histogram : null;
     long exactDistinctCount = result.totalDistinct;
     var stats = new IndexStatistics(totalCount, exactDistinctCount, nullCount);
     var snapshot = new HistogramSnapshot(
-        stats, histogram, 0, totalCount, 0, false, hll);
+        stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
     cache.put(engineId, snapshot);
     writeSnapshotToPage(op, snapshot);
   }
@@ -696,6 +701,13 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   // ---- Internal: histogram construction ----
+
+  /**
+   * Result of {@link #fitToPage}: the fitted histogram and whether the
+   * HLL registers were spilled to page 1.
+   */
+  record FitResult(EquiDepthHistogram histogram, boolean hllOnPage1) {
+  }
 
   /**
    * Result of a single-pass histogram construction scan.
@@ -836,13 +848,14 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Applies boundary truncation and checks page budget. Reduces bucket
-   * count if boundaries don't fit.
+   * count if boundaries don't fit. When the HLL is spilled to page 1,
+   * the returned {@link FitResult#hllOnPage1} is {@code true}.
+   *
+   * @return the fit result, or null if keys are too large for any useful
+   *         histogram
    */
   @Nullable
-  private EquiDepthHistogram fitToPage(BuildResult result,
-      long nonNullCount) {
-    // For now, use the build result directly. Boundary truncation for
-    // variable-length keys will be applied when the page budget is exceeded.
+  private FitResult fitToPage(BuildResult result, long nonNullCount) {
     int bucketCount = result.actualBucketCount;
     var boundaries = result.boundaries;
     var frequencies = result.frequencies;
@@ -851,6 +864,7 @@ public class IndexHistogramManager extends DurableComponent {
     // Compute serialized boundary sizes
     int totalBoundaryBytes = computeBoundaryBytes(boundaries, bucketCount);
     int hllSize = isSingleValue ? 0 : HyperLogLogSketch.serializedSize();
+    boolean hllSpilledToPage1 = false;
     int mcvKeySize = result.mcvValue != null
         ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
         : 0;
@@ -870,7 +884,15 @@ public class IndexHistogramManager extends DurableComponent {
         // prevents re-entry after the first spill attempt)
         if (!isSingleValue && hllSize > 0) {
           hllSize = 0;
+          hllSpilledToPage1 = true;
+          // Reset to original arrays and bucket count. This is safe because
+          // the spill triggers when bucketCount/2 < MINIMUM_BUCKET_COUNT,
+          // which happens before mergeBuckets could run for this iteration.
+          // Explicit reset guards against future refactors.
           bucketCount = result.actualBucketCount;
+          boundaries = result.boundaries;
+          frequencies = result.frequencies;
+          distinctCounts = result.distinctCounts;
           totalBoundaryBytes =
               computeBoundaryBytes(boundaries, bucketCount);
           continue;
@@ -886,9 +908,10 @@ public class IndexHistogramManager extends DurableComponent {
       totalBoundaryBytes = computeBoundaryBytes(boundaries, bucketCount);
     }
 
-    return new EquiDepthHistogram(
+    var histogram = new EquiDepthHistogram(
         bucketCount, boundaries, frequencies, distinctCounts, nonNullCount,
         result.mcvValue, result.mcvFrequency);
+    return new FitResult(histogram, hllSpilledToPage1);
   }
 
   /**
@@ -1046,8 +1069,8 @@ public class IndexHistogramManager extends DurableComponent {
         return;
       }
 
-      var histogram = fitToPage(result, nonNullCount);
-      if (histogram == null) {
+      var fitResult = fitToPage(result, nonNullCount);
+      if (fitResult == null) {
         return;
       }
 
@@ -1057,15 +1080,18 @@ public class IndexHistogramManager extends DurableComponent {
       // TODO(Step 5/6): Populate HLL during the key scan pass. Currently
       // empty; distinctCount set from exact scan NDV.
       HyperLogLogSketch newHll = null;
+      boolean hllOnPage1 = false;
       if (!isSingleValue) {
         newHll = new HyperLogLogSketch();
+        hllOnPage1 = fitResult.hllOnPage1;
       }
 
       // Install new snapshot via cache.compute() — preserves scalar counters
       // from concurrent commits that occurred after the scan started.
-      final var finalHistogram = histogram;
+      final var finalHistogram = fitResult.histogram;
       final var finalHll = newHll;
       final long finalNDV = scannedDistinctCount;
+      final boolean finalHllOnPage1 = hllOnPage1;
       cache.compute(engineId, (id, old) -> {
         if (old == null) {
           return null; // engine deleted during rebalance
@@ -1079,7 +1105,8 @@ public class IndexHistogramManager extends DurableComponent {
             old.stats().totalCount(), // totalCountAtLastBuild
             old.version() + 1,       // increment version
             false,                    // reset hasDriftedBuckets
-            finalHll
+            finalHll,
+            finalHllOnPage1
         );
       });
 
@@ -1137,25 +1164,64 @@ public class IndexHistogramManager extends DurableComponent {
 
   private HistogramSnapshot createEmptySnapshot() {
     var stats = new IndexStatistics(0, 0, 0);
-    return new HistogramSnapshot(stats, null, 0, 0, 0, false, null);
+    return new HistogramSnapshot(stats, null, 0, 0, 0, false, null, false);
   }
 
   /**
-   * Reads the snapshot from the .ixs page (page 0).
+   * Reads the snapshot from the .ixs file. Reads page 0 first; if the
+   * HLL page-1 flag is set, also reads page 1 to load the HLL registers.
    */
   private HistogramSnapshot readSnapshotFromPage(AtomicOperation op)
       throws IOException {
+    HistogramSnapshot snapshot;
     var cacheEntry = loadPageForRead(op, fileId, 0);
     try {
       var page = new HistogramStatsPage(cacheEntry);
-      return page.readSnapshot(keySerializer, serializerFactory);
+      snapshot = page.readSnapshot(keySerializer, serializerFactory);
     } finally {
       releasePageFromRead(op, cacheEntry);
     }
+
+    // If HLL was spilled to page 1, load it separately.
+    // Guard against missing page 1 (e.g., crash between page-0 and
+    // page-1 write — both are in the same atomic op, but defensive).
+    if (snapshot.hllOnPage1()) {
+      long filledUpTo = getFilledUpTo(op, fileId);
+      if (filledUpTo > 1) {
+        var page1Entry = loadPageForRead(op, fileId, 1);
+        try {
+          var hll = HistogramStatsPage.readHllFromPage1(page1Entry);
+          snapshot = new HistogramSnapshot(
+              snapshot.stats(), snapshot.histogram(),
+              snapshot.mutationsSinceRebalance(),
+              snapshot.totalCountAtLastBuild(),
+              snapshot.version(), snapshot.hasDriftedBuckets(),
+              hll, true);
+        } finally {
+          releasePageFromRead(op, page1Entry);
+        }
+      } else {
+        // Page 1 missing — fall back to empty HLL; next rebalance
+        // will rebuild it from the sorted key stream.
+        logger.warn("HLL page-1 flag set but page 1 missing for {};"
+            + " will rebuild on next rebalance", getName());
+        snapshot = new HistogramSnapshot(
+            snapshot.stats(), snapshot.histogram(),
+            snapshot.mutationsSinceRebalance(),
+            snapshot.totalCountAtLastBuild(),
+            snapshot.version(), snapshot.hasDriftedBuckets(),
+            new HyperLogLogSketch(), true);
+      }
+    }
+
+    return snapshot;
   }
 
   /**
-   * Writes the given snapshot to the .ixs page (page 0).
+   * Writes the given snapshot to the .ixs file. Writes page 0, and if
+   * {@code hllOnPage1} is set, also writes HLL registers to page 1.
+   * Both pages are written within the same {@link AtomicOperation}, so
+   * they are flushed atomically via WAL.
    */
   private void writeSnapshotToPage(AtomicOperation op,
       HistogramSnapshot snapshot) throws IOException {
@@ -1167,11 +1233,23 @@ public class IndexHistogramManager extends DurableComponent {
     } finally {
       releasePageFromWrite(op, cacheEntry);
     }
+
+    // Write HLL to page 1 when spilled. loadOrAddPageForWrite creates
+    // page 1 on first use (the .ixs file starts with only page 0).
+    if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
+      var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+      try {
+        HistogramStatsPage.writeHllToPage1(page1Entry, snapshot.hllSketch());
+      } finally {
+        releasePageFromWrite(op, page1Entry);
+      }
+    }
   }
 
   /**
-   * Writes the given snapshot to the .ixs page without an AtomicOperation
+   * Writes the given snapshot to the .ixs file without an AtomicOperation
    * (for flush from commit path where we don't have an op).
+   * Both pages are written within a single atomic operation for atomicity.
    */
   private void flushSnapshotToPage() {
     var snapshot = cache.get(engineId);
@@ -1188,6 +1266,17 @@ public class IndexHistogramManager extends DurableComponent {
             keySerializer, serializerFactory);
       } finally {
         releasePageFromWrite(op, cacheEntry);
+      }
+
+      // Write HLL to page 1 when spilled
+      if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
+        var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+        try {
+          HistogramStatsPage.writeHllToPage1(
+              page1Entry, snapshot.hllSketch());
+        } finally {
+          releasePageFromWrite(op, page1Entry);
+        }
       }
     });
   }

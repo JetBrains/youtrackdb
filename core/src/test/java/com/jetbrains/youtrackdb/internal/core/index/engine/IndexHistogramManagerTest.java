@@ -180,7 +180,7 @@ public class IndexHistogramManagerTest {
   public void computeNewSnapshotAppliesScalarCountersWithClamping() {
     var stats = new IndexStatistics(100, 100, 10);
     var snapshot = new HistogramSnapshot(
-        stats, null, 0, 100, 0, false, null);
+        stats, null, 0, 100, 0, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = -200; // would go negative
@@ -210,7 +210,7 @@ public class IndexHistogramManagerTest {
     );
     var stats = new IndexStatistics(600, 600, 0);
     var snapshot = new HistogramSnapshot(
-        stats, histogram, 0, 600, 5, false, null);
+        stats, histogram, 0, 600, 5, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 3;
@@ -245,7 +245,7 @@ public class IndexHistogramManagerTest {
     var stats = new IndexStatistics(600, 600, 0);
     // Version is 5
     var snapshot = new HistogramSnapshot(
-        stats, histogram, 0, 600, 5, false, null);
+        stats, histogram, 0, 600, 5, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 10;
@@ -278,7 +278,7 @@ public class IndexHistogramManagerTest {
     );
     var stats = new IndexStatistics(210, 210, 0);
     var snapshot = new HistogramSnapshot(
-        stats, histogram, 0, 210, 1, false, null);
+        stats, histogram, 0, 210, 1, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = -20;
@@ -306,7 +306,7 @@ public class IndexHistogramManagerTest {
 
     var stats = new IndexStatistics(1000, hll.estimate(), 50);
     var snapshot = new HistogramSnapshot(
-        stats, null, 0, 1000, 0, false, hll);
+        stats, null, 0, 1000, 0, false, hll, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 10;
@@ -332,7 +332,7 @@ public class IndexHistogramManagerTest {
   public void computeNewSnapshotSingleValueDistinctCountEqualsTotalCount() {
     var stats = new IndexStatistics(500, 500, 10);
     var snapshot = new HistogramSnapshot(
-        stats, null, 0, 500, 0, false, null);
+        stats, null, 0, 500, 0, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 5;
@@ -356,7 +356,7 @@ public class IndexHistogramManagerTest {
     // when old is null. We test the computeNewSnapshot separately.
     var stats = new IndexStatistics(100, 100, 0);
     var snapshot = new HistogramSnapshot(
-        stats, null, 0, 100, 0, false, null);
+        stats, null, 0, 100, 0, false, null, false);
     // Non-null case works normally
     var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
     assertNotNull(result);
@@ -377,7 +377,7 @@ public class IndexHistogramManagerTest {
     );
     var stats = new IndexStatistics(600, 600, 0);
     var snapshot = new HistogramSnapshot(
-        stats, histogram, 0, 600, 2, false, null);
+        stats, histogram, 0, 600, 2, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 1;
@@ -405,7 +405,7 @@ public class IndexHistogramManagerTest {
   public void computeNewSnapshotAccumulatesMutationsSinceRebalance() {
     var stats = new IndexStatistics(100, 100, 0);
     var snapshot = new HistogramSnapshot(
-        stats, null, 50, 100, 0, false, null);
+        stats, null, 50, 100, 0, false, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 1;
@@ -431,7 +431,7 @@ public class IndexHistogramManagerTest {
     );
     var stats = new IndexStatistics(600, 600, 0);
     var snapshot = new HistogramSnapshot(
-        stats, histogram, 0, 600, 0, false, null);
+        stats, histogram, 0, 600, 0, false, null, false);
 
     var delta = new HistogramDelta();
     delta.nullCountDelta = 1;
@@ -455,7 +455,7 @@ public class IndexHistogramManagerTest {
     var stats = new IndexStatistics(100, 100, 0);
     // Already drifted
     var snapshot = new HistogramSnapshot(
-        stats, null, 0, 100, 0, true, null);
+        stats, null, 0, 100, 0, true, null, false);
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = 1;

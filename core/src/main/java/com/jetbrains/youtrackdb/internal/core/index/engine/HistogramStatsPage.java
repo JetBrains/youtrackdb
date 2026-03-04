@@ -40,17 +40,32 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
  * 57  mutationsSinceRebalance   8 bytes (long)
  * 65  totalCountAtLastBuild     8 bytes (long)
  * 73  histogramDataLength       4 bytes (int) — 0 if no histogram
- * 77  hllRegisterCount          4 bytes (int) — 0 for single-value
+ * 77  hllRegisterCount          4 bytes (int) — 0 for single-value;
+ *                               high bit (0x8000_0000) set when HLL
+ *                               registers are on page 1 (spill)
  * 81  [histogram data blob]     histogramDataLength bytes
- * ... [HLL registers]           hllRegisterCount bytes
+ * ... [HLL registers]           hllRegisterCount bytes (only if inline)
  * </pre>
  *
  * <p>The histogram data blob is produced by
  * {@link EquiDepthHistogram#serialize} and includes bucketCount,
  * nonNullCount, mcvFrequency, mcvKeyLength, mcvKey, boundaries,
  * frequencies, and distinctCounts.
+ *
+ * <p>When histogram boundaries exhaust page 0 for multi-value indexes,
+ * the HLL registers spill to page 1 (layout: DurablePage header at
+ * offset 0–27, then 1024 HLL register bytes starting at offset 28).
+ * The high bit of {@code hllRegisterCount} on page 0 signals this:
+ * {@code (hllRegisterCount & 0x8000_0000) != 0} means page-1 spill.
  */
 final class HistogramStatsPage extends DurablePage {
+
+  /**
+   * High bit flag in the persisted hllRegisterCount field indicating
+   * that HLL registers are stored on page 1 instead of inline on page 0.
+   * Valid register counts (0 or 1024) never set this bit.
+   */
+  static final int HLL_PAGE1_FLAG = 0x8000_0000;
 
   private static final int FORMAT_VERSION_OFFSET = NEXT_FREE_POSITION;
   private static final int SERIALIZER_ID_OFFSET =
@@ -91,9 +106,23 @@ final class HistogramStatsPage extends DurablePage {
     setIntValue(HLL_REGISTER_COUNT_OFFSET, 0);
   }
 
+  /**
+   * Writes the snapshot to page 0.
+   *
+   * <p>When {@link HistogramSnapshot#hllOnPage1()} is {@code true}, the HLL
+   * register count is written with the page-1 flag set and the register
+   * bytes are NOT written to page 0 — the caller must write them to page 1
+   * via {@link #writeHllToPage1(CacheEntry, HyperLogLogSketch)}.
+   *
+   * @param snapshot          the snapshot to persist
+   * @param serializerId      serializer ID for the key type
+   * @param keySerializer     key serializer for histogram boundaries
+   * @param serializerFactory factory for key serialization
+   */
   void writeSnapshot(HistogramSnapshot snapshot, byte serializerId,
       BinarySerializer<Object> keySerializer,
       BinarySerializerFactory serializerFactory) {
+    boolean hllOnPage1 = snapshot.hllOnPage1();
     setIntValue(FORMAT_VERSION_OFFSET, FORMAT_VERSION);
     setByteValue(SERIALIZER_ID_OFFSET, serializerId);
     setLongValue(TOTAL_COUNT_OFFSET, snapshot.stats().totalCount());
@@ -108,7 +137,13 @@ final class HistogramStatsPage extends DurablePage {
     if (snapshot.hllSketch() != null) {
       hllRegisterCount = HyperLogLogSketch.serializedSize();
     }
-    setIntValue(HLL_REGISTER_COUNT_OFFSET, hllRegisterCount);
+    // Set the page-1 flag in the persisted register count when spilled.
+    // The actual register count (1024) is recoverable by masking off the
+    // high bit on read.
+    int persistedHllCount = hllOnPage1
+        ? (hllRegisterCount | HLL_PAGE1_FLAG)
+        : hllRegisterCount;
+    setIntValue(HLL_REGISTER_COUNT_OFFSET, persistedHllCount);
 
     // Write histogram data blob
     int histogramDataLength = 0;
@@ -122,8 +157,8 @@ final class HistogramStatsPage extends DurablePage {
       setIntValue(HISTOGRAM_DATA_LENGTH_OFFSET, 0);
     }
 
-    // Write HLL registers after histogram data
-    if (hllRegisterCount > 0) {
+    // Write HLL registers inline on page 0 only when NOT spilled to page 1
+    if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
       byte[] hllData = new byte[hllRegisterCount];
       snapshot.hllSketch().writeTo(hllData, 0);
@@ -133,6 +168,15 @@ final class HistogramStatsPage extends DurablePage {
 
   // ---- Read methods ----
 
+  /**
+   * Reads the snapshot from page 0.
+   *
+   * <p>If the high bit of {@code hllRegisterCount} is set, the HLL
+   * registers are on page 1 and not read here. The returned snapshot
+   * will have {@code hllSketch = null} and {@code hllOnPage1 = true},
+   * signaling the caller to load the HLL from page 1 via
+   * {@link #readHllFromPage1(CacheEntry)}.
+   */
   HistogramSnapshot readSnapshot(
       BinarySerializer<Object> keySerializer,
       BinarySerializerFactory serializerFactory) {
@@ -144,7 +188,13 @@ final class HistogramStatsPage extends DurablePage {
     long totalCountAtLastBuild =
         getLongValue(TOTAL_COUNT_AT_LAST_BUILD_OFFSET);
     int histogramDataLength = getIntValue(HISTOGRAM_DATA_LENGTH_OFFSET);
-    int hllRegisterCount = getIntValue(HLL_REGISTER_COUNT_OFFSET);
+    int rawHllRegisterCount = getIntValue(HLL_REGISTER_COUNT_OFFSET);
+
+    // Detect page-1 spill flag in high bit
+    boolean hllOnPage1 =
+        (rawHllRegisterCount & HLL_PAGE1_FLAG) != 0;
+    int hllRegisterCount =
+        rawHllRegisterCount & ~HLL_PAGE1_FLAG;
 
     var stats = new IndexStatistics(totalCount, distinctCount, nullCount);
 
@@ -156,8 +206,10 @@ final class HistogramStatsPage extends DurablePage {
           histData, 0, keySerializer, serializerFactory);
     }
 
+    // Read HLL inline from page 0 only when NOT spilled to page 1.
+    // When spilled, hll is left null here; caller reads it from page 1.
     HyperLogLogSketch hll = null;
-    if (hllRegisterCount > 0) {
+    if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
       byte[] hllData = getBinaryValue(hllOffset, hllRegisterCount);
       hll = HyperLogLogSketch.readFrom(hllData, 0);
@@ -168,8 +220,43 @@ final class HistogramStatsPage extends DurablePage {
         totalCountAtLastBuild,
         0,     // version resets to 0 on restart
         false, // hasDriftedBuckets resets to false on restart
-        hll
+        hll,
+        hllOnPage1
     );
+  }
+
+  // ---- Page-1 HLL I/O ----
+
+  /**
+   * Writes HLL registers to page 1. Called when the HLL was spilled
+   * from page 0 because boundaries exhaust the budget.
+   *
+   * <p>Page 1 layout: DurablePage header (28 bytes) + HLL registers
+   * (1024 bytes starting at {@code NEXT_FREE_POSITION}).
+   *
+   * @param page1CacheEntry cache entry for page 1 (must be write-locked)
+   * @param hll             the HLL sketch to persist
+   */
+  static void writeHllToPage1(CacheEntry page1CacheEntry,
+      HyperLogLogSketch hll) {
+    // Use HistogramStatsPage wrapper to access protected DurablePage methods
+    var page1 = new HistogramStatsPage(page1CacheEntry);
+    byte[] hllData = new byte[HyperLogLogSketch.serializedSize()];
+    hll.writeTo(hllData, 0);
+    page1.setBinaryValue(NEXT_FREE_POSITION, hllData);
+  }
+
+  /**
+   * Reads HLL registers from page 1.
+   *
+   * @param page1CacheEntry cache entry for page 1 (must be read-locked)
+   * @return a new HLL sketch populated from the page-1 data
+   */
+  static HyperLogLogSketch readHllFromPage1(CacheEntry page1CacheEntry) {
+    var page1 = new HistogramStatsPage(page1CacheEntry);
+    byte[] hllData = page1.getBinaryValue(
+        NEXT_FREE_POSITION, HyperLogLogSketch.serializedSize());
+    return HyperLogLogSketch.readFrom(hllData, 0);
   }
 
   // ---- Accessors for individual fields (used by tests) ----
@@ -190,7 +277,12 @@ final class HistogramStatsPage extends DurablePage {
     return getIntValue(HISTOGRAM_DATA_LENGTH_OFFSET);
   }
 
-  int getHllRegisterCount() {
+  /**
+   * Returns the raw persisted HLL register count value. May have the
+   * {@link #HLL_PAGE1_FLAG} high bit set when registers are on page 1.
+   * Use {@code value & ~HLL_PAGE1_FLAG} to extract the actual count.
+   */
+  int getRawHllRegisterCount() {
     return getIntValue(HLL_REGISTER_COUNT_OFFSET);
   }
 }

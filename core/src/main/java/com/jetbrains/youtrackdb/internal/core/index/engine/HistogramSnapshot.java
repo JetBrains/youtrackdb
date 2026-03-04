@@ -51,6 +51,10 @@ import javax.annotation.Nullable;
  *                                 single-value indexes and for multi-value
  *                                 indexes below HISTOGRAM_MIN_SIZE (lazy init);
  *                                 persisted to .ixs page
+ * @param hllOnPage1               true if the HLL register array is stored on
+ *                                 page 1 of the .ixs file instead of inline on
+ *                                 page 0; occurs when histogram boundaries
+ *                                 exhaust page 0 budget for multi-value indexes
  */
 public record HistogramSnapshot(
     IndexStatistics stats,
@@ -59,6 +63,7 @@ public record HistogramSnapshot(
     long totalCountAtLastBuild,
     long version,
     boolean hasDriftedBuckets,
-    @Nullable HyperLogLogSketch hllSketch
+    @Nullable HyperLogLogSketch hllSketch,
+    boolean hllOnPage1
 ) {
 }
