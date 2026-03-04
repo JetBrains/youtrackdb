@@ -302,10 +302,10 @@ public class IndexSearchDescriptorCostTest {
     var cost = desc.cost(ctx);
 
     // Leading field (age = 30) uses histogram estimation.
-    // Second field (name > 'A') uses DEFAULT_SELECTIVITY.
+    // Second field (name > 'A') uses defaultSelectivity().
     var leadingSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 30);
-    var combinedSel = leadingSel * SelectivityEstimator.DEFAULT_SELECTIVITY;
+    var combinedSel = leadingSel * SelectivityEstimator.defaultSelectivity();
     assertEquals(
         Math.max(1, (long) (stats.totalCount() * combinedSel)), cost);
   }
@@ -334,8 +334,8 @@ public class IndexSearchDescriptorCostTest {
     var leadingSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 1);
     var combinedSel = leadingSel
-        * SelectivityEstimator.DEFAULT_SELECTIVITY
-        * SelectivityEstimator.DEFAULT_SELECTIVITY;
+        * SelectivityEstimator.defaultSelectivity()
+        * SelectivityEstimator.defaultSelectivity();
     assertEquals(
         Math.max(1, (long) (stats.totalCount() * combinedSel)), cost);
   }
@@ -368,7 +368,7 @@ public class IndexSearchDescriptorCostTest {
     // Additional range is NOT combined (subBlocks.size() > 1).
     var leadingSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 30);
-    var combinedSel = leadingSel * SelectivityEstimator.DEFAULT_SELECTIVITY;
+    var combinedSel = leadingSel * SelectivityEstimator.defaultSelectivity();
     assertEquals(
         Math.max(1, (long) (stats.totalCount() * combinedSel)), cost);
   }

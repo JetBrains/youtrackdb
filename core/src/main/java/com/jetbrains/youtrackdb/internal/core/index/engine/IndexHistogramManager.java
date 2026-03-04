@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
@@ -70,16 +71,10 @@ public class IndexHistogramManager extends DurableComponent {
   /** File extension for the statistics page. */
   public static final String IXS_EXTENSION = ".ixs";
 
-  // Default configuration constants. Will be sourced from GlobalConfiguration
-  // once Step 14 (configuration parameters) is implemented.
-  static final int DEFAULT_HISTOGRAM_BUCKETS = 128;
-  static final int DEFAULT_HISTOGRAM_MIN_SIZE = 1000;
-  static final double DEFAULT_REBALANCE_MUTATION_FRACTION = 0.3;
-  static final long DEFAULT_MIN_REBALANCE_MUTATIONS = 1000;
-  static final long DEFAULT_MAX_REBALANCE_MUTATIONS = 10_000_000;
-  static final int DEFAULT_MAX_BOUNDARY_BYTES = 256;
-  static final int DEFAULT_PERSIST_BATCH_SIZE = 500;
-  static final long DEFAULT_REBALANCE_FAILURE_COOLDOWN_MS = 60_000;
+  /**
+   * Absolute minimum bucket count — below this, a histogram is not useful.
+   * Not configurable (structural invariant, not a tuning knob).
+   */
   static final int MINIMUM_BUCKET_COUNT = 4;
 
   private static final int MURMUR_SEED = 0x9747b28c;
@@ -414,7 +409,9 @@ public class IndexHistogramManager extends DurableComponent {
     });
     dirtyMutations += delta.mutationCount;
 
-    if (dirtyMutations >= DEFAULT_PERSIST_BATCH_SIZE) {
+    int persistBatchSize =
+        GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger();
+    if (dirtyMutations >= persistBatchSize) {
       try {
         flushSnapshotToPage();
         // Race: concurrent increments may be lost; next checkpoint catches them.
@@ -564,7 +561,9 @@ public class IndexHistogramManager extends DurableComponent {
   public void buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
     long nonNullCount = totalCount - nullCount;
-    if (nonNullCount < DEFAULT_HISTOGRAM_MIN_SIZE) {
+    int histogramMinSize =
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
+    if (nonNullCount < histogramMinSize) {
       // Too few non-null keys for histogram; install counters-only snapshot
       var stats = new IndexStatistics(totalCount,
           isSingleValue ? totalCount : nonNullCount, nullCount);
@@ -585,7 +584,8 @@ public class IndexHistogramManager extends DurableComponent {
     }
 
     // Determine target bucket count (adaptive)
-    int targetBuckets = DEFAULT_HISTOGRAM_BUCKETS;
+    int targetBuckets =
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
     targetBuckets =
         Math.min(targetBuckets, (int) Math.floor(Math.sqrt(nonNullCount)));
     targetBuckets = Math.max(targetBuckets, MINIMUM_BUCKET_COUNT);
@@ -651,7 +651,9 @@ public class IndexHistogramManager extends DurableComponent {
 
     long nonNullCount =
         snapshot.stats().totalCount() - snapshot.stats().nullCount();
-    if (nonNullCount < DEFAULT_HISTOGRAM_MIN_SIZE) {
+    int histogramMinSize =
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
+    if (nonNullCount < histogramMinSize) {
       return;
     }
 
@@ -1035,10 +1037,19 @@ public class IndexHistogramManager extends DurableComponent {
   // ---- Internal: rebalance ----
 
   private long computeRebalanceThreshold(HistogramSnapshot snapshot) {
-    long threshold = (long) (snapshot.totalCountAtLastBuild()
-        * DEFAULT_REBALANCE_MUTATION_FRACTION);
-    threshold = Math.min(threshold, DEFAULT_MAX_REBALANCE_MUTATIONS);
-    threshold = Math.max(threshold, DEFAULT_MIN_REBALANCE_MUTATIONS);
+    double mutationFraction =
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
+            .getValueAsDouble();
+    long maxMutations =
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS
+            .getValueAsLong();
+    long minMutations =
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS
+            .getValueAsLong();
+    long threshold =
+        (long) (snapshot.totalCountAtLastBuild() * mutationFraction);
+    threshold = Math.min(threshold, maxMutations);
+    threshold = Math.max(threshold, minMutations);
     if (snapshot.hasDriftedBuckets()) {
       threshold = threshold / 2;
     }
@@ -1048,8 +1059,10 @@ public class IndexHistogramManager extends DurableComponent {
   private void scheduleRebalance(
       ExecutorService ioExecutor) {
     // Check cooldown
-    if (System.currentTimeMillis() - lastRebalanceFailureTime
-        < DEFAULT_REBALANCE_FAILURE_COOLDOWN_MS) {
+    long cooldownMs =
+        GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
+            .getValueAsLong();
+    if (System.currentTimeMillis() - lastRebalanceFailureTime < cooldownMs) {
       return;
     }
     // At-most-one guard
@@ -1103,12 +1116,17 @@ public class IndexHistogramManager extends DurableComponent {
       long nullCount = snapshot.stats().nullCount();
       long nonNullCount = totalCount - nullCount;
 
-      if (!bypassMinSize && nonNullCount < DEFAULT_HISTOGRAM_MIN_SIZE) {
+      int histogramMinSize =
+          GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
+              .getValueAsInteger();
+      if (!bypassMinSize && nonNullCount < histogramMinSize) {
         return;
       }
 
       // Adaptive bucket count
-      int targetBuckets = DEFAULT_HISTOGRAM_BUCKETS;
+      int targetBuckets =
+          GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS
+              .getValueAsInteger();
       if (nonNullCount > 0) {
         targetBuckets = Math.min(targetBuckets,
             (int) Math.floor(Math.sqrt(nonNullCount)));

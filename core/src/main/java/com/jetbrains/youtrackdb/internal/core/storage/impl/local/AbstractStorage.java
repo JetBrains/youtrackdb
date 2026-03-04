@@ -169,6 +169,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -242,6 +243,16 @@ public abstract class AbstractStorage
    * Set by {@link #setIoExecutorOnHistogramManagers}.
    */
   @Nullable private volatile ExecutorService histogramIoExecutor;
+
+  /**
+   * Storage-level semaphore limiting concurrent histogram rebalance tasks.
+   * Permit count is read from
+   * {@link GlobalConfiguration#QUERY_STATS_MAX_CONCURRENT_REBALANCES} at
+   * construction time ({@code -1} = auto: {@code max(2, processors / 4)}).
+   * Propagated to each histogram manager via
+   * {@link IndexHistogramManager#setRebalanceSemaphore}.
+   */
+  private final Semaphore histogramRebalanceSemaphore;
 
   private boolean wereDataRestoredAfterOpen;
   protected UUID uuid;
@@ -325,6 +336,15 @@ public abstract class AbstractStorage
     stateLock = new ScalableRWLock();
 
     this.id = id;
+
+    int permits = GlobalConfiguration.QUERY_STATS_MAX_CONCURRENT_REBALANCES
+        .getValueAsInteger();
+    if (permits <= 0) {
+      permits = Math.max(2,
+          Runtime.getRuntime().availableProcessors() / 4);
+    }
+    this.histogramRebalanceSemaphore = new Semaphore(permits);
+
     linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
     dropDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
@@ -2492,6 +2512,9 @@ public abstract class AbstractStorage
       mgr.setKeyStreamSupplier(() -> mvEngine.keyStream(null));
       mvEngine.setHistogramManager(mgr);
     }
+
+    // Propagate the rebalance semaphore to limit concurrent rebalance tasks.
+    mgr.setRebalanceSemaphore(histogramRebalanceSemaphore);
 
     // Propagate the IO executor if already available (index created after
     // database open). Before database open, histogramIoExecutor is null
