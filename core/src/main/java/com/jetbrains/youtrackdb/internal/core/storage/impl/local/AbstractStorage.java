@@ -167,6 +167,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -233,6 +235,13 @@ public abstract class AbstractStorage
    */
   private final ConcurrentHashMap<Integer, HistogramSnapshot> histogramSnapshotCache =
       new ConcurrentHashMap<>();
+
+  /**
+   * IO executor reference for histogram managers. Stored so that newly created
+   * indexes (after database open) can receive the executor immediately.
+   * Set by {@link #setIoExecutorOnHistogramManagers}.
+   */
+  @Nullable private volatile ExecutorService histogramIoExecutor;
 
   private boolean wereDataRestoredAfterOpen;
   protected UUID uuid;
@@ -2484,6 +2493,14 @@ public abstract class AbstractStorage
       mvEngine.setHistogramManager(mgr);
     }
 
+    // Propagate the IO executor if already available (index created after
+    // database open). Before database open, histogramIoExecutor is null
+    // and setIoExecutorOnHistogramManagers() will wire it for all engines.
+    var executor = histogramIoExecutor;
+    if (executor != null) {
+      mgr.setIoExecutor(executor);
+    }
+
     return mgr;
   }
 
@@ -3900,10 +3917,31 @@ public abstract class AbstractStorage
    */
   private void flushDirtyHistograms() {
     for (var engine : indexEngines) {
-      if (engine != null && engine instanceof BTreeIndexEngine btreeEngine) {
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
         var mgr = btreeEngine.getHistogramManager();
         if (mgr != null) {
           mgr.flushIfDirty();
+        }
+      }
+    }
+  }
+
+  /**
+   * Propagates the IO executor to all histogram managers. Called after the
+   * database is fully open so that histogram managers can schedule background
+   * rebalance work. Also triggers a proactive rebalance check on each
+   * manager — if mutations accumulated before a crash exceeded the threshold,
+   * a background rebalance is scheduled immediately.
+   *
+   * @param ioExecutor the IO executor from the embedded database
+   */
+  public void setIoExecutorOnHistogramManagers(ExecutorService ioExecutor) {
+    this.histogramIoExecutor = ioExecutor;
+    for (var engine : indexEngines) {
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
+        var mgr = btreeEngine.getHistogramManager();
+        if (mgr != null) {
+          mgr.setIoExecutor(ioExecutor);
         }
       }
     }
