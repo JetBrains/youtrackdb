@@ -188,22 +188,54 @@ public class IndexHistogramManager extends DurableComponent {
   // ---- Lifecycle ----
 
   /**
+   * Checks if the .ixs file exists. Used by the storage layer to decide
+   * between the normal open path and the migration path.
+   */
+  public boolean statsFileExists(AtomicOperation op) {
+    return isFileExists(op, getFullName());
+  }
+
+  /**
    * Creates the .ixs file and writes an initial empty statistics page.
    * Called by the engine during index creation.
    */
   public void createStatsFile(AtomicOperation op) throws IOException {
-    fileId = addFile(op, getFullName());
-    var cacheEntry = addPage(op, fileId);
-    try {
-      var page = new HistogramStatsPage(cacheEntry);
-      page.writeEmpty(serializerId);
-    } finally {
-      releasePageFromWrite(op, cacheEntry);
-    }
+    createEmptyStatsPage(op);
 
     // Install empty snapshot in cache
     var emptySnapshot = createEmptySnapshot();
     cache.put(engineId, emptySnapshot);
+  }
+
+  /**
+   * Creates the .ixs file and writes initial counters without building a
+   * histogram. Used for the migration path when an existing index has no
+   * .ixs file yet.
+   *
+   * <p>After calling this method, the snapshot in the CHM cache contains
+   * the provided counters with no histogram. The first planner access
+   * will trigger {@link #maybeScheduleHistogramWork} which will schedule
+   * a background histogram build if the non-null count exceeds
+   * {@code HISTOGRAM_MIN_SIZE}.
+   *
+   * @param op            current atomic operation
+   * @param totalCount    total number of entries (including nulls)
+   * @param distinctCount estimated distinct count (may overestimate for
+   *                      multi-value indexes — corrected on first rebalance)
+   * @param nullCount     number of null entries
+   */
+  public void createStatsFileWithCounters(AtomicOperation op,
+      long totalCount, long distinctCount, long nullCount) throws IOException {
+    createEmptyStatsPage(op);
+
+    // Install snapshot with initial counters (no histogram)
+    var stats = new IndexStatistics(totalCount, distinctCount, nullCount);
+    var snapshot = new HistogramSnapshot(
+        stats, null, 0, 0, 0, false, null);
+    cache.put(engineId, snapshot);
+
+    // Persist the counters to the page
+    writeSnapshotToPage(op, snapshot);
   }
 
   /**
@@ -1088,6 +1120,21 @@ public class IndexHistogramManager extends DurableComponent {
 
   // ---- Internal: page I/O ----
 
+  /**
+   * Creates the .ixs file with an initial empty page. Shared by
+   * {@link #createStatsFile} and {@link #createStatsFileWithCounters}.
+   */
+  private void createEmptyStatsPage(AtomicOperation op) throws IOException {
+    fileId = addFile(op, getFullName());
+    var cacheEntry = addPage(op, fileId);
+    try {
+      var page = new HistogramStatsPage(cacheEntry);
+      page.writeEmpty(serializerId);
+    } finally {
+      releasePageFromWrite(op, cacheEntry);
+    }
+  }
+
   private HistogramSnapshot createEmptySnapshot() {
     var stats = new IndexStatistics(0, 0, 0);
     return new HistogramSnapshot(stats, null, 0, 0, 0, false, null);
@@ -1165,6 +1212,12 @@ public class IndexHistogramManager extends DurableComponent {
     byte[] bytes = keySerializer.serializeNativeAsWhole(
         serializerFactory, key);
     return MurmurHash3.murmurHash3_x64_64(bytes, MURMUR_SEED);
+  }
+
+  // ---- Public accessors ----
+
+  public int getKeyFieldCount() {
+    return keyFieldCount;
   }
 
   // ---- Accessors for testing ----

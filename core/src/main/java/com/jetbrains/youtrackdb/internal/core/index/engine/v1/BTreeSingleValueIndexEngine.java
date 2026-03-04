@@ -285,6 +285,38 @@ public final class BTreeSingleValueIndexEngine
     return true;
   }
 
+  @Override
+  public void buildInitialHistogram(AtomicOperation atomicOperation)
+      throws IOException {
+    var mgr = histogramManager;
+    if (mgr == null) {
+      return;
+    }
+    // sbTree.size() returns non-null entry count only (null stored in
+    // separate null bucket, not included in the B-tree's TREE_SIZE).
+    long nonNullCount = sbTree.size(atomicOperation);
+    long nullCount = sbTree.get(null, atomicOperation) != null ? 1 : 0;
+    long totalCount = nonNullCount + nullCount;
+
+    try (var keys = sbTree.keyStream(atomicOperation)) {
+      mgr.buildHistogram(
+          atomicOperation, keys, totalCount, nullCount,
+          mgr.getKeyFieldCount());
+    }
+  }
+
+  @Override
+  public long getNullCount(AtomicOperation atomicOperation) {
+    return sbTree.get(null, atomicOperation) != null ? 1 : 0;
+  }
+
+  @Override
+  public long getTotalCount(AtomicOperation atomicOperation) {
+    long nonNullCount = sbTree.size(atomicOperation);
+    long nullCount = getNullCount(atomicOperation);
+    return nonNullCount + nullCount;
+  }
+
   /**
    * Sets the histogram manager for this engine. Called during engine
    * lifecycle (create/load) once the manager is initialized.

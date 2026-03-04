@@ -75,9 +75,11 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
@@ -162,6 +164,7 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -224,6 +227,13 @@ public abstract class AbstractStorage
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
+
+  /**
+   * Storage-level shared cache for histogram snapshots, keyed by engine ID.
+   * Shared across all {@link IndexHistogramManager} instances in this storage.
+   */
+  private final ConcurrentHashMap<Integer, HistogramSnapshot> histogramSnapshotCache =
+      new ConcurrentHashMap<>();
 
   private boolean wereDataRestoredAfterOpen;
   protected UUID uuid;
@@ -790,6 +800,11 @@ public abstract class AbstractStorage
       final var engine = Indexes.createIndexEngine(this, engineData);
 
       engine.load(engineData, atomicOperation);
+
+      // Wire histogram manager for B-tree engines
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
+        wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+      }
 
       indexEngineNameMap.put(engineData.getName(), engine);
       while (engineData.getIndexId() >= indexEngines.size()) {
@@ -2229,6 +2244,12 @@ public abstract class AbstractStorage
 
         engine.load(engineData, atomicOperation);
 
+        // Wire histogram manager for B-tree engines (migration path —
+        // binary format version <= 15 has no .ixs files)
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+        }
+
         indexEngineNameMap.put(indexMetadata.getName(), engine);
         indexEngines.add(engine);
         ((CollectionBasedStorageConfiguration) configuration)
@@ -2317,6 +2338,14 @@ public abstract class AbstractStorage
               final var engine = Indexes.createIndexEngine(this, engineData);
 
               engine.create(atomicOperation, engineData);
+
+              // Create and wire histogram manager for B-tree engines
+              if (engine instanceof BTreeIndexEngine btreeEngine) {
+                var mgr = createAndWireHistogramManager(
+                    btreeEngine, engineData, atomicOperation);
+                mgr.createStatsFile(atomicOperation);
+              }
+
               indexEngineNameMap.put(indexMetadata.getName(), engine);
               indexEngines.add(engine);
 
@@ -2344,6 +2373,119 @@ public abstract class AbstractStorage
 
   public BinarySerializer<?> resolveObjectSerializer(final byte serializerId) {
     return componentsFactory.binarySerializerFactory.getObjectSerializer(serializerId);
+  }
+
+  /**
+   * Wires a histogram manager into a B-tree engine during database open.
+   * If the .ixs file exists, opens it; otherwise creates a new one with
+   * initial counters from the B-tree (migration path).
+   */
+  private void wireHistogramManagerOnLoad(
+      BTreeIndexEngine btreeEngine,
+      IndexEngineData engineData,
+      AtomicOperation atomicOperation) {
+    try {
+      var mgr = createAndWireHistogramManager(
+          btreeEngine, engineData, atomicOperation);
+      if (mgr.statsFileExists(atomicOperation)) {
+        // Normal path: .ixs file exists, load from it
+        mgr.openStatsFile(atomicOperation);
+      } else {
+        // Migration path: no .ixs file, create with counters from B-tree
+        long totalCount = btreeEngine.getTotalCount(atomicOperation);
+        long nullCount = btreeEngine.getNullCount(atomicOperation);
+        // For single-value: distinctCount == non-null count (each key is unique)
+        // For multi-value: distinctCount == non-null count (overestimates
+        // because the same key can map to multiple RIDs; corrected on first
+        // rebalance when exact NDV is computed from the key scan)
+        long distinctCount = totalCount - nullCount;
+        mgr.createStatsFileWithCounters(
+            atomicOperation, totalCount, distinctCount, nullCount);
+      }
+    } catch (IOException e) {
+      // Histogram manager failure must not prevent database open.
+      // Clean up any partially-populated cache entry and null out the
+      // partially-wired manager to avoid broken state (fileId == -1, no
+      // snapshot in cache) causing issues on onPut/onRemove.
+      histogramSnapshotCache.remove(engineData.getIndexId());
+      if (btreeEngine instanceof BTreeSingleValueIndexEngine sv) {
+        sv.setHistogramManager(null);
+      } else if (btreeEngine instanceof BTreeMultiValueIndexEngine mv) {
+        mv.setHistogramManager(null);
+      }
+      LogManager.instance().warn(
+          this,
+          "Failed to wire histogram manager for index '%s': %s",
+          engineData.getName(), e.getMessage());
+    }
+  }
+
+  /**
+   * Creates an {@link IndexHistogramManager}, wires it into the given
+   * B-tree engine, and returns it. The caller is responsible for calling
+   * {@code createStatsFile()}, {@code openStatsFile()}, or
+   * {@code createStatsFileWithCounters()} after this method returns.
+   *
+   * @param engine          the B-tree engine to wire the manager into
+   * @param engineData      engine metadata for serializer resolution
+   * @param atomicOperation current atomic operation (for binary format check)
+   */
+  private IndexHistogramManager createAndWireHistogramManager(
+      BTreeIndexEngine engine,
+      IndexEngineData engineData,
+      AtomicOperation atomicOperation) {
+    boolean isSingleValue = engine instanceof BTreeSingleValueIndexEngine;
+
+    // Determine the histogram key serializer: for composite indexes,
+    // boundaries are leading-field values, so we need the leading field's
+    // type serializer rather than the composite key serializer.
+    var keyTypes = engineData.getKeyTypes();
+    BinarySerializer<?> histogramKeySerializer;
+    byte histogramSerializerId;
+    if (keyTypes != null && keyTypes.length > 1) {
+      var leadingType = keyTypes[0];
+      if (leadingType == PropertyTypeInternal.STRING
+          && configuration.getBinaryFormatVersion(atomicOperation) >= 13) {
+        histogramKeySerializer = UTF8Serializer.INSTANCE;
+      } else {
+        histogramKeySerializer =
+            componentsFactory.binarySerializerFactory
+                .getObjectSerializer(leadingType);
+      }
+      histogramSerializerId = histogramKeySerializer.getId();
+    } else {
+      histogramSerializerId = engineData.getKeySerializedId();
+      histogramKeySerializer =
+          resolveObjectSerializer(histogramSerializerId);
+    }
+
+    var mgr = new IndexHistogramManager(
+        this,
+        engineData.getName(),
+        engineData.getIndexId(),
+        isSingleValue,
+        histogramSnapshotCache,
+        histogramKeySerializer,
+        componentsFactory.binarySerializerFactory,
+        histogramSerializerId);
+
+    int keyFieldCount = (keyTypes != null) ? keyTypes.length : 1;
+    mgr.setKeyFieldCount(keyFieldCount);
+
+    // Wire the sorted key stream supplier for background rebalance.
+    // Uses null atomic operation — the B-tree read path falls back to
+    // reading directly from the read cache without atomic consistency.
+    if (isSingleValue) {
+      var svEngine = (BTreeSingleValueIndexEngine) engine;
+      mgr.setKeyStreamSupplier(() -> svEngine.keyStream(null));
+      svEngine.setHistogramManager(mgr);
+    } else {
+      var mvEngine = (BTreeMultiValueIndexEngine) engine;
+      mgr.setKeyStreamSupplier(() -> mvEngine.keyStream(null));
+      mvEngine.setHistogramManager(mgr);
+    }
+
+    return mgr;
   }
 
   private static int generateIndexId(final int internalId, final BaseIndexEngine indexEngine) {
