@@ -37,6 +37,9 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdExce
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -816,6 +819,42 @@ public abstract class IndexAbstract implements Index {
     }
 
     return engine.acquireAtomicExclusiveLock(atomicOperation);
+  }
+
+  @Nullable
+  @Override
+  public IndexStatistics getStatistics(DatabaseSessionEmbedded session) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        return engine.getStatistics();
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
+  }
+
+  @Nullable
+  @Override
+  public EquiDepthHistogram getHistogram(DatabaseSessionEmbedded session) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        return engine.getHistogram();
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
+  }
+
+  /**
+   * No-op stub. Will delegate to {@code IndexHistogramManager.analyzeIndex()}
+   * once the histogram manager is wired in Step 5.
+   */
+  @Nullable
+  @Override
+  public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
+    return null;
   }
 
   private long[] indexCollection(
