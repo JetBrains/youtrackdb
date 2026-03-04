@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -70,7 +71,7 @@ public class IndexHistogramManager extends DurableComponent {
   public static final String IXS_EXTENSION = ".ixs";
 
   // Default configuration constants. Will be sourced from GlobalConfiguration
-  // once Step 10 (configuration parameters) is implemented.
+  // once Step 14 (configuration parameters) is implemented.
   static final int DEFAULT_HISTOGRAM_BUCKETS = 128;
   static final int DEFAULT_HISTOGRAM_MIN_SIZE = 1000;
   static final double DEFAULT_REBALANCE_MUTATION_FRACTION = 0.3;
@@ -138,6 +139,14 @@ public class IndexHistogramManager extends DurableComponent {
   private volatile boolean bulkLoading;
 
   /**
+   * IO executor for scheduling background rebalance tasks. Set post-construction
+   * by the storage layer once the database is fully open. Before this is set,
+   * {@link #maybeScheduleHistogramWork} is a no-op (null executor returns
+   * immediately).
+   */
+  @Nullable private volatile ExecutorService ioExecutor;
+
+  /**
    * Creates a new histogram manager for the given index engine.
    *
    * @param storage           parent storage
@@ -183,6 +192,30 @@ public class IndexHistogramManager extends DurableComponent {
 
   public void setBulkLoading(boolean bulkLoading) {
     this.bulkLoading = bulkLoading;
+  }
+
+  /**
+   * Sets the IO executor for background rebalance scheduling. Called by
+   * the storage layer after the database is fully open and the executor
+   * is available. Also triggers a proactive rebalance check — if mutations
+   * accumulated before a crash exceeded the threshold, an immediate
+   * background rebalance is scheduled now that the executor is available.
+   *
+   * <p>Idempotent: calling this method multiple times with the same
+   * executor is safe. The proactive rebalance check re-runs, but the
+   * at-most-one CAS guard in {@code scheduleRebalance} prevents
+   * duplicate rebalance tasks.
+   *
+   * @param executor the IO executor, or null to disable background rebalance
+   */
+  public void setIoExecutor(@Nullable ExecutorService executor) {
+    this.ioExecutor = executor;
+    if (executor != null) {
+      // Proactive rebalance check after database open (Section 5.7):
+      // if mutations accumulated before a crash exceeded the threshold,
+      // schedule an immediate rebalance now that the executor is available.
+      maybeScheduleHistogramWork(executor);
+    }
   }
 
   // ---- Lifecycle ----
@@ -488,15 +521,15 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Returns the current histogram from the CHM cache, or null if no
-   * histogram has been built yet.
+   * histogram has been built yet. Evaluates the rebalance trigger on each
+   * call — if mutation thresholds are exceeded, schedules a background
+   * rebalance on the IO executor (non-blocking).
    */
   @Nullable
   public EquiDepthHistogram getHistogram() {
+    maybeScheduleHistogramWork(ioExecutor);
     var snapshot = cache.get(engineId);
-    if (snapshot != null) {
-      return snapshot.histogram();
-    }
-    return null;
+    return snapshot != null ? snapshot.histogram() : null;
   }
 
   /**
@@ -1023,18 +1056,24 @@ public class IndexHistogramManager extends DurableComponent {
     if (!rebalanceInProgress.compareAndSet(false, true)) {
       return;
     }
-    ioExecutor.submit(() -> {
-      try {
-        doRebalance(false);
-        lastRebalanceFailureTime = 0;
-      } catch (Exception e) {
-        lastRebalanceFailureTime = System.currentTimeMillis();
-        logger.warn("Histogram rebalance failed for " + getName()
-            + ": " + e);
-      } finally {
-        rebalanceInProgress.set(false);
-      }
-    });
+    try {
+      ioExecutor.submit(() -> {
+        try {
+          doRebalance(false);
+          lastRebalanceFailureTime = 0;
+        } catch (Exception e) {
+          lastRebalanceFailureTime = System.currentTimeMillis();
+          logger.warn("Histogram rebalance failed for " + getName()
+              + ": " + e);
+        } finally {
+          rebalanceInProgress.set(false);
+        }
+      });
+    } catch (RejectedExecutionException e) {
+      // Executor shut down (database closing) — reset the CAS guard
+      // so a future setIoExecutor() can re-trigger if needed.
+      rebalanceInProgress.set(false);
+    }
   }
 
   /**
