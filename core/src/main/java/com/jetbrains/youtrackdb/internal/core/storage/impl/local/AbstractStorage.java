@@ -3799,6 +3799,11 @@ public abstract class AbstractStorage
         return;
       }
 
+      // Flush dirty histogram statistics to .ixs pages (Section 3.2).
+      // Runs before the WAL checkpoint so that the flushed pages are
+      // included in writeCache.syncDataFiles().
+      flushDirtyHistograms();
+
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
@@ -3886,8 +3891,33 @@ public abstract class AbstractStorage
     ridBag.confirmDelete();
   }
 
+  /**
+   * Iterates all B-tree index engines and flushes dirty histogram state
+   * to their .ixs pages. Called during fuzzy checkpoint and full data flush.
+   *
+   * <p>Failures are logged but never propagated — histogram persistence is
+   * best-effort and must not block checkpoint or shutdown. Each engine's
+   * flush creates its own AtomicOperation (independent of the WAL
+   * checkpoint's operation context).
+   */
+  private void flushDirtyHistograms() {
+    for (var engine : indexEngines) {
+      if (engine != null && engine instanceof BTreeIndexEngine btreeEngine) {
+        var mgr = btreeEngine.getHistogramManager();
+        if (mgr != null) {
+          mgr.flushIfDirty();
+        }
+      }
+    }
+  }
+
   protected void flushAllData() {
     try {
+      // Flush histogram stats before WAL flush — ensures .ixs pages are
+      // included in the final sync. Individual engine close() also flushes
+      // via closeStatsFile(), but flushAllData() may precede engine closure.
+      flushDirtyHistograms();
+
       writeAheadLog.flush();
 
       // so we will be able to cut almost all the log
