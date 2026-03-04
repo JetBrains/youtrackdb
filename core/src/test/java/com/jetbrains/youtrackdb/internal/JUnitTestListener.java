@@ -43,6 +43,9 @@ import org.junit.runner.notification.RunListener;
 ///   - Runs a watchdog thread that detects deadlocked or stuck tests. If a test exceeds the
 ///     configured timeout, diagnostics are dumped and the JVM is terminated. The timeout is
 ///     configurable via `-Dyoutrackdb.test.deadlock.timeout.minutes` (default: 15).
+///   - Detects inactivity gaps (e.g. during @After teardown or between test methods) when no
+///     test is tracked as running. Uses `Runtime.halt(1)` instead of `System.exit(1)` to avoid
+///     deadlocking in shutdown hooks when threads hold locks that would never be released.
 public class JUnitTestListener extends RunListener {
 
   private static final long DEFAULT_TIMEOUT_MINUTES = 15;
@@ -51,11 +54,15 @@ public class JUnitTestListener extends RunListener {
 
   private final ConcurrentHashMap<String, Long> runningTests = new ConcurrentHashMap<>();
   private volatile boolean running;
+  // Tracks the last time any test lifecycle event occurred, so the watchdog can
+  // detect hangs that happen between test methods (when runningTests is empty).
+  private volatile long lastActivityNanos = System.nanoTime();
   private Thread watchdogThread;
 
   @Override
   public void testRunStarted(Description description) throws Exception {
     super.testRunStarted(description);
+    lastActivityNanos = System.nanoTime();
     running = true;
     startWatchdog();
   }
@@ -63,18 +70,21 @@ public class JUnitTestListener extends RunListener {
   @Override
   public void testStarted(Description description) throws Exception {
     super.testStarted(description);
+    lastActivityNanos = System.nanoTime();
     runningTests.put(description.getDisplayName(), System.currentTimeMillis());
   }
 
   @Override
   public void testFinished(Description description) throws Exception {
     super.testFinished(description);
+    lastActivityNanos = System.nanoTime();
     runningTests.remove(description.getDisplayName());
   }
 
   @Override
   public void testFailure(Failure failure) throws Exception {
     super.testFailure(failure);
+    lastActivityNanos = System.nanoTime();
     checkAndLogDeadlocks(failure.getDescription().getDisplayName());
   }
 
@@ -83,6 +93,7 @@ public class JUnitTestListener extends RunListener {
     // Some test runners (e.g. TinkerPop's Gremlin suite) may call testStarted() followed
     // by an assumption failure without a corresponding testFinished(). Clean up here to
     // prevent the watchdog from seeing the test as stuck.
+    lastActivityNanos = System.nanoTime();
     runningTests.remove(failure.getDescription().getDisplayName());
   }
 
@@ -123,6 +134,12 @@ public class JUnitTestListener extends RunListener {
     long timeoutMinutes = Long.getLong(
         "youtrackdb.test.deadlock.timeout.minutes", defaultMinutes);
     var timeoutMs = TimeUnit.MINUTES.toMillis(timeoutMinutes);
+    var timeoutNanos = TimeUnit.MINUTES.toNanos(timeoutMinutes);
+
+    // Inactivity timeout: same default as per-test timeout, separately configurable.
+    long inactivityMinutes = Long.getLong(
+        "youtrackdb.test.inactivity.timeout.minutes", timeoutMinutes);
+    var inactivityTimeoutNanos = TimeUnit.MINUTES.toNanos(inactivityMinutes);
 
     watchdogThread = new Thread(() -> {
       while (running) {
@@ -134,15 +151,23 @@ public class JUnitTestListener extends RunListener {
           return;
         }
 
-        if (runningTests.isEmpty()) {
-          continue;
-        }
-
         // Check for deadlocks on every tick, exit immediately if found
         var bean = ManagementFactory.getThreadMXBean();
         var deadlocked = bean.findDeadlockedThreads();
         if (deadlocked != null) {
-          dumpDiagnosticsAndExit(runningTests, deadlocked);
+          dumpDiagnosticsAndHalt(runningTests, deadlocked, "DEADLOCK DETECTED");
+        }
+
+        if (runningTests.isEmpty()) {
+          // No test is currently tracked (e.g. during @After teardown or between tests).
+          // Check for inactivity timeout to catch hangs in teardown code.
+          var inactiveNanos = System.nanoTime() - lastActivityNanos;
+          if (inactiveNanos >= inactivityTimeoutNanos) {
+            dumpDiagnosticsAndHalt(runningTests, null,
+                "INACTIVITY TIMEOUT (no test lifecycle event for "
+                    + TimeUnit.NANOSECONDS.toMinutes(inactiveNanos) + " minutes)");
+          }
+          continue;
         }
 
         // Check all running tests for timeout
@@ -150,7 +175,9 @@ public class JUnitTestListener extends RunListener {
         for (var entry : runningTests.entrySet()) {
           var elapsedMs = now - entry.getValue();
           if (elapsedMs >= timeoutMs) {
-            dumpDiagnosticsAndExit(runningTests, null);
+            dumpDiagnosticsAndHalt(runningTests, null,
+                "TEST TIMEOUT (" + entry.getKey() + " running for "
+                    + (elapsedMs / 1000) + " seconds)");
           }
         }
       }
@@ -173,28 +200,37 @@ public class JUnitTestListener extends RunListener {
     }
   }
 
-  private static void dumpDiagnosticsAndExit(
-      ConcurrentHashMap<String, Long> runningTests, long[] deadlocked) {
+  /// Dumps full diagnostics (thread dump, deadlock info, running tests) and then
+  /// forcefully terminates the JVM with `Runtime.halt(1)`.
+  ///
+  /// Uses `halt()` instead of `System.exit()` because `exit()` runs shutdown hooks,
+  /// and the engine's shutdown hook acquires locks that deadlocked threads will never
+  /// release — causing the JVM to hang indefinitely instead of terminating.
+  private static void dumpDiagnosticsAndHalt(
+      ConcurrentHashMap<String, Long> runningTests, long[] deadlocked, String reason) {
     var bean = ManagementFactory.getThreadMXBean();
     var now = System.currentTimeMillis();
 
     var report = new StringBuilder();
+    report.append("\n=== ").append(reason).append(" ===\n");
+
     if (deadlocked != null) {
-      report.append("\n=== DEADLOCK DETECTED ===\n");
+      report.append("\n=== DEADLOCKED THREADS ===\n");
       var infos = bean.getThreadInfo(deadlocked, true, true);
       for (var info : infos) {
         report.append(info).append("\n");
       }
-    } else {
-      report.append("\n=== TEST TIMEOUT ===\n");
-      report.append("No deadlock found by ThreadMXBean.\n");
     }
 
     report.append("\n=== RUNNING TESTS ===\n");
-    for (var entry : runningTests.entrySet()) {
-      var elapsedMs = now - entry.getValue();
-      report.append("  ").append(entry.getKey())
-          .append(" (").append(elapsedMs / 1000).append(" seconds)\n");
+    if (runningTests.isEmpty()) {
+      report.append("  (none — hang occurred outside tracked test methods)\n");
+    } else {
+      for (var entry : runningTests.entrySet()) {
+        var elapsedMs = now - entry.getValue();
+        report.append("  ").append(entry.getKey())
+            .append(" (").append(elapsedMs / 1000).append(" seconds)\n");
+      }
     }
 
     report.append("\n=== ALL THREADS ===\n");
@@ -210,7 +246,8 @@ public class JUnitTestListener extends RunListener {
 
     writeReportToFile(reportStr);
 
-    System.exit(1);
+    // halt() forces immediate JVM termination without running shutdown hooks.
+    Runtime.getRuntime().halt(1);
   }
 
   private static void writeReportToFile(String report) {

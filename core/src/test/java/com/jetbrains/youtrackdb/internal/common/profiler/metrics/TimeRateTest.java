@@ -64,11 +64,14 @@ public class TimeRateTest extends MetricsBaseTest {
   private static void testRateFunction(String functionName, IntUnaryOperator rateFunction) {
 
     final var ticker = new StubTicker(0, TICK.toNanos());
+    // Use tickCheckInterval=1 so each record triggers a tick check, matching the test pattern
+    // of 1 record per simulated second.
     final var meter = TimeRate.create(
         ticker,
         TICK,
         TimeInterval.of(1, TimeUnit.SECONDS),
-        TimeUnit.SECONDS
+        TimeUnit.SECONDS,
+        1
     );
 
     for (int i = 0; i < ITERATIONS_COUNT; i++) {
@@ -91,11 +94,13 @@ public class TimeRateTest extends MetricsBaseTest {
   @Test
   public void fractionalConstRate() {
     final var ticker = new StubTicker(0, TICK.toNanos());
+    // Use tickCheckInterval=1 for per-record flushing with StubTicker.
     final var meter = TimeRate.create(
         ticker,
         TimeInterval.of(10, TimeUnit.MILLISECONDS),
         TimeInterval.of(1, TimeUnit.MINUTES),
-        TimeUnit.SECONDS
+        TimeUnit.SECONDS,
+        1
     );
     final var expectedRate = 2.5;
 

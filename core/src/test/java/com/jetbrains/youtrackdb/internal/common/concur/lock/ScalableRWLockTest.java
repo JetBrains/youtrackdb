@@ -154,6 +154,52 @@ public class ScalableRWLockTest {
   }
 
   /**
+   * Verifies that sharedTryLock() returns false when a writer holds the lock, exercising the
+   * lazySet back-off path.
+   */
+  @Test(timeout = 10_000)
+  public void testSharedTryLockFailsWhenWriterHoldsLock() throws Exception {
+    final var lock = new ScalableRWLock();
+
+    lock.exclusiveLock();
+    try {
+      // sharedTryLock should fail immediately because writer holds the lock
+      assertFalse("sharedTryLock should return false when writer holds the lock",
+          lock.sharedTryLock());
+    } finally {
+      lock.exclusiveUnlock();
+    }
+
+    // After releasing, sharedTryLock should succeed
+    assertTrue("sharedTryLock should succeed after writer releases",
+        lock.sharedTryLock());
+    lock.sharedUnlock();
+  }
+
+  /**
+   * Verifies that sharedTryLockNanos() returns false when a writer holds the lock and the timeout
+   * expires, exercising the lazySet back-off path in the timed variant.
+   */
+  @Test(timeout = 10_000)
+  public void testSharedTryLockNanosFailsWhenWriterHoldsLock() throws Exception {
+    final var lock = new ScalableRWLock();
+
+    lock.exclusiveLock();
+    try {
+      // sharedTryLockNanos with a short timeout should fail
+      assertFalse("sharedTryLockNanos should return false when writer holds the lock",
+          lock.sharedTryLockNanos(TimeUnit.MILLISECONDS.toNanos(50)));
+    } finally {
+      lock.exclusiveUnlock();
+    }
+
+    // After releasing, sharedTryLockNanos should succeed
+    assertTrue("sharedTryLockNanos should succeed after writer releases",
+        lock.sharedTryLockNanos(TimeUnit.SECONDS.toNanos(5)));
+    lock.sharedUnlock();
+  }
+
+  /**
    * Verifies that normal read-lock / write-lock acquisition still works correctly after replacing
    * finalize() with Cleaner.
    */

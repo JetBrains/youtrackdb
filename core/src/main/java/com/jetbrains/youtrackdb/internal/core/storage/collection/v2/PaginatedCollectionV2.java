@@ -275,17 +275,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public boolean exists(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return isFileExists(atomicOperation, getFullName());
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.readUnderLock(this,
+        () -> isFileExists(atomicOperation, getFullName()));
   }
 
   @Override
@@ -859,17 +850,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Nonnull
   public RawBuffer readRecord(final long collectionPosition, AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return doReadRecord(collectionPosition, atomicOperation);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this,
+        () -> doReadRecord(collectionPosition, atomicOperation));
   }
 
   /// Reads a record from the collection at the specified position, with tombstone awareness
@@ -1433,89 +1415,71 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public PhysicalPosition getPhysicalPosition(final PhysicalPosition position,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var collectionPosition = position.collectionPosition;
-        final var positionEntry =
-            collectionPositionMap.get(collectionPosition, atomicOperation);
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var collectionPosition = position.collectionPosition;
+      final var positionEntry =
+          collectionPositionMap.get(collectionPosition, atomicOperation);
 
-        if (positionEntry == null) {
+      if (positionEntry == null) {
+        return null;
+      }
+
+      final var pageIndex = positionEntry.getPageIndex();
+      final var recordPosition = positionEntry.getRecordPosition();
+
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var localPage = new CollectionPage(cacheEntry);
+        if (localPage.isDeleted(recordPosition)) {
           return null;
         }
 
-        final var pageIndex = positionEntry.getPageIndex();
-        final var recordPosition = positionEntry.getRecordPosition();
-
-        try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-          final var localPage = new CollectionPage(cacheEntry);
-          if (localPage.isDeleted(recordPosition)) {
-            return null;
-          }
-
-          if (localPage.getRecordByteValue(
-              recordPosition, -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE)
-              == 0) {
-            return null;
-          }
-
-          final var physicalPosition = new PhysicalPosition();
-          physicalPosition.recordSize = -1;
-
-          physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
-          physicalPosition.recordVersion = positionEntry.getRecordVersion();
-          physicalPosition.collectionPosition = position.collectionPosition;
-
-          assert assertVersionConsistency(
-              physicalPosition.recordVersion,
-              localPage.getRecordVersion(recordPosition));
-
-          return physicalPosition;
+        if (localPage.getRecordByteValue(
+            recordPosition, -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE)
+            == 0) {
+          return null;
         }
-      } finally {
-        releaseSharedLock();
+
+        final var physicalPosition = new PhysicalPosition();
+        physicalPosition.recordSize = -1;
+
+        physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
+        physicalPosition.recordVersion = positionEntry.getRecordVersion();
+        physicalPosition.collectionPosition = position.collectionPosition;
+
+        assert assertVersionConsistency(
+            physicalPosition.recordVersion,
+            localPage.getRecordVersion(recordPosition));
+
+        return physicalPosition;
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override
   public boolean exists(long collectionPosition, AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var positionEntry =
-            collectionPositionMap.get(collectionPosition, atomicOperation);
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var positionEntry =
+          collectionPositionMap.get(collectionPosition, atomicOperation);
 
-        if (positionEntry == null) {
-          return false;
-        }
-
-        final var pageIndex = positionEntry.getPageIndex();
-        final var recordPosition = positionEntry.getRecordPosition();
-
-        try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-          final var localPage = new CollectionPage(cacheEntry);
-          return !localPage.isDeleted(recordPosition);
-        }
-      } finally {
-        releaseSharedLock();
+      if (positionEntry == null) {
+        return false;
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+
+      final var pageIndex = positionEntry.getPageIndex();
+      final var recordPosition = positionEntry.getRecordPosition();
+
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var localPage = new CollectionPage(cacheEntry);
+        return !localPage.isDeleted(recordPosition);
+      }
+    });
   }
 
   @Override
   public long getEntries(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         var snapshot = atomicOperation.getAtomicOperationsSnapshot();
         var commitTs = atomicOperation.getCommitTsUnsafe();
 
@@ -1562,17 +1526,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             });
 
         return count[0];
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
           new PaginatedCollectionException(storageName,
               "Error during retrieval of size of '"
                   + getName() + "' collection", this),
           ioe, storageName);
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -1583,47 +1543,20 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public long getFirstPosition(AtomicOperation atomicOperation) throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return collectionPositionMap.getFirstPosition(atomicOperation);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this,
+        () -> collectionPositionMap.getFirstPosition(atomicOperation));
   }
 
   @Override
   public long getLastPosition(AtomicOperation atomicOperation) throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return collectionPositionMap.getLastPosition(atomicOperation);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this,
+        () -> collectionPositionMap.getLastPosition(atomicOperation));
   }
 
   @Override
   public String getFileName() {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return writeCache.fileNameById(fileId);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.readUnderLock(this,
+        () -> writeCache.fileNameById(fileId));
   }
 
   @Override
@@ -1641,98 +1574,59 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public void synch() {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        writeCache.flush(fileId);
-        collectionPositionMap.flush();
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    atomicOperationsManager.readUnderLock(this, () -> {
+      writeCache.flush(fileId);
+      collectionPositionMap.flush();
+      return null;
+    });
   }
 
   @Override
   public PhysicalPosition[] higherPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var collectionPositions =
-            collectionPositionMap.higherPositions(position.collectionPosition,
-                atomicOperation, limit);
-        return convertToPhysicalPositions(collectionPositions);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var collectionPositions =
+          collectionPositionMap.higherPositions(position.collectionPosition,
+              atomicOperation, limit);
+      return convertToPhysicalPositions(collectionPositions);
+    });
   }
 
   @Override
   public PhysicalPosition[] ceilingPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var collectionPositions =
-            collectionPositionMap.ceilingPositions(position.collectionPosition, atomicOperation,
-                limit);
-        return convertToPhysicalPositions(collectionPositions);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var collectionPositions =
+          collectionPositionMap.ceilingPositions(position.collectionPosition, atomicOperation,
+              limit);
+      return convertToPhysicalPositions(collectionPositions);
+    });
   }
 
   @Override
   public PhysicalPosition[] lowerPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var collectionPositions =
-            collectionPositionMap.lowerPositions(position.collectionPosition, atomicOperation,
-                limit);
-        return convertToPhysicalPositions(collectionPositions);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var collectionPositions =
+          collectionPositionMap.lowerPositions(position.collectionPosition, atomicOperation,
+              limit);
+      return convertToPhysicalPositions(collectionPositions);
+    });
   }
 
   @Override
   public PhysicalPosition[] floorPositions(final PhysicalPosition position, int limit,
       AtomicOperation atomicOperation)
       throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        final var collectionPositions =
-            collectionPositionMap.floorPositions(position.collectionPosition, atomicOperation,
-                limit);
-        return convertToPhysicalPositions(collectionPositions);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var collectionPositions =
+          collectionPositionMap.floorPositions(position.collectionPosition, atomicOperation,
+              limit);
+      return convertToPhysicalPositions(collectionPositions);
+    });
   }
 
   @Override
@@ -2013,67 +1907,58 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       long prevPagePosition,
       final boolean forwards,
       AtomicOperation atomicOperation) throws IOException {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (prevPagePosition < 0) {
-          prevPagePosition = -1;
+    final long effectivePrevPagePosition = prevPagePosition < 0 ? -1 : prevPagePosition;
+    return atomicOperationsManager.executeReadOperation(this, () -> {
+      final var nextPositions = forwards ?
+          collectionPositionMap.higherPositionsEntries(
+              effectivePrevPagePosition, atomicOperation) :
+          collectionPositionMap.lowerPositionsEntriesReversed(
+              effectivePrevPagePosition, atomicOperation);
+
+      if (nextPositions.length > 0) {
+        var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+        var operationTs = atomicOperation.getCommitTsUnsafe();
+
+        final List<CollectionBrowseEntry> next = new ArrayList<>(nextPositions.length);
+        for (final var pos : nextPositions) {
+          // Check visibility before doing the expensive page read.
+          // The position map is shared across transactions, so it may contain
+          // entries for records inserted by concurrent transactions that are
+          // not yet visible to this snapshot.
+          if (isRecordVersionVisible(pos.getRecordVersion(), operationTs, snapshot)) {
+            final var buff =
+                internalReadRecord(
+                    pos.getPosition(), pos.getPage(), pos.getOffset(),
+                    pos.getRecordVersion(), atomicOperation);
+            next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
+          } else {
+            // Record version not visible — check for a historical version
+            // (e.g., the record was updated by a concurrent transaction and
+            // the old version is still visible to this snapshot).
+            var historicalEntry = findHistoricalPositionEntry(
+                pos.getPosition(), operationTs, snapshot, atomicOperation);
+            if (historicalEntry != null) {
+              final var buff = readRecordFromHistoricalEntry(
+                  pos.getPosition(),
+                  historicalEntry.getPageIndex(),
+                  historicalEntry.getRecordPosition(),
+                  historicalEntry.getRecordVersion(),
+                  atomicOperation);
+              next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
+            }
+            // else: record was inserted by a concurrent transaction and has no
+            // historical version visible to this snapshot — skip it.
+          }
         }
 
-        final var nextPositions = forwards ?
-            collectionPositionMap.higherPositionsEntries(prevPagePosition, atomicOperation) :
-            collectionPositionMap.lowerPositionsEntriesReversed(prevPagePosition, atomicOperation);
-
-        if (nextPositions.length > 0) {
-          var snapshot = atomicOperation.getAtomicOperationsSnapshot();
-          var operationTs = atomicOperation.getCommitTsUnsafe();
-
-          final List<CollectionBrowseEntry> next = new ArrayList<>(nextPositions.length);
-          for (final var pos : nextPositions) {
-            // Check visibility before doing the expensive page read.
-            // The position map is shared across transactions, so it may contain
-            // entries for records inserted by concurrent transactions that are
-            // not yet visible to this snapshot.
-            if (isRecordVersionVisible(pos.getRecordVersion(), operationTs, snapshot)) {
-              final var buff =
-                  internalReadRecord(
-                      pos.getPosition(), pos.getPage(), pos.getOffset(),
-                      pos.getRecordVersion(), atomicOperation);
-              next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
-            } else {
-              // Record version not visible — check for a historical version
-              // (e.g., the record was updated by a concurrent transaction and
-              // the old version is still visible to this snapshot).
-              var historicalEntry = findHistoricalPositionEntry(
-                  pos.getPosition(), operationTs, snapshot, atomicOperation);
-              if (historicalEntry != null) {
-                final var buff = readRecordFromHistoricalEntry(
-                    pos.getPosition(),
-                    historicalEntry.getPageIndex(),
-                    historicalEntry.getRecordPosition(),
-                    historicalEntry.getRecordVersion(),
-                    atomicOperation);
-                next.add(new CollectionBrowseEntry(pos.getPosition(), buff));
-              }
-              // else: record was inserted by a concurrent transaction and has no
-              // historical version visible to this snapshot — skip it.
-            }
-          }
-
-          if (next.isEmpty()) {
-            return null;
-          }
-          return new CollectionBrowsePage(next);
-        } else {
+        if (next.isEmpty()) {
           return null;
         }
-      } finally {
-        releaseSharedLock();
+        return new CollectionBrowsePage(next);
+      } else {
+        return null;
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   @Override

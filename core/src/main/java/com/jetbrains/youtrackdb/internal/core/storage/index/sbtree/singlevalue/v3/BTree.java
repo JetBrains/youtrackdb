@@ -192,14 +192,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   @Override
   @Nullable
   public RID get(K key, @Nonnull AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
-        if (key != null) {
-          key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        var k = key;
+        if (k != null) {
+          k = keySerializer.preprocess(serializerFactory, k, (Object[]) keyTypes);
 
-          final var bucketSearchResult = findBucket(key, atomicOperation);
+          final var bucketSearchResult = findBucket(k, atomicOperation);
           if (bucketSearchResult.getItemIndex() < 0) {
             return null;
           }
@@ -222,16 +221,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
             return nullBucket.getValue();
           }
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during retrieving  of sbtree with name " + getName(), this),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -461,26 +456,20 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   @Override
   public long size(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         try (final var entryPointCacheEntry =
             loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
           final var entryPoint =
               new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
           return entryPoint.getTreeSize();
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during retrieving of size of index " + getName(), this),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -873,10 +862,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   void assertFreePages(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      atomicOperationsManager.executeReadOperation(this, () -> {
         final var pages = new IntOpenHashSet();
         final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
 
@@ -889,16 +876,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
         assert pages.isEmpty();
 
-      } finally {
-        releaseSharedLock();
-      }
+        return null;
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during checking  of btree with name " + getName(), this),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -975,54 +959,36 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   public Stream<RawPair<K, RID>> iterateEntriesMinor(
       final K key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (!ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMinorDesc(key, inclusive, atomicOperation),
-              false);
-        }
-
-        return StreamSupport.stream(iterateEntriesMinorAsc(key, inclusive, atomicOperation),
-            false);
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (!ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+
+      return StreamSupport.stream(
+          iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+    });
   }
 
   @Override
   public Stream<RawPair<K, RID>> iterateEntriesMajor(
       final K key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMajorAsc(key, inclusive, atomicOperation),
-              false);
-        }
-        return StreamSupport.stream(iterateEntriesMajorDesc(key, inclusive, atomicOperation),
-            false);
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+      return StreamSupport.stream(
+          iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+    });
   }
 
   @Override
   @Nullable
   public K firstKey(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = firstItem(atomicOperation);
         if (searchResult.isEmpty()) {
           return null;
@@ -1036,26 +1002,20 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               new CellBTreeSingleValueBucketV3<K>(cacheEntry);
           return bucket.getKey(result.getItemIndex(), keySerializer, serializerFactory);
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during finding first key in sbtree [" + getName() + "]", this),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
   @Override
   @Nullable
   public K lastKey(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = lastItem(atomicOperation);
         if (searchResult.isEmpty()) {
           return null;
@@ -1068,52 +1028,32 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               new CellBTreeSingleValueBucketV3<K>(cacheEntry);
           return bucket.getKey(result.getItemIndex(), keySerializer, serializerFactory);
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during finding last key in sbtree [" + getName() + "]", this),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
   @Override
   public Stream<K> keyStream(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return StreamSupport.stream(
+    return atomicOperationsManager.readUnderLock(this, () ->
+        StreamSupport.stream(
                 new SpliteratorForward<>(this, null, null,
                     false, false, atomicOperation), false)
-            .map(RawPair::first);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+            .map(RawPair::first)
+    );
   }
 
   @Override
   public Stream<RawPair<K, RID>> allEntries(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        return StreamSupport.stream(
+    return atomicOperationsManager.readUnderLock(this, () ->
+        StreamSupport.stream(
             new SpliteratorForward<>(this, null, null, false,
-                false, atomicOperation), false);
-      } finally {
-        releaseSharedLock();
-      }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+                false, atomicOperation), false)
+    );
   }
 
   @Override
@@ -1123,25 +1063,17 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       final K keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        } else {
-          return StreamSupport.stream(
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        }
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
+      } else {
+        return StreamSupport.stream(
+            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   /**
@@ -1215,17 +1147,11 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private Spliterator<RawPair<K, RID>> iterateEntriesMajorDesc(K key, final boolean inclusive,
       AtomicOperation atomicOperation) {
-    acquireSharedLock();
-    try {
-      key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
-      key = enhanceCompositeKeyMajorDesc(key, inclusive);
+    key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+    key = enhanceCompositeKeyMajorDesc(key, inclusive);
 
-      return new SpliteratorBackward<>(this, key, null, inclusive, false,
-          atomicOperation);
-
-    } finally {
-      releaseSharedLock();
-    }
+    return new SpliteratorBackward<>(this, key, null, inclusive, false,
+        atomicOperation);
   }
 
   private K enhanceCompositeKeyMajorAsc(K key, final boolean inclusive) {
@@ -1931,18 +1857,16 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     iter.getDataCache().clear();
     iter.setCacheIterator(Collections.emptyIterator());
 
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      atomicOperationsManager.executeReadOperation(this, () -> {
         if (iter.getPageIndex() > -1) {
           if (readKeysFromBucketsBackward(atomicOperation, iter)) {
-            return;
+            return null;
           }
         }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of current
-        // iterated page equals to -1
+        // this can only happen if page LSN does not equal to stored LSN or index of
+        // current iterated page equals to -1
         // so we only started iteration
         if (iter.getDataCache().isEmpty()) {
           // iteration just started
@@ -1967,7 +1891,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                 iter.setPageIndex((int) searchResult.getPageIndex());
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return;
+                return null;
               }
             }
 
@@ -1984,15 +1908,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
           iter.setLastLSN(null);
           readKeysFromBucketsBackward(atomicOperation, iter);
         }
-      } finally {
-        releaseSharedLock();
-      }
+        return null;
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception("Error during entity iteration", this), e,
           storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -2008,18 +1929,16 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     iter.getDataCache().clear();
     iter.setCacheIterator(Collections.emptyIterator());
 
-    atomicOperationsManager.acquireReadLock(BTree.this);
     try {
-      acquireSharedLock();
-      try {
+      atomicOperationsManager.executeReadOperation(BTree.this, () -> {
         if (iter.getPageIndex() > -1) {
           if (readKeysFromBucketsForward(atomicOperation, iter)) {
-            return;
+            return null;
           }
         }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of current
-        // iterated page equals to -1
+        // this can only happen if page LSN does not equal to stored LSN or index of
+        // current iterated page equals to -1
         // so we only started iteration
         if (iter.getDataCache().isEmpty()) {
           // iteration just started
@@ -2045,7 +1964,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                 iter.setPageIndex((int) searchResult.getPageIndex());
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return;
+                return null;
               }
             }
 
@@ -2062,16 +1981,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
           iter.setLastLSN(null);
           readKeysFromBucketsForward(atomicOperation, iter);
         }
-      } finally {
-        releaseSharedLock();
-      }
+        return null;
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during entity iteration", BTree.this),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(BTree.this);
     }
   }
 

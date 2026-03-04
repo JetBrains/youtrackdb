@@ -58,10 +58,14 @@ public class RatioTest extends MetricsBaseTest {
   ) {
 
     final var ticker = new StubTicker(0, TICK.toNanos());
+    // Use tickCheckInterval=1 so each record triggers a tick check, matching the test pattern
+    // of 1 record per simulated second.
     final var meter = Ratio.create(
         ticker,
         TICK,
-        TimeInterval.of(1, TimeUnit.SECONDS)
+        TimeInterval.of(1, TimeUnit.SECONDS),
+        1.0,
+        1
     );
 
     for (int i = 0; i < ITERATIONS_COUNT; i++) {
@@ -88,10 +92,13 @@ public class RatioTest extends MetricsBaseTest {
   @Test
   public void shiftedRatio() {
     final var ticker = new StubTicker(0, TICK.toNanos());
+    // Use tickCheckInterval=1 so each record triggers a tick check.
     final var meter = Ratio.create(
         ticker,
         TimeInterval.of(10, TimeUnit.MILLISECONDS),
-        TimeInterval.of(1, TimeUnit.MINUTES)
+        TimeInterval.of(1, TimeUnit.MINUTES),
+        1.0,
+        1
     );
 
     final var expectedRate = 7.0 / 12;

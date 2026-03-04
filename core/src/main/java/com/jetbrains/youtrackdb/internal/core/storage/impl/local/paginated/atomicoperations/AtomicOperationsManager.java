@@ -20,8 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -38,6 +36,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
@@ -45,6 +44,10 @@ import javax.annotation.Nullable;
 
 /**
  * Manages the lifecycle of atomic operations for the storage engine.
+ *
+ * <p>Write locks are acquired directly on each {@link DurableComponent}'s
+ * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract#stampedLock
+ * stampedLock}, giving per-component granularity with zero map lookups on the read path.
  *
  * @since 12/3/13
  */
@@ -54,9 +57,7 @@ public class AtomicOperationsManager {
 
   @Nonnull
   private final WriteAheadLog writeAheadLog;
-  private final OneEntryPerKeyLockManager<String> lockManager =
-      new OneEntryPerKeyLockManager<>(
-          true, -1, GlobalConfiguration.COMPONENTS_LOCK_CACHE.getValueAsInteger());
+
   private final ReadCache readCache;
   private final WriteCache writeCache;
 
@@ -150,27 +151,22 @@ public class AtomicOperationsManager {
       final AtomicOperation atomicOperation,
       final DurableComponent component,
       final TxConsumer consumer) {
-    executeInsideComponentOperation(atomicOperation, component.getLockName(), consumer);
-  }
-
-  public void executeInsideComponentOperation(
-      final AtomicOperation atomicOperation, final String lockName, final TxConsumer consumer) {
     Objects.requireNonNull(atomicOperation);
-    startComponentOperation(atomicOperation, lockName);
+    acquireExclusiveLockTillOperationComplete(atomicOperation, component);
     try {
       consumer.accept(atomicOperation);
     } catch (Exception e) {
       if (e instanceof CoreException coreException) {
-        coreException.setComponentName(lockName);
+        coreException.setComponentName(component.getLockName());
         coreException.setDbName(storage.getName());
       }
 
       throw BaseException.wrapException(
           new CommonDurableComponentException(
               "Exception during execution of component operation inside component "
-                  + lockName
+                  + component.getLockName()
                   + " in storage "
-                  + storage.getName(), lockName, storage.getName()),
+                  + storage.getName(), component.getLockName(), storage.getName()),
           e, storage.getName());
     }
   }
@@ -179,31 +175,20 @@ public class AtomicOperationsManager {
       final AtomicOperation atomicOperation,
       final DurableComponent component,
       final TxFunction<T> function) {
-    return calculateInsideComponentOperation(atomicOperation, component.getLockName(), function);
-  }
-
-  public <T> T calculateInsideComponentOperation(
-      final AtomicOperation atomicOperation, final String lockName, final TxFunction<T> function) {
     Objects.requireNonNull(atomicOperation);
-    startComponentOperation(atomicOperation, lockName);
+    acquireExclusiveLockTillOperationComplete(atomicOperation, component);
     try {
       return function.accept(atomicOperation);
     } catch (Exception e) {
       throw BaseException.wrapException(
           new CommonDurableComponentException(
               "Exception during execution of component operation inside component "
-                  + lockName
+                  + component.getLockName()
                   + " in storage "
-                  + storage.getName(), lockName, storage.getName()),
+                  + storage.getName(), component.getLockName(), storage.getName()),
           e, storage.getName());
     }
   }
-
-  private void startComponentOperation(final AtomicOperation atomicOperation,
-      final String lockName) {
-    acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
-  }
-
 
   public long freezeWriteOperations(@Nullable Supplier<? extends BaseException> throwException) {
     return writeOperationsFreezer.freezeOperations(throwException);
@@ -242,15 +227,7 @@ public class AtomicOperationsManager {
         }
 
       } finally {
-        final var lockedObjectIterator = operation.lockedObjects().iterator();
-
-        while (lockedObjectIterator.hasNext()) {
-          final var lockedObject = lockedObjectIterator.next();
-          lockedObjectIterator.remove();
-
-          lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
-        }
-
+        releaseLocks(operation);
         operation.deactivate();
       }
     } finally {
@@ -259,56 +236,177 @@ public class AtomicOperationsManager {
   }
 
   public void ensureThatComponentsUnlocked(@Nonnull final AtomicOperation operation) {
-    final var lockedObjectIterator = operation.lockedObjects().iterator();
+    releaseLocks(operation);
+  }
 
-    while (lockedObjectIterator.hasNext()) {
-      final var lockedObject = lockedObjectIterator.next();
-      lockedObjectIterator.remove();
+  private void releaseLocks(AtomicOperation operation) {
+    // Release DurableComponent locks (the common case).
+    // Check isExclusiveOwner() to make this method idempotent — it may be called
+    // twice (once by endAtomicOperation, once by ensureThatComponentsUnlocked
+    // in the finally block of AbstractStorage.commit).
+    var compIter = operation.lockedComponents().iterator();
+    while (compIter.hasNext()) {
+      var component = compIter.next();
+      if (component.isExclusiveOwner()) {
+        component.unlockExclusive();
+      }
+      compIter.remove();
+    }
 
-      lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
+    // Clear the combined dedup set
+    var nameIter = operation.lockedObjects().iterator();
+    while (nameIter.hasNext()) {
+      nameIter.next();
+      nameIter.remove();
     }
   }
 
   /**
-   * Acquires exclusive lock with the given lock name in the given atomic operation.
-   *
-   * @param operation the atomic operation to acquire the lock in.
-   * @param lockName  the lock name to acquire.
+   * Acquires exclusive lock on the given {@link DurableComponent} for the lifetime of the
+   * atomic operation. Uses the component's own
+   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
+   * StampedLock} directly — no external map lookup needed. The lock is reentrant via
+   * {@code SharedResourceAbstract}'s owner-tracking.
    */
   public void acquireExclusiveLockTillOperationComplete(
-      AtomicOperation operation, String lockName) {
+      @Nonnull AtomicOperation operation, @Nonnull DurableComponent component) {
     storage.checkErrorState();
 
-    if (operation.containsInLockedObjects(lockName)) {
+    if (operation.containsInLockedObjects(component.getLockName())) {
       return;
     }
 
-    lockManager.acquireLock(lockName, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
-    operation.addLockedObject(lockName);
+    component.lockExclusive();
+    operation.addLockedComponent(component);
+    operation.addLockedObject(component.getLockName());
   }
 
   /**
-   * Acquires exclusive lock in the active atomic operation running on the current thread for the
-   * {@code durableComponent}.
+   * Executes a read operation under an optimistic StampedLock with automatic fallback
+   * to a blocking read lock on contention. Uses the component's own StampedLock directly
+   * — zero map lookups on the read path. The happy path (no concurrent writer) costs
+   * only two volatile reads and zero CAS operations.
+   *
+   * <p>The protocol:
+   * <ol>
+   *   <li>Try an optimistic read (volatile read, no CAS)</li>
+   *   <li>Execute the action</li>
+   *   <li>If the stamp is still valid, return the result</li>
+   *   <li>If an exception occurred and the stamp is valid, it's a real error — rethrow</li>
+   *   <li>Otherwise, acquire a blocking read lock and retry the action</li>
+   * </ol>
+   *
+   * <p><b>Write-owner visibility for reader threads:</b> the volatile read inside
+   * {@code tryOptimisticRead()} synchronizes with the volatile write inside the prior
+   * {@code unlock()}, so any reader that gets a non-zero stamp is guaranteed to see the
+   * cleared {@code exclusiveOwner}. If the unlock is not yet visible,
+   * {@code tryOptimisticRead()} returns 0 and the reader falls through to
+   * {@code readLock()}, which provides a full happens-before edge.
+   *
+   * @param component the durable component whose StampedLock to use
+   * @param action    the read action to execute (must be idempotent and retryable —
+   *                  it may be invoked twice if the optimistic read is invalidated)
+   * @return the result of the action
    */
-  public void acquireExclusiveLockTillOperationComplete(@Nonnull AtomicOperation operation,
-      @Nonnull DurableComponent durableComponent) {
-    storage.checkErrorState();
+  public <T> T executeReadOperation(
+      DurableComponent component, Callable<T> action) throws IOException {
+    // Fast path: if the current thread already holds the exclusive lock on this
+    // component (e.g., a read method called during an active atomic operation),
+    // execute directly. StampedLock is non-reentrant — acquiring a read lock would
+    // deadlock. Uses SharedResourceAbstract.isExclusiveOwner() which checks the
+    // volatile exclusiveOwner field.
+    if (component.isExclusiveOwner()) {
+      try {
+        return action.call();
+      } catch (Exception e) {
+        throwAsIOOrRuntime(e);
+        return null; // unreachable
+      }
+    }
 
-    acquireExclusiveLockTillOperationComplete(operation, durableComponent.getLockName());
+    var lock = component.stampedLock;
+
+    // Attempt 1: optimistic read (no CAS)
+    long stamp = lock.tryOptimisticRead();
+    if (stamp != 0) {
+      try {
+        T result = action.call();
+        if (lock.validate(stamp)) {
+          return result;
+        }
+      } catch (Exception e) {
+        if (lock.validate(stamp)) {
+          // Real error, not caused by concurrent modification
+          throwAsIOOrRuntime(e);
+        }
+        // Concurrent modification caused the exception — fall through to a single
+        // bounded retry under the blocking read lock. If the error is genuine, it
+        // will re-surface on the retry.
+      }
+    }
+
+    // Attempt 2: blocking read lock (CAS only on contention)
+    stamp = lock.readLock();
+    try {
+      return action.call();
+    } catch (Exception e) {
+      throwAsIOOrRuntime(e);
+      return null; // unreachable
+    } finally {
+      lock.unlockRead(stamp);
+    }
   }
 
-  public void acquireReadLock(DurableComponent durableComponent) {
-    assert durableComponent.getLockName() != null;
+  /**
+   * Non-throwing variant of {@link #executeReadOperation(DurableComponent, Callable)} for
+   * lambdas that never throw checked exceptions. Eliminates dead-code catch blocks at call
+   * sites where the Callable signature forces an IOException declaration but the lambda
+   * body only throws unchecked exceptions.
+   *
+   * <p><b>Important:</b> This method mirrors the optimistic-read protocol in
+   * {@link #executeReadOperation(DurableComponent, Callable)}. Any changes to the
+   * lock acquisition logic must be applied to both methods.
+   */
+  public <T> T readUnderLock(
+      DurableComponent component, Supplier<T> action) {
+    if (component.isExclusiveOwner()) {
+      return action.get();
+    }
 
-    lockManager.acquireLock(durableComponent.getLockName(), OneEntryPerKeyLockManager.LOCK.SHARED);
+    var lock = component.stampedLock;
+
+    // Attempt 1: optimistic read (no CAS)
+    long stamp = lock.tryOptimisticRead();
+    if (stamp != 0) {
+      try {
+        T result = action.get();
+        if (lock.validate(stamp)) {
+          return result;
+        }
+      } catch (RuntimeException e) {
+        if (lock.validate(stamp)) {
+          throw e;
+        }
+        // Concurrent modification caused the exception — fall through to retry.
+      }
+    }
+
+    // Attempt 2: blocking read lock
+    stamp = lock.readLock();
+    try {
+      return action.get();
+    } finally {
+      lock.unlockRead(stamp);
+    }
   }
 
-  public void releaseReadLock(DurableComponent durableComponent) {
-    assert durableComponent.getName() != null;
-    assert durableComponent.getLockName() != null;
-
-    lockManager.releaseLock(
-        this, durableComponent.getLockName(), OneEntryPerKeyLockManager.LOCK.SHARED);
+  private static void throwAsIOOrRuntime(Exception e) throws IOException {
+    if (e instanceof IOException ioe) {
+      throw ioe;
+    }
+    if (e instanceof RuntimeException re) {
+      throw re;
+    }
+    throw new IOException(e);
   }
 }

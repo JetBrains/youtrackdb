@@ -318,13 +318,18 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     // a set() on a cache line that should be held in exclusive mode
     // by the current thread, and a get() on a cache line that is shared.
     while (true) {
+      // Full volatile write (StoreLoad barrier) is required here: this is a Dekker-style
+      // pattern — the writer must observe READING before the reader checks isWriteLocked(),
+      // otherwise both could proceed concurrently.
       currentReadersState.set(SRWL_STATE_READING);
       if (!stampedLock.isWriteLocked()) {
         // Acquired lock in read-only mode
         return;
       } else {
-        // Go back to SRWL_STATE_NOT_READING to avoid blocking a Writer
-        currentReadersState.set(SRWL_STATE_NOT_READING);
+        // Back off to NOT_READING to unblock a waiting writer. lazySet (release/StoreStore)
+        // is sufficient: we are not protecting a critical section, just signalling that we
+        // gave up. The writer will eventually see NOT_READING.
+        currentReadersState.lazySet(SRWL_STATE_NOT_READING);
         // Some (other) thread is holding the write-lock, we must wait
         while (stampedLock.isWriteLocked()) {
           Thread.yield();
@@ -349,7 +354,11 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       // ERROR: Tried to unlock a non read-locked lock
       throw new IllegalMonitorStateException();
     } else {
-      localEntry.state.set(SRWL_STATE_NOT_READING);
+      // lazySet (release/StoreStore) is sufficient: all stores from the critical section
+      // are ordered before this release, and the writer will eventually see NOT_READING.
+      // The full StoreLoad barrier from set() is not needed because the writer's
+      // stampedLock.writeLock() provides its own acquire barrier when it starts scanning.
+      localEntry.state.lazySet(SRWL_STATE_NOT_READING);
     }
   }
 
@@ -428,13 +437,14 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     final var currentReadersState = localEntry.state;
+    // Full volatile write required (Dekker pattern) — see sharedLock() for reasoning.
     currentReadersState.set(SRWL_STATE_READING);
     if (!stampedLock.isWriteLocked()) {
       // Acquired lock in read-only mode
       return true;
     } else {
-      // Go back to SRWL_STATE_NOT_READING and quit
-      currentReadersState.set(SRWL_STATE_NOT_READING);
+      // Back off — lazySet sufficient (see sharedLock() backoff for reasoning).
+      currentReadersState.lazySet(SRWL_STATE_NOT_READING);
       return false;
     }
   }
@@ -469,14 +479,14 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
 
     final var currentReadersState = localEntry.state;
     while (true) {
+      // Full volatile write required (Dekker pattern) — see sharedLock() for reasoning.
       currentReadersState.set(SRWL_STATE_READING);
       if (!stampedLock.isWriteLocked()) {
         // Acquired lock in read-only mode
         return true;
       } else {
-        // Go back to SRWL_STATE_NOT_READING to avoid blocking a Writer
-        // and then check if this is a downgrade.
-        currentReadersState.set(SRWL_STATE_NOT_READING);
+        // Back off — lazySet sufficient (see sharedLock() backoff for reasoning).
+        currentReadersState.lazySet(SRWL_STATE_NOT_READING);
 
         if (nanosTimeout <= 0) {
           return false;

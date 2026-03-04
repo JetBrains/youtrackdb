@@ -183,6 +183,20 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
   }
 
   /**
+   * Returns the {@link SharedLinkBagBTree} component for the given collection ID,
+   * or {@code null} if no link bag exists for this collection yet.
+   */
+  public SharedLinkBagBTree getComponentByCollectionId(
+      int collectionId, AtomicOperation atomicOperation) {
+    var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
+    if (fileId < 0) {
+      return null;
+    }
+    var intFileId = AbstractWriteCache.extractFileId(fileId);
+    return fileIdBTreeMap.get(intFileId);
+  }
+
+  /**
    * Generates a lock name for the given collection ID.
    *
    * @param collectionId the collection ID to generate the lock name for.

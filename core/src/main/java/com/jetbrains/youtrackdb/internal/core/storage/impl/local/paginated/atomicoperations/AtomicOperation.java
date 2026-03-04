@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Map;
@@ -65,6 +66,12 @@ public interface AtomicOperation {
   LogSequenceNumber commitChanges(long commitTs, WriteAheadLog writeAheadLog) throws IOException;
 
   Iterable<String> lockedObjects();
+
+  /** Tracks a locked DurableComponent so it can be released at operation end. */
+  void addLockedComponent(DurableComponent component);
+
+  /** Returns the DurableComponents locked by this operation. */
+  Iterable<DurableComponent> lockedComponents();
 
   void addDeletedRecordPosition(final int collectionId, final int pageIndex,
       final int recordPosition);

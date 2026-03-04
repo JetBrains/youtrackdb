@@ -42,13 +42,25 @@ public interface TimeRate extends Metric<Double> {
       TimeInterval collectionPeriod,
       TimeUnit resolution
   ) {
+    return create(ticker, flushRate, collectionPeriod, resolution,
+        Meter.DEFAULT_TICK_CHECK_INTERVAL);
+  }
 
-    // makes sense to check that the configured flushRate and interval are multiples of ticker.granularity?
+  // Exposed for tests to control tick check interval for deterministic flushing.
+  // Not part of the public API — this interface is in the internal package.
+  static TimeRate create(
+      Ticker ticker,
+      TimeInterval flushRate,
+      TimeInterval collectionPeriod,
+      TimeUnit resolution,
+      int tickCheckInterval
+  ) {
     return new Impl(
         ticker,
         flushRate.toNanos() / ticker.getGranularity(),
         collectionPeriod.toNanos() / ticker.getGranularity(),
-        resolution
+        resolution,
+        tickCheckInterval
     );
   }
 
@@ -57,13 +69,15 @@ public interface TimeRate extends Metric<Double> {
     private final Meter meter;
     private final BigDecimal resolution;
 
-    public Impl(
+    Impl(
         Ticker ticker,
         long flushRateTicks,
         long periodTicks,
-        TimeUnit resolution
+        TimeUnit resolution,
+        int tickCheckInterval
     ) {
-      this.meter = new Meter(ticker, Mode.TIME_RATE, flushRateTicks, periodTicks);
+      this.meter = new Meter(ticker, Mode.TIME_RATE, flushRateTicks, periodTicks,
+          tickCheckInterval);
       this.resolution = BigDecimal.valueOf(resolution.toNanos(1));
     }
 

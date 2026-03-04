@@ -36,13 +36,25 @@ public interface Ratio extends Metric<Double> {
       TimeInterval collectionPeriod,
       double coefficient
   ) {
+    return create(ticker, flushRate, collectionPeriod, coefficient,
+        Meter.DEFAULT_TICK_CHECK_INTERVAL);
+  }
 
-    // makes sense to check that the configured flushRate and interval are multiples of ticker.granularity?
+  // Exposed for tests to control tick check interval for deterministic flushing.
+  // Not part of the public API — this interface is in the internal package.
+  static Ratio create(
+      Ticker ticker,
+      TimeInterval flushRate,
+      TimeInterval collectionPeriod,
+      double coefficient,
+      int tickCheckInterval
+  ) {
     return new Impl(
         ticker,
         flushRate.toNanos() / ticker.getGranularity(),
         collectionPeriod.toNanos() / ticker.getGranularity(),
-        coefficient
+        coefficient,
+        tickCheckInterval
     );
   }
 
@@ -65,9 +77,11 @@ public interface Ratio extends Metric<Double> {
     private final Meter meter;
     private final double coefficient;
 
-    public Impl(Ticker ticker, long flushRateTicks, long periodTicks, double coefficient) {
+    Impl(Ticker ticker, long flushRateTicks, long periodTicks, double coefficient,
+        int tickCheckInterval) {
       this.coefficient = coefficient;
-      this.meter = new Meter(ticker, Mode.SUCCESS_RATIO, flushRateTicks, periodTicks);
+      this.meter = new Meter(ticker, Mode.SUCCESS_RATIO, flushRateTicks, periodTicks,
+          tickCheckInterval);
     }
 
     @Override

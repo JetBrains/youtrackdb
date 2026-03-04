@@ -4900,8 +4900,12 @@ public abstract class AbstractStorage
       final TreeMap<Integer, StorageCollection> collections,
       @Nonnull AtomicOperation atomicOperation) {
     for (final var collectionId : collections.keySet()) {
-      atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
-          atomicOperation, LinkCollectionsBTreeManagerShared.generateLockName(collectionId));
+      var bTree = linkCollectionsBTreeManager.getComponentByCollectionId(
+          collectionId, atomicOperation);
+      if (bTree != null) {
+        atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
+            atomicOperation, bTree);
+      }
     }
   }
 

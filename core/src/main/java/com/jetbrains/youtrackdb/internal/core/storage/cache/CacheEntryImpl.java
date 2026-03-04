@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 public class CacheEntryImpl implements CacheEntry {
 
@@ -27,10 +28,24 @@ public class CacheEntryImpl implements CacheEntry {
   @SuppressWarnings("UnusedVariable")
   private volatile int state;
 
-  private volatile CacheEntry next;
-  private volatile CacheEntry prev;
+  // LRU list pointers — guarded by evictionLock in LockFreeReadCache.
+  // All reads and writes happen inside LRUList methods, which are called
+  // exclusively from WTinyLFUPolicy under the eviction lock. No volatile
+  // needed because the lock provides visibility and ordering guarantees.
+  //
+  // @GuardedBy cannot resolve cross-class instance locks, so we suppress the
+  // checker and keep the annotation as a documentation safeguard.
+  @SuppressWarnings("GuardedBy")
+  @GuardedBy("LockFreeReadCache.evictionLock")
+  private CacheEntry next;
 
-  private volatile LRUList container;
+  @SuppressWarnings("GuardedBy")
+  @GuardedBy("LockFreeReadCache.evictionLock")
+  private CacheEntry prev;
+
+  @SuppressWarnings("GuardedBy")
+  @GuardedBy("LockFreeReadCache.evictionLock")
+  private LRUList container;
 
   /**
    * Protected by page lock inside disk cache
@@ -252,31 +267,37 @@ public class CacheEntryImpl implements CacheEntry {
     return STATE_UPDATER.get(this) == DEAD;
   }
 
+  @SuppressWarnings("GuardedBy")
   @Override
   public CacheEntry getNext() {
     return next;
   }
 
+  @SuppressWarnings("GuardedBy")
   @Override
   public CacheEntry getPrev() {
     return prev;
   }
 
+  @SuppressWarnings("GuardedBy")
   @Override
   public void setPrev(final CacheEntry prev) {
     this.prev = prev;
   }
 
+  @SuppressWarnings("GuardedBy")
   @Override
   public void setNext(final CacheEntry next) {
     this.next = next;
   }
 
+  @SuppressWarnings("GuardedBy")
   @Override
   public void setContainer(final LRUList lruList) {
     this.container = lruList;
   }
 
+  @SuppressWarnings("GuardedBy")
   @Override
   public LRUList getContainer() {
     return container;

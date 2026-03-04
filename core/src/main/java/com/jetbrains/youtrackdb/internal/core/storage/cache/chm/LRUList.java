@@ -5,6 +5,12 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import javax.annotation.Nullable;
 
+/**
+ * Doubly-linked list used by {@link WTinyLFUPolicy} for LRU eviction ordering.
+ *
+ * <p>Thread safety: this class is NOT thread-safe. All operations must be
+ * called under external synchronization (evictionLock in LockFreeReadCache).
+ */
 public final class LRUList implements Iterable<CacheEntry> {
 
   private int size;

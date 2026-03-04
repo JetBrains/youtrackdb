@@ -93,10 +93,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         final var bucketSearchResult = findBucket(key, atomicOperation);
         if (bucketSearchResult.getItemIndex() < 0) {
           return null;
@@ -109,16 +107,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
           final var keyBucket = new Bucket(keyBucketCacheEntry);
           return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during retrieving  of value for rid bag with name " + getName()),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -215,10 +209,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   @Nullable
   public EdgeKey firstKey(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = firstItem(atomicOperation);
         if (searchResult.isEmpty()) {
           return null;
@@ -231,16 +223,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
           final var bucket = new Bucket(cacheEntry);
           return bucket.getKey(result.getItemIndex(), serializerFactory);
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during finding first key in btree [" + getName() + "]"), e,
           storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -306,10 +294,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   @Nullable
   public EdgeKey lastKey(AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
     try {
-      acquireSharedLock();
-      try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = lastItem(atomicOperation);
         if (searchResult.isEmpty()) {
           return null;
@@ -322,16 +308,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
           final var bucket = new Bucket(cacheEntry);
           return bucket.getKey(result.getItemIndex(), serializerFactory);
         }
-      } finally {
-        releaseSharedLock();
-      }
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during finding last key in btree [" + getName() + "]"),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
     }
   }
 
@@ -806,43 +788,28 @@ public final class SharedLinkBagBTree extends DurableComponent {
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (!ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMinorDesc(key, inclusive, atomicOperation),
-              false);
-        }
-
-        return StreamSupport.stream(iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (!ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+
+      return StreamSupport.stream(
+          iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+    });
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMajorAsc(key, inclusive, atomicOperation),
-              false);
-        }
-        return StreamSupport.stream(iterateEntriesMajorDesc(key, inclusive, atomicOperation),
-            false);
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+      return StreamSupport.stream(
+          iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+    });
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> streamEntriesBetween(
@@ -851,25 +818,17 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        } else {
-          return StreamSupport.stream(
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        }
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
+      } else {
+        return StreamSupport.stream(
+            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   public Spliterator<RawPair<EdgeKey, LinkBagValue>> spliteratorEntriesBetween(
@@ -878,25 +837,17 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    atomicOperationsManager.acquireReadLock(this);
-    try {
-      acquireSharedLock();
-      try {
-        if (ascSortOrder) {
-          return
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-        } else {
-          return
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-        }
-      } finally {
-        releaseSharedLock();
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return
+            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation);
+      } else {
+        return
+            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation);
       }
-    } finally {
-      atomicOperationsManager.releaseReadLock(this);
-    }
+    });
   }
 
   private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinorDesc(
@@ -947,18 +898,16 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
     iter.clearCache();
 
-    atomicOperationsManager.acquireReadLock(SharedLinkBagBTree.this);
     try {
-      acquireSharedLock();
-      try {
+      atomicOperationsManager.executeReadOperation(SharedLinkBagBTree.this, () -> {
         if (iter.getPageIndex() > -1) {
           if (readKeysFromBucketsForward(iter, atomicOperation)) {
-            return;
+            return null;
           }
         }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of current
-        // iterated page equals to -1
+        // this can only happen if page LSN does not equal to stored LSN or index of
+        // current iterated page equals to -1
         // so we only started iteration
         if (iter.getDataCache().isEmpty()) {
           // iteration just started
@@ -984,7 +933,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
                 iter.setPageIndex((int) searchResult.getPageIndex());
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return;
+                return null;
               }
             }
 
@@ -1001,15 +950,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
           iter.setLastLSN(null);
           readKeysFromBucketsForward(iter, atomicOperation);
         }
-      } finally {
-        releaseSharedLock();
-      }
+        return null;
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(SharedLinkBagBTree.this);
     }
   }
 
@@ -1083,18 +1029,16 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
     iter.clearCache();
 
-    atomicOperationsManager.acquireReadLock(SharedLinkBagBTree.this);
     try {
-      acquireSharedLock();
-      try {
+      atomicOperationsManager.executeReadOperation(SharedLinkBagBTree.this, () -> {
         if (iter.getPageIndex() > -1) {
           if (readKeysFromBucketsBackward(iter, atomicOperation)) {
-            return;
+            return null;
           }
         }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of current
-        // iterated page equals to -1
+        // this can only happen if page LSN does not equal to stored LSN or index of
+        // current iterated page equals to -1
         // so we only started iteration
         if (iter.getDataCache().isEmpty()) {
           // iteration just started
@@ -1119,7 +1063,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
                 iter.setPageIndex((int) searchResult.getPageIndex());
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return;
+                return null;
               }
             }
 
@@ -1136,15 +1080,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
           iter.setLastLSN(null);
           readKeysFromBucketsBackward(iter, atomicOperation);
         }
-      } finally {
-        releaseSharedLock();
-      }
+        return null;
+      });
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
-    } finally {
-      atomicOperationsManager.releaseReadLock(SharedLinkBagBTree.this);
     }
   }
 
