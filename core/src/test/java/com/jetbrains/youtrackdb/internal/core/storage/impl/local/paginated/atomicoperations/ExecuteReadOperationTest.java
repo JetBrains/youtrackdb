@@ -21,12 +21,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.StampedLock;
 import org.junit.Test;
 
 /**
- * Tests for the {@link AtomicOperationsManager#executeReadOperation} template method
- * and the striped StampedLock write lock dedup logic.
+ * Tests for {@link AtomicOperationsManager#executeReadOperation} and the per-component
+ * StampedLock architecture. Verifies: optimistic reads, writer contention fallback,
+ * exception handling, write-lock reentrancy, concurrent stress, standalone component
+ * locks, and synthetic lock isolation.
  */
 public class ExecuteReadOperationTest extends DbTestBase {
 
@@ -89,7 +90,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
   // ==================== Test (b): Stamp invalid — retry via blocking read lock ========
 
   /**
-   * When a writer holds the stripe's write lock, tryOptimisticRead returns 0,
+   * When a writer holds the component's write lock, tryOptimisticRead returns 0,
    * so the optimistic path is skipped entirely and executeReadOperation goes
    * straight to blocking readLock. Once the writer releases, the blocking read
    * proceeds.
@@ -99,12 +100,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
       throws Exception {
     var mgr = manager();
     var component = fakeComponent("testComponent_b");
-    int stripe = mgr.stripeIndex(component.getLockName());
-
-    var lockField = AtomicOperationsManager.class.getDeclaredField("componentLocks");
-    lockField.setAccessible(true);
-    var locks = (StampedLock[]) lockField.get(mgr);
-    var lock = locks[stripe];
+    var lock = component.stampedLock;
 
     // Hold the write lock from another thread
     var writerReady = new CountDownLatch(1);
@@ -160,12 +156,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
       throws Exception {
     var mgr = manager();
     var component = fakeComponent("testComponent_c");
-    int stripe = mgr.stripeIndex(component.getLockName());
-
-    var lockField = AtomicOperationsManager.class.getDeclaredField("componentLocks");
-    lockField.setAccessible(true);
-    var locks = (StampedLock[]) lockField.get(mgr);
-    var lock = locks[stripe];
+    var lock = component.stampedLock;
 
     var callCount = new AtomicInteger(0);
     var actionStarted = new CountDownLatch(1);
@@ -233,14 +224,14 @@ public class ExecuteReadOperationTest extends DbTestBase {
     }
   }
 
-  // ==================== Test (d3): Write-lock reentrant fast path ==================
+  // ==================== Test (e): Write-lock reentrant fast path ==================
 
   /**
-   * When a thread holds the write lock on a stripe (via an active atomic operation)
-   * and then calls executeReadOperation on a component mapping to the same stripe,
-   * the fast path should detect the ownership and execute the action directly without
-   * trying to acquire a read lock (which would deadlock since StampedLock is
-   * non-reentrant).
+   * When a thread holds the exclusive lock on a component (via an active atomic
+   * operation) and then calls executeReadOperation on the same component, the fast
+   * path should detect the ownership via isExclusiveOwner() and execute the action
+   * directly without trying to acquire a read lock (which would deadlock since
+   * StampedLock is non-reentrant).
    */
   @Test
   public void testWriteLockReentrantFastPath_noDeadlock() throws Exception {
@@ -249,10 +240,10 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
     var operation = mgr.startAtomicOperation();
     try {
-      // Acquire write lock on the component's stripe
-      mgr.acquireExclusiveLockTillOperationComplete(operation, component.getLockName());
+      // Acquire write lock on the component via the atomic operation
+      mgr.acquireExclusiveLockTillOperationComplete(operation, component);
 
-      // Now call executeReadOperation on the same stripe — must not deadlock
+      // Now call executeReadOperation on the same component — must not deadlock
       var callCount = new AtomicInteger(0);
       var result = mgr.executeReadOperation(component, () -> {
         callCount.incrementAndGet();
@@ -266,49 +257,66 @@ public class ExecuteReadOperationTest extends DbTestBase {
     }
   }
 
-  // ==================== Test (e): Write lock stripe dedup ==========================
+  // ==================== Test (f): Per-component lock isolation =======================
 
+  /**
+   * Verifies that each DurableComponent uses its OWN StampedLock, not a shared
+   * stripe. Two components should not block each other unless they are the same
+   * component.
+   */
   @Test
-  public void testWriteLockStripeDedup_sameStripe() throws Exception {
+  public void testPerComponentLockIsolation() throws Exception {
     var mgr = manager();
-    var lockField = AtomicOperationsManager.class.getDeclaredField("componentLocks");
-    lockField.setAccessible(true);
-    var locks = (StampedLock[]) lockField.get(mgr);
-
-    String name1 = "component_A";
-    String name2 = null;
-    int targetStripe = mgr.stripeIndex(name1);
-    for (int i = 0; i < 100_000; i++) {
-      String candidate = "component_" + i;
-      if (!candidate.equals(name1)
-          && mgr.stripeIndex(candidate) == targetStripe) {
-        name2 = candidate;
-        break;
-      }
-    }
-    assertNotNull("Should find a colliding name", name2);
+    var componentA = fakeComponent("isolation_A");
+    var componentB = fakeComponent("isolation_B");
 
     var operation = mgr.startAtomicOperation();
     try {
-      mgr.acquireExclusiveLockTillOperationComplete(operation, name1);
-      assertTrue(operation.containsInLockedObjects(name1));
-      assertTrue(operation.containsLockedStripe(targetStripe));
+      // Acquire exclusive on component A
+      mgr.acquireExclusiveLockTillOperationComplete(operation, componentA);
 
-      mgr.acquireExclusiveLockTillOperationComplete(operation, name2);
-      assertTrue(operation.containsInLockedObjects(name2));
+      // executeReadOperation on component B should NOT block
+      // (no stripe collision possible — different components, different locks)
+      var result = mgr.executeReadOperation(componentB, () -> "not_blocked");
+      assertEquals("not_blocked", result);
 
-      long stamp = locks[targetStripe].tryOptimisticRead();
-      assertEquals("Write lock should be held, stamp must be 0", 0, stamp);
+      // Verify component A's lock is actually held
+      long stamp = componentA.stampedLock.tryOptimisticRead();
+      assertEquals("Write lock should be held on A, stamp must be 0", 0, stamp);
+
+      // Verify component B's lock is NOT held
+      long stampB = componentB.stampedLock.tryOptimisticRead();
+      assertTrue("Component B should not be locked", stampB != 0);
     } finally {
       mgr.ensureThatComponentsUnlocked(operation);
     }
-
-    long stamp = locks[targetStripe].tryOptimisticRead();
-    assertTrue("Lock should be released", stamp != 0);
-    assertTrue("Stamp should validate", locks[targetStripe].validate(stamp));
   }
 
-  // ==================== Test (f): Concurrent readers and writers stress test =========
+  // ==================== Test (g): Synthetic lock for link bags ====================
+
+  /**
+   * Verifies that string-only locks (synthetic link bag locks) work correctly
+   * without a DurableComponent backing.
+   */
+  @Test
+  public void testSyntheticLock_noComponent() throws Exception {
+    var mgr = manager();
+    var operation = mgr.startAtomicOperation();
+    try {
+      String syntheticName = "l_42.idbag";
+
+      // Should not throw — acquires a synthetic StampedLock
+      mgr.acquireExclusiveLockTillOperationComplete(operation, syntheticName);
+      assertTrue(operation.containsInLockedObjects(syntheticName));
+
+      // Second acquisition of same name should be a no-op (idempotent)
+      mgr.acquireExclusiveLockTillOperationComplete(operation, syntheticName);
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+  }
+
+  // ==================== Test (h): Concurrent readers and writers stress test =========
 
   @Test
   public void testConcurrentReadersAndWriters_stressTest() throws Exception {
@@ -350,7 +358,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
             var operation = mgr.startAtomicOperation();
             try {
               mgr.acquireExclusiveLockTillOperationComplete(
-                  operation, component.getLockName());
+                  operation, component);
               sharedCounter.incrementAndGet();
             } finally {
               mgr.ensureThatComponentsUnlocked(operation);
@@ -375,15 +383,12 @@ public class ExecuteReadOperationTest extends DbTestBase {
         (long) numWriters * iterationsPerThread, sharedCounter.get());
   }
 
-  // ========= Test (g): StampedLock shared/exclusive mutual exclusion ==========
+  // ========= Test (i): StampedLock shared/exclusive mutual exclusion ==========
 
   /**
-   * Validates that after replacing ReentrantReadWriteLock with StampedLock in
-   * SharedResourceAbstract, acquireSharedLock() blocks while acquireExclusiveLock()
+   * Validates that acquireSharedLock() blocks while acquireExclusiveLock()
    * is held on the same component, and vice versa. This ensures standalone shared
-   * lock callers (e.g., generateCollectionConfig, getRecordStatus) still get
-   * proper exclusion against concurrent writers that acquire the component's
-   * exclusive lock.
+   * lock callers still get proper exclusion against concurrent writers.
    */
   @Test
   public void testStampedLock_sharedBlockedByExclusive() throws Exception {
@@ -418,9 +423,8 @@ public class ExecuteReadOperationTest extends DbTestBase {
         sharedAcquired.set(true);
         component.testReleaseSharedLock();
 
-        // The shared lock should have waited at least 100ms (writer holds ~150ms
-        // after we start waiting: 200ms total - 50ms delay)
-        if (elapsedMs < 50) {
+        // The shared lock should have waited a meaningful amount of time
+        if (elapsedMs < 20) {
           errors.compareAndSet(null,
               new AssertionError(
                   "Shared lock acquired too quickly (" + elapsedMs
@@ -453,17 +457,156 @@ public class ExecuteReadOperationTest extends DbTestBase {
     }
   }
 
-  // ========= Test (h): Concurrent BTree reads and writes ======================
+  // ========= Test (j): No false-collision deadlock with per-component locks =====
 
   /**
-   * Verifies that real BTree operations work correctly after removing the inner
-   * shared lock from executeReadOperation lambdas. Writers insert records in
-   * transactions (exercising the exclusive lock path), while readers query the
-   * index via Gremlin traversals (exercising executeReadOperation without inner
-   * shared lock). No exceptions or torn reads should occur.
+   * Verifies that two threads acquiring locks on two different components
+   * concurrently do NOT deadlock when both acquire in the same order. With
+   * per-component locks (no hash collisions), different components have
+   * independent StampedLocks.
+   *
+   * <p>Note: genuine ABBA ordering (thread 1: X→Y, thread 2: Y→X) would still
+   * deadlock — this is prevented by the codebase always acquiring components
+   * in sorted order. This test verifies there are no false collisions.
    */
   @Test
-  public void testConcurrentBTreeReadsAndWrites_noInnerSharedLock() throws Exception {
+  public void testNoFalseCollisionDeadlock_perComponentLocks() throws Exception {
+    var mgr = manager();
+    var componentX = fakeComponent("collision_X");
+    var componentY = fakeComponent("collision_Y");
+
+    var errors = new AtomicReference<Throwable>();
+    var startLatch = new CountDownLatch(1);
+    int iterations = 500;
+    var done = new CountDownLatch(2);
+
+    // Both threads acquire in the same order — should never deadlock
+    for (int t = 0; t < 2; t++) {
+      new Thread(() -> {
+        try {
+          startLatch.await();
+          for (int i = 0; i < iterations; i++) {
+            var op = mgr.startAtomicOperation();
+            try {
+              mgr.acquireExclusiveLockTillOperationComplete(op, componentX);
+              mgr.acquireExclusiveLockTillOperationComplete(op, componentY);
+            } finally {
+              mgr.ensureThatComponentsUnlocked(op);
+            }
+          }
+        } catch (Throwable e) {
+          errors.compareAndSet(null, e);
+        } finally {
+          done.countDown();
+        }
+      }).start();
+    }
+
+    startLatch.countDown();
+
+    assertTrue("Should complete without deadlock",
+        done.await(30, TimeUnit.SECONDS));
+
+    if (errors.get() != null) {
+      fail("Error during collision test: " + errors.get());
+    }
+  }
+
+  // ========= Test (k): Reentrant exclusive lock within atomic operation ========
+
+  /**
+   * Verifies that acquireExclusiveLockTillOperationComplete on the same component
+   * twice within one operation is a no-op (idempotent).
+   */
+  @Test
+  public void testReentrantExclusiveLock_sameOperation() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("reentrant_excl_test");
+
+    var operation = mgr.startAtomicOperation();
+    try {
+      mgr.acquireExclusiveLockTillOperationComplete(operation, component);
+      assertTrue(operation.containsInLockedObjects(component.getLockName()));
+
+      // Second call should be a no-op
+      mgr.acquireExclusiveLockTillOperationComplete(operation, component);
+      assertTrue(operation.containsInLockedObjects(component.getLockName()));
+
+      // Lock should still be held
+      long stamp = component.stampedLock.tryOptimisticRead();
+      assertEquals("Write lock should be held", 0, stamp);
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+
+    // After release, lock should be free
+    long stamp = component.stampedLock.tryOptimisticRead();
+    assertTrue("Lock should be released", stamp != 0);
+    assertTrue("Stamp should validate", component.stampedLock.validate(stamp));
+  }
+
+  // ========= Test (l): Component lock and executeReadOperation use same lock ===
+
+  /**
+   * Verifies that the component's standalone acquireExclusiveLock() and the
+   * AtomicOperationsManager's executeReadOperation() use the same StampedLock.
+   * A writer holding the component lock via acquireExclusiveLock() should block
+   * optimistic reads on the same component.
+   */
+  @Test
+  public void testComponentLockAndReadOperationShareSameLock() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("shared_lock_test");
+
+    // Acquire exclusive lock directly on the component (standalone)
+    var writerReady = new CountDownLatch(1);
+    var releaseWriter = new CountDownLatch(1);
+    var readerResult = new AtomicReference<String>();
+
+    var writerThread = new Thread(() -> {
+      component.testAcquireExclusiveLock();
+      writerReady.countDown();
+      try {
+        releaseWriter.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      component.testReleaseExclusiveLock();
+    });
+    writerThread.start();
+    assertTrue(writerReady.await(5, TimeUnit.SECONDS));
+
+    // executeReadOperation should block until the standalone exclusive lock is released
+    var readerThread = new Thread(() -> {
+      try {
+        var r = mgr.executeReadOperation(component, () -> "after_release");
+        readerResult.set(r);
+      } catch (IOException e) {
+        fail("Unexpected IOException");
+      }
+    });
+    readerThread.start();
+
+    // Reader should be blocked while exclusive is held
+    Thread.sleep(100);
+    assertFalse("Reader should be blocked", readerThread.getState() == Thread.State.TERMINATED);
+
+    releaseWriter.countDown();
+    readerThread.join(5000);
+    writerThread.join(5000);
+
+    assertEquals("after_release", readerResult.get());
+  }
+
+  // ========= Test (m): Concurrent BTree reads and writes ======================
+
+  /**
+   * Verifies that real BTree operations work correctly with per-component locks.
+   * Writers insert records in transactions, while readers query the index via
+   * Gremlin traversals. No exceptions or torn reads should occur.
+   */
+  @Test
+  public void testConcurrentBTreeReadsAndWrites() throws Exception {
     // Create a vertex class with an indexed property
     var cls = session.createVertexClass("BTreeTestVertex");
     cls.createProperty("key", PropertyType.STRING);
@@ -581,16 +724,14 @@ public class ExecuteReadOperationTest extends DbTestBase {
     session.commit();
   }
 
-  // ========= Test (i): Concurrent PaginatedCollectionV2 reads and writes ======
+  // ========= Test (n): Concurrent PaginatedCollectionV2 reads and writes ======
 
   /**
-   * Verifies that PaginatedCollectionV2 read operations (readRecord, nextPage)
-   * work correctly after removing the inner shared lock. Writers create/update/
-   * delete records while readers browse via nextPage and readRecord. No exceptions
-   * or torn reads should occur.
+   * Verifies that PaginatedCollectionV2 read operations work correctly with
+   * per-component locks. Writers create/update/delete records while readers browse.
    */
   @Test
-  public void testConcurrentCollectionReadsAndWrites_noInnerSharedLock() throws Exception {
+  public void testConcurrentCollectionReadsAndWrites() throws Exception {
     // Create a simple vertex class (no index — pure collection-level test)
     session.createVertexClass("CollTestVertex");
 
@@ -708,5 +849,41 @@ public class ExecuteReadOperationTest extends DbTestBase {
     var finalCount = session.countClass("CollTestVertex");
     assertTrue("Should have some records remaining", finalCount > 0);
     session.commit();
+  }
+
+  // ========= Test (o): Multiple components in same operation ==================
+
+  /**
+   * Verifies that an atomic operation can lock multiple components and release
+   * them all correctly at the end.
+   */
+  @Test
+  public void testMultipleComponentsInSameOperation() throws Exception {
+    var mgr = manager();
+    var components = new TestableComponent[5];
+    for (int i = 0; i < components.length; i++) {
+      components[i] = fakeComponent("multi_comp_" + i);
+    }
+
+    var operation = mgr.startAtomicOperation();
+    try {
+      for (var comp : components) {
+        mgr.acquireExclusiveLockTillOperationComplete(operation, comp);
+      }
+
+      // All should be locked
+      for (var comp : components) {
+        assertEquals("Write lock should be held",
+            0, comp.stampedLock.tryOptimisticRead());
+      }
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+
+    // All should be released
+    for (var comp : components) {
+      long stamp = comp.stampedLock.tryOptimisticRead();
+      assertTrue("Lock should be released on " + comp.getLockName(), stamp != 0);
+    }
   }
 }

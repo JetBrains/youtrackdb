@@ -73,6 +73,23 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     return lockName;
   }
 
+  /**
+   * Acquires the exclusive lock on this component for use by
+   * {@link AtomicOperationsManager}. Delegates to the protected
+   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract#acquireExclusiveLock()}.
+   */
+  public void lockExclusive() {
+    acquireExclusiveLock();
+  }
+
+  /**
+   * Releases the exclusive lock on this component. Delegates to the protected
+   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract#releaseExclusiveLock()}.
+   */
+  public void unlockExclusive() {
+    releaseExclusiveLock();
+  }
+
   public String getName() {
     return name;
   }

@@ -38,7 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import it.unimi.dsi.fastutil.ints.IntCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -48,6 +48,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -77,7 +78,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private boolean rollback;
 
   private final Set<String> lockedObjects = new HashSet<>();
-  private final IntOpenHashSet lockedStripes = new IntOpenHashSet();
+  private final ArrayList<DurableComponent> lockedComponents = new ArrayList<>();
+  private final ArrayList<String> lockedSyntheticNames = new ArrayList<>();
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
@@ -683,18 +685,23 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public boolean containsLockedStripe(int stripeIndex) {
-    return lockedStripes.contains(stripeIndex);
+  public void addLockedComponent(DurableComponent component) {
+    lockedComponents.add(component);
   }
 
   @Override
-  public void addLockedStripe(int stripeIndex) {
-    lockedStripes.add(stripeIndex);
+  public Iterable<DurableComponent> lockedComponents() {
+    return lockedComponents;
   }
 
   @Override
-  public IntCollection lockedStripes() {
-    return lockedStripes;
+  public void addLockedSyntheticName(String lockName) {
+    lockedSyntheticNames.add(lockName);
+  }
+
+  @Override
+  public Iterable<String> lockedSyntheticNames() {
+    return lockedSyntheticNames;
   }
 
   // --- Snapshot / Visibility index proxy methods ---

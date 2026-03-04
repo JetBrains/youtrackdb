@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import it.unimi.dsi.fastutil.ints.IntCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Map;
@@ -67,11 +67,17 @@ public interface AtomicOperation {
 
   Iterable<String> lockedObjects();
 
-  boolean containsLockedStripe(int stripeIndex);
+  /** Tracks a locked DurableComponent so it can be released at operation end. */
+  void addLockedComponent(DurableComponent component);
 
-  void addLockedStripe(int stripeIndex);
+  /** Returns the DurableComponents locked by this operation. */
+  Iterable<DurableComponent> lockedComponents();
 
-  IntCollection lockedStripes();
+  /** Tracks a synthetic lock name (no DurableComponent backing). */
+  void addLockedSyntheticName(String lockName);
+
+  /** Returns the synthetic lock names locked by this operation. */
+  Iterable<String> lockedSyntheticNames();
 
   void addDeletedRecordPosition(final int collectionId, final int pageIndex,
       final int recordPosition);

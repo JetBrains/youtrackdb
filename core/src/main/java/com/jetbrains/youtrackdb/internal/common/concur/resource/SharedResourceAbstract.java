@@ -37,7 +37,10 @@ import java.util.concurrent.locks.StampedLock;
  */
 public abstract class SharedResourceAbstract {
 
-  protected final StampedLock stampedLock = new StampedLock();
+  // Exposed as a public final field so that AtomicOperationsManager.executeReadOperation
+  // can use optimistic reads (tryOptimisticRead/validate) directly on the component's
+  // lock without virtual dispatch or accessor overhead on the hot read path.
+  public final StampedLock stampedLock = new StampedLock();
 
   // Tracks which thread holds the exclusive lock and how many times it re-entered.
   // Only accessed while holding the exclusive lock (or by the owning thread checking
@@ -64,6 +67,15 @@ public abstract class SharedResourceAbstract {
       return;
     }
     stampedLock.asReadLock().unlock();
+  }
+
+  /**
+   * Returns {@code true} if the current thread holds the exclusive lock on this resource.
+   * Used by {@code AtomicOperationsManager.executeReadOperation} to detect write-lock
+   * reentrancy and skip the StampedLock read path (which would deadlock).
+   */
+  public boolean isExclusiveOwner() {
+    return exclusiveOwner == Thread.currentThread();
   }
 
   protected void acquireExclusiveLock() {

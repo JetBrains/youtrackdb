@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -38,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
@@ -47,6 +47,12 @@ import javax.annotation.Nullable;
 /**
  * Manages the lifecycle of atomic operations for the storage engine.
  *
+ * <p>Write locks are acquired directly on each {@link DurableComponent}'s
+ * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract#stampedLock
+ * stampedLock}, giving per-component granularity with zero map lookups on the read path.
+ * Synthetic (non-component) locks — used only by link bag ordering — are stored in a small
+ * {@link ConcurrentHashMap}.
+ *
  * @since 12/3/13
  */
 public class AtomicOperationsManager {
@@ -55,20 +61,12 @@ public class AtomicOperationsManager {
 
   @Nonnull
   private final WriteAheadLog writeAheadLog;
-  private final StampedLock[] componentLocks;
-  // Tracks the thread that holds the write lock on each stripe. Used by
-  // executeReadOperation to detect write-lock reentrancy (StampedLock is
-  // non-reentrant). Only the owning thread can match == Thread.currentThread(),
-  // so plain (non-volatile) access is sufficient — single-thread consistency
-  // guarantees the writing thread sees its own store.
-  //
-  // For reader threads: the volatile read inside tryOptimisticRead() synchronizes
-  // with the volatile write inside the prior unlock(), so any reader that gets a
-  // non-zero stamp is guaranteed to see the null written before that unlock().
-  // If the unlock is not yet visible, tryOptimisticRead() returns 0 and the reader
-  // falls through to readLock(), which provides a full happens-before edge.
-  private final Thread[] stripeWriteOwners;
-  private final int stripeMask;
+
+  // Small map for synthetic locks that have no DurableComponent backing
+  // (currently only link bag ordering locks from AbstractStorage.lockLinkBags).
+  private final ConcurrentHashMap<String, StampedLock> syntheticLocks =
+      new ConcurrentHashMap<>();
+
   private final ReadCache readCache;
   private final WriteCache writeCache;
 
@@ -87,27 +85,6 @@ public class AtomicOperationsManager {
 
     this.idGen = storage.getIdGen();
     this.atomicOperationsTable = atomicOperationsTable;
-
-    int stripeCount = closestPowerOfTwo(
-        GlobalConfiguration.ENVIRONMENT_LOCK_MANAGER_CONCURRENCY_LEVEL.getValueAsInteger());
-    this.componentLocks = new StampedLock[stripeCount];
-    this.stripeWriteOwners = new Thread[stripeCount];
-    for (int i = 0; i < stripeCount; i++) {
-      this.componentLocks[i] = new StampedLock();
-    }
-    this.stripeMask = stripeCount - 1;
-  }
-
-  private static int closestPowerOfTwo(int value) {
-    if (value <= 1) {
-      return 1;
-    }
-    return 1 << (32 - Integer.numberOfLeadingZeros(value - 1));
-  }
-
-  /** Maps a lock name to a stripe index. Package-private for testing. */
-  int stripeIndex(String lockName) {
-    return lockName.hashCode() & 0x7fffffff & stripeMask;
   }
 
   public AtomicOperation startAtomicOperation() {
@@ -183,13 +160,30 @@ public class AtomicOperationsManager {
       final AtomicOperation atomicOperation,
       final DurableComponent component,
       final TxConsumer consumer) {
-    executeInsideComponentOperation(atomicOperation, component.getLockName(), consumer);
+    Objects.requireNonNull(atomicOperation);
+    acquireExclusiveLockTillOperationComplete(atomicOperation, component);
+    try {
+      consumer.accept(atomicOperation);
+    } catch (Exception e) {
+      if (e instanceof CoreException coreException) {
+        coreException.setComponentName(component.getLockName());
+        coreException.setDbName(storage.getName());
+      }
+
+      throw BaseException.wrapException(
+          new CommonDurableComponentException(
+              "Exception during execution of component operation inside component "
+                  + component.getLockName()
+                  + " in storage "
+                  + storage.getName(), component.getLockName(), storage.getName()),
+          e, storage.getName());
+    }
   }
 
   public void executeInsideComponentOperation(
       final AtomicOperation atomicOperation, final String lockName, final TxConsumer consumer) {
     Objects.requireNonNull(atomicOperation);
-    startComponentOperation(atomicOperation, lockName);
+    acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
     try {
       consumer.accept(atomicOperation);
     } catch (Exception e) {
@@ -212,13 +206,25 @@ public class AtomicOperationsManager {
       final AtomicOperation atomicOperation,
       final DurableComponent component,
       final TxFunction<T> function) {
-    return calculateInsideComponentOperation(atomicOperation, component.getLockName(), function);
+    Objects.requireNonNull(atomicOperation);
+    acquireExclusiveLockTillOperationComplete(atomicOperation, component);
+    try {
+      return function.accept(atomicOperation);
+    } catch (Exception e) {
+      throw BaseException.wrapException(
+          new CommonDurableComponentException(
+              "Exception during execution of component operation inside component "
+                  + component.getLockName()
+                  + " in storage "
+                  + storage.getName(), component.getLockName(), storage.getName()),
+          e, storage.getName());
+    }
   }
 
   public <T> T calculateInsideComponentOperation(
       final AtomicOperation atomicOperation, final String lockName, final TxFunction<T> function) {
     Objects.requireNonNull(atomicOperation);
-    startComponentOperation(atomicOperation, lockName);
+    acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
     try {
       return function.accept(atomicOperation);
     } catch (Exception e) {
@@ -230,11 +236,6 @@ public class AtomicOperationsManager {
                   + storage.getName(), lockName, storage.getName()),
           e, storage.getName());
     }
-  }
-
-  private void startComponentOperation(final AtomicOperation atomicOperation,
-      final String lockName) {
-    acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
   }
 
 
@@ -275,14 +276,7 @@ public class AtomicOperationsManager {
         }
 
       } finally {
-        // Release each unique stripe once and clear name tracking
-        releaseStripes(operation);
-        final var lockedObjectIterator = operation.lockedObjects().iterator();
-        while (lockedObjectIterator.hasNext()) {
-          lockedObjectIterator.next();
-          lockedObjectIterator.remove();
-        }
-
+        releaseLocks(operation);
         operation.deactivate();
       }
     } finally {
@@ -291,37 +285,70 @@ public class AtomicOperationsManager {
   }
 
   public void ensureThatComponentsUnlocked(@Nonnull final AtomicOperation operation) {
-    // Release each unique stripe once and clear name tracking
-    releaseStripes(operation);
-    final var lockedObjectIterator = operation.lockedObjects().iterator();
-    while (lockedObjectIterator.hasNext()) {
-      lockedObjectIterator.next();
-      lockedObjectIterator.remove();
-    }
+    releaseLocks(operation);
   }
 
-  private void releaseStripes(AtomicOperation operation) {
-    var stripes = operation.lockedStripes();
-    var stripesIter = stripes.intIterator();
-    while (stripesIter.hasNext()) {
-      int stripe = stripesIter.nextInt();
-      // Must null out owner BEFORE unlock to avoid racing with the next writer
-      // who would set their own thread here after acquiring the lock.
-      stripeWriteOwners[stripe] = null;
-      componentLocks[stripe].asWriteLock().unlock();
+  private void releaseLocks(AtomicOperation operation) {
+    // Release DurableComponent locks (the common case).
+    // Check isExclusiveOwner() to make this method idempotent — it may be called
+    // twice (once by endAtomicOperation, once by ensureThatComponentsUnlocked
+    // in the finally block of AbstractStorage.commit).
+    var compIter = operation.lockedComponents().iterator();
+    while (compIter.hasNext()) {
+      var component = compIter.next();
+      if (component.isExclusiveOwner()) {
+        component.unlockExclusive();
+      }
+      compIter.remove();
     }
-    // Clear separately — fastutil IntOpenHashSet.intIterator() does not support
-    // remove during iteration.
-    stripes.clear();
+
+    // Release synthetic locks (link bag ordering).
+    // Guard with isWriteLocked() for defense-in-depth, matching the component
+    // path's isExclusiveOwner() guard.
+    var synthIter = operation.lockedSyntheticNames().iterator();
+    while (synthIter.hasNext()) {
+      String lockName = synthIter.next();
+      synthIter.remove();
+      var lock = syntheticLocks.get(lockName);
+      if (lock != null && lock.isWriteLocked()) {
+        lock.asWriteLock().unlock();
+      }
+    }
+
+    // Clear the combined dedup set
+    var nameIter = operation.lockedObjects().iterator();
+    while (nameIter.hasNext()) {
+      nameIter.next();
+      nameIter.remove();
+    }
   }
 
   /**
-   * Acquires exclusive lock with the given lock name in the given atomic operation.
-   * If two component names hash to the same stripe, the second write lock acquisition
-   * is skipped because the stripe is already exclusively held.
-   *
-   * @param operation the atomic operation to acquire the lock in.
-   * @param lockName  the lock name to acquire.
+   * Acquires exclusive lock on the given {@link DurableComponent} for the lifetime of the
+   * atomic operation. Uses the component's own
+   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
+   * StampedLock} directly — no external map lookup needed. The lock is reentrant via
+   * {@code SharedResourceAbstract}'s owner-tracking.
+   */
+  public void acquireExclusiveLockTillOperationComplete(
+      @Nonnull AtomicOperation operation, @Nonnull DurableComponent component) {
+    storage.checkErrorState();
+
+    if (operation.containsInLockedObjects(component.getLockName())) {
+      return;
+    }
+
+    component.lockExclusive();
+    operation.addLockedComponent(component);
+    operation.addLockedObject(component.getLockName());
+  }
+
+  /**
+   * Acquires a synthetic exclusive lock by name. Used for lock names that have no
+   * DurableComponent backing (e.g., link bag ordering locks from
+   * {@code AbstractStorage.lockLinkBags}). For DurableComponent-backed locks,
+   * prefer the {@link #acquireExclusiveLockTillOperationComplete(AtomicOperation,
+   * DurableComponent)} overload which uses the component's own StampedLock directly.
    */
   public void acquireExclusiveLockTillOperationComplete(
       AtomicOperation operation, String lockName) {
@@ -331,29 +358,17 @@ public class AtomicOperationsManager {
       return;
     }
 
-    int stripe = stripeIndex(lockName);
-    if (!operation.containsLockedStripe(stripe)) {
-      componentLocks[stripe].asWriteLock().lock();
-      stripeWriteOwners[stripe] = Thread.currentThread();
-      operation.addLockedStripe(stripe);
-    }
+    // Synthetic lock path — only for link bag ordering locks
+    var lock = syntheticLocks.computeIfAbsent(lockName, k -> new StampedLock());
+    lock.asWriteLock().lock();
     operation.addLockedObject(lockName);
-  }
-
-  /**
-   * Acquires exclusive lock in the active atomic operation running on the current thread for the
-   * {@code durableComponent}.
-   */
-  public void acquireExclusiveLockTillOperationComplete(@Nonnull AtomicOperation operation,
-      @Nonnull DurableComponent durableComponent) {
-    storage.checkErrorState();
-
-    acquireExclusiveLockTillOperationComplete(operation, durableComponent.getLockName());
+    operation.addLockedSyntheticName(lockName);
   }
 
   /**
    * Executes a read operation under an optimistic StampedLock with automatic fallback
-   * to a blocking read lock on contention. The happy path (no concurrent writer) costs
+   * to a blocking read lock on contention. Uses the component's own StampedLock directly
+   * — zero map lookups on the read path. The happy path (no concurrent writer) costs
    * only two volatile reads and zero CAS operations.
    *
    * <p>The protocol:
@@ -365,20 +380,26 @@ public class AtomicOperationsManager {
    *   <li>Otherwise, acquire a blocking read lock and retry the action</li>
    * </ol>
    *
-   * @param component the durable component whose stripe lock to use
+   * <p><b>Write-owner visibility for reader threads:</b> the volatile read inside
+   * {@code tryOptimisticRead()} synchronizes with the volatile write inside the prior
+   * {@code unlock()}, so any reader that gets a non-zero stamp is guaranteed to see the
+   * cleared {@code exclusiveOwner}. If the unlock is not yet visible,
+   * {@code tryOptimisticRead()} returns 0 and the reader falls through to
+   * {@code readLock()}, which provides a full happens-before edge.
+   *
+   * @param component the durable component whose StampedLock to use
    * @param action    the read action to execute (must be idempotent and retryable —
    *                  it may be invoked twice if the optimistic read is invalidated)
    * @return the result of the action
    */
   public <T> T executeReadOperation(
       DurableComponent component, Callable<T> action) throws IOException {
-    int stripe = stripeIndex(component.getLockName());
-    var lock = componentLocks[stripe];
-
-    // Fast path: if the current thread already holds the write lock on this stripe
-    // (e.g., a read method called during an active atomic operation), execute directly.
-    // StampedLock is non-reentrant — acquiring a read lock would deadlock.
-    if (stripeWriteOwners[stripe] == Thread.currentThread()) {
+    // Fast path: if the current thread already holds the exclusive lock on this
+    // component (e.g., a read method called during an active atomic operation),
+    // execute directly. StampedLock is non-reentrant — acquiring a read lock would
+    // deadlock. Uses SharedResourceAbstract.isExclusiveOwner() which checks the
+    // volatile exclusiveOwner field.
+    if (component.isExclusiveOwner()) {
       try {
         return action.call();
       } catch (Exception e) {
@@ -386,6 +407,8 @@ public class AtomicOperationsManager {
         return null; // unreachable
       }
     }
+
+    var lock = component.stampedLock;
 
     // Attempt 1: optimistic read (no CAS)
     long stamp = lock.tryOptimisticRead();
