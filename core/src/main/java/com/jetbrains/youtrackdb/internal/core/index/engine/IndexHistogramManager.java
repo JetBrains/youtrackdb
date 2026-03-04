@@ -688,7 +688,9 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Persists the current CHM snapshot to the .ixs page if there are
-   * uncommitted mutations. Called by AbstractStorage.makeFuzzyCheckpoint().
+   * uncommitted mutations, using a caller-provided {@link AtomicOperation}.
+   * Available for callers that already have an operation context; the
+   * checkpoint/shutdown path uses the no-arg {@link #flushIfDirty()} instead.
    */
   public void flushIfDirty(AtomicOperation op) throws IOException {
     if (dirtyMutations > 0 && fileId != -1) {
@@ -696,6 +698,28 @@ public class IndexHistogramManager extends DurableComponent {
       if (snapshot != null) {
         writeSnapshotToPage(op, snapshot);
         dirtyMutations = 0;
+      }
+    }
+  }
+
+  /**
+   * Persists the current CHM snapshot to the .ixs page if there are
+   * uncommitted (dirty) mutations. Creates its own AtomicOperation (via
+   * {@code executeInsideComponentOperation}). Called by {@code AbstractStorage}
+   * during fuzzy checkpoint and full data flush.
+   *
+   * <p>Failures are logged but never propagated — histogram persistence is
+   * best-effort and must not block checkpoint or shutdown.
+   */
+  public void flushIfDirty() {
+    if (dirtyMutations > 0) {
+      try {
+        flushSnapshotToPage();   // creates its own AtomicOperation
+        dirtyMutations = 0;
+      } catch (Exception e) {
+        logger.warn(
+            "Failed to flush histogram stats for " + getName()
+                + " during checkpoint", e);
       }
     }
   }
