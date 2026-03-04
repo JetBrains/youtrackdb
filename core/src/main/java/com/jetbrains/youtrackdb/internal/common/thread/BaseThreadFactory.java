@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.thread;
 
+import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import java.util.concurrent.ThreadFactory;
 
 abstract class BaseThreadFactory implements ThreadFactory {
@@ -15,6 +16,7 @@ abstract class BaseThreadFactory implements ThreadFactory {
     final var thread = new Thread(parentThreadGroup, r);
     thread.setDaemon(true);
     thread.setName(nextThreadName());
+    thread.setUncaughtExceptionHandler(new UncaughtExceptionHandler());
     return thread;
   }
 

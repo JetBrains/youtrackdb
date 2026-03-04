@@ -121,4 +121,10 @@ public class ThreadPoolExecutors {
     return new ScheduledThreadPoolExecutorWithLogging(
         1, new SingletonNamedThreadFactory(threadName, parentThreadGroup));
   }
+
+  public static ScheduledExecutorService newScheduledThreadPool(
+      String threadName, ThreadGroup parentThreadGroup, int corePoolSize) {
+    return new ScheduledThreadPoolExecutorWithLogging(
+        corePoolSize, new NamedThreadFactory(threadName, parentThreadGroup));
+  }
 }

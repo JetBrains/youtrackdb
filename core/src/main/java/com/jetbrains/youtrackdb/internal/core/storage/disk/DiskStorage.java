@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -684,7 +685,7 @@ public class DiskStorage extends AbstractStorage {
             .orElse(null);
 
     fuzzyCheckpointTask =
-        fuzzyCheckpointExecutor.scheduleWithFixedDelay(
+        YouTrackDBEnginesManager.instance().getFuzzyCheckpointExecutor().scheduleWithFixedDelay(
             new PeriodicFuzzyCheckpoint(this),
             contextConfiguration.getValueAsInteger(
                 GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL),

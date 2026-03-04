@@ -33,9 +33,10 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Map;
 import java.util.Objects;
-import java.util.TimerTask;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnull;
 
 /**
@@ -57,7 +58,10 @@ public class ScheduledEvent extends IdentityWrapper {
 
   private final AtomicBoolean running;
   private CronExpression cron;
-  private volatile TimerTask timer;
+  // Explicit lock shared between the event and its task so that all timer field
+  // accesses use the same monitor. Also virtual-thread-friendly on JDK 21-23.
+  private final ReentrantLock timerLock = new ReentrantLock();
+  private volatile ScheduledFuture<?> timer;
   private final AtomicLong nextExecutionId;
   private volatile STATUS status;
   private volatile long startTime;
@@ -117,12 +121,15 @@ public class ScheduledEvent extends IdentityWrapper {
   }
 
   public void interrupt() {
-    synchronized (this) {
+    timerLock.lock();
+    try {
       final var t = timer;
       timer = null;
       if (t != null) {
-        t.cancel();
+        t.cancel(false);
       }
+    } finally {
+      timerLock.unlock();
     }
   }
 
@@ -147,7 +154,8 @@ public class ScheduledEvent extends IdentityWrapper {
     return this.running.get();
   }
 
-  public ScheduledEvent schedule(String database, String user, YouTrackDBInternalEmbedded youtrackDB) {
+  public ScheduledEvent schedule(String database, String user,
+      YouTrackDBInternalEmbedded youtrackDB) {
     if (isRunning()) {
       interrupt();
     }
@@ -159,7 +167,6 @@ public class ScheduledEvent extends IdentityWrapper {
     var task = new ScheduledTimerTask(this, database, user, youtrackDB);
     task.schedule();
 
-    timer = task;
     return this;
   }
 
@@ -167,7 +174,7 @@ public class ScheduledEvent extends IdentityWrapper {
     this.running.set(running);
   }
 
-  private static class ScheduledTimerTask extends TimerTask {
+  private static class ScheduledTimerTask implements Runnable {
 
     private final ScheduledEvent event;
 
@@ -185,12 +192,15 @@ public class ScheduledEvent extends IdentityWrapper {
     }
 
     void schedule() {
-      synchronized (this) {
+      event.timerLock.lock();
+      try {
         event.nextExecutionId.incrementAndGet();
         var now = new Date();
         var time = event.cron.getNextValidTimeAfter(now).getTime();
         var delay = time - now.getTime();
-        youTrackDBInternal.scheduleOnce(this, delay);
+        event.timer = youTrackDBInternal.scheduleOnce(this, delay);
+      } finally {
+        event.timerLock.unlock();
       }
     }
 
@@ -243,7 +253,15 @@ public class ScheduledEvent extends IdentityWrapper {
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during execution of scheduled function", e);
       } finally {
-        if (event.timer != null) {
+        // Check under lock to avoid race with interrupt() nulling the timer field.
+        boolean shouldReschedule;
+        event.timerLock.lock();
+        try {
+          shouldReschedule = event.timer != null;
+        } finally {
+          event.timerLock.unlock();
+        }
+        if (shouldReschedule) {
           // RE-SCHEDULE THE NEXT EVENT
           event.schedule(database, user, youTrackDBInternal);
         }

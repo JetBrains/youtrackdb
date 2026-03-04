@@ -34,7 +34,6 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
-import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
@@ -164,7 +163,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -200,36 +198,6 @@ public abstract class AbstractStorage
   private static final Comparator<RecordOperation> COMMIT_RECORD_OPERATION_COMPARATOR =
       Comparator.comparing(
           o -> o.record.getIdentity());
-  public static final ThreadGroup storageThreadGroup;
-
-  protected static final ScheduledExecutorService fuzzyCheckpointExecutor;
-
-  static {
-    var parentThreadGroup = Thread.currentThread().getThreadGroup();
-
-    final var parentThreadGroupBackup = parentThreadGroup;
-
-    var found = false;
-
-    while (parentThreadGroup.getParent() != null) {
-      if (parentThreadGroup.equals(YouTrackDBEnginesManager.instance().getThreadGroup())) {
-        parentThreadGroup = parentThreadGroup.getParent();
-        found = true;
-        break;
-      } else {
-        parentThreadGroup = parentThreadGroup.getParent();
-      }
-    }
-
-    if (!found) {
-      parentThreadGroup = parentThreadGroupBackup;
-    }
-
-    storageThreadGroup = new ThreadGroup(parentThreadGroup, "YouTrackDB Storage");
-
-    fuzzyCheckpointExecutor =
-        ThreadPoolExecutors.newSingleThreadScheduledPool("Fuzzy Checkpoint", storageThreadGroup);
-  }
 
   protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
@@ -3374,7 +3342,8 @@ public abstract class AbstractStorage
   public final void requestCheckpoint() {
     try {
       if (!walVacuumInProgress.get() && walVacuumInProgress.compareAndSet(false, true)) {
-        fuzzyCheckpointExecutor.submit(new WALVacuum(this));
+        YouTrackDBEnginesManager.instance().getFuzzyCheckpointExecutor()
+            .submit(new WALVacuum(this));
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);

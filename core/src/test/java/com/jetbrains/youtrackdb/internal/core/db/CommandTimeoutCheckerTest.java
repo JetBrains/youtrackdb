@@ -2,24 +2,25 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import static org.junit.Assert.assertTrue;
 
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
 public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
-  private final Timer timer = new Timer();
+  private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
   @Override
-  public void schedule(TimerTask task, long delay, long period) {
-    timer.scheduleAtFixedRate(task, delay, period);
+  public ScheduledFuture<?> schedule(Runnable task, long delay, long period) {
+    return scheduler.scheduleWithFixedDelay(task, delay, period, TimeUnit.MILLISECONDS);
   }
 
   @Override
-  public void scheduleOnce(TimerTask task, long delay) {
-    throw new UnsupportedOperationException();
+  public ScheduledFuture<?> scheduleOnce(Runnable task, long delay) {
+    return scheduler.schedule(task, delay, TimeUnit.MILLISECONDS);
   }
 
   @Test

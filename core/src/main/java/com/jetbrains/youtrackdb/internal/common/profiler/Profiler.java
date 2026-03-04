@@ -16,6 +16,7 @@ import java.io.File;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import org.slf4j.Logger;
@@ -34,15 +35,18 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
 
   private static final Logger logger = LoggerFactory.getLogger(Profiler.class);
 
-  private final Ticker ticker = new GranularTicker(
-      GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong(),
-      GlobalConfiguration.PROFILER_TICKER_ADJUSTMENT_RATE.getValueAsLong()
-  );
-  private final MetricsRegistry metricsRegistry = new MetricsRegistry(ticker);
+  private final Ticker ticker;
+  private final MetricsRegistry metricsRegistry;
   private final YouTrackDBScheduler scheduler;
 
-  public Profiler(YouTrackDBScheduler scheduler) {
+  public Profiler(YouTrackDBScheduler scheduler, ScheduledExecutorService scheduledPool) {
     this.scheduler = scheduler;
+    this.ticker = new GranularTicker(
+        GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong(),
+        GlobalConfiguration.PROFILER_TICKER_ADJUSTMENT_RATE.getValueAsLong(),
+        scheduledPool
+    );
+    this.metricsRegistry = new MetricsRegistry(ticker);
   }
 
   public MetricsRegistry getMetricsRegistry() {

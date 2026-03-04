@@ -25,8 +25,6 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.WARNING_DE
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.common.thread.SourceTraceExecutorService;
-import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
@@ -60,12 +58,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -100,10 +97,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private final boolean serverMode;
   private final CachedDatabasePoolFactory cachedPoolFactory;
   private volatile boolean open = true;
-  private final ExecutorService executor;
-  private final ExecutorService ioExecutor;
-  private final Timer timer;
-  private TimerTask autoCloseTimer = null;
+  private volatile ScheduledFuture<?> autoCloseFuture = null;
   private final ScriptManager scriptManager = new ScriptManager();
   private final SystemDatabase systemDatabase;
   private final DefaultSecuritySystem securitySystem;
@@ -132,10 +126,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     MemoryAndLocalPaginatedEnginesInitializer.INSTANCE.initialize();
 
     youTrack.addYouTrackDB(this);
-    executor = newExecutor();
-    ioExecutor = newIoExecutor();
-    var timerName = "embedded:" + basePath;
-    timer = new Timer("YouTrackDB Timer[" + timerName + "]");
+    youTrack.createExecutor(this.configuration);
+    youTrack.createIoExecutor(this.configuration);
 
     cachedPoolFactory = createCachedDatabasePoolFactory();
 
@@ -159,33 +151,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     }
   }
 
-  @Nullable
-  private ExecutorService newIoExecutor() {
-    if (getBoolConfig(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED)) {
-      var ioSize = excutorMaxSize(GlobalConfiguration.EXECUTOR_POOL_IO_MAX_SIZE);
-      var exec =
-          ThreadPoolExecutors.newScalingThreadPool(
-              "YouTrackDB-IO", 1, excutorBaseSize(ioSize), ioSize, 30, TimeUnit.MINUTES);
-      if (getBoolConfig(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
-        exec = new SourceTraceExecutorService(exec);
-      }
-      return exec;
-    } else {
-      return null;
-    }
-  }
-
-  private ExecutorService newExecutor() {
-    var size = excutorMaxSize(GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
-    var exec =
-        ThreadPoolExecutors.newScalingThreadPool(
-            "YouTrackDBEmbedded", 1, excutorBaseSize(size), size, 30, TimeUnit.MINUTES);
-    if (getBoolConfig(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
-      exec = new SourceTraceExecutorService(exec);
-    }
-    return exec;
-  }
-
   private boolean getBoolConfig(GlobalConfiguration config) {
     return this.configuration.getConfiguration().getValueAsBoolean(config);
   }
@@ -198,35 +163,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     return this.configuration.getConfiguration().getValueAsLong(config);
   }
 
-  private int excutorMaxSize(GlobalConfiguration config) {
-    var size = getIntConfig(config);
-    if (size == 0) {
-      LogManager.instance()
-          .warn(
-              this,
-              "Configuration "
-                  + config.getKey()
-                  + " has a value 0 using number of CPUs as base value");
-      size = Runtime.getRuntime().availableProcessors();
-    } else if (size <= -1) {
-      size = Runtime.getRuntime().availableProcessors();
-    }
-    return size;
-  }
-
-  private static int excutorBaseSize(int size) {
-    int baseSize;
-
-    if (size > 10) {
-      baseSize = size / 10;
-    } else if (size > 4) {
-      baseSize = size / 2;
-    } else {
-      baseSize = size;
-    }
-    return baseSize;
-  }
-
   private CachedDatabasePoolFactory createCachedDatabasePoolFactory() {
     var capacity = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CAPACITY);
     long timeout = getIntConfig(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT);
@@ -235,14 +171,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
   public void initAutoClose(long delay) {
     final var scheduleTime = delay / 3;
-    autoCloseTimer =
-        new TimerTask() {
-          @Override
-          public void run() {
-            YouTrackDBInternalEmbedded.this.execute(() -> checkAndCloseStorages(delay));
-          }
-        };
-    schedule(autoCloseTimer, scheduleTime, scheduleTime);
+    Runnable task = () -> YouTrackDBInternalEmbedded.this.execute(
+        () -> checkAndCloseStorages(delay));
+    autoCloseFuture = schedule(task, scheduleTime, scheduleTime);
   }
 
   private synchronized void checkAndCloseStorages(long delay) {
@@ -995,32 +926,11 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       return;
     }
     timeoutChecker.close();
-    timer.cancel();
     securitySystem.shutdown();
-    executor.shutdown();
-    try {
-      while (!executor.awaitTermination(1, TimeUnit.MINUTES)) {
-        LogManager.instance().warn(this, "Failed waiting background operations termination");
-        executor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
     synchronized (this) {
       scriptManager.closeAll();
       internalClose();
       currentStorageIds.clear();
-    }
-    if (ioExecutor != null) {
-      try {
-        ioExecutor.shutdown();
-        while (!ioExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
-          LogManager.instance().warn(this, "Failed waiting background io operations termination");
-          ioExecutor.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
     }
     removeShutdownHook();
   }
@@ -1051,8 +961,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     this.sharedContexts.clear();
     storages.clear();
     youTrack.onEmbeddedFactoryClose(this);
-    if (autoCloseTimer != null) {
-      autoCloseTimer.cancel();
+    var acf = autoCloseFuture;
+    if (acf != null) {
+      acf.cancel(false);
     }
 
     if (storageException != null) {
@@ -1151,17 +1062,29 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   @Override
-  public void schedule(TimerTask task, long delay, long period) {
-    timer.schedule(task, delay, period);
+  public ScheduledFuture<?> schedule(Runnable task, long delay, long period) {
+    // Wrap the task to catch exceptions and keep periodic tasks alive.
+    // An uncaught exception in scheduleWithFixedDelay silently stops all future executions.
+    Runnable safeTask = () -> {
+      try {
+        task.run();
+      } catch (Exception e) {
+        LogManager.instance().error(this,
+            "Error during execution of periodic task " + task.getClass().getSimpleName(), e);
+      }
+    };
+    return YouTrackDBEnginesManager.instance().getScheduledPool()
+        .scheduleWithFixedDelay(safeTask, delay, period, TimeUnit.MILLISECONDS);
   }
 
   @Override
-  public void scheduleOnce(TimerTask task, long delay) {
-    timer.schedule(task, delay);
+  public ScheduledFuture<?> scheduleOnce(Runnable task, long delay) {
+    return YouTrackDBEnginesManager.instance().getScheduledPool()
+        .schedule(task, delay, TimeUnit.MILLISECONDS);
   }
 
   public <X> Future<X> execute(String database, String user, DatabaseTask<X> task) {
-    return executor.submit(
+    return youTrack.getExecutor().submit(
         () -> {
           try (var session = openNoAuthenticate(database, user)) {
             return task.call(session);
@@ -1170,15 +1093,15 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   public Future<?> execute(Runnable task) {
-    return executor.submit(task);
+    return youTrack.getExecutor().submit(task);
   }
 
   public <X> Future<X> execute(Callable<X> task) {
-    return executor.submit(task);
+    return youTrack.getExecutor().submit(task);
   }
 
   public <X> Future<X> executeNoAuthorizationAsync(String database, DatabaseTask<X> task) {
-    return executor.submit(
+    return youTrack.getExecutor().submit(
         () -> {
           if (open) {
             try (var session = openNoAuthorization(database)) {
@@ -1266,6 +1189,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   public ExecutorService getIoExecutor() {
-    return ioExecutor;
+    return youTrack.getIoExecutor();
   }
 }

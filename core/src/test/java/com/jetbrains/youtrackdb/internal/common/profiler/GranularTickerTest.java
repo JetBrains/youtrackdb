@@ -1,8 +1,9 @@
 package com.jetbrains.youtrackdb.internal.common.profiler;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
-
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
@@ -12,7 +13,8 @@ public class GranularTickerTest {
   public void testTimeApproximation() throws Exception {
     final var granularityNanos = TimeUnit.MILLISECONDS.toNanos(10);
     final var timeAdjustmentNanos = TimeUnit.MILLISECONDS.toNanos(50);
-    try (var ticker = new GranularTicker(granularityNanos, timeAdjustmentNanos)) {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try (var ticker = new GranularTicker(granularityNanos, timeAdjustmentNanos, scheduler)) {
 
       ticker.start();
       final var granularityMillis = TimeUnit.NANOSECONDS.toMillis(granularityNanos);
@@ -52,6 +54,75 @@ public class GranularTickerTest {
       assertThat(totalTickerNanos)
           .as("ticker should advance over 20 iterations")
           .isGreaterThanOrEqualTo(totalRealNanos - 2 * granularityNanos);
+    } finally {
+      scheduler.shutdownNow();
     }
+  }
+
+  /** Calling stop() on a ticker that was never started should be a safe no-op. */
+  @Test
+  public void stopWithoutStartIsNoOp() {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try {
+      var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(10),
+          TimeUnit.MILLISECONDS.toNanos(50), scheduler);
+      // stop() without start() — the scheduled futures are null, so nothing to cancel.
+      ticker.stop();
+      // No exception means success.
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /**
+   * After starting and then stopping, the ticker's scheduled futures are cancelled and the
+   * approximate time no longer advances.
+   */
+  @Test
+  public void startThenStopFreezesTime() throws Exception {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try {
+      var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(5),
+          TimeUnit.MILLISECONDS.toNanos(50), scheduler);
+      ticker.start();
+      // Let a few ticks elapse so the ticker is actively updating.
+      Thread.sleep(50);
+      assertThat(ticker.approximateNanoTime()).isGreaterThan(0);
+
+      ticker.stop();
+      // After stop, the approximate nano time should no longer advance.
+      var frozenTime = ticker.approximateNanoTime();
+      Thread.sleep(50);
+      assertThat(ticker.approximateNanoTime()).isEqualTo(frozenTime);
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /** close() delegates to stop(), behaving identically. */
+  @Test
+  public void closeAfterStartCancelsFutures() throws Exception {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try {
+      var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(5),
+          TimeUnit.MILLISECONDS.toNanos(50), scheduler);
+      ticker.start();
+      Thread.sleep(30);
+      ticker.close();
+
+      var frozenTime = ticker.approximateNanoTime();
+      Thread.sleep(30);
+      assertThat(ticker.approximateNanoTime()).isEqualTo(frozenTime);
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /** Constructor should reject null executor. */
+  @Test
+  public void constructorRejectsNullExecutor() {
+    assertThatThrownBy(
+        () -> new GranularTicker(10_000_000, 10_000_000, null))
+        .isInstanceOf(NullPointerException.class);
   }
 }

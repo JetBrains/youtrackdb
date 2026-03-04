@@ -35,10 +35,10 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
-import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -56,7 +56,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -246,12 +245,8 @@ public final class WOWCache extends AbstractWriteCache
   /**
    * Executor which runs in single thread all tasks are related to flush of write cache data.
    */
-  private static final ScheduledExecutorService commitExecutor;
-
-  static {
-    commitExecutor =
-        ThreadPoolExecutors.newSingleThreadScheduledPool(
-            "YouTrackDB Write Cache Flush Task", AbstractStorage.storageThreadGroup);
+  private static ScheduledExecutorService commitExecutor() {
+    return YouTrackDBEnginesManager.instance().getWowCacheFlushExecutor();
   }
 
   /**
@@ -517,7 +512,7 @@ public final class WOWCache extends AbstractWriteCache
 
       if (pagesFlushInterval > 0) {
         flushFuture =
-            commitExecutor.schedule(
+            commitExecutor().schedule(
                 new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
       }
       this.executor = executor;
@@ -823,7 +818,7 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public Long getMinimalNotFlushedSegment() {
-    final var future = commitExecutor.submit(new FindMinDirtySegment(this));
+    final var future = commitExecutor().submit(new FindMinDirtySegment(this));
     try {
       return future.get();
     } catch (final Exception e) {
@@ -975,7 +970,7 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void flushTillSegment(final long segmentId) {
-    final var future = commitExecutor.submit(new FlushTillSegmentTask(this, segmentId));
+    final var future = commitExecutor().submit(new FlushTillSegmentTask(this, segmentId));
     try {
       future.get();
     } catch (final Exception e) {
@@ -1057,7 +1052,7 @@ public final class WOWCache extends AbstractWriteCache
           new ExclusiveFlushTask(this, cacheBoundaryLatch, completionLatch);
 
       triggeredTasks.put(exclusiveFlushTask, completionLatch);
-      commitExecutor.submit(exclusiveFlushTask);
+      commitExecutor().submit(exclusiveFlushTask);
 
       cacheBoundaryLatch.await();
     }
@@ -1194,7 +1189,8 @@ public final class WOWCache extends AbstractWriteCache
     } finally {
       filesLock.releaseReadLock();
     }
-    commitExecutor.submit(new EnsurePageIsValidInFileTask(internalFileId(fileId), pageIndex, this));
+    commitExecutor().submit(
+        new EnsurePageIsValidInFileTask(internalFileId(fileId), pageIndex, this));
 
     return pageIndex;
   }
@@ -1214,7 +1210,7 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public void flush(final long fileId) {
     final var future =
-        commitExecutor.submit(
+        commitExecutor().submit(
             new FileFlushTask(this, Collections.singleton(extractFileId(fileId))));
     try {
       future.get();
@@ -1232,7 +1228,7 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public void flush() {
 
-    final var future = commitExecutor.submit(new FileFlushTask(this, nameIdMap.values()));
+    final var future = commitExecutor().submit(new FileFlushTask(this, nameIdMap.values()));
     try {
       future.get();
     } catch (final java.lang.InterruptedException e) {
@@ -1277,7 +1273,7 @@ public final class WOWCache extends AbstractWriteCache
 
       final RawPair<String, String> file;
       final var future =
-          commitExecutor.submit(new DeleteFileTask(this, fileId));
+          commitExecutor().submit(new DeleteFileTask(this, fileId));
       try {
         file = future.get();
       } catch (final java.lang.InterruptedException e) {
@@ -1756,7 +1752,7 @@ public final class WOWCache extends AbstractWriteCache
 
         final RawPair<String, String> file;
         final var future =
-            commitExecutor.submit(new DeleteFileTask(this, externalId));
+            commitExecutor().submit(new DeleteFileTask(this, externalId));
         try {
           file = future.get();
         } catch (final java.lang.InterruptedException e) {
@@ -2396,7 +2392,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void removeCachedPages(final int fileId) {
-    final var future = commitExecutor.submit(new RemoveFilePagesTask(this, fileId));
+    final var future = commitExecutor().submit(new RemoveFilePagesTask(this, fileId));
     try {
       future.get();
     } catch (final java.lang.InterruptedException e) {
@@ -3647,7 +3643,7 @@ public final class WOWCache extends AbstractWriteCache
       }
     } finally {
       if (flushInterval > 0 && !stopFlush) {
-        flushFuture = commitExecutor.schedule(task, flushInterval, TimeUnit.MILLISECONDS);
+        flushFuture = commitExecutor().schedule(task, flushInterval, TimeUnit.MILLISECONDS);
       }
     }
   }
