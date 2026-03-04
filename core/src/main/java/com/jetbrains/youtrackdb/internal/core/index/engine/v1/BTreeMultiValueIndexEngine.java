@@ -458,6 +458,35 @@ public final class BTreeMultiValueIndexEngine
     return key;
   }
 
+  @Override
+  public void buildInitialHistogram(AtomicOperation atomicOperation)
+      throws IOException {
+    var mgr = histogramManager;
+    if (mgr == null) {
+      return;
+    }
+    long svCount = svTree.size(atomicOperation);
+    long nullCount = nullTree.size(atomicOperation);
+    long totalCount = svCount + nullCount;
+
+    // keyStream() extracts the original key from CompositeKey(key, RID)
+    try (var keys = keyStream(atomicOperation)) {
+      mgr.buildHistogram(
+          atomicOperation, keys, totalCount, nullCount,
+          mgr.getKeyFieldCount());
+    }
+  }
+
+  @Override
+  public long getNullCount(AtomicOperation atomicOperation) {
+    return nullTree.size(atomicOperation);
+  }
+
+  @Override
+  public long getTotalCount(AtomicOperation atomicOperation) {
+    return svTree.size(atomicOperation) + nullTree.size(atomicOperation);
+  }
+
   /**
    * Sets the histogram manager for this engine. Called during engine
    * lifecycle (create/load) once the manager is initialized.
