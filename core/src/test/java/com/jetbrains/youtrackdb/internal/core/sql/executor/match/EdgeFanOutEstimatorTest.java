@@ -211,7 +211,7 @@ public class EdgeFanOutEstimatorTest {
     assertEquals(10.0, fanOut, DELTA);
   }
 
-  // ── Missing schema metadata → DEFAULT_FAN_OUT ─────────────
+  // ── Missing schema metadata → defaultFanOut() ──────────────
 
   @Test
   public void nullEdgeClassName_returnsDefaultFanOut() {
@@ -220,7 +220,7 @@ public class EdgeFanOutEstimatorTest {
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, null, "Person", Direction.OUT, null, null);
 
-    assertEquals(EdgeFanOutEstimator.DEFAULT_FAN_OUT, fanOut, DELTA);
+    assertEquals(EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
   }
 
   @Test
@@ -230,7 +230,7 @@ public class EdgeFanOutEstimatorTest {
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, "Knows", null, Direction.OUT, null, null);
 
-    assertEquals(EdgeFanOutEstimator.DEFAULT_FAN_OUT, fanOut, DELTA);
+    assertEquals(EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
   }
 
   @Test
@@ -241,7 +241,7 @@ public class EdgeFanOutEstimatorTest {
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, "Missing", "Person", Direction.OUT, null, null);
 
-    assertEquals(EdgeFanOutEstimator.DEFAULT_FAN_OUT, fanOut, DELTA);
+    assertEquals(EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
   }
 
   @Test
@@ -252,7 +252,7 @@ public class EdgeFanOutEstimatorTest {
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, "Knows", "Unknown", Direction.OUT, null, null);
 
-    assertEquals(EdgeFanOutEstimator.DEFAULT_FAN_OUT, fanOut, DELTA);
+    assertEquals(EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
   }
 
   @Test
@@ -264,7 +264,7 @@ public class EdgeFanOutEstimatorTest {
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, "Knows", "Person", Direction.OUT, null, null);
 
-    assertEquals(EdgeFanOutEstimator.DEFAULT_FAN_OUT, fanOut, DELTA);
+    assertEquals(EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
   }
 
   // ── BOTH with null vertex class names ──────────────────────

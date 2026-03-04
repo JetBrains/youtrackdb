@@ -142,7 +142,7 @@ public class IndexSearchDescriptor {
    *   <li>Leading field condition: dispatched to {@link SelectivityEstimator}
    *       using the histogram (if available) or uniform estimation.</li>
    *   <li>Non-leading field conditions (composite indexes): each multiplies
-   *       by {@link SelectivityEstimator#DEFAULT_SELECTIVITY} since no
+   *       by {@link SelectivityEstimator#defaultSelectivity()} since no
    *       per-field histogram exists.</li>
    *   <li>Additional range condition on the leading field (single-field index
    *       with two bounds): combined into a tighter range estimate.</li>
@@ -178,7 +178,7 @@ public class IndexSearchDescriptor {
 
     // Non-leading field conditions: apply default selectivity per field.
     for (int i = 1; i < subBlocks.size(); i++) {
-      selectivity *= SelectivityEstimator.DEFAULT_SELECTIVITY;
+      selectivity *= SelectivityEstimator.defaultSelectivity();
     }
 
     long estimated = Math.max(1, (long) (indexStats.totalCount() * selectivity));

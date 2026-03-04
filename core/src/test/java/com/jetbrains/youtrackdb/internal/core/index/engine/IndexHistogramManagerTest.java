@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.util.Arrays;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -504,10 +505,10 @@ public class IndexHistogramManagerTest {
     // Verify the NDV cap formula from doRebalance(). This mirrors the
     // production logic — keep in sync with doRebalance() if it changes.
     // Formula: effectiveBuckets = max(MINIMUM_BUCKET_COUNT,
-    //   min(DEFAULT_HISTOGRAM_BUCKETS, floor(sqrt(nonNullCount)), NDV))
+    //   min(QUERY_STATS_HISTOGRAM_BUCKETS, floor(sqrt(nonNullCount)), NDV))
 
     // Case 1: NDV < sqrt cap → NDV wins (but floored to MINIMUM_BUCKET_COUNT)
-    int target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    int target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
     long nonNull = 10000;
     target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
     long prevDistinct = 3;
@@ -518,7 +519,7 @@ public class IndexHistogramManagerTest {
     assertEquals(IndexHistogramManager.MINIMUM_BUCKET_COUNT, target);
 
     // Case 2: NDV > sqrt cap → sqrt cap wins
-    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
     nonNull = 100;
     target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 10
     prevDistinct = 50;
@@ -529,7 +530,7 @@ public class IndexHistogramManagerTest {
     assertEquals(10, target);
 
     // Case 3: NDV between MINIMUM_BUCKET_COUNT and sqrt cap → NDV wins
-    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
     nonNull = 10000;
     target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
     prevDistinct = 20;
@@ -540,7 +541,7 @@ public class IndexHistogramManagerTest {
     assertEquals(20, target);
 
     // Case 4: prevDistinct == 0 (unknown NDV) → skip NDV cap
-    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
     nonNull = 10000;
     target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
     prevDistinct = 0;
@@ -551,7 +552,7 @@ public class IndexHistogramManagerTest {
     assertEquals(100, target);
 
     // Case 5: prevDistinct == target → NDV cap not applied (equality)
-    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
     nonNull = 10000;
     target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
     prevDistinct = 100;
