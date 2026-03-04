@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -403,11 +404,11 @@ public final class LockFreeReadCache implements ReadCache {
     var bufferOverflow = false;
     for (int i = 0; i < batch.size; i++) {
       var result = readBuffer.offer(batch.entries[i]);
-      batch.entries[i] = null; // release reference
       if (result == Buffer.FULL) {
         bufferOverflow = true;
       }
     }
+    Arrays.fill(batch.entries, 0, batch.size, null); // release references
     batch.size = 0;
 
     if (drainStatus.get().shouldBeDrained(bufferOverflow)) {

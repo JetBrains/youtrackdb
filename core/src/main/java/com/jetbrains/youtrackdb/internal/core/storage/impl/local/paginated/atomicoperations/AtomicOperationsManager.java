@@ -61,6 +61,12 @@ public class AtomicOperationsManager {
   // non-reentrant). Only the owning thread can match == Thread.currentThread(),
   // so plain (non-volatile) access is sufficient — single-thread consistency
   // guarantees the writing thread sees its own store.
+  //
+  // For reader threads: the volatile read inside tryOptimisticRead() synchronizes
+  // with the volatile write inside the prior unlock(), so any reader that gets a
+  // non-zero stamp is guaranteed to see the null written before that unlock().
+  // If the unlock is not yet visible, tryOptimisticRead() returns 0 and the reader
+  // falls through to readLock(), which provides a full happens-before edge.
   private final Thread[] stripeWriteOwners;
   private final int stripeMask;
   private final ReadCache readCache;
@@ -99,6 +105,7 @@ public class AtomicOperationsManager {
     return 1 << (32 - Integer.numberOfLeadingZeros(value - 1));
   }
 
+  /** Maps a lock name to a stripe index. Package-private for testing. */
   int stripeIndex(String lockName) {
     return lockName.hashCode() & 0x7fffffff & stripeMask;
   }
@@ -268,15 +275,13 @@ public class AtomicOperationsManager {
         }
 
       } finally {
-        // Clear name tracking
+        // Release each unique stripe once and clear name tracking
+        releaseStripes(operation);
         final var lockedObjectIterator = operation.lockedObjects().iterator();
         while (lockedObjectIterator.hasNext()) {
           lockedObjectIterator.next();
           lockedObjectIterator.remove();
         }
-
-        // Release each unique stripe once and clear the set
-        releaseStripes(operation);
 
         operation.deactivate();
       }
@@ -286,15 +291,13 @@ public class AtomicOperationsManager {
   }
 
   public void ensureThatComponentsUnlocked(@Nonnull final AtomicOperation operation) {
-    // Clear name tracking
+    // Release each unique stripe once and clear name tracking
+    releaseStripes(operation);
     final var lockedObjectIterator = operation.lockedObjects().iterator();
     while (lockedObjectIterator.hasNext()) {
       lockedObjectIterator.next();
       lockedObjectIterator.remove();
     }
-
-    // Release each unique stripe once and clear the set
-    releaseStripes(operation);
   }
 
   private void releaseStripes(AtomicOperation operation) {
