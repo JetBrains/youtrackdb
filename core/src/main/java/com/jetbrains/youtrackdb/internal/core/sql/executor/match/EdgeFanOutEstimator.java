@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
@@ -33,11 +34,15 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 public final class EdgeFanOutEstimator {
 
   /**
-   * Default fan-out returned when schema metadata is unavailable (e.g., edge or
-   * source class not found).
+   * Returns the default fan-out when schema metadata is unavailable (e.g.,
+   * edge or source class not found). Reads from
+   * {@link GlobalConfiguration#QUERY_STATS_DEFAULT_FAN_OUT} at each call so
+   * runtime changes take effect without restart.
    */
-  // TODO(YTDB-584): Step 14 — read from GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT
-  static final double DEFAULT_FAN_OUT = 10.0;
+  static double defaultFanOut() {
+    return GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT
+        .getValueAsDouble();
+  }
 
   private EdgeFanOutEstimator() {
   }
@@ -62,7 +67,9 @@ public final class EdgeFanOutEstimator {
    * @param inVertexClass    the IN vertex class of the edge type (from schema),
    *                         or {@code null} if unknown
    * @return estimated average number of target vertices per source vertex,
-   *         or {@link #DEFAULT_FAN_OUT} if schema metadata is unavailable
+   *         or the value from
+   *         {@link GlobalConfiguration#QUERY_STATS_DEFAULT_FAN_OUT}
+   *         if schema metadata is unavailable
    */
   public static double estimateFanOut(
       DatabaseSessionEmbedded session,
@@ -76,7 +83,7 @@ public final class EdgeFanOutEstimator {
 
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null) {
-      return DEFAULT_FAN_OUT;
+      return defaultFanOut();
     }
 
     var edgeClass = edgeClassName != null
@@ -85,7 +92,7 @@ public final class EdgeFanOutEstimator {
         ? schema.getClassInternal(sourceClassName) : null;
 
     if (edgeClass == null || sourceClass == null) {
-      return DEFAULT_FAN_OUT;
+      return defaultFanOut();
     }
 
     long edgeCount = edgeClass.approximateCount(session);

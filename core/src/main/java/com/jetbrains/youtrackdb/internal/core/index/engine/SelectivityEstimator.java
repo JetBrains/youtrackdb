@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import java.util.Collection;
 import javax.annotation.Nullable;
@@ -46,8 +47,15 @@ import javax.annotation.Nullable;
  */
 public final class SelectivityEstimator {
 
-  /** Default selectivity for non-indexed or unknown predicates. */
-  public static final double DEFAULT_SELECTIVITY = 0.1;
+  /**
+   * Returns the default selectivity for non-indexed or unknown predicates.
+   * Reads from {@link GlobalConfiguration#QUERY_STATS_DEFAULT_SELECTIVITY}
+   * at each call so runtime changes take effect without restart.
+   */
+  public static double defaultSelectivity() {
+    return GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY
+        .getValueAsDouble();
+  }
 
   /** Standard PostgreSQL default for unbounded range (e.g., {@code f > X}). */
   private static final double UNIFORM_RANGE_SELECTIVITY = 1.0 / 3.0;
