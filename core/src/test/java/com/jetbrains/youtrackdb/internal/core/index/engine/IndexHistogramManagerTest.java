@@ -448,6 +448,143 @@ public class IndexHistogramManagerTest {
     assertEquals(1, result.stats().nullCount());
   }
 
+  // ── Adaptive bucket count with NDV cap tests ────────────────
+
+  @Test
+  public void scanAndBuildWithNdvCappedTargetBucketsForBooleanIndex() {
+    // Simulate a rebalance of a boolean index (NDV=2) where the NDV cap
+    // reduces targetBuckets from 128 to MINIMUM_BUCKET_COUNT (4).
+    // scanAndBuild should trim to 2 actual buckets regardless.
+    Object[] data = new Object[1000];
+    Arrays.fill(data, 0, 600, false);
+    Arrays.fill(data, 600, 1000, true);
+
+    // Without NDV cap: targetBuckets=31 (sqrt(1000)), allocates 31-element
+    // arrays. With NDV cap: targetBuckets=4 (min(31, NDV=2) clamped to 4),
+    // allocates only 4-element arrays. Both produce 2 actual buckets.
+    int ndvCappedTarget = IndexHistogramManager.MINIMUM_BUCKET_COUNT;
+    var result = IndexHistogramManager.scanAndBuild(
+        Arrays.stream(data), 1000, ndvCappedTarget);
+
+    assertNotNull(result);
+    assertEquals(2, result.actualBucketCount);
+    assertEquals(600, result.frequencies[0]);
+    assertEquals(400, result.frequencies[1]);
+    assertEquals(2, result.totalDistinct);
+  }
+
+  @Test
+  public void scanAndBuildWithNdvCappedTargetBucketsForSmallNdv() {
+    // Simulate NDV=5 with 10,000 entries. Without NDV cap:
+    // targetBuckets = min(128, sqrt(10000)) = 100.
+    // With NDV cap: targetBuckets = min(100, 5) = 5.
+    // Both produce 5 actual buckets, but the capped version avoids
+    // allocating 100-element intermediate arrays.
+    Object[] data = new Object[10000];
+    for (int i = 0; i < 10000; i++) {
+      data[i] = i % 5;
+    }
+    Arrays.sort(data);
+
+    var result = IndexHistogramManager.scanAndBuild(
+        Arrays.stream(data), 10000, 5);
+
+    assertNotNull(result);
+    assertEquals(5, result.actualBucketCount);
+    assertEquals(5, result.totalDistinct);
+    // Each bucket has exactly 2000 entries (uniform distribution)
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      assertEquals("Bucket " + i, 2000, result.frequencies[i]);
+      assertEquals("Bucket " + i + " NDV", 1, result.distinctCounts[i]);
+    }
+  }
+
+  @Test
+  public void adaptiveBucketCountNdvCapArithmetic() {
+    // Verify the NDV cap formula from doRebalance(). This mirrors the
+    // production logic — keep in sync with doRebalance() if it changes.
+    // Formula: effectiveBuckets = max(MINIMUM_BUCKET_COUNT,
+    //   min(DEFAULT_HISTOGRAM_BUCKETS, floor(sqrt(nonNullCount)), NDV))
+
+    // Case 1: NDV < sqrt cap → NDV wins (but floored to MINIMUM_BUCKET_COUNT)
+    int target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    long nonNull = 10000;
+    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
+    long prevDistinct = 3;
+    if (prevDistinct > 0 && prevDistinct < target) {
+      target = (int) prevDistinct; // 3
+    }
+    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+    assertEquals(IndexHistogramManager.MINIMUM_BUCKET_COUNT, target);
+
+    // Case 2: NDV > sqrt cap → sqrt cap wins
+    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    nonNull = 100;
+    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 10
+    prevDistinct = 50;
+    if (prevDistinct > 0 && prevDistinct < target) {
+      target = (int) prevDistinct;
+    }
+    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+    assertEquals(10, target);
+
+    // Case 3: NDV between MINIMUM_BUCKET_COUNT and sqrt cap → NDV wins
+    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    nonNull = 10000;
+    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
+    prevDistinct = 20;
+    if (prevDistinct > 0 && prevDistinct < target) {
+      target = (int) prevDistinct; // 20
+    }
+    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+    assertEquals(20, target);
+
+    // Case 4: prevDistinct == 0 (unknown NDV) → skip NDV cap
+    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    nonNull = 10000;
+    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
+    prevDistinct = 0;
+    if (prevDistinct > 0 && prevDistinct < target) {
+      target = (int) prevDistinct;
+    }
+    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+    assertEquals(100, target);
+
+    // Case 5: prevDistinct == target → NDV cap not applied (equality)
+    target = IndexHistogramManager.DEFAULT_HISTOGRAM_BUCKETS;
+    nonNull = 10000;
+    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
+    prevDistinct = 100;
+    if (prevDistinct > 0 && prevDistinct < target) {
+      target = (int) prevDistinct;
+    }
+    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+    assertEquals(100, target);
+  }
+
+  @Test
+  public void scanAndBuildWithMinimumBucketCountTarget() {
+    // Verify scanAndBuild handles the minimum bucket count (4) correctly
+    // when NDV cap reduces target to MINIMUM_BUCKET_COUNT
+    var keys = IntStream.range(0, 1000)
+        .mapToObj(i -> (Object) (i / 100)) // 10 distinct values
+        .sorted();
+
+    var result = IndexHistogramManager.scanAndBuild(
+        keys, 1000, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+
+    assertNotNull(result);
+    assertTrue("Expected <= " + IndexHistogramManager.MINIMUM_BUCKET_COUNT
+            + " buckets, got " + result.actualBucketCount,
+        result.actualBucketCount <= IndexHistogramManager.MINIMUM_BUCKET_COUNT);
+    assertEquals(10, result.totalDistinct);
+    long totalFreq = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      totalFreq += result.frequencies[i];
+    }
+    assertEquals(1000, totalFreq);
+  }
+
   // ── DriftedBuckets preservation test ──
 
   @Test

@@ -1050,6 +1050,15 @@ public class IndexHistogramManager extends DurableComponent {
         targetBuckets = Math.min(targetBuckets,
             (int) Math.floor(Math.sqrt(nonNullCount)));
       }
+      // NDV cap: avoid over-allocation when distinct values are few.
+      // Use the previous snapshot's distinctCount as an upper bound.
+      // On the initial build this is 0 or unknown — skip (scan trims
+      // naturally). For single-value indexes distinctCount == totalCount,
+      // so this cap never fires (the sqrt cap already governs).
+      long prevDistinct = snapshot.stats().distinctCount();
+      if (prevDistinct > 0 && prevDistinct < targetBuckets) {
+        targetBuckets = (int) prevDistinct;
+      }
       targetBuckets = Math.max(targetBuckets, MINIMUM_BUCKET_COUNT);
 
       // Scan sorted keys. Close the stream after consumption to release
