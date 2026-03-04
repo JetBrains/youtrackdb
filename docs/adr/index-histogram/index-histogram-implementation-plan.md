@@ -2506,7 +2506,349 @@ nothing is lost by suppressing individual notifications during the fill phase.
 If `totalCount - nullCount >= HISTOGRAM_MIN_SIZE`: schedule background build (non-null
 entries must meet the threshold; an all-null index stays in uniform mode).
 
-### Step 7: Wire into `SQLWhereClause.estimate()`
+### Step 7: Fix HLL page-1 spill
+
+**Files:** `HistogramStatsPage.java`, `IndexHistogramManager.java`
+
+The `fitToPage()` method (line 859 of `IndexHistogramManager`) has a fallback path for
+multi-value indexes where the histogram boundaries exhaust page 0: it sets `hllSize = 0`
+to reclaim the 1024-byte HLL budget for boundaries and resets `bucketCount` back to the
+original target. However, `HistogramStatsPage.writeSnapshot()` always writes the HLL
+registers to page 0 after the histogram data blob (lines 126–131), regardless of whether
+the spill path was taken. This means:
+1. The boundary budget was computed assuming no HLL on page 0 (`hllSize = 0`)
+2. But the actual page write includes the HLL, potentially overflowing page 0
+
+**Fix:** Implement actual page-1 I/O for the HLL register array when the spill path is
+taken. Track the spill state via a flag in the histogram data, and route HLL reads/writes
+accordingly.
+
+**Changes:**
+
+1. **`HistogramStatsPage` — add page-1 I/O methods:**
+
+```java
+/**
+ * Writes HLL registers to page 1. Called when the HLL was spilled from page 0
+ * because boundaries exhaust the budget.
+ */
+void writeHllToPage1(CacheEntry page1CacheEntry, HyperLogLogSketch hll) {
+  // Page 1 layout: DurablePage header (28 bytes) + HLL registers (1024 bytes)
+  var page1 = new DurablePage(page1CacheEntry);
+  byte[] hllData = new byte[HyperLogLogSketch.serializedSize()];
+  hll.writeTo(hllData, 0);
+  page1.setBinaryValue(NEXT_FREE_POSITION, hllData);
+}
+
+/**
+ * Reads HLL registers from page 1.
+ */
+HyperLogLogSketch readHllFromPage1(CacheEntry page1CacheEntry) {
+  var page1 = new DurablePage(page1CacheEntry);
+  byte[] hllData = page1.getBinaryValue(
+      NEXT_FREE_POSITION, HyperLogLogSketch.serializedSize());
+  return HyperLogLogSketch.readFrom(hllData, 0);
+}
+```
+
+2. **`HistogramStatsPage.writeSnapshot()` — skip HLL on page 0 when spilled:**
+
+Add a `boolean hllOnPage1` parameter. When `true`, write `hllRegisterCount` to the header
+(so the reader knows the HLL exists) but do NOT write the register bytes to page 0. The
+caller is responsible for writing them to page 1 separately.
+
+3. **`HistogramStatsPage.readSnapshot()` — detect spill and skip HLL read on page 0:**
+
+When `hllRegisterCount > 0`, check whether the HLL registers actually fit on page 0
+after the histogram data blob. If not (i.e., `hllOffset + hllRegisterCount >
+pageSize`), return the snapshot with `hll = null` and set a flag indicating the caller
+must read HLL from page 1.
+
+Alternatively, use a dedicated flag: repurpose the high bit of `hllRegisterCount` as the
+page-1 indicator (since 1024 = `0x400`, the high bit is always 0 for valid register
+counts). On read: `isHllOnPage1 = (rawHllRegisterCount & 0x8000_0000) != 0`,
+`actualCount = rawHllRegisterCount & 0x7FFF_FFFF`.
+
+4. **`IndexHistogramManager.fitToPage()` — record the spill decision:**
+
+Return a result object or set a field indicating `hllSpilledToPage1 = true` when the
+fallback path is taken. Propagate this to `writeSnapshotToPage()` so it can route the
+HLL to the correct page.
+
+5. **`IndexHistogramManager.writeSnapshotToPage()` — page-1 write path:**
+
+When `hllSpilledToPage1`, after writing page 0 (without HLL data), allocate/load page 1
+via `loadPageForWrite(op, fileId, 1, true)` and call
+`statsPage.writeHllToPage1(page1Entry, hll)`.
+
+6. **`IndexHistogramManager.readSnapshotFromPage()` — page-1 read path:**
+
+After reading page 0, if `hllRegisterCount` has the page-1 flag set, load page 1 via
+`loadPageForRead(op, fileId, 1)` and call `statsPage.readHllFromPage1(page1Entry)`.
+
+### Step 8: Fix adaptive bucket count NDV cap
+
+**Files:** `IndexHistogramManager.java`
+
+The plan specifies `effectiveBuckets = min(HISTOGRAM_BUCKETS, floor(sqrt(nonNullCount)),
+NDV)` (Section 5.5). The current implementation applies the `sqrt` cap and the
+`max(4)` floor but omits the explicit NDV cap. While not a correctness bug (the
+`scanAndBuild()` method naturally produces at most NDV buckets, and arrays are trimmed
+to `actualBucketCount` afterward), the missing cap causes unnecessary oversized array
+allocations. For example, rebalancing a boolean index (NDV = 2) currently allocates
+128-element boundary, frequency, and distinctCount arrays that are immediately trimmed
+to 2 elements.
+
+**Changes:**
+
+1. **`buildHistogram()` (line 553):** After the `sqrt` cap, add the NDV cap when NDV is
+   available. For the initial build, NDV is not known before the scan — skip the cap
+   (the scan discovers the actual bucket count naturally via key transitions, and arrays
+   are trimmed by `scanAndBuild()` to `actualBucketCount`).
+
+2. **`doRebalance()` (line 1025):** The rebalance has the previous snapshot's
+   `distinctCount` available (from the CHM cache). Use it as an upper bound:
+
+```java
+// Adaptive bucket count
+int targetBuckets = DEFAULT_HISTOGRAM_BUCKETS;
+if (nonNullCount > 0) {
+  targetBuckets = Math.min(targetBuckets,
+      (int) Math.floor(Math.sqrt(nonNullCount)));
+}
+// NDV cap: avoid over-allocation when distinct values are few.
+// Use the previous snapshot's distinctCount as an upper bound.
+// On the initial build this is 0 or unknown — skip (scan trims naturally).
+long prevDistinct = current.stats().distinctCount();
+if (prevDistinct > 0 && prevDistinct < targetBuckets) {
+  targetBuckets = (int) prevDistinct;
+}
+targetBuckets = Math.max(targetBuckets, MINIMUM_BUCKET_COUNT);
+```
+
+The `max(MINIMUM_BUCKET_COUNT)` at the end ensures at least 4 buckets regardless
+of NDV (consistent with Section 5.5).
+
+### Step 9: Checkpoint and shutdown flushing of histogram data
+
+**Files:** `IndexHistogramManager.java`, `AbstractStorage.java`
+
+The batched persistence model (Section 3.2) has three flush triggers:
+1. **Commit-path batch flush** — already wired in Step 5 (`applyDelta()` flushes when
+   `dirtyMutations >= PERSIST_BATCH_SIZE`)
+2. **Checkpoint hook** — flush all dirty histogram managers during `makeFuzzyCheckpoint()`
+3. **Engine close** — already wired in Step 5 (`closeStatsFile()` flushes on close)
+
+This step wires trigger #2: the checkpoint hook ensures persistence for indexes with low
+write rates that never hit `PERSIST_BATCH_SIZE`. Without it, an index receiving fewer than
+500 mutations between checkpoints would never persist its statistics until engine close —
+a crash between checkpoints would lose all incremental updates since the last batch flush.
+
+**Add no-arg `flushIfDirty()` overload to `IndexHistogramManager`:**
+
+The existing `flushIfDirty(AtomicOperation op)` requires a caller-provided atomic operation.
+The checkpoint path (`makeFuzzyCheckpoint()`) does not operate inside an atomic operation
+context. Add a no-arg overload that delegates to `flushSnapshotToPage()`, which creates its
+own atomic operation via `executeInsideComponentOperation(null, op -> ...)`:
+
+```java
+/**
+ * Persists the current CHM snapshot to the .ixs page if there are
+ * uncommitted (dirty) mutations. Creates its own AtomicOperation (via
+ * {@code executeInsideComponentOperation}). Called by {@code AbstractStorage}
+ * during fuzzy checkpoint and full data flush.
+ *
+ * <p>Failures are logged but never propagated — histogram persistence is
+ * best-effort and must not block checkpoint or shutdown.
+ */
+public void flushIfDirty() {
+  if (dirtyMutations > 0) {
+    try {
+      flushSnapshotToPage();   // creates its own AtomicOperation
+      dirtyMutations = 0;
+    } catch (Exception e) {
+      LogManager.instance().warn(this,
+          "Failed to flush histogram stats for engine %d during checkpoint", e, engineId);
+    }
+  }
+}
+```
+
+**Add `flushDirtyHistograms()` to `AbstractStorage`:**
+
+Iterates the `indexEngines` list — checking each engine against `BTreeIndexEngine` (the
+only engine type with histogram support). Uses the existing `getHistogramManager()` method
+added in Step 5. Each individual flush failure is caught and logged; a failing histogram
+must never block the checkpoint of other engines or the WAL.
+
+```java
+/**
+ * Iterates all B-tree index engines and flushes dirty histogram state
+ * to their .ixs pages. Called during fuzzy checkpoint (every
+ * WAL_FUZZY_CHECKPOINT_INTERVAL seconds, default 300) and full data flush.
+ *
+ * <p>Failures are logged but never propagated — histogram persistence is
+ * best-effort and must not block checkpoint or shutdown. Each engine's
+ * flush creates its own AtomicOperation (independent of the WAL
+ * checkpoint's operation context).
+ */
+private void flushDirtyHistograms() {
+  for (var engine : indexEngines) {
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      var mgr = btreeEngine.getHistogramManager();
+      if (mgr != null) {
+        mgr.flushIfDirty();
+      }
+    }
+  }
+}
+```
+
+**Wire into `makeFuzzyCheckpoint()`** — call `flushDirtyHistograms()` inside the
+`stateLock.readLock()` section, **before** the WAL checkpoint logic. The read lock
+ensures no concurrent engine creation/deletion during iteration. Flushing before
+`writeCache.syncDataFiles()` ensures the written `.ixs` pages are included in the
+sync batch:
+
+```java
+public final void makeFuzzyCheckpoint() {
+  // ... acquire stateLock.readLock() ...
+  try {
+    if (status != STATUS.OPEN && status != STATUS.MIGRATION) {
+      return;
+    }
+
+    // Flush dirty histogram statistics to .ixs pages (Section 3.2).
+    // Runs before the WAL checkpoint so that the flushed pages are
+    // included in writeCache.syncDataFiles().
+    flushDirtyHistograms();
+
+    var beginLSN = writeAheadLog.begin();
+    // ... existing WAL checkpoint logic ...
+  } finally {
+    stateLock.readLock().unlock();
+  }
+}
+```
+
+**Wire into `flushAllData()`** — call `flushDirtyHistograms()` before the WAL flush.
+Although individual engine `close()` calls flush via `closeStatsFile()`, `flushAllData()`
+runs during full checkpoint scenarios (e.g., `forceClose()`, storage shutdown) where engines
+may not yet have been individually closed:
+
+```java
+protected void flushAllData() {
+  try {
+    // Flush histogram stats before WAL flush — ensures .ixs pages are
+    // included in the final sync. Individual engine close() also flushes
+    // via closeStatsFile(), but flushAllData() may precede engine closure.
+    flushDirtyHistograms();
+
+    writeAheadLog.flush();
+    // ... existing WAL checkpoint logic ...
+  } catch (final IOException ioe) {
+    // ... existing error handling ...
+  }
+}
+```
+
+**Cost:** Near-zero on the checkpoint path. `flushDirtyHistograms()` iterates `indexEngines`
+(one check per engine). For clean engines (`dirtyMutations == 0`), the no-arg `flushIfDirty()`
+returns immediately after a single `long` comparison. For dirty engines, each flush is a
+single page write within its own atomic operation — same cost as the commit-path flush.
+Typical databases have 10–50 indexes; even if all are dirty, this adds at most 50 page
+writes per 300-second checkpoint cycle.
+
+### Step 10: Wire rebalance trigger into planner read path
+
+**Files:** `IndexHistogramManager.java`, `BTreeSingleValueIndexEngine.java`,
+`BTreeMultiValueIndexEngine.java`, `IndexAbstract.java`, `AbstractStorage.java`
+
+The design (Sections 4.2, 5.7) specifies that the rebalance trigger is evaluated on
+**every planner read** via `getHistogram()` calling `maybeScheduleHistogramWork()`. This
+step wires the trigger, the IO executor plumbing, and the proactive check on open. Without
+this, automatic rebalancing never fires.
+
+**Wire `maybeScheduleHistogramWork()` into `getHistogram()`:**
+
+The `IndexHistogramManager.getHistogram()` currently reads the CHM cache without checking
+the rebalance trigger. Change it to call `maybeScheduleHistogramWork()` before returning.
+This requires an `ExecutorService` reference for scheduling background tasks.
+
+```java
+// IndexHistogramManager:
+@Nullable
+public EquiDepthHistogram getHistogram() {
+  maybeScheduleHistogramWork(ioExecutor);  // check rebalance trigger
+  var snapshot = cache.get(engineId);
+  return snapshot != null ? snapshot.histogram() : null;
+}
+```
+
+**IO executor plumbing:** The `IndexHistogramManager` needs a reference to the IO executor
+(`YouTrackDBInternalEmbedded.getIoExecutor()`). This reference is **set post-construction**
+by the storage layer (not at construction time, because the executor may not be available
+during index loading). Add a `volatile ExecutorService ioExecutor` field with a setter:
+
+```java
+// IndexHistogramManager:
+@Nullable private volatile ExecutorService ioExecutor;
+
+public void setIoExecutor(@Nullable ExecutorService executor) {
+  this.ioExecutor = executor;
+}
+```
+
+The storage layer calls `setIoExecutor()` after the database is fully opened and the
+executor is available. `AbstractStorage` needs a `setIoExecutorOnHistogramManagers()`
+method called from the database open path:
+
+```java
+// AbstractStorage:
+public void setIoExecutorOnHistogramManagers(ExecutorService ioExecutor) {
+  for (var engine : indexEngines) {
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      var mgr = btreeEngine.getHistogramManager();
+      if (mgr != null) {
+        mgr.setIoExecutor(ioExecutor);
+      }
+    }
+  }
+}
+```
+
+This is called from the database open path in `YouTrackDBInternalEmbedded` (or the
+equivalent embedded database setup) after the IO executor is created. Before the executor
+is set, `maybeScheduleHistogramWork()` receives `null` and returns immediately — no
+background rebalance until the database is fully open.
+
+**Proactive rebalance check in `openStatsFile()`:** Section 5.7 specifies that
+`openStatsFile()` should schedule a background rebalance if `mutationsSinceRebalance`
+exceeds the threshold after loading the snapshot. This ensures write-heavy databases
+that see no queries after restart still get histograms refreshed. Since the IO executor
+is not yet available during `openStatsFile()`, defer the actual scheduling to
+`setIoExecutor()`:
+
+```java
+// IndexHistogramManager.setIoExecutor():
+public void setIoExecutor(@Nullable ExecutorService executor) {
+  this.ioExecutor = executor;
+  if (executor != null) {
+    // Proactive rebalance check after database open (Section 5.7):
+    // if mutations accumulated before a crash exceeded the threshold,
+    // schedule an immediate rebalance now that the executor is available.
+    maybeScheduleHistogramWork(executor);
+  }
+}
+```
+
+This combines the executor setup with the proactive rebalance check in one method,
+avoiding the need for a separate deferred check mechanism.
+
+**Compound predicates note for Step 11:** Step 11 also references `sel(NOT A) = 1.0 −
+sel(A)` from Section 7.3 — include negation alongside AND and OR combiners.
+
+### Step 11: Wire into `SQLWhereClause.estimate()`
 
 **File:** `SQLWhereClause.java`, line 82
 
@@ -2519,9 +2861,10 @@ estimatedRows = (long) (count * SelectivityEstimator.estimate(stats, histogram, 
 ```
 
 For compound predicates: `sel(A AND B) = sel(A) × sel(B)`,
-`sel(A OR B) = sel(A) + sel(B) − sel(A) × sel(B)`.
+`sel(A OR B) = sel(A) + sel(B) − sel(A) × sel(B)`,
+`sel(NOT A) = 1.0 − sel(A)` (Section 7.3).
 
-### Step 8: Wire into `IndexSearchDescriptor.cost()`
+### Step 12: Wire into `IndexSearchDescriptor.cost()`
 
 **File:** `IndexSearchDescriptor.java`, line 97
 
@@ -2533,7 +2876,7 @@ var histogram = index.getHistogram(session);
 return estimateFromStatistics(stats, histogram, keyParams, rangeFrom, rangeTo);
 ```
 
-### Step 9: Edge fan-out estimation
+### Step 13: Edge fan-out estimation
 
 Compute on-demand from existing class counts (no new storage). Uses
 `approximateCount()` (O(1), reads stored metadata) rather than `count()` (O(n) scan).
@@ -2602,9 +2945,11 @@ double estimateFanOut(String edgeType, String sourceClass, Direction direction,
 }
 ```
 
-### Step 10: Configuration parameters
+### Step 14: Configuration parameters + replace hardcoded constants
 
-**File:** `GlobalConfiguration.java`
+**Files:** `GlobalConfiguration.java`, `IndexHistogramManager.java`, `DiskStorage.java`
+
+**Part 1 — Add configuration entries to `GlobalConfiguration.java`:**
 
 ```java
 QUERY_STATS_DEFAULT_SELECTIVITY("youtrackdb.query.stats.defaultSelectivity", ..., Double.class, 0.1),
@@ -2621,11 +2966,47 @@ QUERY_STATS_MAX_CONCURRENT_REBALANCES("youtrackdb.query.stats.maxConcurrentRebal
 // -1 = auto: max(2, availableProcessors / 4)
 ```
 
+**Part 2 — Replace hardcoded constants in `IndexHistogramManager.java`:**
+
+The current implementation uses compile-time `static final` constants for all tunable
+parameters (e.g., `DEFAULT_HISTOGRAM_BUCKETS = 128`, `DEFAULT_HISTOGRAM_MIN_SIZE = 1000`,
+`DEFAULT_PERSIST_BATCH_SIZE = 500`, `DEFAULT_REBALANCE_MUTATION_FRACTION = 0.3`,
+`MIN_REBALANCE_MUTATIONS = 1000`, `MAX_REBALANCE_MUTATIONS = 10_000_000`,
+`MAX_BOUNDARY_BYTES = 256`, `REBALANCE_FAILURE_COOLDOWN_MS = 60_000`). Replace each with
+a read from `GlobalConfiguration` at the point of use:
+
+```java
+// Before:
+private static final int DEFAULT_HISTOGRAM_BUCKETS = 128;
+
+// After:
+int histogramBuckets = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS
+    .getValueAsInteger();
+```
+
+Each parameter is read at the point of use (not cached in a field) so that runtime
+configuration changes take effect without restart.
+
+**Part 3 — Replace hardcoded semaphore permits in `DiskStorage.java`:**
+
+The `rebalanceSemaphore` is currently initialized with a hardcoded
+`max(2, availableProcessors() / 4)`. Replace with a read from
+`GlobalConfiguration.QUERY_STATS_MAX_CONCURRENT_REBALANCES`:
+
+```java
+int permits = GlobalConfiguration.QUERY_STATS_MAX_CONCURRENT_REBALANCES
+    .getValueAsInteger();
+if (permits <= 0) {
+  permits = Math.max(2, Runtime.getRuntime().availableProcessors() / 4);
+}
+rebalanceSemaphore = new Semaphore(permits);
+```
+
 ---
 
 ## 9. Implementation Sequence
 
-### Phase 1A: Index Statistics with Histograms
+### Phase 1: Index Statistics with Histograms and MATCH Planner Improvements
 
 | Step | Description | Files | LOC est. |
 |---|---|---|---|
@@ -2635,30 +3016,40 @@ QUERY_STATS_MAX_CONCURRENT_REBALANCES("youtrackdb.query.stats.maxConcurrentRebal
 | - [x] 4 | Add `getStatistics()` / `getHistogram()` to engine and index interfaces | `BaseIndexEngine`, `Index`, engine + index impls | ~100 |
 | - [x] 5 | Wire histogram manager into engine put/remove/lifecycle/clear + register `.ixs` in `DiskStorage` + change B-tree `put()` return type from `void` to `boolean` + rebalance semaphore on `DiskStorage` | `CellBTreeSingleValue`, `BTree`, `V1IndexEngine`, `BTreeSingleValueIndexEngine`, `BTreeMultiValueIndexEngine`, `DiskStorage` | ~170 |
 | - [x] 6 | Initial build on create/rebuild + migration (missing `.ixs` file) | Engine impls, `IndexAbstract` | ~100 |
-| - [ ] 7 | Wire into `SQLWhereClause.estimate()` | `SQLWhereClause.java` | ~40 |
-| - [ ] 8 | Wire into `IndexSearchDescriptor.cost()` | `IndexSearchDescriptor.java` | ~30 |
-| - [ ] 9 | Edge fan-out estimation helper | `MatchExecutionPlanner` or new utility | ~30 |
-| - [ ] 10 | Configuration parameters | `GlobalConfiguration.java` | ~30 |
-| - [ ] 11 | `ANALYZE INDEX` SQL command — grammar rule (`ANALYZE` token + `AnalyzeIndexStatement`), statement class (`SQLAnalyzeIndexStatement`), `analyzeHistogram()` on `Index`/`IndexAbstract` | `YouTrackDBSql.jjt`, new `SQLAnalyzeIndexStatement.java`, `Index.java`, `IndexAbstract.java` | ~200 |
-| - [ ] 12 | Tests (incl. HLL unit tests, MCV tests, adaptive bucket count tests, out-of-range, single-value bucket, truncate, rebalance throttling, drift-biased rebalance, lazy HLL, ANALYZE INDEX parser + execution tests) | New test classes | ~1600 |
-| | **Subtotal** | | **~3730** |
+| - [ ] 7 | Fix HLL page-1 spill — `fitToPage()` currently sets `hllSize = 0` to reclaim budget but `HistogramStatsPage.writeSnapshot()` still writes the HLL to page 0, risking overflow. Implement actual page-1 I/O: add `writeHllToPage1()` / `readHllFromPage1()` to `HistogramStatsPage`, track spill state via a flag bit in `formatVersion`, skip HLL on page 0 when spilled. Also update `readSnapshot()` to load HLL from page 1 when the flag is set. See Section 5.8 | `HistogramStatsPage`, `IndexHistogramManager` | ~60 |
+| - [ ] 8 | Fix adaptive bucket count NDV cap — add explicit `effectiveBuckets = min(effectiveBuckets, NDV)` to both `buildHistogram()` (line 553) and `doRebalance()` (line 1025). For the initial build where NDV is not yet known, skip the cap (scan discovers actual bucket count naturally). For rebalance, the scan produces exact NDV which is available before array allocation when a two-pass approach is used, or after the scan when trimming — use `actualBucketCount` from `scanAndBuild()` (already trimmed). The primary benefit is avoiding oversized initial array allocations when NDV is known to be small (e.g., rebalance of a boolean index with NDV=2 currently allocates 128-element arrays that are immediately trimmed to 2) | `IndexHistogramManager` | ~10 |
+| - [ ] 9 | Checkpoint and shutdown flushing — no-arg `flushIfDirty()` on `IndexHistogramManager`, `flushDirtyHistograms()` on `AbstractStorage`, hooks in `makeFuzzyCheckpoint()` and `flushAllData()` | `IndexHistogramManager`, `AbstractStorage` | ~60 |
+| - [ ] 10 | Wire rebalance trigger into planner read path — `getHistogram()` calls `maybeScheduleHistogramWork()`, IO executor plumbing (`setIoExecutor()` on manager + `setIoExecutorOnHistogramManagers()` on storage), proactive rebalance check on `openStatsFile()` deferred to `setIoExecutor()` | `IndexHistogramManager`, `BTreeSingleValueIndexEngine`, `BTreeMultiValueIndexEngine`, `IndexAbstract`, `AbstractStorage` | ~80 |
+| - [ ] 11 | Wire into `SQLWhereClause.estimate()` | `SQLWhereClause.java` | ~40 |
+| - [ ] 12 | Wire into `IndexSearchDescriptor.cost()` | `IndexSearchDescriptor.java` | ~30 |
+| - [ ] 13 | Edge fan-out estimation helper | `MatchExecutionPlanner` or new utility | ~30 |
+| - [ ] 14 | Configuration parameters + replace hardcoded constants — add `QUERY_STATS_*` entries to `GlobalConfiguration.java`, then update `IndexHistogramManager` to read `DEFAULT_HISTOGRAM_BUCKETS`, `DEFAULT_HISTOGRAM_MIN_SIZE`, `DEFAULT_PERSIST_BATCH_SIZE`, `DEFAULT_REBALANCE_MUTATION_FRACTION`, `MIN_REBALANCE_MUTATIONS`, `MAX_REBALANCE_MUTATIONS`, `MAX_BOUNDARY_BYTES`, `REBALANCE_FAILURE_COOLDOWN_MS`, and `MAX_CONCURRENT_REBALANCES` from `GlobalConfiguration` instead of the current compile-time constants. The storage-level `rebalanceSemaphore` permit count in `DiskStorage` must also read from `GlobalConfiguration` | `GlobalConfiguration.java`, `IndexHistogramManager`, `DiskStorage` | ~60 |
+| - [ ] 15 | `ANALYZE INDEX` SQL command — grammar rule (`ANALYZE` token + `AnalyzeIndexStatement`), statement class (`SQLAnalyzeIndexStatement`), `analyzeHistogram()` on `Index`/`IndexAbstract` | `YouTrackDBSql.jjt`, new `SQLAnalyzeIndexStatement.java`, `Index.java`, `IndexAbstract.java` | ~200 |
+| - [ ] 16 | Tests (incl. HLL unit tests, MCV tests, adaptive bucket count tests, out-of-range, single-value bucket, truncate, rebalance throttling, drift-biased rebalance, lazy HLL, checkpoint flush, rebalance trigger on planner read, proactive rebalance on open, composite index tests, three-tier transition tests, ANALYZE INDEX parser + execution tests, HLL page-1 spill round-trip test) | New test classes | ~1600 |
+| - [ ] 17 | Cost model constants and formulas (shared by both SELECT and MATCH planners) | New: `CostModel.java` | ~100 |
+| - [ ] 18 | Improve `estimateRootEntries()` input quality (flows automatically from Steps 11-12 improving `SQLWhereClause.estimate()`) | `MatchExecutionPlanner.java` | ~30 |
+| - [ ] 19 | `estimateEdgeCost()` for fan-out-based traversal | `MatchExecutionPlanner.java` | ~40 |
+| - [ ] 20 | MATCH planner tests | New test classes | ~200 |
+| | **Total** | | **~4530** |
 
-### Phase 1B: Improved MATCH Planner Estimates
+**MATCH planner note:** The MATCH planner already uses cost-driven root selection via
+`estimateRootEntries()` → `SQLWhereClause.estimate()`. Step 11 directly improves these
+estimates. Steps 17-19 add edge fan-out costing and the cost model abstraction — the scope
+is small since the planner's cost-driven structure is already sound (Section 1.1).
 
-| Step | Description | Files | LOC est. |
-|---|---|---|---|
-| 1 | Cost model constants and formulas | New: `MatchCostModel.java` | ~100 |
-| 2 | Improve `estimateRootEntries()` input quality (flows automatically from Steps 7-8 improving `SQLWhereClause.estimate()`) | `MatchExecutionPlanner.java` | ~30 |
-| 3 | `estimateEdgeCost()` for fan-out-based traversal | `MatchExecutionPlanner.java` | ~40 |
-| 4 | Tests | New test classes | ~200 |
-| | **Subtotal** | | **~370** |
+**Cost model note:** Step 17 creates `CostModel.java` (not `MatchCostModel.java`) because
+the cost constants from Section 7.1 (`COST_SEQ_PAGE_READ`, `COST_RANDOM_PAGE_READ`,
+`COST_INDEX_SEEK`, `COST_PER_ROW_CPU`) and the formulas from Section 7.2 (full class scan,
+index equality seek, index range scan) are shared between the SELECT planner (Step 12) and
+the MATCH planner (Steps 18-19). Step 12 (`IndexSearchDescriptor.cost()`) should reference
+these shared constants rather than defining ad-hoc values.
 
-**Total: ~4100 LOC**
-
-**Phase 1B note:** The MATCH planner already uses cost-driven root selection via
-`estimateRootEntries()` → `SQLWhereClause.estimate()`. Phase 1A Step 7 directly improves
-these estimates. Phase 1B primarily adds edge fan-out costing and the cost model
-abstraction — the scope is smaller than originally projected.
+**Configuration wiring note:** Step 14 both adds configuration parameters and replaces
+the hardcoded compile-time constants in `IndexHistogramManager` and `DiskStorage`. This
+is combined into one step because the constants are meaningless without the configuration
+entries (they can't be tuned at runtime) and the configuration entries are untestable
+without replacing the constants (they would have no effect). The replacement touches only
+constant declarations and the storage-level semaphore initialization — no logic changes.
 
 ### Dependency Order
 
@@ -2666,9 +3057,7 @@ Step 1 now includes `HyperLogLogSketch` alongside the record types. It has no de
 on other steps and can be developed and unit-tested independently.
 
 ```
-Phase 1A                                    Phase 1B
-────────                                    ────────
-Step 1 (records + HyperLogLogSketch)        Depends on 1A steps 1-8
+Step 1 (records + HyperLogLogSketch)
   │
   ├─→ Step 2 (IndexHistogramManager + CHM cache)
   │     │
@@ -2676,23 +3065,53 @@ Step 1 (records + HyperLogLogSketch)        Depends on 1A steps 1-8
   │     │     │
   │     │     └─→ Step 5 (engine wiring + DiskStorage + BTree put() return type)
   │     │           │
-  │     │           └─→ Step 6 (build + migration)
+  │     │           ├─→ Step 6 (build + migration)
+  │     │           │
+  │     │           ├─→ Step 7 (fix HLL page-1 spill)
+  │     │           │
+  │     │           ├─→ Step 8 (fix adaptive bucket count NDV cap)
+  │     │           │
+  │     │           ├─→ Step 9 (checkpoint + shutdown flush)
+  │     │           │
+  │     │           └─→ Step 10 (rebalance trigger + IO executor plumbing)
   │     │
   │     └─→ Step 3 (SelectivityEstimator + ScalarConversion)
   │           │
-  │           ├─→ Step 7 (SQLWhereClause)
-  │           └─→ Step 8 (IndexSearchDescriptor)
+  │           ├─→ Step 11 (SQLWhereClause)
+  │           │
+  │           └─→ Step 12 (IndexSearchDescriptor)
+  │                 │
+  │                 └─→ Step 17 (shared CostModel)
+  │                       │
+  │                       └─→ Steps 18-19 (MATCH root estimates + edge fan-out)
   │
-  └─→ Steps 9-10 (fan-out + config) — independent
+  └─→ Step 13 (fan-out helper) — independent
+  │
+  └─→ Step 14 (config params + replace constants) — independent (no code deps),
+        but recommended before Steps 9-10 so that persist batch size,
+        rebalance thresholds, and semaphore permits are configurable
+        when checkpoint flush and rebalance trigger are wired
 
-Step 11 (ANALYZE INDEX) depends on Steps 2 + 4
+Step 15 (ANALYZE INDEX) depends on Steps 2 + 4
   (needs IndexHistogramManager.analyzeIndex() + Index.analyzeHistogram())
 ```
 
-Steps 3 and 5-6 are independent and parallelizable once Step 2 is complete.
-Step 11 (ANALYZE INDEX) can be developed in parallel with Steps 5-8 once Steps 2 and 4
+Steps 3, 5-10 are independent and parallelizable once Step 2 is complete.
+Step 7 (HLL page-1 spill fix) and Step 8 (NDV cap fix) are correctness fixes to the
+existing implementation from Steps 2 and 6 — they should be completed before Step 9
+(checkpoint flush) to ensure the persisted page layout is correct before periodic flushing
+begins.
+Step 14 (configuration parameters) has no code dependencies but is recommended before
+Steps 9-10 so that `PERSIST_BATCH_SIZE`, rebalance thresholds, and
+`MAX_CONCURRENT_REBALANCES` are configurable when checkpoint flush and rebalance trigger
+are wired.
+Step 15 (ANALYZE INDEX) can be developed in parallel with Steps 5-12 once Steps 2 and 4
 are complete (it only needs the manager's `analyzeIndex()` method and the `Index`
 interface additions).
+Steps 17-19 (MATCH planner improvements) depend on Steps 11-12 (selectivity wiring) and
+Step 13 (fan-out helper). Step 17 (`CostModel`) provides shared constants used by both
+Step 12 (`IndexSearchDescriptor.cost()`) and Steps 18-19; it can be developed before or
+alongside Step 12.
 
 ### Implementation Progress
 
@@ -2704,12 +3123,20 @@ interface additions).
 | - [x] | 4 | Engine and index interface additions | Added `getStatistics()`/`getHistogram()` default methods (returning null) to `BaseIndexEngine.java`. Added `getStatistics(session)`/`getHistogram(session)`/`analyzeHistogram(session)` to `Index.java`. Implemented delegation in `IndexAbstract.java` via `storage.getIndexEngine(indexId)` pattern; `analyzeHistogram()` stubbed as no-op. Added `volatile IndexHistogramManager histogramManager` field with getter/setter to `BTreeSingleValueIndexEngine.java` and `BTreeMultiValueIndexEngine.java`, with `getStatistics()`/`getHistogram()` overrides delegating to the manager (null-safe). Tests: `BTreeIndexEngineHistogramTest.java` (14 tests), `BaseIndexEngineHistogramDefaultsTest.java` (2 tests). |
 | - [x] | 5 | Engine lifecycle and put/remove wiring | Changed `CellBTreeSingleValue.put()` and `BTree.put()` from `void` to `boolean` (returns true for insert, false for update). Fixed `BTree.update()` to return false on same-length value update, false on different-length remove+re-insert (sizeDiff==0), and true on fresh insert (sizeDiff==1). Changed `V1IndexEngine.put()` from `void` to `boolean`. Added `getHistogramManager()` to `BTreeIndexEngine` interface. Wired histogram manager into `BTreeSingleValueIndexEngine`: put()/validatedPut() call onPut(), remove() calls onRemove() on success, delete() calls deleteStatsFile(), close() calls closeStatsFile(), clear() calls resetOnClear(). Same wiring for `BTreeMultiValueIndexEngine` (wasInsert always true for multi-value). Added `applyHistogramDeltas()` to `AbstractStorage` after endTxCommit() with try-catch to never mask commits. Registered `.ixs` in `DiskStorage.ALL_FILE_EXTENSIONS`. Tests: `BTreeEngineHistogramWiringTest.java` (35 tests). |
 | - [x] | 6 | Initial build / rebuild / migration | Added `buildInitialHistogram(AtomicOperation)`, `getNullCount()`, `getTotalCount()` to `BTreeIndexEngine` interface with implementations in both `BTreeSingleValueIndexEngine` and `BTreeMultiValueIndexEngine`. Added `histogramSnapshotCache` (ConcurrentHashMap) to `AbstractStorage` with `createAndWireHistogramManager()` and `wireHistogramManagerOnLoad()` helpers. Wired histogram manager creation into `addIndexEngine()` (create path) and `openIndexes()`/`loadExternalIndexEngine()` (load/migration path). Migration path detects missing `.ixs` via `statsFileExists()` and initializes counters from B-tree. Added bulk-load suppression (`setBulkLoading()`) around `fillIndex()` in `IndexAbstract.rebuild()` with try/finally safety, plus post-fill `buildHistogramAfterFill()` in its own atomic operation. Added `getKeyFieldCount()`, `statsFileExists()`, `createStatsFileWithCounters()`, and extracted `createEmptyStatsPage()` to `IndexHistogramManager`. Tests: `BTreeEngineHistogramBuildTest.java` (17 tests). |
-| - [ ] | 7 | `SQLWhereClause.estimate()` integration | |
-| - [ ] | 8 | `IndexSearchDescriptor.cost()` integration | |
-| - [ ] | 9 | Edge fan-out estimation | |
-| - [ ] | 10 | Configuration parameters | |
-| - [ ] | 11 | `ANALYZE INDEX` SQL command | |
-| - [ ] | 12 | Tests | |
+| - [ ] | 7 | Fix HLL page-1 spill | |
+| - [ ] | 8 | Fix adaptive bucket count NDV cap | |
+| - [ ] | 9 | Checkpoint and shutdown flushing | |
+| - [ ] | 10 | Rebalance trigger + IO executor plumbing | |
+| - [ ] | 11 | `SQLWhereClause.estimate()` integration | |
+| - [ ] | 12 | `IndexSearchDescriptor.cost()` integration | |
+| - [ ] | 13 | Edge fan-out estimation | |
+| - [ ] | 14 | Configuration parameters + replace hardcoded constants | |
+| - [ ] | 15 | `ANALYZE INDEX` SQL command | |
+| - [ ] | 16 | Tests | |
+| - [ ] | 17 | Cost model constants and formulas | |
+| - [ ] | 18 | `estimateRootEntries()` input quality | |
+| - [ ] | 19 | `estimateEdgeCost()` for fan-out traversal | |
+| - [ ] | 20 | MATCH planner tests | |
 
 ---
 
@@ -2802,6 +3229,15 @@ interface additions).
   frequency is clamped to 0 → `hasDriftedBuckets` flag set, rebalance threshold halved
 - Storage-level rebalance throttling: trigger N > MAX_CONCURRENT_REBALANCES rebalances
   simultaneously → excess deferred; verify IO executor is not saturated
+- Checkpoint flush: insert entries (fewer than PERSIST_BATCH_SIZE) → `dirtyMutations > 0`;
+  call `flushDirtyHistograms()` → verify `.ixs` page updated and `dirtyMutations` reset to 0
+- Checkpoint flush with clean engine: no mutations since last flush →
+  `flushIfDirty()` returns immediately; `.ixs` page unchanged
+- Checkpoint flush with closed/deleted engine: engine removed before checkpoint →
+  `flushDirtyHistograms()` skips null entries in `indexEngines` without error
+- Checkpoint flush failure: simulate I/O error during `flushSnapshotToPage()` →
+  exception caught and logged; other engines still flushed; checkpoint not blocked
+- Full data flush (`flushAllData()`) flushes dirty histograms before WAL flush
 
 ### 10.7 Multi-Value Index Tests
 
@@ -3019,7 +3455,7 @@ All paths relative to `core/src/main/java/com/jetbrains/youtrackdb/`.
 | `internal/core/sql/executor/IndexSearchDescriptor.java` | `cost()` — replace `Integer.MAX_VALUE` fallback |
 | `internal/core/sql/executor/QueryStats.java` | Volatile EMA cache (kept as supplementary) |
 | `internal/core/sql/parser/SQLWhereClause.java` | `estimate()` — replace `count/2` heuristic |
-| `internal/core/sql/executor/match/MatchExecutionPlanner.java` | MATCH planner — improved estimates flow through from Step 7 |
+| `internal/core/sql/executor/match/MatchExecutionPlanner.java` | MATCH planner — improved estimates flow through from Step 11 |
 
 **New files (CREATED by this plan):**
 
