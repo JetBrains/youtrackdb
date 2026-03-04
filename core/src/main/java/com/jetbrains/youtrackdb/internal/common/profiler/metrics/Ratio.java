@@ -77,10 +77,6 @@ public interface Ratio extends Metric<Double> {
     private final Meter meter;
     private final double coefficient;
 
-    public Impl(Ticker ticker, long flushRateTicks, long periodTicks, double coefficient) {
-      this(ticker, flushRateTicks, periodTicks, coefficient, Meter.DEFAULT_TICK_CHECK_INTERVAL);
-    }
-
     Impl(Ticker ticker, long flushRateTicks, long periodTicks, double coefficient,
         int tickCheckInterval) {
       this.coefficient = coefficient;

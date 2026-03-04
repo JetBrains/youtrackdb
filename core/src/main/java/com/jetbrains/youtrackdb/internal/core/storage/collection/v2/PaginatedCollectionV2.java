@@ -275,16 +275,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public boolean exists(AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this,
-          () -> isFileExists(atomicOperation, getFullName()));
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new PaginatedCollectionException(storageName,
-              "Error during checking existence of '"
-                  + getName() + "' collection", this),
-          e, storageName);
-    }
+    return atomicOperationsManager.readUnderLock(this,
+        () -> isFileExists(atomicOperation, getFullName()));
   }
 
   @Override
@@ -1563,16 +1555,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public String getFileName() {
-    try {
-      return atomicOperationsManager.executeReadOperation(this,
-          () -> writeCache.fileNameById(fileId));
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new PaginatedCollectionException(storageName,
-              "Error during getting file name of '"
-                  + getName() + "' collection", this),
-          e, storageName);
-    }
+    return atomicOperationsManager.readUnderLock(this,
+        () -> writeCache.fileNameById(fileId));
   }
 
   @Override
@@ -1590,19 +1574,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public void synch() {
-    try {
-      atomicOperationsManager.executeReadOperation(this, () -> {
-        writeCache.flush(fileId);
-        collectionPositionMap.flush();
-        return null;
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new PaginatedCollectionException(storageName,
-              "Error during synch of '"
-                  + getName() + "' collection", this),
-          e, storageName);
-    }
+    atomicOperationsManager.readUnderLock(this, () -> {
+      writeCache.flush(fileId);
+      collectionPositionMap.flush();
+      return null;
+    });
   }
 
   @Override

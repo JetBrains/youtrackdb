@@ -959,43 +959,29 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   public Stream<RawPair<K, RID>> iterateEntriesMinor(
       final K key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (!ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-        }
-
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (!ascSortOrder) {
         return StreamSupport.stream(
-            iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new CellBTreeSingleValueV3Exception(
-              "Error during iteration of sbtree with name " + getName(), this),
-          e, storage.getName());
-    }
+            iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+      }
+
+      return StreamSupport.stream(
+          iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+    });
   }
 
   @Override
   public Stream<RawPair<K, RID>> iterateEntriesMajor(
       final K key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-        }
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
         return StreamSupport.stream(
-            iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new CellBTreeSingleValueV3Exception(
-              "Error during iteration of sbtree with name " + getName(), this),
-          e, storage.getName());
-    }
+            iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+      }
+      return StreamSupport.stream(
+          iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+    });
   }
 
   @Override
@@ -1053,35 +1039,21 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   @Override
   public Stream<K> keyStream(AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () ->
-          StreamSupport.stream(
-                  new SpliteratorForward<>(this, null, null,
-                      false, false, atomicOperation), false)
-              .map(RawPair::first)
-      );
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new CellBTreeSingleValueV3Exception(
-              "Error during iteration of sbtree with name " + getName(), this),
-          e, storage.getName());
-    }
+    return atomicOperationsManager.readUnderLock(this, () ->
+        StreamSupport.stream(
+                new SpliteratorForward<>(this, null, null,
+                    false, false, atomicOperation), false)
+            .map(RawPair::first)
+    );
   }
 
   @Override
   public Stream<RawPair<K, RID>> allEntries(AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () ->
-          StreamSupport.stream(
-              new SpliteratorForward<>(this, null, null, false,
-                  false, atomicOperation), false)
-      );
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new CellBTreeSingleValueV3Exception(
-              "Error during iteration of sbtree with name " + getName(), this),
-          e, storage.getName());
-    }
+    return atomicOperationsManager.readUnderLock(this, () ->
+        StreamSupport.stream(
+            new SpliteratorForward<>(this, null, null, false,
+                false, atomicOperation), false)
+    );
   }
 
   @Override
@@ -1091,24 +1063,17 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       final K keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        } else {
-          return StreamSupport.stream(
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        }
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new CellBTreeSingleValueV3Exception(
-              "Error during iteration of sbtree with name " + getName(), this),
-          e, storage.getName());
-    }
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
+      } else {
+        return StreamSupport.stream(
+            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
+      }
+    });
   }
 
   /**

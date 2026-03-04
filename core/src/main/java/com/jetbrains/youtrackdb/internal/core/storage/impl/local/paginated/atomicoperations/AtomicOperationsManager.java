@@ -357,6 +357,49 @@ public class AtomicOperationsManager {
     }
   }
 
+  /**
+   * Non-throwing variant of {@link #executeReadOperation(DurableComponent, Callable)} for
+   * lambdas that never throw checked exceptions. Eliminates dead-code catch blocks at call
+   * sites where the Callable signature forces an IOException declaration but the lambda
+   * body only throws unchecked exceptions.
+   *
+   * <p><b>Important:</b> This method mirrors the optimistic-read protocol in
+   * {@link #executeReadOperation(DurableComponent, Callable)}. Any changes to the
+   * lock acquisition logic must be applied to both methods.
+   */
+  public <T> T readUnderLock(
+      DurableComponent component, Supplier<T> action) {
+    if (component.isExclusiveOwner()) {
+      return action.get();
+    }
+
+    var lock = component.stampedLock;
+
+    // Attempt 1: optimistic read (no CAS)
+    long stamp = lock.tryOptimisticRead();
+    if (stamp != 0) {
+      try {
+        T result = action.get();
+        if (lock.validate(stamp)) {
+          return result;
+        }
+      } catch (RuntimeException e) {
+        if (lock.validate(stamp)) {
+          throw e;
+        }
+        // Concurrent modification caused the exception — fall through to retry.
+      }
+    }
+
+    // Attempt 2: blocking read lock
+    stamp = lock.readLock();
+    try {
+      return action.get();
+    } finally {
+      lock.unlockRead(stamp);
+    }
+  }
+
   private static void throwAsIOOrRuntime(Exception e) throws IOException {
     if (e instanceof IOException ioe) {
       throw ioe;

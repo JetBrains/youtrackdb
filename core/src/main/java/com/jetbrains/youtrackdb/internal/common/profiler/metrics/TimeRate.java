@@ -69,15 +69,6 @@ public interface TimeRate extends Metric<Double> {
     private final Meter meter;
     private final BigDecimal resolution;
 
-    public Impl(
-        Ticker ticker,
-        long flushRateTicks,
-        long periodTicks,
-        TimeUnit resolution
-    ) {
-      this(ticker, flushRateTicks, periodTicks, resolution, Meter.DEFAULT_TICK_CHECK_INTERVAL);
-    }
-
     Impl(
         Ticker ticker,
         long flushRateTicks,

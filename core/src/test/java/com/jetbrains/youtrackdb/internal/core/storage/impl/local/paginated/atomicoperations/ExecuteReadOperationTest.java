@@ -9,6 +9,8 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -827,7 +829,240 @@ public class ExecuteReadOperationTest extends DbTestBase {
     session.commit();
   }
 
-  // ========= Test (o): Multiple components in same operation ==================
+  // ========= Test (o0): readUnderLock (Supplier variant) ======================
+
+  /**
+   * Verifies that the Supplier-based readUnderLock follows the same optimistic/blocking
+   * path as executeReadOperation but without requiring IOException handling.
+   */
+  @Test
+  public void testReadUnderLock_noContention() {
+    var component = fakeComponent("readUnderLock_basic");
+    var result = manager().readUnderLock(component, () -> "supplier_result");
+    assertEquals("supplier_result", result);
+  }
+
+  /**
+   * Verifies that readUnderLock takes the exclusive-owner fast path when the thread
+   * holds the write lock.
+   */
+  @Test
+  public void testReadUnderLock_exclusiveOwnerFastPath() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("readUnderLock_excl");
+
+    var operation = mgr.startAtomicOperation();
+    try {
+      mgr.acquireExclusiveLockTillOperationComplete(operation, component);
+      var result = mgr.readUnderLock(component, () -> "from_exclusive");
+      assertEquals("from_exclusive", result);
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+  }
+
+  /**
+   * Verifies that readUnderLock falls back to blocking read lock when the optimistic
+   * read is invalidated by a concurrent writer.
+   */
+  @Test
+  public void testReadUnderLock_writerContention() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("readUnderLock_contention");
+    var lock = component.stampedLock;
+
+    var writerReady = new CountDownLatch(1);
+    var releaseWriter = new CountDownLatch(1);
+    var readerResult = new AtomicReference<String>();
+
+    var writerThread = new Thread(() -> {
+      long stamp = lock.writeLock();
+      writerReady.countDown();
+      try {
+        releaseWriter.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      lock.unlockWrite(stamp);
+    });
+    writerThread.start();
+    assertTrue("Writer should acquire lock", writerReady.await(5, TimeUnit.SECONDS));
+
+    var readerThread = new Thread(() -> {
+      readerResult.set(mgr.readUnderLock(component, () -> "after_contention"));
+    });
+    readerThread.start();
+
+    Thread.sleep(100);
+    releaseWriter.countDown();
+    readerThread.join(5000);
+    writerThread.join(5000);
+
+    assertEquals("after_contention", readerResult.get());
+  }
+
+  // ========= Test (o1): Exception in exclusive-owner fast path ================
+
+  /**
+   * When the action throws an IOException inside the exclusive-owner fast path
+   * (isExclusiveOwner() is true), the exception should be propagated via
+   * throwAsIOOrRuntime.
+   */
+  @Test
+  public void testExceptionInExclusiveOwnerFastPath_IOException() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("excl_owner_ioex");
+
+    var operation = mgr.startAtomicOperation();
+    try {
+      mgr.acquireExclusiveLockTillOperationComplete(operation, component);
+
+      try {
+        mgr.executeReadOperation(component, () -> {
+          throw new IOException("error inside exclusive owner");
+        });
+        fail("Expected IOException");
+      } catch (IOException e) {
+        assertEquals("error inside exclusive owner", e.getMessage());
+      }
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+  }
+
+  /**
+   * When the action throws a RuntimeException inside the exclusive-owner fast path,
+   * it should be propagated directly.
+   */
+  @Test
+  public void testExceptionInExclusiveOwnerFastPath_RuntimeException() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("excl_owner_rtex");
+
+    var operation = mgr.startAtomicOperation();
+    try {
+      mgr.acquireExclusiveLockTillOperationComplete(operation, component);
+
+      try {
+        mgr.executeReadOperation(component, () -> {
+          throw new IllegalArgumentException("runtime error in exclusive owner");
+        });
+        fail("Expected IllegalArgumentException");
+      } catch (IllegalArgumentException e) {
+        assertEquals("runtime error in exclusive owner", e.getMessage());
+      }
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+  }
+
+  // ========= Test (o2): Exception in blocking read lock path =================
+
+  /**
+   * When the optimistic read fails (writer holds lock) and the action throws
+   * during the blocking read lock retry, the exception should be propagated.
+   */
+  @Test
+  public void testExceptionInBlockingReadLock_IOException() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("blocking_ioex");
+    var lock = component.stampedLock;
+
+    // Hold write lock to force optimistic read failure (stamp = 0),
+    // then release before the blocking readLock attempt
+    var writerReady = new CountDownLatch(1);
+    var releaseWriter = new CountDownLatch(1);
+    var exceptionRef = new AtomicReference<Exception>();
+
+    var writerThread = new Thread(() -> {
+      long stamp = lock.writeLock();
+      writerReady.countDown();
+      try {
+        releaseWriter.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      lock.unlockWrite(stamp);
+    });
+    writerThread.start();
+    assertTrue("Writer should acquire lock", writerReady.await(5, TimeUnit.SECONDS));
+
+    // Reader attempts executeReadOperation — will skip optimistic (stamp=0),
+    // then block on readLock until writer releases
+    var readerThread = new Thread(() -> {
+      try {
+        mgr.executeReadOperation(component, () -> {
+          throw new IOException("error in blocking read");
+        });
+      } catch (Exception e) {
+        exceptionRef.set(e);
+      }
+    });
+    readerThread.start();
+
+    // Let the reader block, then release writer so reader acquires readLock
+    Thread.sleep(100);
+    releaseWriter.countDown();
+    readerThread.join(5000);
+    writerThread.join(5000);
+
+    assertNotNull("Exception should be captured", exceptionRef.get());
+    assertTrue("Should be IOException",
+        exceptionRef.get() instanceof IOException);
+    assertEquals("error in blocking read", exceptionRef.get().getMessage());
+  }
+
+  // ========= Test (o3): Checked exception wrapping in throwAsIOOrRuntime =====
+
+  /**
+   * When the action throws a checked exception that is neither IOException nor
+   * RuntimeException, throwAsIOOrRuntime should wrap it in IOException.
+   */
+  @Test
+  public void testCheckedExceptionWrappedInIOException() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("checked_wrap");
+
+    try {
+      mgr.executeReadOperation(component, () -> {
+        throw new Exception("generic checked exception");
+      });
+      fail("Expected IOException wrapping the checked exception");
+    } catch (IOException e) {
+      assertNotNull("Should have a cause", e.getCause());
+      assertEquals("generic checked exception", e.getCause().getMessage());
+    }
+  }
+
+  // ========= Test (o4): executeInsideComponentOperation error path ===========
+
+  /**
+   * When the consumer throws a RuntimeException inside executeInsideComponentOperation,
+   * it should be wrapped in CommonDurableComponentException.
+   */
+  @Test
+  public void testExecuteInsideComponentOperation_exceptionWrapping() throws Exception {
+    var mgr = manager();
+    var component = fakeComponent("comp_op_err");
+
+    var operation = mgr.startAtomicOperation();
+    try {
+      try {
+        mgr.executeInsideComponentOperation(operation, component, op -> {
+          throw new RuntimeException("simulated component error");
+        });
+        fail("Expected exception");
+      } catch (Exception e) {
+        // The exception should be wrapped
+        assertTrue("Should contain component name in message",
+            e.getMessage().contains(component.getLockName()));
+      }
+    } finally {
+      mgr.ensureThatComponentsUnlocked(operation);
+    }
+  }
+
+  // ========= Test (o5): Multiple components in same operation ==================
 
   /**
    * Verifies that an atomic operation can lock multiple components and release
@@ -860,6 +1095,91 @@ public class ExecuteReadOperationTest extends DbTestBase {
     for (var comp : components) {
       long stamp = comp.stampedLock.tryOptimisticRead();
       assertTrue("Lock should be released on " + comp.getLockName(), stamp != 0);
+    }
+  }
+
+  // ========= Test (p): PaginatedCollectionV2 read methods ====================
+
+  /**
+   * Exercises PaginatedCollectionV2 read methods that go through executeReadOperation
+   * and readUnderLock: exists, getPhysicalPosition, getFirstPosition, getLastPosition,
+   * lowerPositions, floorPositions, getFileName, synch. This ensures the per-component
+   * lock paths are covered for collection operations.
+   */
+  @Test
+  public void testCollectionReadMethodsCoverage() throws Exception {
+    var storage = session.getStorage();
+    var mgr = manager();
+
+    // Create a standalone PaginatedCollectionV2
+    var collection = new PaginatedCollectionV2("coverageTestColl", storage);
+    collection.configure(99, "coverageTestColl");
+    mgr.executeInsideAtomicOperation(op -> collection.create(op));
+
+    try {
+      // Insert a few records
+      var data = new byte[]{1, 2, 3, 4, 5};
+      var pos = mgr.calculateInsideAtomicOperation(
+          op -> collection.createRecord(data, (byte) 1, null, op));
+      var pos2 = mgr.calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[]{6, 7, 8}, (byte) 1, null, op));
+
+      // exists(AtomicOperation) — exercises readUnderLock path
+      var exists = mgr.calculateInsideAtomicOperation(op -> collection.exists(op));
+      assertTrue("Collection should exist", exists);
+
+      // getFirstPosition / getLastPosition
+      var firstPos = mgr.calculateInsideAtomicOperation(
+          op -> collection.getFirstPosition(op));
+      assertTrue("First position should be >= 0", firstPos >= 0);
+
+      var lastPos = mgr.calculateInsideAtomicOperation(
+          op -> collection.getLastPosition(op));
+      assertTrue("Last position should be >= first", lastPos >= firstPos);
+
+      // getPhysicalPosition — with an existing record
+      var physPos = new PhysicalPosition(pos.collectionPosition);
+      var result = mgr.calculateInsideAtomicOperation(
+          op -> collection.getPhysicalPosition(physPos, op));
+      assertNotNull("Physical position should be found for existing record", result);
+
+      // getPhysicalPosition — with a non-existent position (null positionEntry path)
+      var noPos = new PhysicalPosition(lastPos + 10000);
+      var nullResult = mgr.calculateInsideAtomicOperation(
+          op -> collection.getPhysicalPosition(noPos, op));
+      //noinspection SimplifiableAssertion
+      assertTrue("Should be null for non-existent record", nullResult == null);
+
+      // exists(long, AtomicOperation) — existing record
+      var recordExists = mgr.calculateInsideAtomicOperation(
+          op -> collection.exists(pos.collectionPosition, op));
+      assertTrue("Record should exist", recordExists);
+
+      // exists(long, AtomicOperation) — non-existent record
+      var recordNotExists = mgr.calculateInsideAtomicOperation(
+          op -> collection.exists(lastPos + 10000, op));
+      assertFalse("Non-existent record should not exist", recordNotExists);
+
+      // lowerPositions — from the last position
+      var lowerPos = new PhysicalPosition(lastPos);
+      var lowerResults = mgr.calculateInsideAtomicOperation(
+          op -> collection.lowerPositions(lowerPos, 10, op));
+      assertNotNull("Lower positions should not be null", lowerResults);
+
+      // floorPositions
+      var floorResults = mgr.calculateInsideAtomicOperation(
+          op -> collection.floorPositions(lowerPos, 10, op));
+      assertNotNull("Floor positions should not be null", floorResults);
+
+      // getFileName — exercises readUnderLock path
+      var fileName = collection.getFileName();
+      assertNotNull("File name should not be null", fileName);
+
+      // synch — exercises readUnderLock path
+      collection.synch();
+    } finally {
+      // Clean up
+      mgr.executeInsideAtomicOperation(op -> collection.delete(op));
     }
   }
 }

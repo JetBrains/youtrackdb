@@ -788,42 +788,28 @@ public final class SharedLinkBagBTree extends DurableComponent {
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (!ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-        }
-
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (!ascSortOrder) {
         return StreamSupport.stream(
-            iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(storage.getName(),
-              "Error during iteration of rid bag with name " + getName()),
-          e, storage.getName());
-    }
+            iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+      }
+
+      return StreamSupport.stream(
+          iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+    });
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-        }
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
         return StreamSupport.stream(
-            iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(storage.getName(),
-              "Error during iteration of rid bag with name " + getName()),
-          e, storage.getName());
-    }
+            iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+      }
+      return StreamSupport.stream(
+          iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+    });
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> streamEntriesBetween(
@@ -832,24 +818,17 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        } else {
-          return StreamSupport.stream(
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation), false);
-        }
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(storage.getName(),
-              "Error during iteration of rid bag with name " + getName()),
-          e, storage.getName());
-    }
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return StreamSupport.stream(
+            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
+      } else {
+        return StreamSupport.stream(
+            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation), false);
+      }
+    });
   }
 
   public Spliterator<RawPair<EdgeKey, LinkBagValue>> spliteratorEntriesBetween(
@@ -858,24 +837,17 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        if (ascSortOrder) {
-          return
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-        } else {
-          return
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-        }
-      });
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(storage.getName(),
-              "Error during iteration of rid bag with name " + getName()),
-          e, storage.getName());
-    }
+    return atomicOperationsManager.readUnderLock(this, () -> {
+      if (ascSortOrder) {
+        return
+            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation);
+      } else {
+        return
+            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                atomicOperation);
+      }
+    });
   }
 
   private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinorDesc(

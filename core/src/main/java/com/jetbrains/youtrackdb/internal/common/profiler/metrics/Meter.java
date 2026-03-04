@@ -66,18 +66,6 @@ class Meter {
       ThreadLocal.withInitial(ThreadLocalMeter::new);
 
   /**
-   * Creates a new meter with the default tick check interval.
-   */
-  Meter(
-      Ticker ticker,
-      Mode mode,
-      long flushRateTicks,
-      long periodTicks
-  ) {
-    this(ticker, mode, flushRateTicks, periodTicks, DEFAULT_TICK_CHECK_INTERVAL);
-  }
-
-  /**
    * Creates a new meter.
    *
    * @param ticker             Ticker to use for time measurements.
