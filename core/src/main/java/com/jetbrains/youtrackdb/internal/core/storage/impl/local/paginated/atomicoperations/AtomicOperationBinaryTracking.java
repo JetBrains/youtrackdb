@@ -79,7 +79,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private final Set<String> lockedObjects = new HashSet<>();
   private final ArrayList<DurableComponent> lockedComponents = new ArrayList<>();
-  private final ArrayList<String> lockedSyntheticNames = new ArrayList<>();
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
@@ -692,16 +691,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public Iterable<DurableComponent> lockedComponents() {
     return lockedComponents;
-  }
-
-  @Override
-  public void addLockedSyntheticName(String lockName) {
-    lockedSyntheticNames.add(lockName);
-  }
-
-  @Override
-  public Iterable<String> lockedSyntheticNames() {
-    return lockedSyntheticNames;
   }
 
   // --- Snapshot / Visibility index proxy methods ---

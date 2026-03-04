@@ -73,12 +73,6 @@ public interface AtomicOperation {
   /** Returns the DurableComponents locked by this operation. */
   Iterable<DurableComponent> lockedComponents();
 
-  /** Tracks a synthetic lock name (no DurableComponent backing). */
-  void addLockedSyntheticName(String lockName);
-
-  /** Returns the synthetic lock names locked by this operation. */
-  Iterable<String> lockedSyntheticNames();
-
   void addDeletedRecordPosition(final int collectionId, final int pageIndex,
       final int recordPosition);
 

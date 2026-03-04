@@ -292,30 +292,6 @@ public class ExecuteReadOperationTest extends DbTestBase {
     }
   }
 
-  // ==================== Test (g): Synthetic lock for link bags ====================
-
-  /**
-   * Verifies that string-only locks (synthetic link bag locks) work correctly
-   * without a DurableComponent backing.
-   */
-  @Test
-  public void testSyntheticLock_noComponent() throws Exception {
-    var mgr = manager();
-    var operation = mgr.startAtomicOperation();
-    try {
-      String syntheticName = "l_42.idbag";
-
-      // Should not throw — acquires a synthetic StampedLock
-      mgr.acquireExclusiveLockTillOperationComplete(operation, syntheticName);
-      assertTrue(operation.containsInLockedObjects(syntheticName));
-
-      // Second acquisition of same name should be a no-op (idempotent)
-      mgr.acquireExclusiveLockTillOperationComplete(operation, syntheticName);
-    } finally {
-      mgr.ensureThatComponentsUnlocked(operation);
-    }
-  }
-
   // ==================== Test (h): Concurrent readers and writers stress test =========
 
   @Test

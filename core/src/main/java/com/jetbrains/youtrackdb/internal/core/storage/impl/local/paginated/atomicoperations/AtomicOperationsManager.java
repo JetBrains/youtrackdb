@@ -37,9 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -50,8 +48,6 @@ import javax.annotation.Nullable;
  * <p>Write locks are acquired directly on each {@link DurableComponent}'s
  * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract#stampedLock
  * stampedLock}, giving per-component granularity with zero map lookups on the read path.
- * Synthetic (non-component) locks — used only by link bag ordering — are stored in a small
- * {@link ConcurrentHashMap}.
  *
  * @since 12/3/13
  */
@@ -61,11 +57,6 @@ public class AtomicOperationsManager {
 
   @Nonnull
   private final WriteAheadLog writeAheadLog;
-
-  // Small map for synthetic locks that have no DurableComponent backing
-  // (currently only link bag ordering locks from AbstractStorage.lockLinkBags).
-  private final ConcurrentHashMap<String, StampedLock> syntheticLocks =
-      new ConcurrentHashMap<>();
 
   private final ReadCache readCache;
   private final WriteCache writeCache;
@@ -180,28 +171,6 @@ public class AtomicOperationsManager {
     }
   }
 
-  public void executeInsideComponentOperation(
-      final AtomicOperation atomicOperation, final String lockName, final TxConsumer consumer) {
-    Objects.requireNonNull(atomicOperation);
-    acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
-    try {
-      consumer.accept(atomicOperation);
-    } catch (Exception e) {
-      if (e instanceof CoreException coreException) {
-        coreException.setComponentName(lockName);
-        coreException.setDbName(storage.getName());
-      }
-
-      throw BaseException.wrapException(
-          new CommonDurableComponentException(
-              "Exception during execution of component operation inside component "
-                  + lockName
-                  + " in storage "
-                  + storage.getName(), lockName, storage.getName()),
-          e, storage.getName());
-    }
-  }
-
   public <T> T calculateInsideComponentOperation(
       final AtomicOperation atomicOperation,
       final DurableComponent component,
@@ -220,24 +189,6 @@ public class AtomicOperationsManager {
           e, storage.getName());
     }
   }
-
-  public <T> T calculateInsideComponentOperation(
-      final AtomicOperation atomicOperation, final String lockName, final TxFunction<T> function) {
-    Objects.requireNonNull(atomicOperation);
-    acquireExclusiveLockTillOperationComplete(atomicOperation, lockName);
-    try {
-      return function.accept(atomicOperation);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new CommonDurableComponentException(
-              "Exception during execution of component operation inside component "
-                  + lockName
-                  + " in storage "
-                  + storage.getName(), lockName, storage.getName()),
-          e, storage.getName());
-    }
-  }
-
 
   public long freezeWriteOperations(@Nullable Supplier<? extends BaseException> throwException) {
     return writeOperationsFreezer.freezeOperations(throwException);
@@ -302,19 +253,6 @@ public class AtomicOperationsManager {
       compIter.remove();
     }
 
-    // Release synthetic locks (link bag ordering).
-    // Guard with isWriteLocked() for defense-in-depth, matching the component
-    // path's isExclusiveOwner() guard.
-    var synthIter = operation.lockedSyntheticNames().iterator();
-    while (synthIter.hasNext()) {
-      String lockName = synthIter.next();
-      synthIter.remove();
-      var lock = syntheticLocks.get(lockName);
-      if (lock != null && lock.isWriteLocked()) {
-        lock.asWriteLock().unlock();
-      }
-    }
-
     // Clear the combined dedup set
     var nameIter = operation.lockedObjects().iterator();
     while (nameIter.hasNext()) {
@@ -341,28 +279,6 @@ public class AtomicOperationsManager {
     component.lockExclusive();
     operation.addLockedComponent(component);
     operation.addLockedObject(component.getLockName());
-  }
-
-  /**
-   * Acquires a synthetic exclusive lock by name. Used for lock names that have no
-   * DurableComponent backing (e.g., link bag ordering locks from
-   * {@code AbstractStorage.lockLinkBags}). For DurableComponent-backed locks,
-   * prefer the {@link #acquireExclusiveLockTillOperationComplete(AtomicOperation,
-   * DurableComponent)} overload which uses the component's own StampedLock directly.
-   */
-  public void acquireExclusiveLockTillOperationComplete(
-      AtomicOperation operation, String lockName) {
-    storage.checkErrorState();
-
-    if (operation.containsInLockedObjects(lockName)) {
-      return;
-    }
-
-    // Synthetic lock path — only for link bag ordering locks
-    var lock = syntheticLocks.computeIfAbsent(lockName, k -> new StampedLock());
-    lock.asWriteLock().lock();
-    operation.addLockedObject(lockName);
-    operation.addLockedSyntheticName(lockName);
   }
 
   /**
