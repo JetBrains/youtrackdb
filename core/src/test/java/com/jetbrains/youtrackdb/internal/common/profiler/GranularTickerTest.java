@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.profiler;
 
-
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.Executors;
@@ -70,6 +69,50 @@ public class GranularTickerTest {
       // stop() without start() — the scheduled futures are null, so nothing to cancel.
       ticker.stop();
       // No exception means success.
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /**
+   * After starting and then stopping, the ticker's scheduled futures are cancelled and the
+   * approximate time no longer advances.
+   */
+  @Test
+  public void startThenStopFreezesTime() throws Exception {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try {
+      var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(5),
+          TimeUnit.MILLISECONDS.toNanos(50), scheduler);
+      ticker.start();
+      // Let a few ticks elapse so the ticker is actively updating.
+      Thread.sleep(50);
+      assertThat(ticker.approximateNanoTime()).isGreaterThan(0);
+
+      ticker.stop();
+      // After stop, the approximate nano time should no longer advance.
+      var frozenTime = ticker.approximateNanoTime();
+      Thread.sleep(50);
+      assertThat(ticker.approximateNanoTime()).isEqualTo(frozenTime);
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /** close() delegates to stop(), behaving identically. */
+  @Test
+  public void closeAfterStartCancelsFutures() throws Exception {
+    var scheduler = Executors.newScheduledThreadPool(1);
+    try {
+      var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(5),
+          TimeUnit.MILLISECONDS.toNanos(50), scheduler);
+      ticker.start();
+      Thread.sleep(30);
+      ticker.close();
+
+      var frozenTime = ticker.approximateNanoTime();
+      Thread.sleep(30);
+      assertThat(ticker.approximateNanoTime()).isEqualTo(frozenTime);
     } finally {
       scheduler.shutdownNow();
     }

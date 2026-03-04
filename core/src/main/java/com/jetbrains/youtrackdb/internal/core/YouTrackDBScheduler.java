@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 
 public final class YouTrackDBScheduler {
 
@@ -17,6 +18,7 @@ public final class YouTrackDBScheduler {
     active = false;
   }
 
+  @Nullable
   public ScheduledFuture<?> scheduleTask(final Runnable task, final long delay,
       final long period) {
     // Wrap task to catch throwables and keep periodic tasks alive.

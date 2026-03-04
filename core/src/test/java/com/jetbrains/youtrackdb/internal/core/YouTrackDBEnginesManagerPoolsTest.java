@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -143,6 +144,28 @@ public class YouTrackDBEnginesManagerPoolsTest {
     assertThat(result).isNull();
   }
 
+  /** When IO pool is enabled, createIoExecutor creates a pool and returns it idempotently. */
+  @Test
+  public void createIoExecutorReturnsPoolWhenEnabled() throws Exception {
+    var config = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED, true)
+        .build();
+
+    var manager = YouTrackDBEnginesManager.instance();
+    ExecutorService first = manager.createIoExecutor(config);
+    assertThat(first).isNotNull();
+    assertThat(first.isShutdown()).isFalse();
+
+    // Subsequent calls return the same instance.
+    assertThat(manager.createIoExecutor(config)).isSameAs(first);
+    assertThat(manager.getIoExecutor()).isSameAs(first);
+
+    // The pool should accept tasks.
+    var latch = new CountDownLatch(1);
+    first.execute(latch::countDown);
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+  }
+
   // -- executorMaxSize / executorBaseSize helpers ---------------------------
 
   @Test
@@ -205,7 +228,7 @@ public class YouTrackDBEnginesManagerPoolsTest {
   /** Normal case: executor terminates within timeout. */
   @Test
   public void shutdownExecutorTerminatesGracefully() throws Exception {
-    var exec = java.util.concurrent.Executors.newSingleThreadExecutor();
+    var exec = Executors.newSingleThreadExecutor();
     // Submit a quick task so the executor has something to do.
     exec.submit(() -> {});
     YouTrackDBEnginesManager.shutdownExecutor(exec, "test", 5, TimeUnit.SECONDS);
@@ -215,7 +238,7 @@ public class YouTrackDBEnginesManagerPoolsTest {
   /** When executor does not terminate within timeout, shutdownNow() is called. */
   @Test
   public void shutdownExecutorForcesTerminationOnTimeout() throws Exception {
-    var exec = java.util.concurrent.Executors.newSingleThreadExecutor();
+    var exec = Executors.newSingleThreadExecutor();
     // Submit a task that blocks for a long time.
     var started = new CountDownLatch(1);
     exec.submit(() -> {
@@ -232,6 +255,34 @@ public class YouTrackDBEnginesManagerPoolsTest {
     // With a very short timeout, awaitTermination returns false → shutdownNow() is called.
     YouTrackDBEnginesManager.shutdownExecutor(exec, "test", 1, TimeUnit.MILLISECONDS);
     assertThat(exec.isShutdown()).isTrue();
+  }
+
+  /**
+   * When the calling thread is interrupted during awaitTermination, shutdownNow() is called
+   * and the interrupt flag is restored.
+   */
+  @Test
+  public void shutdownExecutorHandlesInterruption() throws Exception {
+    var exec = Executors.newSingleThreadExecutor();
+    var started = new CountDownLatch(1);
+    exec.submit(() -> {
+      started.countDown();
+      try {
+        Thread.sleep(60_000);
+      } catch (InterruptedException e) {
+        // Expected — shutdownNow() will interrupt this.
+      }
+      return null;
+    });
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // Pre-interrupt the calling thread so awaitTermination throws immediately.
+    Thread.currentThread().interrupt();
+    YouTrackDBEnginesManager.shutdownExecutor(exec, "test", 30, TimeUnit.SECONDS);
+
+    assertThat(exec.isShutdown()).isTrue();
+    // The interrupt flag should have been restored by the catch block.
+    assertThat(Thread.interrupted()).isTrue();
   }
 
   /** Passing null executor is a safe no-op. */

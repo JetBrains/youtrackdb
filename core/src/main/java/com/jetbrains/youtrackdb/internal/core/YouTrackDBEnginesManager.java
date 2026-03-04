@@ -667,29 +667,21 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * {@link YouTrackDBInternalEmbedded} during its construction. Subsequent calls return the
    * already-created executor.
    */
-  public ExecutorService createExecutor(YouTrackDBConfigImpl config) {
-    var result = executor;
-    if (result != null) {
-      return result;
+  public synchronized ExecutorService createExecutor(YouTrackDBConfigImpl config) {
+    if (executor != null) {
+      return executor;
     }
 
-    synchronized (this) {
-      result = executor;
-      if (result != null) {
-        return result;
-      }
-
-      var maxSize = executorMaxSize(config, GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
-      result = ThreadPoolExecutors.newScalingThreadPool(
-          "YouTrackDBEmbedded", threadGroup, 1, executorBaseSize(maxSize),
-          maxSize, 30, TimeUnit.MINUTES);
-      if (config.getConfiguration()
-          .getValueAsBoolean(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
-        result = new SourceTraceExecutorService(result);
-      }
-      executor = result;
-      return result;
+    var maxSize = executorMaxSize(config, GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
+    var result = ThreadPoolExecutors.newScalingThreadPool(
+        "YouTrackDBEmbedded", threadGroup, 1, executorBaseSize(maxSize),
+        maxSize, 30, TimeUnit.MINUTES);
+    if (config.getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
+      result = new SourceTraceExecutorService(result);
     }
+    executor = result;
+    return result;
   }
 
   /**
@@ -698,34 +690,26 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * disabled in configuration.
    */
   @Nullable
-  public ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
+  public synchronized ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
     if (!config.getConfiguration()
         .getValueAsBoolean(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED)) {
       return null;
     }
 
-    var result = ioExecutor;
-    if (result != null) {
-      return result;
+    if (ioExecutor != null) {
+      return ioExecutor;
     }
 
-    synchronized (this) {
-      result = ioExecutor;
-      if (result != null) {
-        return result;
-      }
-
-      var ioSize = executorMaxSize(config, GlobalConfiguration.EXECUTOR_POOL_IO_MAX_SIZE);
-      result = ThreadPoolExecutors.newScalingThreadPool(
-          "YouTrackDB-IO", threadGroup, 1, executorBaseSize(ioSize),
-          ioSize, 30, TimeUnit.MINUTES);
-      if (config.getConfiguration()
-          .getValueAsBoolean(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
-        result = new SourceTraceExecutorService(result);
-      }
-      ioExecutor = result;
-      return result;
+    var ioSize = executorMaxSize(config, GlobalConfiguration.EXECUTOR_POOL_IO_MAX_SIZE);
+    var result = ThreadPoolExecutors.newScalingThreadPool(
+        "YouTrackDB-IO", threadGroup, 1, executorBaseSize(ioSize),
+        ioSize, 30, TimeUnit.MINUTES);
+    if (config.getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.EXECUTOR_DEBUG_TRACE_SOURCE)) {
+      result = new SourceTraceExecutorService(result);
     }
+    ioExecutor = result;
+    return result;
   }
 
   static int executorMaxSize(YouTrackDBConfigImpl config, GlobalConfiguration param) {
