@@ -236,9 +236,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public void put(final AtomicOperation atomicOperation,
+  public boolean put(final AtomicOperation atomicOperation,
       final K key, final RID value) {
-    update(atomicOperation, key, value, null);
+    return update(atomicOperation, key, value, null);
   }
 
   @Override
@@ -334,13 +334,14 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               int insertionIndex;
               final int sizeDiff;
               if (bucketSearchResult.getItemIndex() >= 0) {
+                // Key already exists — this is an update, not an insert.
                 assert oldRawValue != null;
 
                 if (oldRawValue.length == serializedValue.length) {
                   keyBucket.updateValue(
                       bucketSearchResult.getItemIndex(), serializedValue, serializedKey.length);
                   keyBucketCacheEntry.close();
-                  return true;
+                  return false; // update, not insert
                 } else {
                   keyBucket.removeLeafEntry(bucketSearchResult.getItemIndex(), serializedKey);
                   insertionIndex = bucketSearchResult.getItemIndex();
@@ -380,6 +381,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               if (sizeDiff != 0) {
                 updateSize(sizeDiff, atomicOperation);
               }
+              // sizeDiff == 1 means a new key was inserted;
+              // sizeDiff == 0 means a value was updated (remove + re-insert).
+              return sizeDiff > 0;
             } else {
               var sizeDiff = 0;
               final RID oldValue;
@@ -403,8 +407,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               }
               sizeDiff++;
               updateSize(sizeDiff, atomicOperation);
+              // sizeDiff == 1 means null key is new; 0 means null key updated.
+              return sizeDiff > 0;
             }
-            return true;
           } finally {
             releaseExclusiveLock();
           }

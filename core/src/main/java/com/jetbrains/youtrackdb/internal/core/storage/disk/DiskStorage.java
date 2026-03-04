@@ -44,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidStorageEncryption
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -220,6 +221,7 @@ public class DiskStorage extends AbstractStorage {
       CollectionBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
       BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
       BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
+      IndexHistogramManager.IXS_EXTENSION,
       DoubleWriteLogGL.EXTENSION,
       FreeSpaceMap.DEF_EXTENSION
   };
