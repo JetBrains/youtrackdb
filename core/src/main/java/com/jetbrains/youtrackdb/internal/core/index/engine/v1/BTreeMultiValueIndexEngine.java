@@ -114,6 +114,10 @@ public final class BTreeMultiValueIndexEngine
       doClearSVTree(atomicOperation);
       svTree.delete(atomicOperation);
       nullTree.delete(atomicOperation);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.deleteStatsFile(atomicOperation);
+      }
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during deletion of index " + name), e,
@@ -182,10 +186,11 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public boolean remove(final AtomicOperation atomicOperation, Object key, RID value) {
     try {
+      boolean removed;
       if (key != null) {
         final var compositeKey = createCompositeKey(key, value);
 
-        final var removed = new boolean[1];
+        final var removedArr = new boolean[1];
         try (var stream =
             svTree.iterateEntriesBetween(compositeKey, true, compositeKey,
                 true, true, atomicOperation)) {
@@ -193,7 +198,7 @@ public final class BTreeMultiValueIndexEngine
               (pair) -> {
                 try {
                   final var result = svTree.remove(atomicOperation, pair.first()) != null;
-                  removed[0] = result || removed[0];
+                  removedArr[0] = result || removedArr[0];
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
                       new IndexException(storage.getName(),
@@ -203,10 +208,17 @@ public final class BTreeMultiValueIndexEngine
               });
         }
 
-        return removed[0];
+        removed = removedArr[0];
       } else {
-        return nullTree.remove(atomicOperation, value) != null;
+        removed = nullTree.remove(atomicOperation, value) != null;
       }
+      if (removed) {
+        var mgr = histogramManager;
+        if (mgr != null) {
+          mgr.onRemove(atomicOperation, key, false);
+        }
+      }
+      return removed;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -223,12 +235,27 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public void clear(Storage storage, AtomicOperation atomicOperation) {
     doClearSVTree(atomicOperation);
+    var mgr = histogramManager;
+    if (mgr != null) {
+      try {
+        mgr.resetOnClear(atomicOperation);
+      } catch (IOException e) {
+        throw BaseException.wrapException(
+            new IndexException(storage.getName(),
+                "Error during histogram reset on clear of index " + name),
+            e, storage.getName());
+      }
+    }
   }
 
   @Override
   public void close() {
     svTree.close();
     nullTree.close();
+    var mgr = histogramManager;
+    if (mgr != null) {
+      mgr.closeStatsFile();
+    }
   }
 
   @Override
@@ -289,7 +316,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void put(AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean put(AtomicOperation atomicOperation, Object key, RID value) {
     if (key != null) {
       try {
         svTree.put(atomicOperation, createCompositeKey(key, value), value);
@@ -309,6 +336,12 @@ public final class BTreeMultiValueIndexEngine
             e, storage.getName());
       }
     }
+    // wasInsert is always true for multi-value: each (key, RID) composite is unique.
+    var mgr = histogramManager;
+    if (mgr != null) {
+      mgr.onPut(atomicOperation, key, false, true);
+    }
+    return true;
   }
 
   @Override
@@ -433,6 +466,7 @@ public final class BTreeMultiValueIndexEngine
     this.histogramManager = histogramManager;
   }
 
+  @Override
   @Nullable
   public IndexHistogramManager getHistogramManager() {
     return histogramManager;

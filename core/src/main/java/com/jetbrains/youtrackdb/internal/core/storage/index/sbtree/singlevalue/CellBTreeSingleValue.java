@@ -23,7 +23,7 @@ public interface CellBTreeSingleValue<K> {
   @Nullable
   RID get(K key, @Nonnull AtomicOperation atomicOperation);
 
-  void put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
+  boolean put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
   boolean validatedPut(
       AtomicOperation atomicOperation, K key, RID value,
