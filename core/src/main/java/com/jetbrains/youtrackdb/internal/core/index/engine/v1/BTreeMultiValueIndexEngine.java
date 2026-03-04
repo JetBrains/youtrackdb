@@ -10,7 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
@@ -43,6 +46,8 @@ public final class BTreeMultiValueIndexEngine
   private final int id;
   private final String nullTreeName;
   private final AbstractStorage storage;
+  @Nullable
+  private volatile IndexHistogramManager histogramManager;
 
   public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractStorage storage, final int version) {
@@ -418,5 +423,32 @@ public final class BTreeMultiValueIndexEngine
       key = new CompositeKey(keys.subList(0, keys.size() - 1));
     }
     return key;
+  }
+
+  /**
+   * Sets the histogram manager for this engine. Called during engine
+   * lifecycle (create/load) once the manager is initialized.
+   */
+  public void setHistogramManager(@Nullable IndexHistogramManager histogramManager) {
+    this.histogramManager = histogramManager;
+  }
+
+  @Nullable
+  public IndexHistogramManager getHistogramManager() {
+    return histogramManager;
+  }
+
+  @Nullable
+  @Override
+  public IndexStatistics getStatistics() {
+    var mgr = histogramManager;
+    return mgr != null ? mgr.getStatistics() : null;
+  }
+
+  @Nullable
+  @Override
+  public EquiDepthHistogram getHistogram() {
+    var mgr = histogramManager;
+    return mgr != null ? mgr.getHistogram() : null;
   }
 }
