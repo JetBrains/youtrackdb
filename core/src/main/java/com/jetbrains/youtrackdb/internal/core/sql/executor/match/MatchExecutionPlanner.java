@@ -1381,12 +1381,14 @@ public class MatchExecutionPlanner {
             "class not defined: " + className);
       }
       var oClass = schema.getClassInternal(className);
+      long classCount = oClass.approximateCount(ctx.getDatabaseSession());
       long upperBound;
       var filter = aliasFilters.get(alias);
       if (filter != null) {
-        upperBound = filter.estimate(oClass, THRESHOLD, ctx);
+        // Cap at actual class count — the estimate should never exceed unfiltered.
+        upperBound = Math.min(filter.estimate(oClass, THRESHOLD, ctx), classCount);
       } else {
-        upperBound = oClass.approximateCount(ctx.getDatabaseSession());
+        upperBound = classCount;
       }
       result.put(alias, upperBound);
     }
