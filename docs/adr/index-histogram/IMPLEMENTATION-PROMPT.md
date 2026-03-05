@@ -58,6 +58,19 @@ Then implement **Step {CURRENT_STEP}** as described in:
    - **Do not write trivial getter/setter tests.** Tests must exercise meaningful
      logic — state transitions, computations, invariant enforcement, serialization
      round-trips, concurrency safety, etc.
+   - **Refactor internal classes for testability.** You may refactor, rename,
+     extract methods, break dependencies, or introduce seams in any class under
+     `com.jetbrains.youtrackdb.internal` if doing so enables better test
+     coverage. Only the public API surface (`com.jetbrains.youtrackdb.api`)
+     must remain unchanged.
+   - **Use Java assertions generously.** Add `assert` statements liberally to
+     enforce invariants, preconditions, and postconditions — but **only when
+     the assertion has zero cost in production**. Java `assert` statements are
+     compiled out when assertions are disabled (the default in production), so
+     they are free. Do not use `if (...) throw` for invariant checks that are
+     only useful during development; prefer `assert` for those. Use
+     `if (...) throw` only for checks that must execute in production (e.g.,
+     validating external input).
    - If achieving the coverage threshold is impossible without testing
      implementation internals (e.g., unreachable defensive branches), note this
      when reporting and ask the user how to proceed rather than writing brittle
