@@ -160,6 +160,7 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -201,7 +202,8 @@ public abstract class AbstractStorage
 
   protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
-  private final Map<String, StorageCollection> collectionMap = new HashMap<>();
+  private final ConcurrentHashMap<String, StorageCollection> collectionMap =
+      new ConcurrentHashMap<>();
   private final List<StorageCollection> collections = new CopyOnWriteArrayList<>();
 
   private final AtomicBoolean walVacuumInProgress = new AtomicBoolean();
