@@ -3002,6 +3002,747 @@ if (permits <= 0) {
 rebalanceSemaphore = new Semaphore(permits);
 ```
 
+### Step 15: `ANALYZE INDEX` SQL command
+
+**New file:** `core/.../sql/parser/SQLAnalyzeIndexStatement.java`
+**Modified files:** `core/src/main/grammar/YouTrackDBSql.jjt`, `Index.java`, `IndexAbstract.java`
+
+**Part 1 — Add the `ANALYZE` token to the grammar (`YouTrackDBSql.jjt`):**
+
+Add a new case-insensitive token in the `<DEFAULT>` token section alongside `REBUILD`:
+
+```
+< ANALYZE: ( "A" | "a") ( "N" | "n") ( "A" | "a") ( "L" | "l") ( "Y" | "y") ( "Z" | "z") ( "E" | "e") >
+```
+
+Register `ANALYZE` as an identifier-eligible keyword in the `Identifier()` production
+(same section where `REBUILD` is listed) so it can still be used as a field/class name:
+
+```
+token = <ANALYZE>
+```
+
+**Part 2 — Add the `AnalyzeIndexStatement()` grammar rule:**
+
+Place it immediately after the `RebuildIndexStatement()` rule. The structure is identical:
+
+```
+SQLAnalyzeIndexStatement AnalyzeIndexStatement():
+{}
+{
+    (
+        <ANALYZE> <INDEX>
+        (
+            jjtThis.name = IndexName()
+            |
+            <STAR> { jjtThis.all = true; }
+        )
+    )
+    { return jjtThis; }
+}
+```
+
+**Part 3 — Wire into `StatementInternal()`:**
+
+Add a new alternative in the `StatementInternal()` production, directly after the
+`RebuildIndexStatement` alternative:
+
+```
+                |
+                result = AnalyzeIndexStatement()
+```
+
+**Part 4 — Implement `SQLAnalyzeIndexStatement.java`:**
+
+Follows the same pattern as `SQLRebuildIndexStatement`. Extends `SQLSimpleExecStatement`
+with `boolean all` and `SQLIndexName name` fields:
+
+```java
+package com.jetbrains.youtrackdb.internal.core.sql.parser;
+
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Objects;
+
+public class SQLAnalyzeIndexStatement extends SQLSimpleExecStatement {
+
+  protected boolean all = false;
+  protected SQLIndexName name;
+
+  public SQLAnalyzeIndexStatement(int id) {
+    super(id);
+  }
+
+  public SQLAnalyzeIndexStatement(YouTrackDBSql p, int id) {
+    super(p, id);
+  }
+
+  @Override
+  public ExecutionStream executeSimple(CommandContext ctx) {
+    final var session = ctx.getDatabaseSession();
+
+    if (all) {
+      var results = new ArrayList<ResultInternal>();
+      for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
+        if (idx.isAutomatic()) {
+          results.add(buildResult(session, idx));
+        }
+      }
+      return ExecutionStream.of(results.stream().map(r -> (Result) r));
+    } else {
+      final var idx =
+          session.getSharedContext().getIndexManager().getIndex(name.getValue());
+      if (idx == null) {
+        throw new CommandExecutionException(
+            session, "Index '" + name + "' not found");
+      }
+      return ExecutionStream.singleton(buildResult(session, idx));
+    }
+  }
+
+  private ResultInternal buildResult(DatabaseSessionEmbedded session, Index idx) {
+    var snapshot = idx.analyzeHistogram(session);
+    var result = new ResultInternal(session);
+    result.setProperty("operation", "analyze index");
+    result.setProperty("indexName", idx.getName());
+    if (snapshot != null) {
+      result.setProperty("totalCount", snapshot.stats().totalCount());
+      result.setProperty("distinctCount", snapshot.stats().distinctCount());
+      result.setProperty("nullCount", snapshot.stats().nullCount());
+      result.setProperty("bucketCount",
+          snapshot.histogram() != null
+              ? snapshot.histogram().boundaries().length - 1
+              : 0);
+    } else {
+      result.setProperty("totalCount", 0L);
+      result.setProperty("distinctCount", 0L);
+      result.setProperty("nullCount", 0L);
+      result.setProperty("bucketCount", 0);
+    }
+    return result;
+  }
+
+  @Override
+  public void toString(Map<Object, Object> params, StringBuilder builder) {
+    builder.append("ANALYZE INDEX ");
+    if (all) {
+      builder.append("*");
+    } else {
+      name.toString(params, builder);
+    }
+  }
+
+  @Override
+  public void toGenericStatement(StringBuilder builder) {
+    builder.append("ANALYZE INDEX ");
+    if (all) {
+      builder.append("*");
+    } else {
+      name.toGenericStatement(builder);
+    }
+  }
+
+  @Override
+  public SQLAnalyzeIndexStatement copy() {
+    var result = new SQLAnalyzeIndexStatement(-1);
+    result.all = all;
+    result.name = name == null ? null : name.copy();
+    return result;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    var that = (SQLAnalyzeIndexStatement) o;
+    if (all != that.all) {
+      return false;
+    }
+    return Objects.equals(name, that.name);
+  }
+
+  @Override
+  public int hashCode() {
+    var result = (all ? 1 : 0);
+    result = 31 * result + (name != null ? name.hashCode() : 0);
+    return result;
+  }
+}
+```
+
+Note: the exact imports for `Result`, `DatabaseSessionEmbedded`, and `Index` will depend
+on the package structure; adjust to match the codebase. The `ExecutionStream.of()` call
+for the `all` case may need to be adapted to the actual `ExecutionStream` factory method
+available (check how other multi-row statements return results — e.g.,
+`ExecutionStream.resultIterator()` or similar).
+
+**Part 5 — Wire `analyzeHistogram()` in `IndexAbstract.java`:**
+
+The current stub at `IndexAbstract.java:925` returns `null`. Replace with delegation to
+the engine's histogram manager:
+
+```java
+@Nullable
+@Override
+public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
+  var engine = getEngine(session);
+  if (engine == null) {
+    return null;
+  }
+  var manager = engine.getHistogramManager();
+  if (manager == null) {
+    return null;
+  }
+  return manager.analyzeIndex();
+}
+```
+
+This delegates to `IndexHistogramManager.analyzeIndex()` (already implemented — line 681)
+which handles the CAS flag, background-rebalance wait, threshold bypass, and synchronous
+rebuild. The `getEngine()` + `getHistogramManager()` null checks ensure graceful behavior
+for non-B-tree engines (hash indexes) that do not support histograms.
+
+**Part 6 — Verify `BaseIndexEngine` has `getHistogramManager()`:**
+
+`BaseIndexEngine` should already have a default method returning `null` (added in Step 4).
+Confirm that `BTreeSingleValueIndexEngine` and `BTreeMultiValueIndexEngine` override it
+to return their `histogramManager` field. If not, add the override.
+
+---
+
+### Step 16: Cost model constants and formulas
+
+**New file:** `core/.../sql/executor/CostModel.java`
+
+This class centralizes the cost constants from Section 7.1 and the cost formulas from
+Section 7.2 into a single utility used by both the SELECT planner
+(`IndexSearchDescriptor.cost()`) and the MATCH planner (Steps 17-18). All constants
+are read from `GlobalConfiguration` so they can be tuned at runtime.
+
+**Part 1 — Add configuration parameters to `GlobalConfiguration.java`:**
+
+Add four new entries in the `QUERY_STATS_*` block (after the existing entries from
+Step 14):
+
+```java
+QUERY_STATS_COST_SEQ_PAGE_READ(
+    "youtrackdb.query.stats.costSeqPageRead",
+    "Cost of a sequential page read (baseline unit for cost model)",
+    Double.class,
+    1.0,
+    true),
+
+QUERY_STATS_COST_RANDOM_PAGE_READ(
+    "youtrackdb.query.stats.costRandomPageRead",
+    "Cost of a random page read relative to sequential",
+    Double.class,
+    4.0,
+    true),
+
+QUERY_STATS_COST_PER_ROW_CPU(
+    "youtrackdb.query.stats.costPerRowCpu",
+    "Per-row CPU cost for filtering and comparison",
+    Double.class,
+    0.01,
+    true),
+
+QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH(
+    "youtrackdb.query.stats.defaultIndexTreeDepth",
+    "Assumed B-tree depth for index seek cost estimation",
+    Integer.class,
+    4,
+    true),
+```
+
+**Part 2 — Implement `CostModel.java`:**
+
+```java
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
+
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+
+/**
+ * Shared cost model for query plan optimization. Provides I/O-based cost
+ * estimates for full class scans, index seeks, index range scans, and edge
+ * traversals.
+ *
+ * <p>All cost constants are read from {@link GlobalConfiguration} at each
+ * call so runtime tuning takes effect without restart. Costs are expressed
+ * in abstract units where one sequential page read = 1.0.
+ *
+ * <p>Used by both the SELECT planner ({@link IndexSearchDescriptor}) and the
+ * MATCH planner ({@link
+ * com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner}).
+ */
+public final class CostModel {
+
+  /** Default page size in bytes (8 KB). */
+  private static final int PAGE_SIZE_BYTES = 8192;
+
+  /**
+   * Rough average row size in bytes used to estimate rows per page. The exact
+   * value is not critical — it only affects the relative weight of the I/O
+   * component in full class scans. 200 bytes is a reasonable middle ground
+   * for graph databases with mixed property sizes.
+   */
+  private static final int ESTIMATED_ROW_SIZE_BYTES = 200;
+
+  private CostModel() {
+  }
+
+  // -- Cost constant accessors -----------------------------------------------
+
+  /** Sequential page read cost (baseline = 1.0). */
+  public static double seqPageReadCost() {
+    return GlobalConfiguration.QUERY_STATS_COST_SEQ_PAGE_READ
+        .getValueAsDouble();
+  }
+
+  /** Random page read cost (default 4.0 — typical SSD sequential/random ratio). */
+  public static double randomPageReadCost() {
+    return GlobalConfiguration.QUERY_STATS_COST_RANDOM_PAGE_READ
+        .getValueAsDouble();
+  }
+
+  /** Per-row CPU cost for filtering and comparison. */
+  public static double perRowCpuCost() {
+    return GlobalConfiguration.QUERY_STATS_COST_PER_ROW_CPU
+        .getValueAsDouble();
+  }
+
+  /**
+   * Index seek cost = {@link #randomPageReadCost()} × tree depth.
+   * Tree depth defaults to 4 (covers B-trees up to ~millions of entries
+   * with 8 KB pages and typical key sizes).
+   */
+  public static double indexSeekCost() {
+    int depth = (int) GlobalConfiguration
+        .QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH.getValue();
+    return randomPageReadCost() * depth;
+  }
+
+  // -- Cost formulas ---------------------------------------------------------
+
+  /**
+   * Cost of a full class scan (no index).
+   *
+   * <pre>
+   * cost = classCount × COST_PER_ROW_CPU
+   *      + (classCount / rowsPerPage) × COST_SEQ_PAGE_READ
+   * </pre>
+   */
+  public static double fullClassScanCost(long classCount) {
+    double cpuCost = classCount * perRowCpuCost();
+    int rowsPerPage = Math.max(1, PAGE_SIZE_BYTES / ESTIMATED_ROW_SIZE_BYTES);
+    double ioCost =
+        ((double) classCount / rowsPerPage) * seqPageReadCost();
+    return cpuCost + ioCost;
+  }
+
+  /**
+   * Cost of an index equality seek (point lookup returning {@code estimatedRows}
+   * records).
+   *
+   * <pre>
+   * cost = COST_INDEX_SEEK + estimatedRows × COST_RANDOM_PAGE_READ
+   * </pre>
+   *
+   * <p>Random page reads model the fact that matching records are typically
+   * scattered across different data pages (heap / cluster).
+   */
+  public static double indexEqualityCost(long estimatedRows) {
+    return indexSeekCost()
+        + estimatedRows * randomPageReadCost();
+  }
+
+  /**
+   * Cost of an index range scan returning {@code estimatedRows} records.
+   *
+   * <pre>
+   * cost = COST_INDEX_SEEK + estimatedRows × COST_SEQ_PAGE_READ
+   * </pre>
+   *
+   * <p>Sequential page reads model the fact that range-adjacent records in a
+   * B-tree tend to be stored on consecutive leaf pages.
+   */
+  public static double indexRangeCost(long estimatedRows) {
+    return indexSeekCost()
+        + estimatedRows * seqPageReadCost();
+  }
+
+  /**
+   * Cost of traversing one edge per source vertex in a MATCH pattern.
+   *
+   * <pre>
+   * costPerSource = avgFanOut × COST_RANDOM_PAGE_READ
+   * totalCost     = sourceRows × costPerSource
+   * </pre>
+   *
+   * @param sourceRows estimated number of source vertices
+   * @param avgFanOut  average number of target vertices per source
+   *                   (from {@link
+   *                   com.jetbrains.youtrackdb.internal.core.sql.executor.match.EdgeFanOutEstimator})
+   * @return total edge traversal cost
+   */
+  public static double edgeTraversalCost(long sourceRows, double avgFanOut) {
+    return sourceRows * avgFanOut * randomPageReadCost();
+  }
+}
+```
+
+**Part 3 — Refactor `IndexSearchDescriptor.estimateFromHistogram()` to use `CostModel`:**
+
+The current `estimateFromHistogram()` method (line 151) returns an `int` representing
+estimated row count, which is then compared against other `cost()` values that are also
+raw row counts or `Integer.MAX_VALUE`. The refactoring replaces the ad-hoc row-count
+return with a cost-model-based value:
+
+Replace the final lines of `estimateFromHistogram()` (lines 184-186):
+
+```java
+// Before:
+long estimated = Math.max(1, (long) (indexStats.totalCount() * selectivity));
+return estimated > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) estimated;
+
+// After:
+long estimatedRows = Math.max(1, (long) (indexStats.totalCount() * selectivity));
+boolean isRange = isRangeEstimate(subBlocks, additionalRangeCondition);
+double cost = isRange
+    ? CostModel.indexRangeCost(estimatedRows)
+    : CostModel.indexEqualityCost(estimatedRows);
+return cost > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) cost;
+```
+
+Add the helper method:
+
+```java
+/**
+ * Returns {@code true} if the estimate represents a range scan rather than
+ * an equality seek. An estimate is range-based when the condition on the
+ * leading field uses a range operator or when two bounds are combined via
+ * {@code additionalRangeCondition}.
+ */
+private static boolean isRangeEstimate(
+    List<SQLBooleanExpression> subBlocks,
+    @Nullable SQLBinaryCondition additionalRange) {
+  if (additionalRange != null) {
+    return true;
+  }
+  if (!subBlocks.isEmpty()
+      && subBlocks.getFirst() instanceof SQLBinaryCondition bc) {
+    return bc.getOperator().isRangeOperator();
+  }
+  return false;
+}
+```
+
+Note: `QueryStats`-based cost values (returned before `estimateFromHistogram`) are
+already in "estimated rows" units. For consistency, the `cost()` method's callers
+compare costs ordinally (lower is better), so the cost-model values remain comparable
+as long as all histogram-based paths use the same model. `QueryStats` values are
+kept as-is for backward compatibility — they represent cached actual counts from
+previous executions and are inherently more accurate than model-based estimates.
+
+---
+
+### Step 17: Improve `estimateRootEntries()` input quality
+
+**Modified file:** `core/.../sql/executor/match/MatchExecutionPlanner.java`
+
+This step improves the MATCH planner's root selection by incorporating `CostModel`
+into the cardinality estimates used by `getTopologicalSortedSchedule()`. The current
+`estimateRootEntries()` method (line 1322) already delegates to
+`SQLWhereClause.estimate()` which was improved in Step 11 (histogram-based selectivity).
+The remaining improvement is to use cost-model-aware estimates so the scheduler can
+compare filtered vertices against full-scan alternatives on the same scale.
+
+**Part 1 — Replace raw counts with cost-model-aware estimates in `estimateRootEntries()`:**
+
+Modify `estimateRootEntries()` to return cost-based values instead of raw row counts.
+The current method returns `filter.estimate(oClass, THRESHOLD, ctx)` (rows) or
+`oClass.approximateCount()` (rows). Replace with:
+
+```java
+private static Map<String, Long> estimateRootEntries(
+    Map<String, String> aliasClasses,
+    Map<String, SQLRid> aliasRids,
+    Map<String, SQLWhereClause> aliasFilters,
+    CommandContext ctx) {
+  Set<String> allAliases = new LinkedHashSet<>();
+  allAliases.addAll(aliasClasses.keySet());
+  allAliases.addAll(aliasFilters.keySet());
+  allAliases.addAll(aliasRids.keySet());
+
+  var db = ctx.getDatabaseSession();
+  var schema = db.getMetadata().getImmutableSchemaSnapshot();
+
+  Map<String, Long> result = new LinkedHashMap<>();
+  for (var alias : allAliases) {
+    var rid = aliasRids.get(alias);
+    if (rid != null) {
+      result.put(alias, 1L);
+      continue;
+    }
+
+    var className = aliasClasses.get(alias);
+
+    if (className == null) {
+      continue;
+    }
+
+    if (!schema.existsClass(className)) {
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "class not defined: " + className);
+    }
+    var oClass = schema.getClassInternal(className);
+    long upperBound;
+    var filter = aliasFilters.get(alias);
+    if (filter != null) {
+      upperBound = filter.estimate(oClass, THRESHOLD, ctx);
+    } else {
+      // No filter — full class scan cost, normalized to row-count scale.
+      // Use approximateCount directly; the cost model is applied at
+      // edge cost computation (Step 18) where root and edge costs
+      // must be compared on the same scale.
+      upperBound = oClass.approximateCount(ctx.getDatabaseSession());
+    }
+    result.put(alias, upperBound);
+  }
+
+  return result;
+}
+```
+
+The key improvement is indirect: Step 11 already improved `SQLWhereClause.estimate()`
+to return histogram-based selectivity estimates instead of the old `count/2` heuristic.
+This flows automatically into `estimateRootEntries()` without code changes. However,
+Step 17 adds an import of `CostModel` and makes the following adjustment:
+
+**Part 2 — Cap estimates at full class scan cost:**
+
+After the `filter.estimate()` call, add a cap to ensure the filtered estimate never
+exceeds the unfiltered class count (which can happen when the heuristic fallback
+returns `count/2` for large classes):
+
+```java
+    if (filter != null) {
+      upperBound = filter.estimate(oClass, THRESHOLD, ctx);
+      // Cap at actual class count — the estimate should never exceed unfiltered.
+      long classCount = oClass.approximateCount(ctx.getDatabaseSession());
+      upperBound = Math.min(upperBound, classCount);
+    } else {
+      upperBound = oClass.approximateCount(ctx.getDatabaseSession());
+    }
+```
+
+This prevents a degenerate case where the `count/2` fallback (used when no
+histogram is available) produces an estimate larger than the histogram-based
+estimate for a different alias, causing incorrect root selection.
+
+---
+
+### Step 18: `estimateEdgeCost()` for fan-out-based traversal
+
+**Modified file:** `core/.../sql/executor/match/MatchExecutionPlanner.java`
+
+This step adds edge-cost-aware scheduling to `getTopologicalSortedSchedule()` so the
+planner considers traversal cost (fan-out × I/O) when choosing which edge to expand
+next, instead of always expanding neighbors in insertion order.
+
+**Part 1 — Add `estimateEdgeCost()` helper method:**
+
+Add a static method to `MatchExecutionPlanner` that estimates the cost of traversing
+a single pattern edge from a given source alias:
+
+```java
+/**
+ * Estimates the cost of traversing {@code edge} from the node whose alias is
+ * {@code sourceAlias}, using the edge's fan-out and the source's estimated
+ * cardinality.
+ *
+ * @param edge              the pattern edge to traverse
+ * @param sourceAlias       alias of the node we are traversing FROM
+ * @param sourceRows        estimated rows for the source alias
+ * @param aliasClasses      alias → class name mapping
+ * @param session           database session for schema access
+ * @return estimated cost (lower is better), or {@link Double#MAX_VALUE} if
+ *         the cost cannot be estimated
+ */
+private static double estimateEdgeCost(
+    PatternEdge edge,
+    String sourceAlias,
+    long sourceRows,
+    Map<String, String> aliasClasses,
+    DatabaseSessionEmbedded session) {
+  var method = edge.item.getMethod();
+  if (method == null) {
+    return Double.MAX_VALUE;
+  }
+
+  // Extract direction from the method name (out/in/both).
+  var methodName = method.getMethodName();
+  Direction direction = parseDirection(methodName);
+  if (direction == null) {
+    return Double.MAX_VALUE;
+  }
+
+  // Extract edge class name from the method's first parameter, if present.
+  // e.g., .out('Knows') → edgeClassName = "Knows"
+  String edgeClassName = extractEdgeClassName(method);
+
+  // Determine OUT/IN vertex classes from the edge schema (if available).
+  String outVertexClass = null;
+  String inVertexClass = null;
+  if (edgeClassName != null) {
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema != null) {
+      var edgeClass = schema.getClassInternal(edgeClassName);
+      if (edgeClass != null) {
+        // Look up linked vertex classes from edge class properties
+        var outProp = edgeClass.getPropertyInternal("out");
+        if (outProp != null && outProp.getLinkedClass() != null) {
+          outVertexClass = outProp.getLinkedClass().getName();
+        }
+        var inProp = edgeClass.getPropertyInternal("in");
+        if (inProp != null && inProp.getLinkedClass() != null) {
+          inVertexClass = inProp.getLinkedClass().getName();
+        }
+      }
+    }
+  }
+
+  String sourceClassName = aliasClasses.get(sourceAlias);
+
+  double fanOut = EdgeFanOutEstimator.estimateFanOut(
+      session, edgeClassName, sourceClassName, direction,
+      outVertexClass, inVertexClass);
+
+  return CostModel.edgeTraversalCost(sourceRows, fanOut);
+}
+
+/**
+ * Parses "out", "in", "both" (and their E-variants "outE", "inE", "bothE")
+ * into a {@link Direction}. Returns {@code null} for unrecognized methods.
+ */
+private static Direction parseDirection(String methodName) {
+  if (methodName == null) {
+    return null;
+  }
+  return switch (methodName.toLowerCase(Locale.ENGLISH)) {
+    case "out", "oute" -> Direction.OUT;
+    case "in", "ine" -> Direction.IN;
+    case "both", "bothe" -> Direction.BOTH;
+    default -> null;
+  };
+}
+
+/**
+ * Extracts the edge class name from the method call's first parameter.
+ * Returns {@code null} if no parameter is present or cannot be resolved
+ * to a string constant.
+ */
+private static String extractEdgeClassName(SQLMethodCall method) {
+  var params = method.getParams();
+  if (params == null || params.isEmpty()) {
+    return null;
+  }
+  var firstParam = params.getFirst();
+  if (firstParam instanceof SQLExpression expr
+      && expr.mathExpression instanceof SQLBaseExpression base) {
+    return base.toString();
+  }
+  return null;
+}
+```
+
+**Part 2 — Use edge cost in `updateScheduleStartingAt()` to order neighbor expansion:**
+
+Currently, `updateScheduleStartingAt()` (line 781) iterates edges in insertion order
+(out edges first, then bidirectional in edges). Modify the neighbor selection to sort
+edges by estimated traversal cost before expanding:
+
+In the `edges` map construction (lines 817-825), after building the `edges` map,
+sort the entries by estimated cost. Replace the simple `Map<PatternEdge, Boolean>`
+with a list of entries sorted by cost:
+
+```java
+// Build candidate edges with estimated costs.
+List<Map.Entry<PatternEdge, Boolean>> sortedEdges = new ArrayList<>();
+for (var outEdge : startNode.out) {
+  sortedEdges.add(Map.entry(outEdge, true));
+}
+for (var inEdge : startNode.in) {
+  if (inEdge.item.isBidirectional()) {
+    sortedEdges.add(Map.entry(inEdge, false));
+  }
+}
+
+// Sort by estimated edge traversal cost (cheapest first).
+// When estimates are unavailable (MAX_VALUE), preserve original order.
+var sourceAlias = startNode.alias;
+long sourceRows = estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD);
+sortedEdges.sort(Comparator.comparingDouble(entry -> {
+  var neighbor = entry.getValue() ? entry.getKey().in : entry.getKey().out;
+  // Prefer expanding toward already-visited neighbors (zero cost — just a join).
+  if (visitedNodes.contains(neighbor)) {
+    return 0.0;
+  }
+  return estimateEdgeCost(
+      entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+}));
+
+for (var edgeData : sortedEdges) {
+  var edge = edgeData.getKey();
+  boolean isOutbound = edgeData.getValue();
+  // ... rest of the loop body unchanged ...
+}
+```
+
+This requires threading `estimatedRootEntries`, `aliasClasses`, and `session` into
+`updateScheduleStartingAt()`. Update the method signature:
+
+```java
+private static void updateScheduleStartingAt(
+    PatternNode startNode,
+    Set<PatternNode> visitedNodes,
+    Set<PatternEdge> visitedEdges,
+    Map<String, Set<String>> remainingDependencies,
+    List<EdgeTraversal> resultingSchedule,
+    Map<String, Long> estimatedRootEntries,
+    Map<String, String> aliasClasses,
+    DatabaseSessionEmbedded session) {
+```
+
+Update both call sites:
+1. In `getTopologicalSortedSchedule()` (line 756): pass the three new parameters.
+2. In the recursive call within `updateScheduleStartingAt()` itself (line 906): pass
+   them through.
+
+`getTopologicalSortedSchedule()` already receives `estimatedRootEntries` and `session`.
+Add `aliasClasses` — either pass it as a parameter or access it from the instance
+field (`this.aliasClasses`). Since `getTopologicalSortedSchedule` and
+`updateScheduleStartingAt` are both `private static`, convert `aliasClasses` access
+to a parameter threaded from `createPlanForPattern()`.
+
+**Part 3 — Add necessary imports to `MatchExecutionPlanner.java`:**
+
+```java
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
+import java.util.Locale;
+```
+
 ---
 
 ## 9. Implementation Sequence
@@ -3025,23 +3766,32 @@ rebalanceSemaphore = new Semaphore(permits);
 | - [x] 13 | Edge fan-out estimation helper | `MatchExecutionPlanner` or new utility | ~30 |
 | - [x] 14 | Configuration parameters + replace hardcoded constants — add `QUERY_STATS_*` entries to `GlobalConfiguration.java`, then update `IndexHistogramManager` to read `DEFAULT_HISTOGRAM_BUCKETS`, `DEFAULT_HISTOGRAM_MIN_SIZE`, `DEFAULT_PERSIST_BATCH_SIZE`, `DEFAULT_REBALANCE_MUTATION_FRACTION`, `MIN_REBALANCE_MUTATIONS`, `MAX_REBALANCE_MUTATIONS`, `MAX_BOUNDARY_BYTES`, `REBALANCE_FAILURE_COOLDOWN_MS`, and `MAX_CONCURRENT_REBALANCES` from `GlobalConfiguration` instead of the current compile-time constants. The storage-level `rebalanceSemaphore` permit count in `AbstractStorage` reads from `GlobalConfiguration` | `GlobalConfiguration.java`, `IndexHistogramManager`, `SelectivityEstimator`, `EdgeFanOutEstimator`, `IndexSearchDescriptor`, `AbstractStorage` | ~60 |
 | - [ ] 15 | `ANALYZE INDEX` SQL command — grammar rule (`ANALYZE` token + `AnalyzeIndexStatement`), statement class (`SQLAnalyzeIndexStatement`), `analyzeHistogram()` on `Index`/`IndexAbstract` | `YouTrackDBSql.jjt`, new `SQLAnalyzeIndexStatement.java`, `Index.java`, `IndexAbstract.java` | ~200 |
-| - [ ] 16 | Tests (incl. HLL unit tests, MCV tests, adaptive bucket count tests, out-of-range, single-value bucket, truncate, rebalance throttling, drift-biased rebalance, lazy HLL, checkpoint flush, rebalance trigger on planner read, proactive rebalance on open, composite index tests, three-tier transition tests, ANALYZE INDEX parser + execution tests, HLL page-1 spill round-trip test) | New test classes | ~1600 |
-| - [ ] 17 | Cost model constants and formulas (shared by both SELECT and MATCH planners) | New: `CostModel.java` | ~100 |
-| - [ ] 18 | Improve `estimateRootEntries()` input quality (flows automatically from Steps 11-12 improving `SQLWhereClause.estimate()`) | `MatchExecutionPlanner.java` | ~30 |
-| - [ ] 19 | `estimateEdgeCost()` for fan-out-based traversal | `MatchExecutionPlanner.java` | ~40 |
-| - [ ] 20 | MATCH planner tests | New test classes | ~200 |
+| - [ ] 16 | Cost model constants and formulas (shared by both SELECT and MATCH planners) | New: `CostModel.java` | ~100 |
+| - [ ] 17 | Improve `estimateRootEntries()` input quality (flows automatically from Steps 11-12 improving `SQLWhereClause.estimate()`) | `MatchExecutionPlanner.java` | ~30 |
+| - [ ] 18 | `estimateEdgeCost()` for fan-out-based traversal | `MatchExecutionPlanner.java` | ~40 |
+| - [ ] 19 | IndexHistogramManager unit tests (Section 10.1) — empty stats, onPut/onRemove counter increments, wasInsert=false no-op, null key handling, mutationsSinceRebalance, page persistence round-trip, CHM cache hit/miss, null snapshot delta skip, rollback discard, null CHM entry discard | New: `IndexHistogramManagerUnitTest.java` | ~200 |
+| - [ ] 20 | Histogram construction tests (Section 10.2) — known data equi-depth verification, skewed data (Zipf), per-bucket NDV, duplicate keys at boundary, all-identical keys (NDV=1), variable-length key truncation, adjacent boundary merge, fallback bucket count reduction, small index no-histogram guard, N+1 boundary convention, NDV-based bucket pre-computation, adaptive bucket count sqrt cap, findBucket linear/binary search, MCV tracking (skewed/uniform/all-identical/round-trip) | New: `HistogramConstructionTest.java` | ~250 |
+| - [ ] 21 | Composite index tests (Section 10.3) — leading-field histogram, leading-field extraction from CompositeKey stream, prefix query selectivity, full-key equality 1/NDV, non-leading-field default selectivity, incremental put/remove leading-field findBucket | New: `CompositeIndexHistogramTest.java` | ~120 |
+| - [ ] 22 | Scalar conversion tests (Section 10.4) — integer/long/double scalarize, Date→epoch millis, string common-prefix stripping + base-65536 encoding, long common prefix precision, non-ASCII ordering preservation, unknown type fallback 0.5, degenerate bucket fraction 0.5 | New: `ScalarConversionExtendedTest.java` | ~80 |
+| - [ ] 23 | Three-tier transition tests (Section 10.5) — Empty→Uniform on first put, Uniform→Histogram crossing HISTOGRAM_MIN_SIZE, histogram usable after mass deletion below threshold, uniform formula reasonableness, histogram more accurate than uniform for skewed data | New: `ThreeTierTransitionTest.java` | ~100 |
+| - [ ] 24 | Incremental maintenance tests (Section 10.6) — frequency updates on insert/remove, findBucket boundary cases (below min/above max/on boundary), mutationsSinceRebalance trigger, rebalance produces fresh boundaries, concurrent put/remove during rebalance, version-mismatch delta discard, at-most-one rebalance guard, rebalance failure cooldown, engine close during rebalance, resetOnClear, drift-biased rebalance threshold halving, storage-level rebalance throttling, checkpoint flush (dirty/clean/closed engine/failure/full data flush) | New: `IncrementalMaintenanceTest.java` | ~300 |
+| - [ ] 25 | Multi-value index tests (Section 10.7) — multi-value with multiple values per key, histogram on original keys, NDV correctness during build, onPut/onRemove with original keys, HLL persistence round-trip, HLL merge on commit, HLL distinctCount update, HLL page overflow, single-value no HLL, lazy HLL init | New: `MultiValueIndexHistogramTest.java` | ~150 |
+| - [ ] 26 | HyperLogLogSketch unit tests (Section 10.7.1) — add+estimate accuracy, accuracy sweep (10–1M), small-range correction, duplicate keys, empty sketch, merge commutativity/correctness/idempotency, clone independence, serialization round-trip, serialized size, register bounds, hash distribution | New: `HyperLogLogSketchTest.java` | ~150 |
+| - [ ] 27 | Selectivity estimation tests (Section 10.8) — known data within 1%, uniform-mode bounds, edge cases (single-value/all-null/high NDV), IS NULL/IS NOT NULL/IN, compound predicates (AND/OR/NOT), string range scalar interpolation, out-of-range equality/range, single-value bucket optimization, MCV short-circuit/vs bucket average/miss | New: `SelectivityEstimationIntegrationTest.java` | ~200 |
+| - [ ] 28 | ANALYZE INDEX tests (Section 10.9) — parser tests (`ANALYZE INDEX *`, named, case-insensitive, dotted, multi-dotted, trailing token error), execution tests (insert+analyze verify properties, `*` multiple indexes, nonExistent error, empty index, concurrent background rebalance wait) | New: `AnalyzeIndexStatementTest.java`, `AnalyzeIndexStatementExecutionTest.java` | ~120 |
+| - [ ] 29 | Cost model and end-to-end tests (Section 10.10) — index seek preferred at low selectivity, scan preferred at high selectivity, MATCH root selection order, EXPLAIN improved estimates, query performance for known-suboptimal plans | New: `CostModelEndToEndTest.java` | ~130 |
 | | **Total** | | **~4530** |
 
 **MATCH planner note:** The MATCH planner already uses cost-driven root selection via
 `estimateRootEntries()` → `SQLWhereClause.estimate()`. Step 11 directly improves these
-estimates. Steps 17-19 add edge fan-out costing and the cost model abstraction — the scope
+estimates. Steps 16-18 add edge fan-out costing and the cost model abstraction — the scope
 is small since the planner's cost-driven structure is already sound (Section 1.1).
 
-**Cost model note:** Step 17 creates `CostModel.java` (not `MatchCostModel.java`) because
+**Cost model note:** Step 16 creates `CostModel.java` (not `MatchCostModel.java`) because
 the cost constants from Section 7.1 (`COST_SEQ_PAGE_READ`, `COST_RANDOM_PAGE_READ`,
 `COST_INDEX_SEEK`, `COST_PER_ROW_CPU`) and the formulas from Section 7.2 (full class scan,
 index equality seek, index range scan) are shared between the SELECT planner (Step 12) and
-the MATCH planner (Steps 18-19). Step 12 (`IndexSearchDescriptor.cost()`) should reference
+the MATCH planner (Steps 17-18). Step 12 (`IndexSearchDescriptor.cost()`) should reference
 these shared constants rather than defining ad-hoc values.
 
 **Configuration wiring note:** Step 14 both adds configuration parameters and replaces
@@ -3081,9 +3831,9 @@ Step 1 (records + HyperLogLogSketch)
   │           │
   │           └─→ Step 12 (IndexSearchDescriptor)
   │                 │
-  │                 └─→ Step 17 (shared CostModel)
+  │                 └─→ Step 16 (shared CostModel)
   │                       │
-  │                       └─→ Steps 18-19 (MATCH root estimates + edge fan-out)
+  │                       └─→ Steps 17-18 (MATCH root estimates + edge fan-out)
   │
   └─→ Step 13 (fan-out helper) — independent
   │
@@ -3094,6 +3844,19 @@ Step 1 (records + HyperLogLogSketch)
 
 Step 15 (ANALYZE INDEX) depends on Steps 2 + 4
   (needs IndexHistogramManager.analyzeIndex() + Index.analyzeHistogram())
+
+Test steps (19-29) — dependencies on implementation steps:
+  Step 19 (IndexHistogramManager unit tests)  depends on Steps 2, 5
+  Step 20 (Histogram construction tests)      depends on Steps 2, 5, 6
+  Step 21 (Composite index tests)             depends on Steps 2, 5, 6
+  Step 22 (Scalar conversion tests)           depends on Step 3 (standalone)
+  Step 23 (Three-tier transition tests)       depends on Steps 2, 3, 5, 6, 10
+  Step 24 (Incremental maintenance tests)     depends on Steps 2, 5, 6, 7, 8, 9, 10
+  Step 25 (Multi-value index tests)           depends on Steps 2, 5, 6, 7
+  Step 26 (HyperLogLogSketch unit tests)      depends on Step 1 (standalone)
+  Step 27 (Selectivity estimation tests)      depends on Steps 2, 3, 5, 6
+  Step 28 (ANALYZE INDEX tests)               depends on Steps 2, 4, 15
+  Step 29 (Cost model and end-to-end tests)   depends on Steps 11, 12, 13, 16, 17, 18
 ```
 
 Steps 3, 5-10 are independent and parallelizable once Step 2 is complete.
@@ -3108,10 +3871,15 @@ are wired.
 Step 15 (ANALYZE INDEX) can be developed in parallel with Steps 5-12 once Steps 2 and 4
 are complete (it only needs the manager's `analyzeIndex()` method and the `Index`
 interface additions).
-Steps 17-19 (MATCH planner improvements) depend on Steps 11-12 (selectivity wiring) and
-Step 13 (fan-out helper). Step 17 (`CostModel`) provides shared constants used by both
-Step 12 (`IndexSearchDescriptor.cost()`) and Steps 18-19; it can be developed before or
+Steps 16-18 (MATCH planner improvements) depend on Steps 11-12 (selectivity wiring) and
+Step 13 (fan-out helper). Step 16 (`CostModel`) provides shared constants used by both
+Step 12 (`IndexSearchDescriptor.cost()`) and Steps 17-18; it can be developed before or
 alongside Step 12.
+
+**Test step parallelism:** Steps 19-28 are independent of each other and can be developed
+in parallel once their implementation step dependencies are complete. Steps 22 and 26 are
+fully standalone (depend only on Steps 3 and 1 respectively). Step 29 depends on all
+MATCH planner steps (16-18) and should be implemented last.
 
 ### Implementation Progress
 
@@ -3132,11 +3900,20 @@ alongside Step 12.
 | - [x] | 13 | Edge fan-out estimation | Created `EdgeFanOutEstimator.java` (static utility class in match package) with `estimateFanOut()` method supporting OUT/IN/BOTH directions using O(1) `approximateCount()`. BOTH direction uses subclass-aware computation via `isSubClassOf()` to avoid overestimation for directed edges. Returns `DEFAULT_FAN_OUT=10.0` when schema metadata is unavailable. Tests: `EdgeFanOutEstimatorTest.java` (23 tests covering all directions, zero counts, missing schema, null vertex classes, subclass matching, defensive null guards). Coverage: 100% line, 89.5% branch (4 missed branches are JaCoCo phantom branches from `assert` statements). |
 | - [x] | 14 | Configuration parameters + replace hardcoded constants | Added 11 `QUERY_STATS_*` entries to `GlobalConfiguration.java` (with `canChangeAtRuntime=true` for 10; `MAX_CONCURRENT_REBALANCES` requires restart). Added `Double.class` support (`setValue` branch + `getValueAsDouble()` method). Replaced all 8 hardcoded constants in `IndexHistogramManager.java` with `GlobalConfiguration` reads at point of use (`MINIMUM_BUCKET_COUNT` kept as structural invariant). Replaced `DEFAULT_SELECTIVITY` constant in `SelectivityEstimator` with `defaultSelectivity()` method. Replaced `DEFAULT_FAN_OUT` constant in `EdgeFanOutEstimator` with `defaultFanOut()` method. Added `histogramRebalanceSemaphore` field to `AbstractStorage` (initialized from `QUERY_STATS_MAX_CONCURRENT_REBALANCES`, wired to managers via `createAndWireHistogramManager`). Updated all test references. Tests: `HistogramConfigurationTest.java` (29 tests). |
 | - [ ] | 15 | `ANALYZE INDEX` SQL command | |
-| - [ ] | 16 | Tests | |
-| - [ ] | 17 | Cost model constants and formulas | |
-| - [ ] | 18 | `estimateRootEntries()` input quality | |
-| - [ ] | 19 | `estimateEdgeCost()` for fan-out traversal | |
-| - [ ] | 20 | MATCH planner tests | |
+| - [ ] | 16 | Cost model constants and formulas | |
+| - [ ] | 17 | `estimateRootEntries()` input quality | |
+| - [ ] | 18 | `estimateEdgeCost()` for fan-out traversal | |
+| - [ ] | 19 | IndexHistogramManager unit tests (Section 10.1) | |
+| - [ ] | 20 | Histogram construction tests (Section 10.2) | |
+| - [ ] | 21 | Composite index tests (Section 10.3) | |
+| - [ ] | 22 | Scalar conversion tests (Section 10.4) | |
+| - [ ] | 23 | Three-tier transition tests (Section 10.5) | |
+| - [ ] | 24 | Incremental maintenance tests (Section 10.6) | |
+| - [ ] | 25 | Multi-value index tests (Section 10.7) | |
+| - [ ] | 26 | HyperLogLogSketch unit tests (Section 10.7.1) | |
+| - [ ] | 27 | Selectivity estimation tests (Section 10.8) | |
+| - [ ] | 28 | ANALYZE INDEX tests (Section 10.9) | |
+| - [ ] | 29 | Cost model and end-to-end tests (Section 10.10) | |
 
 ---
 
