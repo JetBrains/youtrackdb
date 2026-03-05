@@ -140,10 +140,12 @@ public class IndexSearchDescriptorCostTest {
 
     var cost = desc.cost(ctx);
 
-    // Then: cost = totalCount * equality selectivity
+    // Then: cost = CostModel.indexEqualityCost(estimatedRows)
     var expectedSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 30);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    int expectedCost = (int) CostModel.indexEqualityCost(estimatedRows);
+    assertEquals(expectedCost, cost);
   }
 
   // ── Greater-than: f > X ──────────────────────────────────────
@@ -160,7 +162,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel =
         SelectivityEstimator.estimateGreaterThan(stats, histogram, 60);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Less-than: f < X ────────────────────────────────────────
@@ -177,7 +180,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel =
         SelectivityEstimator.estimateLessThan(stats, histogram, 30);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Greater-or-equal: f >= X ─────────────────────────────────
@@ -194,7 +198,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel =
         SelectivityEstimator.estimateGreaterOrEqual(stats, histogram, 80);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Less-or-equal: f <= X ───────────────────────────────────
@@ -211,7 +216,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel =
         SelectivityEstimator.estimateLessOrEqual(stats, histogram, 20);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── IN: f IN (v1, v2, ...) ──────────────────────────────────
@@ -230,7 +236,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel = SelectivityEstimator.estimateIn(
         stats, histogram, List.of(10, 30, 70));
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   // ── Combined range: f >= X AND f < Y ─────────────────────────
@@ -247,7 +254,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel = SelectivityEstimator.estimateRange(
         stats, histogram, 20, 60, true, false);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   @Test
@@ -262,7 +270,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel = SelectivityEstimator.estimateRange(
         stats, histogram, 30, 80, false, false);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   @Test
@@ -277,7 +286,8 @@ public class IndexSearchDescriptorCostTest {
 
     var expectedSel = SelectivityEstimator.estimateRange(
         stats, histogram, 25, 75, true, true);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Composite index: equality + range on non-leading field ────
@@ -306,8 +316,10 @@ public class IndexSearchDescriptorCostTest {
     var leadingSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 30);
     var combinedSel = leadingSel * SelectivityEstimator.defaultSelectivity();
-    assertEquals(
-        Math.max(1, (long) (stats.totalCount() * combinedSel)), cost);
+    long estimatedRows =
+        Math.max(1, (long) (stats.totalCount() * combinedSel));
+    // Equality on leading field → indexEqualityCost
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   @Test
@@ -336,8 +348,9 @@ public class IndexSearchDescriptorCostTest {
     var combinedSel = leadingSel
         * SelectivityEstimator.defaultSelectivity()
         * SelectivityEstimator.defaultSelectivity();
-    assertEquals(
-        Math.max(1, (long) (stats.totalCount() * combinedSel)), cost);
+    long estimatedRows =
+        Math.max(1, (long) (stats.totalCount() * combinedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   // ── Additional range on composite index is NOT combined ───────
@@ -366,11 +379,13 @@ public class IndexSearchDescriptorCostTest {
 
     // Leading field uses histogram; non-leading uses default.
     // Additional range is NOT combined (subBlocks.size() > 1).
+    // additionalRange != null → isRangeEstimate returns true → range cost.
     var leadingSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 30);
     var combinedSel = leadingSel * SelectivityEstimator.defaultSelectivity();
-    assertEquals(
-        Math.max(1, (long) (stats.totalCount() * combinedSel)), cost);
+    long estimatedRows =
+        Math.max(1, (long) (stats.totalCount() * combinedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Fallback paths ──────────────────────────────────────────
@@ -418,7 +433,8 @@ public class IndexSearchDescriptorCostTest {
     // Uniform equality: 1/NDV = 1/200 = 0.005; 1000 * 0.005 = 5
     var expectedSel =
         SelectivityEstimator.estimateEquality(stats, null, 30);
-    assertEquals(Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   @Test
@@ -528,11 +544,12 @@ public class IndexSearchDescriptorCostTest {
 
     var cost = desc.cost(ctx);
 
-    // Combined range fails → falls back to the single lower-bound estimate
+    // Combined range fails → falls back to the single lower-bound estimate.
+    // additionalRange != null → isRangeEstimate returns true → range cost.
     var expectedSel =
         SelectivityEstimator.estimateGreaterOrEqual(stats, histogram, 20);
-    assertEquals(
-        Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Combined range: two lower bounds (no upper) ──────────────
@@ -547,11 +564,12 @@ public class IndexSearchDescriptorCostTest {
 
     var cost = desc.cost(ctx);
 
-    // Combined range fails → falls back to single bound (age > 20)
+    // Combined range fails → falls back to single bound (age > 20).
+    // additionalRange != null → isRangeEstimate returns true → range cost.
     var expectedSel =
         SelectivityEstimator.estimateGreaterThan(stats, histogram, 20);
-    assertEquals(
-        Math.max(1, (long) (stats.totalCount() * expectedSel)), cost);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
   // ── Helpers ──────────────────────────────────────────────────
