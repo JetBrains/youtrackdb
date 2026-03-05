@@ -916,14 +916,23 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  /**
-   * No-op stub. Will delegate to {@code IndexHistogramManager.analyzeIndex()}
-   * once the histogram manager is wired in Step 5.
-   */
   @Nullable
   @Override
   public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
-    return null;
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var manager = btreeEngine.getHistogramManager();
+          if (manager != null) {
+            return manager.analyzeIndex();
+          }
+        }
+        return null;
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
   }
 
   private long[] indexCollection(
