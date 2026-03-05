@@ -1149,6 +1149,34 @@ public enum GlobalConfiguration {
           + " Requires database restart to take effect",
       Integer.class,
       -1),
+
+  QUERY_STATS_COST_SEQ_PAGE_READ(
+      "youtrackdb.query.stats.costSeqPageRead",
+      "Cost of a sequential page read (baseline unit for cost model)",
+      Double.class,
+      1.0,
+      true),
+
+  QUERY_STATS_COST_RANDOM_PAGE_READ(
+      "youtrackdb.query.stats.costRandomPageRead",
+      "Cost of a random page read relative to sequential",
+      Double.class,
+      4.0,
+      true),
+
+  QUERY_STATS_COST_PER_ROW_CPU(
+      "youtrackdb.query.stats.costPerRowCpu",
+      "Per-row CPU cost for filtering and comparison",
+      Double.class,
+      0.01,
+      true),
+
+  QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH(
+      "youtrackdb.query.stats.defaultIndexTreeDepth",
+      "Assumed B-tree depth for index seek cost estimation",
+      Integer.class,
+      4,
+      true),
   ;
 
   static {
