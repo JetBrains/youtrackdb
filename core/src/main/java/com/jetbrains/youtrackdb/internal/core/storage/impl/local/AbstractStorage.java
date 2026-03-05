@@ -223,7 +223,7 @@ public abstract class AbstractStorage
   private final int id;
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
-  private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private final CopyOnWriteArrayList<BaseIndexEngine> indexEngines = new CopyOnWriteArrayList<>();
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
   private boolean wereDataRestoredAfterOpen;
