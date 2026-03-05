@@ -4,10 +4,12 @@ import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
@@ -23,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
@@ -32,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
@@ -43,13 +47,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -623,7 +628,7 @@ public class MatchExecutionPlanner {
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
     var sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern,
-        context.getDatabaseSession());
+        aliasClasses, context.getDatabaseSession());
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
@@ -726,7 +731,8 @@ public class MatchExecutionPlanner {
    *                                    dependencies
    */
   private List<EdgeTraversal> getTopologicalSortedSchedule(
-      Map<String, Long> estimatedRootEntries, Pattern pattern, DatabaseSessionEmbedded session) {
+      Map<String, Long> estimatedRootEntries, Pattern pattern,
+      Map<String, String> aliasClasses, DatabaseSessionEmbedded session) {
     List<EdgeTraversal> resultingSchedule = new ArrayList<>();
     var remainingDependencies = getDependencies(pattern);
     Set<PatternNode> visitedNodes = new HashSet<>();
@@ -784,7 +790,8 @@ public class MatchExecutionPlanner {
       // 2. Having found a starting vertex, traverse its neighbors depth-first,
       //    adding any non-visited ones with satisfied dependencies to our schedule.
       updateScheduleStartingAt(
-          startingNode, visitedNodes, visitedEdges, remainingDependencies, resultingSchedule);
+          startingNode, visitedNodes, visitedEdges, remainingDependencies,
+          resultingSchedule, estimatedRootEntries, aliasClasses, session);
     }
 
     if (resultingSchedule.size() != pattern.numOfEdges) {
@@ -813,7 +820,10 @@ public class MatchExecutionPlanner {
       Set<PatternNode> visitedNodes,
       Set<PatternEdge> visitedEdges,
       Map<String, Set<String>> remainingDependencies,
-      List<EdgeTraversal> resultingSchedule) {
+      List<EdgeTraversal> resultingSchedule,
+      Map<String, Long> estimatedRootEntries,
+      Map<String, String> aliasClasses,
+      DatabaseSessionEmbedded session) {
     // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
     // condition
     // than simply visiting all nodes in the query. Consider the following example query:
@@ -844,17 +854,35 @@ public class MatchExecutionPlanner {
       dependencies.remove(startNode.alias);
     }
 
-    Map<PatternEdge, Boolean> edges = new LinkedHashMap<>();
+    // Build candidate edges with estimated costs, sorted cheapest first.
+    List<Map.Entry<PatternEdge, Boolean>> sortedEdges = new ArrayList<>();
     for (var outEdge : startNode.out) {
-      edges.put(outEdge, true);
+      sortedEdges.add(Map.entry(outEdge, true));
     }
     for (var inEdge : startNode.in) {
       if (inEdge.item.isBidirectional()) {
-        edges.put(inEdge, false);
+        sortedEdges.add(Map.entry(inEdge, false));
       }
     }
 
-    for (var edgeData : edges.entrySet()) {
+    // Sort by estimated edge traversal cost (cheapest first).
+    // Already-visited neighbors get cost 0.0 (just a join, no traversal).
+    // When estimates are unavailable (MAX_VALUE), preserve original order.
+    var sourceAlias = startNode.alias;
+    // Use THRESHOLD as fallback for unestimated nodes — consistent with the
+    // prefetch threshold used elsewhere in the planner. A moderate value avoids
+    // making unknown-cost edges appear artificially cheap or expensive.
+    long sourceRows = estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD);
+    sortedEdges.sort(Comparator.comparingDouble(entry -> {
+      var neighbor = entry.getValue() ? entry.getKey().in : entry.getKey().out;
+      if (visitedNodes.contains(neighbor)) {
+        return 0.0;
+      }
+      return estimateEdgeCost(
+          entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+    }));
+
+    for (var edgeData : sortedEdges) {
       var edge = edgeData.getKey();
       boolean isOutbound = edgeData.getValue();
       var neighboringNode = isOutbound ? edge.in : edge.out;
@@ -934,7 +962,8 @@ public class MatchExecutionPlanner {
         visitedEdges.add(edge);
         resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
         updateScheduleStartingAt(
-            neighboringNode, visitedNodes, visitedEdges, remainingDependencies, resultingSchedule);
+            neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
+            resultingSchedule, estimatedRootEntries, aliasClasses, session);
       }
     }
   }
@@ -971,6 +1000,112 @@ public class MatchExecutionPlanner {
     }
 
     return true;
+  }
+
+  /**
+   * Estimates the cost of traversing {@code edge} from the node whose alias is
+   * {@code sourceAlias}, using the edge's fan-out and the source's estimated
+   * cardinality.
+   *
+   * @param edge         the pattern edge to traverse
+   * @param sourceAlias  alias of the node we are traversing FROM
+   * @param sourceRows   estimated rows for the source alias
+   * @param aliasClasses alias → class name mapping
+   * @param session      database session for schema access
+   * @return estimated cost (lower is better), or {@link Double#MAX_VALUE} if
+   *         the cost cannot be estimated
+   */
+  static double estimateEdgeCost(
+      PatternEdge edge,
+      String sourceAlias,
+      long sourceRows,
+      Map<String, String> aliasClasses,
+      DatabaseSessionEmbedded session) {
+    var method = edge.item.getMethod();
+    if (method == null) {
+      return Double.MAX_VALUE;
+    }
+
+    // Extract direction from the method name (out/in/both).
+    Direction direction = parseDirection(method.getMethodName());
+    if (direction == null) {
+      return Double.MAX_VALUE;
+    }
+
+    // Extract edge class name from the method's first parameter, if present.
+    // e.g., .out('Knows') → edgeClassName = "Knows"
+    String edgeClassName = extractEdgeClassName(method);
+
+    // Determine OUT/IN vertex classes from the edge schema (if available).
+    String outVertexClass = null;
+    String inVertexClass = null;
+    if (edgeClassName != null) {
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema != null) {
+        var edgeClass = schema.getClassInternal(edgeClassName);
+        if (edgeClass != null) {
+          var outProp = edgeClass.getPropertyInternal("out");
+          if (outProp != null && outProp.getLinkedClass() != null) {
+            outVertexClass = outProp.getLinkedClass().getName();
+          }
+          var inProp = edgeClass.getPropertyInternal("in");
+          if (inProp != null && inProp.getLinkedClass() != null) {
+            inVertexClass = inProp.getLinkedClass().getName();
+          }
+        }
+      }
+    }
+
+    String sourceClassName = aliasClasses.get(sourceAlias);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, edgeClassName, sourceClassName, direction,
+        outVertexClass, inVertexClass);
+
+    return CostModel.edgeTraversalCost(sourceRows, fanOut);
+  }
+
+  /**
+   * Parses "out", "in", "both" (and their E-variants "outE", "inE", "bothE")
+   * into a {@link Direction}. Returns {@code null} for unrecognized methods.
+   */
+  static Direction parseDirection(String methodName) {
+    if (methodName == null) {
+      return null;
+    }
+    return switch (methodName.toLowerCase(Locale.ENGLISH)) {
+      case "out", "oute" -> Direction.OUT;
+      case "in", "ine" -> Direction.IN;
+      case "both", "bothe" -> Direction.BOTH;
+      default -> null;
+    };
+  }
+
+  /**
+   * Extracts the edge class name from the method call's first parameter.
+   * Returns {@code null} if no parameter is present or cannot be resolved
+   * to a string constant.
+   */
+  static String extractEdgeClassName(SQLMethodCall method) {
+    var params = method.getParams();
+    if (params == null || params.isEmpty()) {
+      return null;
+    }
+    var firstParam = params.getFirst();
+    if (firstParam.getMathExpression() instanceof SQLBaseExpression base) {
+      var raw = base.toString();
+      // Strip surrounding quotes if present (parser stores string literals
+      // as "value" or 'value')
+      if (raw != null && raw.length() >= 2) {
+        char first = raw.charAt(0);
+        char last = raw.charAt(raw.length() - 1);
+        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+          return raw.substring(1, raw.length() - 1);
+        }
+      }
+      return raw;
+    }
+    return null;
   }
 
   /**
