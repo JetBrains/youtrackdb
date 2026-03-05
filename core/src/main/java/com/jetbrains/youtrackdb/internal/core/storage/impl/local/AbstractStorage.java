@@ -222,7 +222,8 @@ public abstract class AbstractStorage
   private volatile boolean wereNonTxOperationsPerformedInPreviousOpen;
   private final int id;
 
-  private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
+  private final ConcurrentHashMap<String, BaseIndexEngine> indexEngineNameMap =
+      new ConcurrentHashMap<>();
   private final CopyOnWriteArrayList<BaseIndexEngine> indexEngines = new CopyOnWriteArrayList<>();
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
