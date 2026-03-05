@@ -364,6 +364,14 @@ public class SQLMethodCall extends SimpleNode {
     return resolveIsGraphFunction(session); // TODO
   }
 
+  public String getMethodName() {
+    return methodName != null ? methodName.getStringValue() : null;
+  }
+
+  public List<SQLExpression> getParams() {
+    return params;
+  }
+
   public void addParam(SQLExpression param) {
     this.params.add(param);
   }
