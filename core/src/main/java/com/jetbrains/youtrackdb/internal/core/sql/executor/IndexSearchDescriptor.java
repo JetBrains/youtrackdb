@@ -134,8 +134,10 @@ public class IndexSearchDescriptor {
   }
 
   /**
-   * Estimates cost using persistent index statistics (histogram + counters).
-   * Returns {@link Integer#MAX_VALUE} if no statistics are available.
+   * Estimates I/O cost using persistent index statistics (histogram + counters)
+   * and the {@link CostModel}. Returns a cost value in abstract units (where
+   * one sequential page read = 1.0), or {@link Integer#MAX_VALUE} if no
+   * statistics are available.
    *
    * <p>Strategy:
    * <ol>
@@ -146,6 +148,9 @@ public class IndexSearchDescriptor {
    *       per-field histogram exists.</li>
    *   <li>Additional range condition on the leading field (single-field index
    *       with two bounds): combined into a tighter range estimate.</li>
+   *   <li>Estimated row count is converted to I/O cost via
+   *       {@link CostModel#indexEqualityCost(long)} (equality) or
+   *       {@link CostModel#indexRangeCost(long)} (range).</li>
    * </ol>
    */
   private int estimateFromHistogram(CommandContext ctx) {
@@ -181,8 +186,12 @@ public class IndexSearchDescriptor {
       selectivity *= SelectivityEstimator.defaultSelectivity();
     }
 
-    long estimated = Math.max(1, (long) (indexStats.totalCount() * selectivity));
-    return estimated > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) estimated;
+    long estimatedRows = Math.max(1, (long) (indexStats.totalCount() * selectivity));
+    boolean isRange = isRangeEstimate(subBlocks, additionalRangeCondition);
+    double cost = isRange
+        ? CostModel.indexRangeCost(estimatedRows)
+        : CostModel.indexEqualityCost(estimatedRows);
+    return cost > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) cost;
   }
 
   /**
@@ -285,6 +294,25 @@ public class IndexSearchDescriptor {
 
   private static boolean isUpperBound(SQLBinaryCompareOperator op) {
     return op instanceof SQLLtOperator || op instanceof SQLLeOperator;
+  }
+
+  /**
+   * Returns {@code true} if the estimate represents a range scan rather than
+   * an equality seek. An estimate is range-based when the condition on the
+   * leading field uses a range operator or when two bounds are combined via
+   * {@code additionalRange}.
+   */
+  private static boolean isRangeEstimate(
+      List<SQLBooleanExpression> subBlocks,
+      @Nullable SQLBinaryCondition additionalRange) {
+    if (additionalRange != null) {
+      return true;
+    }
+    if (!subBlocks.isEmpty()
+        && subBlocks.getFirst() instanceof SQLBinaryCondition bc) {
+      return bc.getOperator().isRangeOperator();
+    }
+    return false;
   }
 
   /** Unwraps the key condition into its sub-blocks (AND block -> sub-blocks, else singleton). */
