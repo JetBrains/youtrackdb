@@ -906,27 +906,51 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   /**
+   * Instance convenience wrapper that delegates to the static
+   * {@link #fitToPage(BuildResult, long, boolean, int,
+   * BoundarySizeCalculator)}.
+   */
+  @Nullable
+  private FitResult fitToPage(BuildResult result, long nonNullCount) {
+    int mcvKeySize = result.mcvValue != null
+        ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
+        : 0;
+    return fitToPage(result, nonNullCount, isSingleValue, mcvKeySize,
+        this::computeBoundaryBytes);
+  }
+
+  /**
    * Applies boundary truncation and checks page budget. Reduces bucket
    * count if boundaries don't fit. When the HLL is spilled to page 1,
    * the returned {@link FitResult#hllOnPage1} is {@code true}.
    *
+   * <p>Package-private and static for testability — all serializer-dependent
+   * logic is injected via the {@code boundarySizeCalc} function.
+   *
+   * @param result         the scan result to fit
+   * @param nonNullCount   total non-null entries
+   * @param singleValue    true for single-value indexes (no HLL budget)
+   * @param mcvKeySize     serialized size of the MCV key (0 if no MCV)
+   * @param boundarySizeCalc computes total serialized boundary bytes
    * @return the fit result, or null if keys are too large for any useful
    *         histogram
    */
   @Nullable
-  private FitResult fitToPage(BuildResult result, long nonNullCount) {
+  static FitResult fitToPage(BuildResult result, long nonNullCount,
+      boolean singleValue, int mcvKeySize,
+      BoundarySizeCalculator boundarySizeCalc) {
     int bucketCount = result.actualBucketCount;
+    // Track the source bucket count that matches the current arrays.
+    // mergeBuckets needs to know how many buckets the source arrays have.
+    int sourceBucketCount = bucketCount;
     var boundaries = result.boundaries;
     var frequencies = result.frequencies;
     var distinctCounts = result.distinctCounts;
 
-    // Compute serialized boundary sizes
-    int totalBoundaryBytes = computeBoundaryBytes(boundaries, bucketCount);
-    int hllSize = isSingleValue ? 0 : HyperLogLogSketch.serializedSize();
+    int totalBoundaryBytes =
+        boundarySizeCalc.computeSize(boundaries, bucketCount);
+    int hllSize = singleValue ? 0 : HyperLogLogSketch.serializedSize();
     boolean hllSpilledToPage1 = false;
-    int mcvKeySize = result.mcvValue != null
-        ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
-        : 0;
 
     // Check page budget and reduce buckets if needed
     while (bucketCount > MINIMUM_BUCKET_COUNT) {
@@ -935,13 +959,12 @@ public class IndexHistogramManager extends DurableComponent {
       if (totalBoundaryBytes <= available) {
         break;
       }
-      // Reduce bucket count by half and rebuild (simplified — in practice,
-      // merge adjacent pairs)
+      // Reduce bucket count by half
       bucketCount = bucketCount / 2;
       if (bucketCount < MINIMUM_BUCKET_COUNT) {
         // Try spilling HLL to page 1 (at most once — hllSize > 0 guard
         // prevents re-entry after the first spill attempt)
-        if (!isSingleValue && hllSize > 0) {
+        if (!singleValue && hllSize > 0) {
           hllSize = 0;
           hllSpilledToPage1 = true;
           // Reset to original arrays and bucket count. This is safe because
@@ -949,28 +972,40 @@ public class IndexHistogramManager extends DurableComponent {
           // which happens before mergeBuckets could run for this iteration.
           // Explicit reset guards against future refactors.
           bucketCount = result.actualBucketCount;
+          sourceBucketCount = bucketCount;
           boundaries = result.boundaries;
           frequencies = result.frequencies;
           distinctCounts = result.distinctCounts;
           totalBoundaryBytes =
-              computeBoundaryBytes(boundaries, bucketCount);
+              boundarySizeCalc.computeSize(boundaries, bucketCount);
           continue;
         }
         return null; // keys too large for any useful histogram
       }
       // Merge adjacent bucket pairs
       var merged = mergeBuckets(boundaries, frequencies, distinctCounts,
-          result.actualBucketCount, bucketCount);
+          sourceBucketCount, bucketCount);
+      sourceBucketCount = bucketCount;
       boundaries = merged.boundaries;
       frequencies = merged.frequencies;
       distinctCounts = merged.distinctCounts;
-      totalBoundaryBytes = computeBoundaryBytes(boundaries, bucketCount);
+      totalBoundaryBytes =
+          boundarySizeCalc.computeSize(boundaries, bucketCount);
     }
 
     var histogram = new EquiDepthHistogram(
         bucketCount, boundaries, frequencies, distinctCounts, nonNullCount,
         result.mcvValue, result.mcvFrequency);
     return new FitResult(histogram, hllSpilledToPage1);
+  }
+
+  /**
+   * Functional interface for computing total serialized boundary bytes.
+   * Injected into {@link #fitToPage} to decouple from the key serializer.
+   */
+  @FunctionalInterface
+  interface BoundarySizeCalculator {
+    int computeSize(Comparable<?>[] boundaries, int bucketCount);
   }
 
   /**
@@ -992,7 +1027,7 @@ public class IndexHistogramManager extends DurableComponent {
    * Computes available page space for boundaries given the current
    * bucket count, HLL size, and MCV key size.
    */
-  private static int computeMaxBoundarySpace(
+  static int computeMaxBoundarySpace(
       int bucketCount, int hllSize, int mcvKeySize) {
     int pagePayload =
         DurablePage.MAX_PAGE_SIZE_BYTES - DurablePage.NEXT_FREE_POSITION;
@@ -1007,7 +1042,7 @@ public class IndexHistogramManager extends DurableComponent {
    * Merges buckets from originalCount down to targetCount by combining
    * adjacent pairs.
    */
-  private static BuildResult mergeBuckets(
+  static BuildResult mergeBuckets(
       Comparable<?>[] boundaries, long[] frequencies,
       long[] distinctCounts, int originalCount, int targetCount) {
     int ratio = originalCount / targetCount;
