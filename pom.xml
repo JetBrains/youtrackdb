@@ -109,6 +109,7 @@
     <nullaway.version>0.13.1</nullaway.version>
     <jspecify.version>1.0.0</jspecify.version>
     <errorprone.args>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-sources/.*|.*/internal/core/sql/parser/.*|.*/src/test/.*|.*/generated-test-sources/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR -Xep:StringCaseLocaleUsage:ERROR -Xep:PatternMatchingInstanceof:ERROR -Xep:UnusedVariable:ERROR -Xep:UnnecessaryParentheses:ERROR -Xep:MixedMutabilityReturnType:ERROR -Xep:SystemOut:ERROR -Xep:CheckedExceptionNotThrown:ERROR -Xep:RemoveUnusedImports:ERROR -Xep:MissingOverride:ERROR -Xep:ImmutableEnumChecker:ERROR -Xep:EffectivelyPrivate:ERROR -Xep:StatementSwitchToExpressionSwitch:ERROR -Xep:OperatorPrecedence:ERROR -Xep:InvalidParam:ERROR -Xep:EmptyBlockTag:ERROR -Xep:ReferenceEquality:ERROR -Xep:EqualsGetClass:ERROR -Xep:StringSplitter:ERROR -Xep:TypeParameterUnusedInFormals:ERROR -Xep:NonApiType:OFF</errorprone.args>
+    <spotless.version>3.2.1</spotless.version>
   </properties>
 
 
@@ -600,6 +601,35 @@
           <artifactId>docker-maven-plugin</artifactId>
           <version>0.48.0</version>
         </plugin>
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>${spotless.version}</version>
+          <configuration>
+            <ratchetFrom>spotless-baseline</ratchetFrom>
+            <java>
+              <includes>
+                <include>src/main/java/**/*.java</include>
+                <include>src/test/java/**/*.java</include>
+              </includes>
+              <excludes>
+                <exclude>**/internal/core/sql/parser/**</exclude>
+                <exclude>**/src/main/generated/**</exclude>
+                <exclude>**/generated-sources/**</exclude>
+                <exclude>**/generated-test-sources/**</exclude>
+              </excludes>
+              <eclipse>
+                <file>${maven.multiModuleProjectDirectory}/config/eclipse-formatter.xml</file>
+              </eclipse>
+              <importOrder>
+                <order>\#,</order>
+              </importOrder>
+              <removeUnusedImports/>
+              <formatAnnotations/>
+              <toggleOffOn/>
+            </java>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
 
@@ -715,6 +745,19 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>flatten-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>process-sources</phase>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
