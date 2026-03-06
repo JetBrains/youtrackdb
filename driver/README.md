@@ -4,7 +4,6 @@ source_files:
   - driver/pom.xml
   - core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java
   - core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java
-last_synced_commit: 2d5822220f
 related_docs:
   - README.md
   - server/README.md

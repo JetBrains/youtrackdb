@@ -1,11 +1,11 @@
 ---
 source_files:
   - server/src/main/java/com/jetbrains/youtrackdb/internal/server/**
-  - server/src/main/docker/**
+  - server/docker/**
+  - server/Dockerfile
   - server/src/main/resources/**
   - server/pom.xml
   - core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java
-last_synced_commit: 2d5822220f
 related_docs:
   - README.md
   - driver/README.md

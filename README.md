@@ -6,7 +6,6 @@ source_files:
   - core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/**
   - pom.xml
   - examples/src/main/java/**
-last_synced_commit: 2d5822220f
 related_docs:
   - CLAUDE.md
   - console/README.md

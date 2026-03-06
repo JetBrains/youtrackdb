@@ -1,7 +1,7 @@
 ---
 source_files:
   - embedded/pom.xml
-  - embedded/src/main/java/**
+  - embedded/src/**
 related_docs:
   - README.md
 ---

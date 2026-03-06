@@ -46,16 +46,18 @@ mappings:
 
   - doc: console/README.md
     source_patterns:
-      - "console/src/main/java/**"
+      - "console/src/**"
       - "console/pom.xml"
-      - "console/src/main/docker/**"
+      - "console/docker/**"
+      - "console/Dockerfile"
       - "core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/YTDBDemoGraphFactory.java"
       - "core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSourceDSL.java"
 
   - doc: server/README.md
     source_patterns:
       - "server/src/main/java/com/jetbrains/youtrackdb/internal/server/**"
-      - "server/src/main/docker/**"
+      - "server/docker/**"
+      - "server/Dockerfile"
       - "server/src/main/resources/**"
       - "server/pom.xml"
       - "core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java"
@@ -90,7 +92,7 @@ mappings:
   - doc: embedded/README.md
     source_patterns:
       - "embedded/pom.xml"
-      - "embedded/src/main/java/**"
+      - "embedded/src/**"
 
   - doc: perf/README.md
     source_patterns:

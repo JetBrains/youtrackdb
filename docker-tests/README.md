@@ -2,7 +2,6 @@
 source_files:
   - docker-tests/src/**
   - docker-tests/pom.xml
-last_synced_commit: 2d5822220f
 related_docs:
   - CLAUDE.md
 ---

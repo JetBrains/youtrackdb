@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Validate that documentation files have YAML frontmatter and are registered in docs-sync.yml."""
+"""Validate that documentation files have YAML frontmatter, are registered
+in docs-sync.yml, and that all cross-references resolve to existing files."""
 
 import sys
 import re
@@ -53,17 +54,74 @@ def parse_frontmatter(path):
         return None
 
 
-def load_sync_mapping():
-    """Return set of doc paths registered in docs-sync.yml."""
+def load_sync_mappings():
+    """Return full mappings list and set of doc paths from docs-sync.yml."""
     with open(DOCS_SYNC, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    return {Path(m["doc"]) for m in data.get("mappings", [])}
+    mappings = data.get("mappings", [])
+    registered = {Path(m["doc"]) for m in mappings}
+    return mappings, registered
+
+
+def check_pattern(pattern):
+    """Check a source file pattern. Returns None if valid, or an error description.
+
+    - Exact paths (no wildcards): must exist as a file.
+    - Glob patterns with wildcards: the base directory (portion before the first
+      wildcard) must exist. This allows patterns like 'module/src/main/java/**'
+      to pass when the directory exists but is currently empty, while catching
+      patterns whose base directory has been moved or deleted.
+    """
+    if "*" not in pattern and "?" not in pattern:
+        # Exact file path
+        if not (REPO_ROOT / pattern).exists():
+            return f"'{pattern}' references non-existent file"
+        return None
+
+    # Glob pattern: verify base directory exists
+    parts = Path(pattern).parts
+    base_parts = []
+    for part in parts:
+        if "*" in part or "?" in part:
+            break
+        base_parts.append(part)
+
+    if base_parts:
+        base_dir = REPO_ROOT / Path(*base_parts)
+        if not base_dir.exists():
+            return f"'{pattern}' base directory '{Path(*base_parts)}' does not exist"
+
+    return None
+
+
+def check_references(errors, doc, fm):
+    """Validate that related_docs and source_files references are not broken."""
+    # Check related_docs point to existing files
+    for ref in fm.get("related_docs", []) or []:
+        if not (REPO_ROOT / ref).exists():
+            errors.append(f"{doc}: related_docs references non-existent '{ref}'")
+
+    # Check source_files patterns are not broken
+    for pattern in fm.get("source_files", []) or []:
+        err = check_pattern(pattern)
+        if err:
+            errors.append(f"{doc}: source_files {err}")
+
+
+def check_sync_patterns(errors, mappings):
+    """Validate that source_patterns in docs-sync.yml are not broken."""
+    for mapping in mappings:
+        doc = mapping["doc"]
+        for pattern in mapping.get("source_patterns", []):
+            err = check_pattern(pattern)
+            if err:
+                errors.append(f"docs/docs-sync.yml ({doc}): source_patterns {err}")
 
 
 def main():
     errors = []
     docs = find_docs()
-    registered = load_sync_mapping()
+    mappings, registered = load_sync_mappings()
 
     # Also validate all files listed in docs-sync.yml (catches docs outside docs/ and READMEs)
     for reg in registered:
@@ -85,10 +143,15 @@ def main():
         if doc not in registered:
             errors.append(f"{doc}: not registered in docs/docs-sync.yml")
 
+        check_references(errors, doc, fm)
+
     # Stale entries in docs-sync.yml
     for reg in sorted(registered):
         if not (REPO_ROOT / reg).exists():
             errors.append(f"docs/docs-sync.yml: references non-existent file '{reg}'")
+
+    # Validate source_patterns in docs-sync.yml
+    check_sync_patterns(errors, mappings)
 
     if errors:
         print("Documentation frontmatter check failed:\n")
@@ -98,6 +161,7 @@ def main():
         sys.exit(1)
 
     print(f"All {len(docs)} documentation files have valid frontmatter and are registered.")
+    print("All cross-references and glob patterns resolve to existing files.")
     sys.exit(0)
 
 
