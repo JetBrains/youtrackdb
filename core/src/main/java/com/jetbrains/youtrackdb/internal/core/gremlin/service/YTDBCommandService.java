@@ -135,7 +135,8 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Pass through the input traverser for Streaming mode
-      case SqlCommandExecutionResult.Unit ignored -> CloseableIterator.of(IteratorUtils.of(in.get()));
+      case SqlCommandExecutionResult.Unit ignored ->
+          CloseableIterator.of(IteratorUtils.of(in.get()));
       case SqlCommandExecutionResult.Results r -> r.iterator();
     };
   }
