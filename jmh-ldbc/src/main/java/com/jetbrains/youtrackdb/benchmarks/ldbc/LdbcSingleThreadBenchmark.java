@@ -11,14 +11,17 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  *
  * <p>Usage:
  * <pre>
- * # Via Maven (recommended)
+ * # Via Maven — single command (recommended)
+ * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcSingleThread.*"
+ *
+ * # Via Maven — two-step
  * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcSingleThread.*"
  *
  * # Via uber-jar
  * java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*"
  *
  * # A specific query
- * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args=".*is1_personProfile"
+ * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args=".*is1_personProfile"
  * </pre>
  */
 @Threads(1)

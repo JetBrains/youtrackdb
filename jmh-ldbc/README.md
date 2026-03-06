@@ -65,38 +65,51 @@ Default JMH settings per benchmark: 3 warmup iterations (5s each) + 5 measuremen
 
 ## Quick Start (Maven)
 
-The simplest way to run benchmarks — builds everything from source and launches JMH in a single command:
+The simplest way to run benchmarks — builds everything from source and launches JMH in a single command. There are two approaches:
+
+### Single command (recommended): `verify -P bench`
+
+The `bench` Maven profile binds `exec:exec` to the `verify` phase, so compile + run happens automatically:
 
 ```bash
-# Run all benchmarks (compiles core + jmh-ldbc automatically)
-./mvnw -pl jmh-ldbc -am compile exec:exec
+# Run all benchmarks (compiles core + jmh-ldbc, then launches JMH)
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
 
 # Run only single-threaded benchmarks (~22 min)
-./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcSingleThread.*"
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcSingleThread.*"
 
 # Run a specific query (~1 min)
-./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args=".*ic1_transitiveFriends"
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args=".*ic1_transitiveFriends"
 
 # Quick smoke test: 1 warmup, 1 measurement, 1s each
-./mvnw -pl jmh-ldbc -am compile exec:exec \
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Djmh.args=".*is1_personProfile -f 1 -wi 1 -i 1 -r 1s"
+
+# List all available benchmarks without running them
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="-l"
+```
+
+### Two-step: `compile` + `exec:exec`
+
+If you prefer explicit control over the build and run phases:
+
+```bash
+# Run all benchmarks
+./mvnw -pl jmh-ldbc -am compile exec:exec
 
 # Pass full JMH options (regex, forks, warmup, iterations)
 ./mvnw -pl jmh-ldbc -am compile exec:exec \
     -Djmh.args="LdbcSingleThread.* -f 1 -wi 2 -i 3"
-
-# List all available benchmarks without running them
-./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="-l"
 ```
 
-The `exec:exec` goal forks a new JVM with all required `--add-opens` flags and 4 GB heap preconfigured.
+Both approaches fork a new JVM with all required `--add-opens` flags and 4 GB heap preconfigured.
 
 ### First Run
 
 On the first run, the benchmark setup phase will:
 1. Download the LDBC SF 0.1 dataset (~22 MB compressed) from the SURF repository.
 2. Extract it using `zstd` or Python `zstandard`.
-3. Create a YouTrackDB database, create the LDBC schema (vertex/edge classes + indexes), and load all CSV data (~1.8M records, ~5 min).
+3. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~1.8M records, ~5 min).
 4. Sample query parameters (person IDs, message IDs, tag names, etc.) from the loaded data.
 
 Subsequent runs reuse the existing database (~2s startup).
@@ -158,7 +171,12 @@ All settings are passed as JVM system properties. When using Maven, add `-D` fla
 Example with a pre-downloaded dataset and larger scale factor:
 
 ```bash
-# Maven
+# Maven (single command)
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+    -Dldbc.dataset.path=/data/ldbc/sf1 \
+    -Dldbc.scale.factor=1
+
+# Maven (two-step)
 ./mvnw -pl jmh-ldbc -am compile exec:exec \
     -Dldbc.dataset.path=/data/ldbc/sf1 \
     -Dldbc.scale.factor=1
@@ -205,8 +223,18 @@ jmh-ldbc/
     LdbcMultiThreadBenchmark.java  # @Threads(8) — multi-threaded suite
     LdbcDatabaseTool.java          # CLI for export/import/backup/restore operations
   src/main/resources/
+    ldbc-schema.sql                # DDL: vertex/edge classes, properties, indexes
     ldbc-queries/
       IS1.sql .. IS7.sql           # Interactive Short queries (YouTrackDB MATCH SQL)
       IC1.sql .. IC13.sql          # Interactive Complex queries (YouTrackDB MATCH SQL)
     log4j2.xml                     # Logging configuration
 ```
+
+### SQL file conventions
+
+- **Schema DDL** (`ldbc-schema.sql`) contains one statement per line, terminated by `;`.
+  Comments use `--` (stripped by the Java loader before parsing).
+- **Query files** (`ldbc-queries/*.sql`) each contain a single multi-line query.
+  Comments use `/* ... */` C-style syntax, which is natively supported by the
+  YouTrackDB SQL parser. Do **not** use `--` in query files — the parser treats
+  `--` as the decrement operator.

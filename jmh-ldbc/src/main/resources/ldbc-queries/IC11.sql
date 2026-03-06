@@ -1,3 +1,6 @@
+/* IC11: Job referral.
+   Find friends/FoF who started working in a Company in a given Country
+   before a given year. */
 MATCH {class: Person, as: start, where: (id = :personId)}
   .out('KNOWS'){while: ($depth < 2), as: person,
     where: (@rid <> $matched.start.@rid)}

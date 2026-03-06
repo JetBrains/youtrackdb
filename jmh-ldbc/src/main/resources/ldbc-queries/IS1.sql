@@ -1,3 +1,5 @@
+/* IS1: Profile of a person.
+   Given a Person, retrieve their profile (name, birthday, IP, browser, city). */
 MATCH {class: Person, as: p, where: (id = :personId)}
   .out('IS_LOCATED_IN'){as: city}
 RETURN p.firstName as firstName, p.lastName as lastName,

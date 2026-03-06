@@ -12,9 +12,12 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -414,121 +417,38 @@ public class LdbcBenchmarkState {
 
   // ==================== SCHEMA ====================
 
-  private static final String[] SCHEMA_STATEMENTS = {
-      // Vertex classes
-      "CREATE CLASS Place EXTENDS V",
-      "CREATE PROPERTY Place.id LONG",
-      "CREATE PROPERTY Place.name STRING",
-      "CREATE PROPERTY Place.url STRING",
-      "CREATE PROPERTY Place.type STRING",
+  private static final String SCHEMA_RESOURCE = "/ldbc-schema.sql";
 
-      "CREATE CLASS Organisation EXTENDS V",
-      "CREATE PROPERTY Organisation.id LONG",
-      "CREATE PROPERTY Organisation.type STRING",
-      "CREATE PROPERTY Organisation.name STRING",
-      "CREATE PROPERTY Organisation.url STRING",
-
-      "CREATE CLASS Company EXTENDS Organisation",
-      "CREATE CLASS University EXTENDS Organisation",
-
-      "CREATE CLASS TagClass EXTENDS V",
-      "CREATE PROPERTY TagClass.id LONG",
-      "CREATE PROPERTY TagClass.name STRING",
-      "CREATE PROPERTY TagClass.url STRING",
-
-      "CREATE CLASS Tag EXTENDS V",
-      "CREATE PROPERTY Tag.id LONG",
-      "CREATE PROPERTY Tag.name STRING",
-      "CREATE PROPERTY Tag.url STRING",
-
-      "CREATE CLASS Person EXTENDS V",
-      "CREATE PROPERTY Person.id LONG",
-      "CREATE PROPERTY Person.firstName STRING",
-      "CREATE PROPERTY Person.lastName STRING",
-      "CREATE PROPERTY Person.gender STRING",
-      "CREATE PROPERTY Person.birthday DATETIME",
-      "CREATE PROPERTY Person.creationDate DATETIME",
-      "CREATE PROPERTY Person.locationIP STRING",
-      "CREATE PROPERTY Person.browserUsed STRING",
-      "CREATE PROPERTY Person.languages EMBEDDEDLIST STRING",
-      "CREATE PROPERTY Person.emails EMBEDDEDLIST STRING",
-
-      "CREATE CLASS Forum EXTENDS V",
-      "CREATE PROPERTY Forum.id LONG",
-      "CREATE PROPERTY Forum.title STRING",
-      "CREATE PROPERTY Forum.creationDate DATETIME",
-
-      "CREATE CLASS Message EXTENDS V",
-      "CREATE PROPERTY Message.id LONG",
-      "CREATE PROPERTY Message.creationDate DATETIME",
-      "CREATE PROPERTY Message.locationIP STRING",
-      "CREATE PROPERTY Message.browserUsed STRING",
-      "CREATE PROPERTY Message.content STRING",
-      "CREATE PROPERTY Message.length INTEGER",
-
-      "CREATE CLASS Post EXTENDS Message",
-      "CREATE PROPERTY Post.imageFile STRING",
-      "CREATE PROPERTY Post.language STRING",
-
-      "CREATE CLASS Comment EXTENDS Message",
-
-      // Edge classes
-      "CREATE CLASS KNOWS EXTENDS E",
-      "CREATE PROPERTY KNOWS.creationDate DATETIME",
-
-      "CREATE CLASS IS_LOCATED_IN EXTENDS E",
-      "CREATE CLASS HAS_INTEREST EXTENDS E",
-
-      "CREATE CLASS STUDY_AT EXTENDS E",
-      "CREATE PROPERTY STUDY_AT.classYear INTEGER",
-
-      "CREATE CLASS WORK_AT EXTENDS E",
-      "CREATE PROPERTY WORK_AT.workFrom INTEGER",
-
-      "CREATE CLASS HAS_MODERATOR EXTENDS E",
-
-      "CREATE CLASS HAS_MEMBER EXTENDS E",
-      "CREATE PROPERTY HAS_MEMBER.joinDate DATETIME",
-
-      "CREATE CLASS CONTAINER_OF EXTENDS E",
-      "CREATE CLASS HAS_TAG EXTENDS E",
-      "CREATE CLASS HAS_CREATOR EXTENDS E",
-
-      "CREATE CLASS LIKES EXTENDS E",
-      "CREATE PROPERTY LIKES.creationDate DATETIME",
-
-      "CREATE CLASS REPLY_OF EXTENDS E",
-      "CREATE CLASS IS_PART_OF EXTENDS E",
-      "CREATE CLASS IS_SUBCLASS_OF EXTENDS E",
-      "CREATE CLASS HAS_TYPE EXTENDS E",
-
-      // Indexes
-      "CREATE INDEX Place.id ON Place(id) UNIQUE",
-      "CREATE INDEX Organisation.id ON Organisation(id) UNIQUE",
-      "CREATE INDEX TagClass.id ON TagClass(id) UNIQUE",
-      "CREATE INDEX Tag.id ON Tag(id) UNIQUE",
-      "CREATE INDEX Person.id ON Person(id) UNIQUE",
-      "CREATE INDEX Forum.id ON Forum(id) UNIQUE",
-      "CREATE INDEX Message.id ON Message(id) UNIQUE",
-
-      "CREATE INDEX Place.name ON Place(name) NOTUNIQUE",
-      "CREATE INDEX Place.type ON Place(type) NOTUNIQUE",
-      "CREATE INDEX Organisation.name ON Organisation(name) NOTUNIQUE",
-      "CREATE INDEX Tag.name ON Tag(name) NOTUNIQUE",
-      "CREATE INDEX TagClass.name ON TagClass(name) NOTUNIQUE",
-      "CREATE INDEX Person.firstName ON Person(firstName) NOTUNIQUE",
-      "CREATE INDEX Person.birthday ON Person(birthday) NOTUNIQUE",
-      "CREATE INDEX Message.creationDate ON Message(creationDate) NOTUNIQUE",
-      "CREATE INDEX Forum.creationDate ON Forum(creationDate) NOTUNIQUE",
-      "CREATE INDEX HAS_MEMBER.joinDate ON HAS_MEMBER(joinDate) NOTUNIQUE",
-      "CREATE INDEX WORK_AT.workFrom ON WORK_AT(workFrom) NOTUNIQUE",
-  };
+  /**
+   * Reads SQL statements from a classpath resource file.
+   * Blank lines and lines starting with {@code --} are skipped.
+   * Trailing semicolons are stripped from each statement.
+   */
+  private static List<String> loadSqlStatements(String resource) {
+    try (InputStream is = LdbcBenchmarkState.class.getResourceAsStream(resource)) {
+      if (is == null) {
+        throw new IllegalStateException("Resource not found: " + resource);
+      }
+      try (var reader = new BufferedReader(
+          new InputStreamReader(is, StandardCharsets.UTF_8))) {
+        return reader.lines()
+            .map(String::strip)
+            .filter(line -> !line.isEmpty() && !line.startsWith("--"))
+            .map(line -> line.endsWith(";")
+                ? line.substring(0, line.length() - 1) : line)
+            .toList();
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("Failed to read " + resource, e);
+    }
+  }
 
   private void createSchema() {
-    log.info("Creating LDBC schema ({} statements)...", SCHEMA_STATEMENTS.length);
+    List<String> statements = loadSqlStatements(SCHEMA_RESOURCE);
+    log.info("Creating LDBC schema ({} statements)...", statements.size());
     traversal.executeInTx(g -> {
       var ytg = (YTDBGraphTraversalSource) g;
-      for (String sql : SCHEMA_STATEMENTS) {
+      for (String sql : statements) {
         ytg.sqlCommand(sql).iterate();
       }
     });

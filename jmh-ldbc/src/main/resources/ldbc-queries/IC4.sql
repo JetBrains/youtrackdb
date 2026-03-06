@@ -1,3 +1,6 @@
+/* IC4: New topics.
+   Find Tags attached to friends' Posts in a time interval that were never
+   used before. */
 MATCH {class: Person, as: p, where: (id = :personId)}
   .out('KNOWS'){as: friend}
   .in('HAS_CREATOR'){class: Post, as: newPost,

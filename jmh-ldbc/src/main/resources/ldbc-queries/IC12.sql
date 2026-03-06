@@ -1,3 +1,6 @@
+/* IC12: Expert search.
+   Find friends' Comments replying to Posts with Tags in a given TagClass
+   hierarchy. */
 MATCH {class: Person, as: p, where: (id = :personId)}
   .out('KNOWS'){as: friend}
   .in('HAS_CREATOR'){class: Comment, as: comment}

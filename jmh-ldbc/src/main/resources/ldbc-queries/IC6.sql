@@ -1,3 +1,5 @@
+/* IC6: Tag co-occurrence.
+   Find Tags that co-occur with a given Tag on friends' Posts. */
 SELECT tagName, count(postId) as postCount
 FROM (
   MATCH {class: Person, as: start, where: (id = :personId)}

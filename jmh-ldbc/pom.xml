@@ -123,9 +123,10 @@
 
       <!-- exec:exec — run benchmarks from Maven with a forked JVM.
            Uses /bin/sh -c so that ${jmh.args} is word-split correctly.
-           Usage: ./mvnw -pl jmh-ldbc -am compile exec:exec
-                  ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcSingleThread.*"
-                  ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args=".*ic1_.* -f 1 -wi 2 -i 3" -->
+           Usage (two-step): ./mvnw -pl jmh-ldbc -am compile exec:exec
+           Usage (single command via profile): ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
+           Override args: -Djmh.args="LdbcSingleThread.*"
+                          -Djmh.args=".*ic1_.* -f 1 -wi 2 -i 3" -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
@@ -150,6 +151,33 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- Profile to compile and run benchmarks in a single command.
+         Usage: ./mvnw -pl jmh-ldbc -am verify -P bench
+                ./mvnw -pl jmh-ldbc -am verify -P bench -Djmh.args=".*is4_.* -f 1 -wi 1 -i 1" -->
+    <profile>
+      <id>bench</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>run-benchmarks</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
   <properties>
     <!-- Default: run all benchmarks. Override with -Djmh.args="pattern" -->

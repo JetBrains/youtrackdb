@@ -1,3 +1,5 @@
+/* IC8: Recent replies.
+   Find most recent Comments replying to a Person's Messages. */
 MATCH {class: Person, as: p, where: (id = :personId)}
   .in('HAS_CREATOR'){as: message}
   .in('REPLY_OF'){as: comment}
