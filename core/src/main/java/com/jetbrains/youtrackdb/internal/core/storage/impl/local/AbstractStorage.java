@@ -3651,14 +3651,14 @@ public abstract class AbstractStorage
             new ThreadInterruptedException("Fuzzy check point was interrupted"), e, name);
       }
 
-      if (status != STATUS.OPEN || status != STATUS.MIGRATION) {
+      if (status != STATUS.OPEN && status != STATUS.MIGRATION) {
         return;
       }
     }
 
     try {
 
-      if (status != STATUS.OPEN || status != STATUS.MIGRATION) {
+      if (status != STATUS.OPEN && status != STATUS.MIGRATION) {
         return;
       }
 

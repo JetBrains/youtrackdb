@@ -657,7 +657,7 @@ Each step = 1 commit = 1 session. Check off as completed.
 | [x] | 4 | Add read-side reentrancy to `ScalableRWLock` | Low | 2be1c916df | `ScalableRWLock.java`, `ScalableRWLockTest.java` | `./mvnw -pl core clean test` |
 | [x] | 5 | Introduce `ddlLock` (coexists with `stateLock`) | Low | 2a00e1a5d2 | `AbstractStorage.java` (~8 DDL methods) | `./mvnw -pl core clean test` then `-P ci-integration-tests` |
 | [x] | 6 | DDL lock swap + Gremlin TX auto-close + TX-scoped read lock | Medium | a31032686b | `AbstractStorage.java`, `FrontendTransactionImpl.java`, `YTDBGraphFeatureTest.java`, `EmbeddedGraphFeatureTest.java` | `./mvnw -pl core clean test` then `-P ci-integration-tests` |
-| [ ] | 7 | Fix `makeFuzzyCheckpoint()` bug + benchmark + cleanup | Low | | `AbstractStorage.java`, `CLAUDE.md` | `./mvnw clean verify -P ci-integration-tests` |
+| [x] | 7 | Fix `makeFuzzyCheckpoint()` bug + benchmark + cleanup | Low | 7c4ebb9853 | `AbstractStorage.java`, `CLAUDE.md` | `./mvnw clean verify -P ci-integration-tests` |
 
 ### Step dependencies
 

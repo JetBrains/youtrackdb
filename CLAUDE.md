@@ -95,6 +95,26 @@ Root package: `com.jetbrains.youtrackdb`
 - **WAL** (Write-Ahead Logging): `LogSequenceNumber` (segment, position) pairs, atomic operations
 - **DurableComponent**: Base class for all crash-recoverable data structures
 
+### Storage Locking Architecture
+Three separate mechanisms protect `AbstractStorage` state:
+
+1. **`stateLock` (`ScalableRWLock`)** — lifecycle guard only. Read lock is pinned for the
+   duration of each transaction (`FrontendTransactionImpl`). Nested `sharedLock()` calls within
+   a TX hit a reentrant fast path (~1ns, zero memory barriers). Write lock is reserved for
+   lifecycle operations: `open()`, `close()`, `delete()`, `shutdown()`.
+
+2. **`ddlLock` (`ReentrantLock`)** — serializes DDL operations (add/drop collection/index,
+   set collection attribute) against each other. DDL methods acquire `stateLock.readLock()` +
+   `ddlLock`, not `stateLock.writeLock()`. This means DDL does not block concurrent readers.
+
+3. **Concurrent data structures** — `collectionMap` (`ConcurrentHashMap`), `indexEngines`
+   (`CopyOnWriteArrayList`), `indexEngineNameMap` (`ConcurrentHashMap`). Reads do not acquire
+   any explicit locks; the `stateLock.readLock()` is held only for lifecycle protection, not
+   data structure safety.
+
+Lock ordering (when multiple locks are held): `stateLock.readLock()` → `ddlLock`.
+Lifecycle operations use `stateLock.writeLock()` alone (no `ddlLock`).
+
 ### Gremlin Integration
 - Uses a **custom fork** of Apache TinkerPop (group ID `io.youtrackdb` instead of `org.apache.tinkerpop`)
 - Custom DSL classes generated at compile time by `GremlinDslProcessor` annotation processor
