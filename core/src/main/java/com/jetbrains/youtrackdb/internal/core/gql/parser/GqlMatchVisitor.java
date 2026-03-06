@@ -5,14 +5,17 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLBaseVisitor;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.gen.GQLParser;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Date;
 
 /// Visitor that extracts node patterns from the MATCH clause using unified YQL IR.
 ///
@@ -32,14 +35,12 @@ import java.util.Map;
 @SuppressWarnings({"unused", "ConstantConditions"})
 public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
 
-  private static final ThreadLocal<SimpleDateFormat> DATE_FORMAT =
-      ThreadLocal.withInitial(
-          () -> new SimpleDateFormat(StorageConfiguration.DEFAULT_DATE_FORMAT));
-  private static final ThreadLocal<SimpleDateFormat> DATETIME_FORMAT =
-      ThreadLocal.withInitial(
-          () -> new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT));
-  private static final ThreadLocal<SimpleDateFormat> TIME_FORMAT =
-      ThreadLocal.withInitial(() -> new SimpleDateFormat("HH:mm:ss"));
+  private static final DateTimeFormatter DATE_FORMAT =
+      DateTimeFormatter.ofPattern(StorageConfiguration.DEFAULT_DATE_FORMAT);
+  private static final DateTimeFormatter DATETIME_FORMAT =
+      DateTimeFormatter.ofPattern(StorageConfiguration.DEFAULT_DATETIME_FORMAT);
+  private static final DateTimeFormatter TIME_FORMAT =
+      DateTimeFormatter.ofPattern("HH:mm:ss");
 
   private final List<SQLMatchFilter> matchFilters = new ArrayList<>();
 
@@ -166,16 +167,17 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
     var str = ctx.STRING().getText();
     str = str.substring(1, str.length() - 1);
 
-    try {
-      if (ctx.DATE() != null) {
-        return DATE_FORMAT.get().parse(str);
-      } else if (ctx.TIMESTAMP() != null) {
-        return DATETIME_FORMAT.get().parse(str);
-      } else if (ctx.TIME() != null) {
-        return TIME_FORMAT.get().parse(str);
-      }
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("Failed to parse temporal value: " + str, e);
+    if (ctx.DATE() != null) {
+      var localDate = LocalDate.parse(str, DATE_FORMAT);
+      return Date.from(localDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
+    } else if (ctx.TIMESTAMP() != null) {
+      var localDateTime = LocalDateTime.parse(str, DATETIME_FORMAT);
+      return Date.from(localDateTime.atZone(ZoneId.systemDefault()).toInstant());
+    } else if (ctx.TIME() != null) {
+      var localTime = LocalTime.parse(str, TIME_FORMAT);
+      var instant = localTime.atDate(LocalDate.ofEpochDay(0))
+          .atZone(ZoneId.systemDefault()).toInstant();
+      return Date.from(instant);
     }
 
     throw new IllegalArgumentException(
