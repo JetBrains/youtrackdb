@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Validate that documentation files have YAML frontmatter and are registered in docs-sync.yml.
-
-No external dependencies — uses simple parsing for the limited YAML subset
-found in frontmatter and docs-sync.yml.
-"""
+"""Validate that documentation files have YAML frontmatter and are registered in docs-sync.yml."""
 
 import sys
 import re
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_SYNC = REPO_ROOT / "docs" / "docs-sync.yml"
@@ -44,39 +42,22 @@ def find_docs():
 
 
 def parse_frontmatter(path):
-    """Return dict with keys found in frontmatter, or None if no frontmatter."""
+    """Return parsed YAML frontmatter dict, or None if no frontmatter."""
     text = (REPO_ROOT / path).read_text(encoding="utf-8")
     match = re.match(r"^---\n(.*?\n)---\n", text, re.DOTALL)
     if not match:
         return None
-
-    result = {}
-    current_key = None
-    for line in match.group(1).splitlines():
-        # List item under current key
-        if line.startswith("  - ") and current_key is not None:
-            result[current_key].append(line[4:].strip().strip("\"'"))
-        # New key with inline value
-        elif ":" in line and not line.startswith(" "):
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip()
-            if value == "" or value == "[]":
-                result[key] = []
-                current_key = key
-            else:
-                result[key] = value.strip("\"'")
-                current_key = None
-    return result
+    try:
+        return yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return None
 
 
 def load_sync_mapping():
     """Return set of doc paths registered in docs-sync.yml."""
-    registered = set()
-    text = DOCS_SYNC.read_text(encoding="utf-8")
-    for match in re.finditer(r"^\s*- doc:\s*(.+)$", text, re.MULTILINE):
-        registered.add(Path(match.group(1).strip().strip("\"'")))
-    return registered
+    with open(DOCS_SYNC, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return {Path(m["doc"]) for m in data.get("mappings", [])}
 
 
 def main():
