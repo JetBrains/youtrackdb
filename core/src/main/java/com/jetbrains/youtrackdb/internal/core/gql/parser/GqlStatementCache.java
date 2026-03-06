@@ -23,7 +23,7 @@ public class GqlStatementCache {
         : null;
   }
 
-  public static @Nullable GqlStatement get(@Nonnull String statement,
+  public static @Nonnull GqlStatement get(@Nonnull String statement,
       @Nullable DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(statement);
@@ -33,7 +33,7 @@ public class GqlStatementCache {
     return resource.getCached(statement);
   }
 
-  protected static GqlStatement parse(@Nullable String statement) {
+  protected static @Nonnull GqlStatement parse(@Nonnull String statement) {
     return GqlPlanner.parse(statement);
   }
 
@@ -45,7 +45,7 @@ public class GqlStatementCache {
     return cache.asMap().containsKey(statement);
   }
 
-  public GqlStatement getCached(@Nullable String statement) {
+  public @Nonnull GqlStatement getCached(@Nonnull String statement) {
     if (capacity == 0) {
       return parse(statement);
     }

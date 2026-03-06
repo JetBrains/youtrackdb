@@ -137,7 +137,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
     invalidate();
   }
 
-  public static @Nullable GqlExecutionPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {
+  public static @Nonnull GqlExecutionPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {
     return db.getSharedContext().getGqlExecutionPlanCache();
   }
 }
