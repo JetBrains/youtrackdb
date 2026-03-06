@@ -222,7 +222,7 @@ public class MatchExecutionPlanner {
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
   /** The original parsed `MATCH` statement, used for execution plan caching. */
-  private final SQLMatchStatement statement = new SQLMatchStatement();
+  private SQLMatchStatement statement;
 
   /** Positive `MATCH` expressions (the main graph pattern). */
   protected List<SQLMatchExpression> matchExpressions;
