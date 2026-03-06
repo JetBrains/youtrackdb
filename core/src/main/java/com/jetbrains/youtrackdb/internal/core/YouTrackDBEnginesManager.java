@@ -86,8 +86,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final ConcurrentMap<String, Engine> engines = new ConcurrentHashMap<String, Engine>();
 
-  private final AtomicReference<List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>>>
-      dbLifecycleListeners = new AtomicReference<>(List.of());
+  private final AtomicReference<List<RawPair<DatabaseLifecycleListener,
+      DatabaseLifecycleListener.PRIORITY>>> dbLifecycleListeners = new AtomicReference<>(List.of());
   private final ThreadGroup threadGroup;
   private final ThreadGroup storageThreadGroup;
   private final ReadWriteLock engineLock = new ReentrantReadWriteLock();
@@ -514,8 +514,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * @return the obtained engine instance or {@code null} if no such engine known or the engine is
    * not running.
    */
-  @Nullable
-  public Engine getEngineIfRunning(final String engineName) {
+  @Nullable public Engine getEngineIfRunning(final String engineName) {
     engineLock.readLock().lock();
     try {
       final var engine = engines.get(engineName);
@@ -667,8 +666,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return executor;
   }
 
-  @Nullable
-  public ExecutorService getIoExecutor() {
+  @Nullable public ExecutorService getIoExecutor() {
     return ioExecutor;
   }
 
@@ -699,8 +697,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * {@link YouTrackDBInternalEmbedded} during its construction. Returns null if IO pool is
    * disabled in configuration.
    */
-  @Nullable
-  public synchronized ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
+  @Nullable public synchronized ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
     if (!config.getConfiguration()
         .getValueAsBoolean(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED)) {
       return null;
