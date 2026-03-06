@@ -289,7 +289,7 @@ public class IndexHistogramManager extends DurableComponent {
       if (fileId != -1 && dirtyMutations > 0) {
         flushSnapshotToPage();
       }
-    } catch (Exception e) {
+    } catch (IOException e) {
       logger.warn(
           "Failed to flush histogram stats on close for " + getName(), e);
     }
@@ -416,8 +416,8 @@ public class IndexHistogramManager extends DurableComponent {
         flushSnapshotToPage();
         // Race: concurrent increments may be lost; next checkpoint catches them.
         dirtyMutations = 0;
-      } catch (Exception e) {
-        // Flush failure is non-fatal — checkpoint will catch it
+      } catch (IOException e) {
+        // I/O flush failure is non-fatal — checkpoint will catch it
         logger.warn(
             "Failed to flush histogram stats for " + getName(), e);
       }
@@ -751,7 +751,7 @@ public class IndexHistogramManager extends DurableComponent {
       try {
         flushSnapshotToPage();   // creates its own AtomicOperation
         dirtyMutations = 0;
-      } catch (Exception e) {
+      } catch (IOException e) {
         logger.warn(
             "Failed to flush histogram stats for " + getName()
                 + " during checkpoint", e);
@@ -1111,8 +1111,7 @@ public class IndexHistogramManager extends DurableComponent {
           lastRebalanceFailureTime = 0;
         } catch (Exception e) {
           lastRebalanceFailureTime = System.currentTimeMillis();
-          logger.warn("Histogram rebalance failed for " + getName()
-              + ": " + e);
+          logger.warn("Histogram rebalance failed for " + getName(), e);
         } finally {
           rebalanceInProgress.set(false);
         }
@@ -1239,7 +1238,7 @@ public class IndexHistogramManager extends DurableComponent {
       try {
         flushSnapshotToPage();
         dirtyMutations = 0;
-      } catch (Exception e) {
+      } catch (IOException e) {
         logger.warn("Failed to persist rebalanced histogram for "
             + getName(), e);
       }
@@ -1372,18 +1371,20 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   /**
-   * Writes the given snapshot to the .ixs file without an AtomicOperation
-   * (for flush from commit path where we don't have an op).
-   * Both pages are written within a single atomic operation for atomicity.
+   * Writes the current cached snapshot to the .ixs file. Creates its own
+   * atomic operation (flush runs from commit and rebalance paths where
+   * no caller-provided AtomicOperation is available).
    */
-  private void flushSnapshotToPage() {
+  private void flushSnapshotToPage() throws IOException {
     var snapshot = cache.get(engineId);
     if (snapshot == null || fileId == -1) {
       return;
     }
 
-    // Use atomicOperationsManager to execute within an atomic operation
-    executeInsideComponentOperation(null, op -> {
+    // Create a standalone atomic operation for the flush — we cannot
+    // use executeInsideComponentOperation(null, ...) because that
+    // passes null to AtomicOperationsManager which requires non-null.
+    storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
       var cacheEntry = loadPageForWrite(op, fileId, 0, true);
       try {
         var page = new HistogramStatsPage(cacheEntry);
