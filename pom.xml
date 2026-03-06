@@ -39,6 +39,7 @@
     <module>console</module>
     <module>embedded</module>
     <module>docker-tests</module>
+    <module>jmh-ldbc</module>
   </modules>
 
   <scm>
