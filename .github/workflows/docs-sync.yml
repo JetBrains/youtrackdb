@@ -110,6 +110,9 @@ jobs:
             3. Use `git diff ${{ github.event.before }} HEAD` to see what changed.
             4. Update the doc to reflect code changes. Keep existing style/tone/structure.
                Do NOT rewrite sections that are still accurate.
+            5. Verify that all internal links and cross-references in the doc are still valid
+               (e.g., file paths, markdown links to other docs). Fix any broken references
+               caused by renames or moves.
 
             If no docs need changes, do not create any commits.
 
