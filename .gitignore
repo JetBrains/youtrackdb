@@ -252,6 +252,9 @@ local.properties
 .coverage/
 **/.ekstazi/
 
+# Arcmutate licence (contains subscription details — must not be public)
+arcmutate-licence.txt
+
 # Claude Code worktrees
 .claude/worktrees/
 

@@ -39,7 +39,7 @@ flowchart TB
         mp_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>Self-hosted Hetzner Runners</i>"]
         mp_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
-        mp_mutation["Mutation Testing<br/>PIT (unit tests only)<br/>85% kill rate<br/>PR comment"]
+        mp_mutation["Mutation Testing<br/>PIT + Arcmutate (unit tests only)<br/>GIT_MIXED + STRONGER + EXTENDED<br/>85% kill rate<br/>PR comment + inline annotations"]
         mp_ci_status["CI Status Gate<br/>Single required check<br/>for branch protection"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
@@ -211,13 +211,16 @@ See [Test Quality Requirements](test-quality-requirements.md) for details.
 
 #### JOB 4: Mutation Testing (PRs only)
 
-Runs PIT mutation testing on new/changed production classes only:
+Runs PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensions on new/changed code:
 
-- Detects changed modules and classes via `git diff` against the base branch.
+- Detects changed modules via `git diff` against the base branch.
+- Writes the Arcmutate licence from the `ARCMUTATE_LICENCE` GitHub secret.
 - Compiles test classes for affected modules.
-- Runs PIT's `mutationCoverage` goal with an 85% mutation kill rate threshold.
+- Runs PIT's `mutationCoverage` goal with Arcmutate's `GIT_MIXED` mode, which automatically scopes mutations to changed lines and code exercised by modified tests. Uses the `STRONGER` + `EXTENDED` mutator groups.
 - Uses unit tests only; integration tests (`*IT`, `*IntegrationTest`) are excluded via the `mutation-testing` Maven profile.
-- Posts a PR comment with per-class mutation kill rates, survived mutation lines, and detailed mutation descriptions (same pattern as the coverage gate comment).
+- Posts **inline PR annotations** on survived mutations via `pitest-github-maven-plugin`.
+- Posts a **summary PR comment** with per-class mutation kill rates, survived mutation lines, and detailed mutation descriptions (same pattern as the coverage gate comment).
+- Enforces an 85% mutation kill rate threshold.
 
 See [Test Quality Requirements](test-quality-requirements.md) for details.
 
@@ -349,7 +352,7 @@ Every pull request must pass all of the following before merging:
 |---|---|---|---|
 | Line coverage | coverage-gate.py | 70% or 85% | New/changed lines |
 | Branch coverage | coverage-gate.py | 70% or 85% | New/changed lines |
-| Mutation score | PIT | 85% | New/changed production classes |
+| Mutation score | PIT + Arcmutate | 85% | Changed lines + code exercised by modified tests |
 | Commit format | check-commit-prefix.yml | YTDB-* prefix | All commits |
 | History | block-merge-commits.yml | No merge commits | All commits |
 

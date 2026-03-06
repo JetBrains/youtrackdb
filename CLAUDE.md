@@ -204,7 +204,7 @@ Runs on `develop` pushes and PRs:
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
 - **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
 - **Ekstazi exclude files**: Uploaded as the `ekstazi-excludes` artifact (retained 7 days). Contains `/tmp/ekstazi-*.excludes` files listing which integration tests Ekstazi skipped. Use these to diagnose coverage gate failures caused by Ekstazi test selection (see "Investigating Coverage Gate Failures" below).
-- **Mutation testing**: PIT mutation testing on changed classes with PIT's own coverage-based test selection, fails below 85% mutation score
+- **Mutation testing**: PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensions. Uses `GIT_MIXED` mode to scope mutations to changed lines and code exercised by modified tests. Uses `STRONGER` + `EXTENDED` mutator groups. Posts inline PR annotations via `pitest-github-maven-plugin`. Fails below 85% mutation score. Requires `ARCMUTATE_LICENCE` GitHub secret.
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
 - **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, mutation-testing) into a single required status for branch protection
 - **Notifications**: Sends Zulip messages on build failure/recovery
@@ -250,6 +250,7 @@ Runs on `develop` pushes and PRs:
 - Guava, fastutil (collections)
 - LZ4 (compression)
 - BouncyCastle (TLS in server)
+- Arcmutate (commercial PIT extensions: `com.arcmutate:base` v1.7.0, `com.arcmutate:pitest-git-plugin` v2.3.0, `com.arcmutate:pitest-github-maven-plugin` v2.3.0). Requires `arcmutate-licence.txt` at project root (gitignored; provided via `ARCMUTATE_LICENCE` secret in CI)
 
 ## Pre-Commit Verification
 

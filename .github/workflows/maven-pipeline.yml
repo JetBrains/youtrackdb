@@ -499,8 +499,9 @@ jobs:
 
   # ------------------------------------------------------------------
   # JOB 5: MUTATION TESTING
-  # PIT mutation testing for new/changed code only
-  # Runs on changed classes only; PIT uses its own coverage-based test selection
+  # PIT mutation testing with Arcmutate extensions for new/changed code.
+  # Uses GIT_MIXED mode to mutate only changed lines plus code exercised
+  # by modified tests. Posts inline PR annotations via pitest-github.
   # Fails the build if mutation score < 85%
   # ------------------------------------------------------------------
   mutation-testing:
@@ -511,6 +512,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      checks: write
       pull-requests: write
     steps:
       - name: Checkout Source Code
@@ -531,7 +533,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Determine Changed Modules and Classes
+      - name: Determine Changed Modules
         id: changes
         run: |
           BASE_BRANCH="origin/${{ github.event.pull_request.base.ref }}"
@@ -550,39 +552,24 @@ jobs:
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-          # Convert file paths to fully qualified class names
-          ALL_CLASSES=$(echo "$CHANGED_FILES" | \
-            sed 's|.*/src/main/java/||;s|\.java$||;s|/|.|g' | \
-            paste -sd ',' -)
-
-          # Random sampling: cap at 20 classes
-          CLASS_CAP=20
-          TOTAL_CHANGED=$(echo "$ALL_CLASSES" | tr ',' '\n' | wc -l)
-
-          if [ "$TOTAL_CHANGED" -gt "$CLASS_CAP" ]; then
-            SAMPLED_CLASSES=$(echo "$ALL_CLASSES" | tr ',' '\n' | shuf -n "$CLASS_CAP" | paste -sd ',' -)
-            echo "sampled=true" >> "$GITHUB_OUTPUT"
-            echo "total_changed=$TOTAL_CHANGED" >> "$GITHUB_OUTPUT"
-            TARGET_CLASSES="$SAMPLED_CLASSES"
-            # Recompute changed files from sampled classes to derive modules
-            CHANGED_FILES=$(echo "$TARGET_CLASSES" | tr ',' '\n' | while read -r cls; do
-              echo "$CHANGED_FILES" | tr ',' '\n' | grep "$(echo "$cls" | sed 's|\.|/|g')\.java$" || true
-            done)
-          else
-            echo "sampled=false" >> "$GITHUB_OUTPUT"
-            TARGET_CLASSES="$ALL_CLASSES"
-          fi
-
-          echo "classes=$TARGET_CLASSES" >> "$GITHUB_OUTPUT"
-          echo "Target classes ($TOTAL_CHANGED total, sampled=$(if [ "$TOTAL_CHANGED" -gt "$CLASS_CAP" ]; then echo true; else echo false; fi)): $TARGET_CLASSES"
-
-          # Determine which modules have changes (from potentially sampled files)
-          CHANGED_MODULES=$(echo "$CHANGED_FILES" | tr ',' '\n' | \
+          # Determine which modules have changes
+          CHANGED_MODULES=$(echo "$CHANGED_FILES" | \
             sed 's|/src/main/java/.*||' | \
             sort -u | \
             paste -sd ',' -)
           echo "modules=$CHANGED_MODULES" >> "$GITHUB_OUTPUT"
           echo "Changed modules: $CHANGED_MODULES"
+
+      - name: Write Arcmutate Licence
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          if [ -z "$ARCMUTATE_LICENCE" ]; then
+            echo "::error::ARCMUTATE_LICENCE secret is not set"
+            exit 1
+          fi
+          echo "$ARCMUTATE_LICENCE" > arcmutate-licence.txt
+        env:
+          ARCMUTATE_LICENCE: ${{ secrets.ARCMUTATE_LICENCE }}
 
       - name: Compile Test Classes
         if: steps.changes.outputs.skip != 'true'
@@ -603,33 +590,43 @@ jobs:
         if: steps.changes.outputs.skip != 'true'
         continue-on-error: true
         run: |
-          # Integration tests (*IT, *IntegrationTest) are excluded via the
-          # mutation-testing Maven profile so PIT runs only with unit tests.
-          # -am builds reactor dependencies from source (see above).
+          # Arcmutate GIT_MIXED mode filters mutations to changed lines
+          # and code exercised by modified tests. No explicit targetClasses
+          # needed — the git plugin handles scoping automatically.
+          # +gitci generates JSON output consumed by pitest-github plugin.
+          # No 'clean' here — the preceding Compile step already did it.
           ./mvnw -s .github/workflows/settings.xml \
             -pl ${{ steps.changes.outputs.modules }} -am \
-            clean org.pitest:pitest-maven:mutationCoverage \
+            org.pitest:pitest-maven:mutationCoverage \
             -P mutation-testing \
-            -DtargetClasses=${{ steps.changes.outputs.classes }} -B
+            -Dpit.git.from="origin/${{ github.event.pull_request.base.ref }}" -B
         env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Post Arcmutate GitHub Annotations
+        if: always() && steps.changes.outputs.skip != 'true' && steps.pit.outcome == 'success'
+        continue-on-error: true
+        run: |
+          ./mvnw -s .github/workflows/settings.xml \
+            -pl ${{ steps.changes.outputs.modules }} \
+            com.arcmutate:pitest-github-maven-plugin:github -B
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
       - name: Run Mutation Gate
         id: gate
-        if: steps.changes.outputs.skip != 'true'
+        if: always() && steps.changes.outputs.skip != 'true' && steps.pit.outcome != 'cancelled'
         continue-on-error: true
         run: |
-          SAMPLING_ARGS=""
-          if [ "${{ steps.changes.outputs.sampled }}" = "true" ]; then
-            SAMPLING_ARGS="--sampled --total-changed ${{ steps.changes.outputs.total_changed }}"
-          fi
+          # GIT_MIXED already filters mutations to changed lines, so
+          # no --base-branch filtering needed in the gate script.
           python3 .github/scripts/mutation-gate.py \
             --threshold 85 \
             --modules "${{ steps.changes.outputs.modules }}" \
-            --output-md /tmp/mutation-gate.md \
-            --base-branch "origin/${{ github.event.pull_request.base.ref }}" \
-            $SAMPLING_ARGS
+            --output-md /tmp/mutation-gate.md
 
       - name: Post Mutation Gate Comment
         if: always() && steps.changes.outputs.skip != 'true' && steps.gate.outcome != 'cancelled'
@@ -665,9 +662,13 @@ jobs:
           fi
 
       - name: Enforce Mutation Gate
-        if: always() && steps.changes.outputs.skip != 'true' && steps.gate.outcome == 'failure'
+        if: always() && steps.changes.outputs.skip != 'true' && (steps.gate.outcome == 'failure' || steps.pit.outcome == 'failure')
         run: |
-          echo "Mutation testing gate failed. See the PR comment for details."
+          if [ "${{ steps.pit.outcome }}" = "failure" ]; then
+            echo "PIT mutation testing step failed. See logs above."
+          else
+            echo "Mutation testing gate failed. See the PR comment for details."
+          fi
           exit 1
 
   # ------------------------------------------------------------------
