@@ -167,17 +167,21 @@ public class GqlMatchVisitor extends GQLBaseVisitor<Void> {
     var str = ctx.STRING().getText();
     str = str.substring(1, str.length() - 1);
 
-    if (ctx.DATE() != null) {
-      var localDate = LocalDate.parse(str, DATE_FORMAT);
-      return Date.from(localDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
-    } else if (ctx.TIMESTAMP() != null) {
-      var localDateTime = LocalDateTime.parse(str, DATETIME_FORMAT);
-      return Date.from(localDateTime.atZone(ZoneId.systemDefault()).toInstant());
-    } else if (ctx.TIME() != null) {
-      var localTime = LocalTime.parse(str, TIME_FORMAT);
-      var instant = localTime.atDate(LocalDate.ofEpochDay(0))
-          .atZone(ZoneId.systemDefault()).toInstant();
-      return Date.from(instant);
+    try {
+      if (ctx.DATE() != null) {
+        var localDate = LocalDate.parse(str, DATE_FORMAT);
+        return Date.from(localDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
+      } else if (ctx.TIMESTAMP() != null) {
+        var localDateTime = LocalDateTime.parse(str, DATETIME_FORMAT);
+        return Date.from(localDateTime.atZone(ZoneId.systemDefault()).toInstant());
+      } else if (ctx.TIME() != null) {
+        var localTime = LocalTime.parse(str, TIME_FORMAT);
+        var instant = localTime.atDate(LocalDate.ofEpochDay(0))
+            .atZone(ZoneId.systemDefault()).toInstant();
+        return Date.from(instant);
+      }
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("Failed to parse temporal value: " + str, e);
     }
 
     throw new IllegalArgumentException(
