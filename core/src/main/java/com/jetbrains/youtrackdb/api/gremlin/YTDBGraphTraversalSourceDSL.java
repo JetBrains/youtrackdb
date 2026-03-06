@@ -183,7 +183,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   ///
   /// @param query The GQL query to execute.
   /// @return A traversal of result maps.
-  public GraphTraversal<Object, Object> gql(@Nonnull String query) {
+  public YTDBGraphTraversal<Object, Object> gql(@Nonnull String query) {
     return gql(query, Map.of());
   }
 
@@ -195,7 +195,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @param query     The GQL query to execute.
   /// @param arguments The arguments to pass to the query.
   /// @return A traversal of result maps.
-  public GraphTraversal<Object, Object> gql(
+  public YTDBGraphTraversal<Object, Object> gql(
       @Nonnull String query, @Nonnull Map<?, ?> arguments) {
     return call(
         GqlService.NAME, Map.of(
@@ -215,7 +215,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// @param keyValues Alternating key/value pairs for query parameters (key1, value1, key2,
   ///                  value2, ...).
   /// @return A traversal of result maps.
-  public GraphTraversal<Object, Object> gql(
+  public YTDBGraphTraversal<Object, Object> gql(
       @Nonnull String query, @Nonnull Object... keyValues) {
     var arguments = processKeyValueArguments(keyValues);
     return gql(query, arguments);
