@@ -245,12 +245,14 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return startUp(false);
   }
 
-  @Nullable
   public static YouTrackDBEnginesManager startUp(boolean insideWebContainer) {
     initLock.lock();
     try {
       if (initInProgress) {
-        return null;
+        // Re-entrant call during startup (e.g. Profiler.onStartup() ->
+        // YouTrackDBScheduler.scheduleTask() -> instance()). The instance is
+        // already assigned below, return it instead of null to avoid NPE.
+        return instance;
       }
 
       initInProgress = true;
@@ -259,9 +261,17 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       final var youTrack = new YouTrackDBEnginesManager(insideWebContainer);
-      youTrack.startup();
-
+      // Assign instance before startup() so that re-entrant calls to instance()
+      // during startup (e.g. Profiler.onStartup() -> YouTrackDBScheduler) see the
+      // in-progress object instead of returning null.
       instance = youTrack;
+      try {
+        youTrack.startup();
+      } catch (Exception | Error e) {
+        instance = null;
+        youTrack.shutdownPools();
+        throw e;
+      }
     } finally {
       initInProgress = false;
       initLock.unlock();
@@ -759,6 +769,18 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       exec.shutdownNow();
       Thread.currentThread().interrupt();
     }
+  }
+
+  /**
+   * Shuts down all constructor-allocated pools. Used to clean up resources when
+   * {@link #startup()} fails and the instance is discarded.
+   */
+  private void shutdownPools() {
+    shutdownExecutor(walFlushExecutor, "WAL flush", 5, TimeUnit.SECONDS);
+    shutdownExecutor(walWriteExecutor, "WAL write", 5, TimeUnit.SECONDS);
+    shutdownExecutor(fuzzyCheckpointExecutor, "fuzzy checkpoint", 5, TimeUnit.SECONDS);
+    shutdownExecutor(wowCacheFlushExecutor, "WOW cache flush", 5, TimeUnit.SECONDS);
+    shutdownExecutor(scheduledPool, "scheduled pool", 5, TimeUnit.SECONDS);
   }
 
   public DatabaseThreadLocalFactory getDatabaseThreadFactory() {
