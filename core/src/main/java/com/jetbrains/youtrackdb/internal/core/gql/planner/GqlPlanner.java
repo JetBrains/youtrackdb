@@ -14,6 +14,7 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
+import org.jspecify.annotations.NonNull;
 
 /// Entry point for GQL query parsing.
 ///
@@ -28,7 +29,7 @@ import org.antlr.v4.runtime.Recognizer;
 /// Similar to SQL's SQLEngine.parse() returning SQLStatement.
 public class GqlPlanner {
 
-  public static @Nullable GqlStatement getStatement(@Nonnull String query,
+  public static @NonNull GqlStatement getStatement(@Nonnull String query,
       @Nullable DatabaseSessionEmbedded session) {
     if (session == null) {
       return parse(query);
@@ -60,8 +61,7 @@ public class GqlPlanner {
           int line,
           int charPositionInLine,
           String msg,
-          RecognitionException e
-      ) {
+          RecognitionException e) {
         var where = "line " + line + ":" + charPositionInLine;
         var near = (offendingSymbol == null) ? "" : (" near: " + offendingSymbol);
         throw new IllegalArgumentException("GQL syntax error at " + where + near + ". " + msg);

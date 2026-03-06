@@ -1,9 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
+import java.util.NoSuchElementException;
 import java.util.function.Function;
-import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class FlatMapGqlExecutionStream implements GqlExecutionStream {
 
@@ -41,17 +42,20 @@ public class FlatMapGqlExecutionStream implements GqlExecutionStream {
   @Override
   public @Nullable Object next() {
     if (!hasNext()) {
-      throw new java.util.NoSuchElementException();
+      throw new NoSuchElementException();
     }
-    return currentChildStream.next();
+    return currentChildStream != null ? currentChildStream.next() : null;
   }
 
   @Override
   public void close() {
     Exception firstException = null;
     if (currentChildStream != null) {
-      try { currentChildStream.close(); }
-      catch (Exception e) { firstException = e; }
+      try {
+        currentChildStream.close();
+      } catch (Exception e) {
+        firstException = e;
+      }
     }
     try {
       upstream.close();

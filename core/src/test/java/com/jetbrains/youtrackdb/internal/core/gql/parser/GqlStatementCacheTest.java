@@ -1,11 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class GqlStatementCacheTest extends DbTestBase {
 

@@ -36,8 +36,8 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Vertex> addSchemaClass(String className, String... superClasses) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result")
-        .addE(superClass).to(__.V().hasLabel(YTDBSchemaClass.LABEL).
-            has(name, P.within(superClasses)))
+        .addE(superClass)
+        .to(__.V().hasLabel(YTDBSchemaClass.LABEL).has(name, P.within(superClasses)))
         .select("result");
   }
 
@@ -50,20 +50,18 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Vertex> addAbstractSchemaClass(String className,
       String... superClasses) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
-    return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result").
-        property(name, className, abstractClass, true).
-        addE(superClass).to(__.V()
+    return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result")
+        .property(name, className, abstractClass, true).addE(superClass).to(__.V()
             .hasLabel(YTDBSchemaClass.LABEL).has(name, P.within(superClasses)))
         .select("result");
   }
 
   default GraphTraversal<S, Vertex> addStateFullEdgeClass(String className) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
-    return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result").
-        addE(superClass).to(
-            __.V().hasLabel(YTDBSchemaClass.LABEL)
-                .has(name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME))
-        ).select("result");
+    return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result").addE(superClass).to(
+        __.V().hasLabel(YTDBSchemaClass.LABEL)
+            .has(name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME)))
+        .select("result");
   }
 
   default GraphTraversal<S, Vertex> addSchemaProperty(String propertyName,
@@ -73,8 +71,8 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return ytdbGraphTraversal.addE(declaredProperty)
         .to(
             __.addV(YTDBSchemaProperty.LABEL).property(YTDBSchemaPropertyPToken.type,
-                propertyType.name())
-        ).outV();
+                propertyType.name()))
+        .outV();
   }
 
   default GraphTraversal<S, Vertex> addSchemaProperty(String propertyName,
@@ -85,8 +83,8 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .to(
             __.addV(YTDBSchemaProperty.LABEL).property(YTDBSchemaPropertyPToken.type,
                 propertyType.name(), YTDBSchemaPropertyPToken.linkedType,
-                linkedType.name())
-        ).outV();
+                linkedType.name()))
+        .outV();
   }
 
   @SkipAsAnonymousMethod
@@ -183,8 +181,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
     return call(
         YTDBRemovePropertyService.NAME,
-        Map.of(YTDBRemovePropertyService.PROPERTIES, allKeys)
-    );
+        Map.of(YTDBRemovePropertyService.PROPERTIES, allKeys));
   }
 
   @Override
@@ -198,7 +195,6 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
     return GraphTraversal.Admin.super.from(fromStepLabel);
   }
-
 
   @SkipAsAnonymousMethod
   @Override

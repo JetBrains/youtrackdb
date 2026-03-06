@@ -17,10 +17,10 @@ import javax.annotation.Nullable;
 /// not this class.
 public class GqlExecutionPlan {
 
-  @Nullable
-  private InternalExecutionPlan sqlPlan;
+  @Nullable private InternalExecutionPlan sqlPlan;
 
-  private GqlExecutionPlan() {}
+  private GqlExecutionPlan() {
+  }
 
   /// Creates an execution plan that wraps an [InternalExecutionPlan] from the
   /// unified MATCH planner.
