@@ -1,3 +1,12 @@
+---
+source_files:
+  - .github/workflows/testflows-orchestrator.pkr.hcl
+  - .github/workflows/testflows-orchestrator/**
+  - .github/workflows/maven-integration-tests-pipeline.yml
+related_docs:
+  - docs/dev/ci-cd-diagram.md
+---
+
 # TestFlows Runner Setup Guide
 
 This document describes how to deploy and maintain the TestFlows GitHub Hetzner Runners orchestrator

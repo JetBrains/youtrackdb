@@ -1,3 +1,14 @@
+---
+source_files:
+  - .github/scripts/coverage-gate.py
+  - .github/scripts/mutation-gate.py
+  - .github/workflows/maven-pipeline.yml
+  - pom.xml
+related_docs:
+  - docs/dev/ci-cd-diagram.md
+  - CLAUDE.md
+---
+
 # Test Quality Requirements
 
 This document describes the quality gates and guidelines for tests in the YouTrackDB project. All requirements are enforced automatically by the CI pipeline on every pull request.

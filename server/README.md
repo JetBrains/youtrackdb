@@ -1,3 +1,16 @@
+---
+source_files:
+  - server/src/main/java/com/jetbrains/youtrackdb/internal/server/**
+  - server/docker/**
+  - server/Dockerfile
+  - server/src/main/resources/**
+  - server/pom.xml
+  - core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java
+related_docs:
+  - README.md
+  - driver/README.md
+---
+
 **YouTrackDB server** is an implementation of the Gremlin Server API.
 YTDB server is distributed exclusively as a Docker image.
 To install YTDB server, please use the following command.

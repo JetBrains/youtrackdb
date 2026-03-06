@@ -1,3 +1,11 @@
+---
+source_files:
+  - embedded/pom.xml
+  - embedded/src/**
+related_docs:
+  - README.md
+---
+
 ### YouTrackDB Embedded
 
 The `youtrackdb-embedded` module provides a **shaded uber-jar** for using YouTrackDB
