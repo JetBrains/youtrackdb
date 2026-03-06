@@ -1,3 +1,13 @@
+---
+source_files:
+  - jmh-ldbc/src/main/java/**
+  - jmh-ldbc/src/main/resources/ldbc-schema.sql
+  - jmh-ldbc/src/main/resources/ldbc-queries/**
+  - jmh-ldbc/pom.xml
+related_docs:
+  - docs/README.md
+---
+
 # YouTrackDB LDBC JMH Benchmarks
 
 JMH microbenchmarks for YouTrackDB based on the [LDBC Social Network Benchmark (SNB)](https://ldbcouncil.org/benchmarks/snb/) Interactive workload. Each benchmark method executes a single LDBC read query using YouTrackDB's SQL engine (MATCH queries).
