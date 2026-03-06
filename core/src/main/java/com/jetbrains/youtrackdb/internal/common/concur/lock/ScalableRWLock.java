@@ -61,7 +61,7 @@ import java.util.concurrent.locks.StampedLock;
  * Disadvantages:
  *
  * <ul>
- *   <li>Not Reentrant
+ *   <li>Read side is reentrant; write side is not reentrant
  *   <li>Has Writer-Preference
  *   <li>Memory footprint increases with number of threads by sizeof(ReadersEntry) x O(N_threads)
  *   <li>Does not support {@code lockInterruptibly()}
@@ -124,6 +124,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   static final class ReadersEntry {
 
     public final AtomicInteger state;
+    // Plain int — only accessed by the owning thread, no synchronization needed.
+    public int reentrantCount;
 
     public ReadersEntry(AtomicInteger state) {
       this.state = state;
@@ -313,6 +315,12 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       localEntry = addState();
     }
 
+    // FAST PATH: already holding the read lock — just increment the reentrant counter.
+    // No memory barriers needed: only the owning thread accesses reentrantCount.
+    if (localEntry.reentrantCount++ > 0) {
+      return;
+    }
+
     final var currentReadersState = localEntry.state;
     // The "optimistic" code path takes only two synchronized calls:
     // a set() on a cache line that should be held in exclusive mode
@@ -341,8 +349,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   /**
    * Attempts to release the read lock.
    *
-   * <p>If the current thread is the holder of this lock then the {@code reentrantReaderCount} is
-   * decremented. If the {@code reentrantReaderCount} is now zero then the lock is released. If the
+   * <p>If the current thread is the holder of this lock then the {@code reentrantCount} is
+   * decremented. If the {@code reentrantCount} is now zero then the lock is released. If the
    * current thread is not the holder of this lock then {@link IllegalMonitorStateException} is
    * thrown.
    *
@@ -350,30 +358,43 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    */
   public void sharedUnlock() {
     final var localEntry = entry.get();
-    if (localEntry == null) {
+    if (localEntry == null || localEntry.reentrantCount <= 0) {
       // ERROR: Tried to unlock a non read-locked lock
       throw new IllegalMonitorStateException();
-    } else {
-      // lazySet (release/StoreStore) is sufficient: all stores from the critical section
-      // are ordered before this release, and the writer will eventually see NOT_READING.
-      // The full StoreLoad barrier from set() is not needed because the writer's
-      // stampedLock.writeLock() provides its own acquire barrier when it starts scanning.
-      localEntry.state.lazySet(SRWL_STATE_NOT_READING);
     }
+
+    // FAST PATH: still held at an outer nesting level — just decrement.
+    if (--localEntry.reentrantCount > 0) {
+      return;
+    }
+
+    // Outermost unlock: release the actual read lock.
+    // lazySet (release/StoreStore) is sufficient: all stores from the critical section
+    // are ordered before this release, and the writer will eventually see NOT_READING.
+    // The full StoreLoad barrier from set() is not needed because the writer's
+    // stampedLock.writeLock() provides its own acquire barrier when it starts scanning.
+    localEntry.state.lazySet(SRWL_STATE_NOT_READING);
+  }
+
+  /**
+   * Returns {@code true} if the current thread holds the read lock (at any nesting level).
+   */
+  public boolean isReadLocked() {
+    var localEntry = entry.get();
+    return localEntry != null && localEntry.reentrantCount > 0;
   }
 
   /**
    * Acquires the write lock.
    *
    * <p>Acquires the write lock if neither the read nor write lock are held by another thread and
-   * returns immediately, setting the write lock {@code reentrantWriterCount} to one.
-   *
-   * <p>If the current thread already holds the write lock then the {@code reentrantWriterCount} is
-   * incremented by one and the method returns immediately.
+   * returns immediately.
    *
    * <p>If the lock is held by another thread, then the current thread yields and lies dormant
-   * until the write lock has been acquired, at which time the {@code reentrantWriterCount} is set
-   * to one.
+   * until the write lock has been acquired.
+   *
+   * <p><b>Note:</b> The write side is <b>not</b> reentrant. Calling {@code exclusiveLock()} while
+   * already holding the write lock will deadlock.
    */
   public void exclusiveLock() {
     // Try to acquire the lock in write-mode
@@ -399,12 +420,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Attempts to release the write lock.
-   *
-   * <p>If the current thread is the holder of this lock then the {@code reentrantWriterCount} is
-   * decremented. If {@code reentrantWriterCount} is now zero then the lock is released. If the
-   * current thread is not the holder of this lock then {@link IllegalMonitorStateException} is
-   * thrown.
+   * Releases the write lock.
    *
    * @throws IllegalMonitorStateException if the current thread does not hold this lock.
    */
@@ -436,11 +452,18 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       localEntry = addState();
     }
 
+    // FAST PATH: already holding the read lock
+    if (localEntry.reentrantCount > 0) {
+      localEntry.reentrantCount++;
+      return true;
+    }
+
+    // SLOW PATH: Dekker protocol
     final var currentReadersState = localEntry.state;
     // Full volatile write required (Dekker pattern) — see sharedLock() for reasoning.
     currentReadersState.set(SRWL_STATE_READING);
     if (!stampedLock.isWriteLocked()) {
-      // Acquired lock in read-only mode
+      localEntry.reentrantCount = 1;
       return true;
     } else {
       // Back off — lazySet sufficient (see sharedLock() backoff for reasoning).
@@ -470,19 +493,26 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @return {@code true} if the read lock was acquired
    */
   public boolean sharedTryLockNanos(long nanosTimeout) {
-    final var lastTime = System.nanoTime();
     var localEntry = entry.get();
     // Initialize a new Reader-state for this thread if needed
     if (localEntry == null) {
       localEntry = addState();
     }
 
+    // FAST PATH: already holding the read lock
+    if (localEntry.reentrantCount > 0) {
+      localEntry.reentrantCount++;
+      return true;
+    }
+
+    // SLOW PATH: Dekker protocol with timeout
+    final var lastTime = System.nanoTime();
     final var currentReadersState = localEntry.state;
     while (true) {
       // Full volatile write required (Dekker pattern) — see sharedLock() for reasoning.
       currentReadersState.set(SRWL_STATE_READING);
       if (!stampedLock.isWriteLocked()) {
-        // Acquired lock in read-only mode
+        localEntry.reentrantCount = 1;
         return true;
       } else {
         // Back off — lazySet sufficient (see sharedLock() backoff for reasoning).
@@ -501,20 +531,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the write lock only if it is not held by another thread at the time of invocation.
+   * Acquires the write lock only if it is not held by another thread at the time of invocation
+   * and no reader is active.
    *
-   * <p>Acquires the write lock if the write lock is not held by another thread and returns
-   * immediately with the value {@code true} if and only if no other thread is attempting a read
-   * lock, setting the write lock {@code writerLoop} count to one.
+   * <p>If the write lock is held by another thread, or any reader holds the read lock, this
+   * method returns immediately with {@code false}.
    *
-   * <p>If the current thread already holds this lock then the {@code reentrantWriterCount} count
-   * is incremented by one and the method returns {@code true}.
-   *
-   * <p>If the write lock is held by another thread then this method will return immediately with
-   * the value {@code false}.
-   *
-   * @return {@code true} if the write lock was free and was acquired by the current thread, or the
-   * write lock was already held by the current thread; and {@code false} otherwise.
+   * @return {@code true} if the write lock was acquired; {@code false} otherwise.
    */
   public boolean exclusiveTryLock() {
     // Try to acquire the lock in write-mode
@@ -548,29 +571,12 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   /**
    * Acquires the write lock if it is not held by another thread within the given waiting time.
    *
-   * <p>Acquires the write lock if the write lock is not held by another thread and returns
-   * immediately with the value {@code true} if and only if no other thread is attempting a read
-   * lock, setting the write lock {@code reentrantWriterCount} to one. If another thread is
-   * attempting a read lock, this function <b>may yield until the read lock is released</b>.
-   *
-   * <p>If the current thread already holds this lock then the {@code reentrantWriterCount} is
-   * incremented by one and the method returns {@code true}.
-   *
-   * <p>If the write lock is held by another thread then the current thread yields and lies dormant
-   * until one of two things happens:
-   *
-   * <ul>
-   *   <li>The write lock is acquired by the current thread; or
-   *   <li>The specified waiting time elapses
-   * </ul>
-   *
-   * <p>If the write lock is acquired then the value {@code true} is returned and the write lock
-   * {@code reentrantWriterCount} is set to one.
+   * <p>If the write lock is held by another thread, the current thread yields until the lock is
+   * acquired or the timeout elapses. If readers are active after acquiring the write lock, the
+   * method waits for them to drain (within the remaining timeout).
    *
    * @param nanosTimeout the time to wait for the write lock in nanoseconds
-   * @return {@code true} if the lock was free and was acquired by the current thread, or the write
-   * lock was already held by the current thread; and {@code false} if the waiting time elapsed
-   * before the lock could be acquired.
+   * @return {@code true} if the write lock was acquired; {@code false} if the timeout elapsed.
    */
   public boolean exclusiveTryLockNanos(long nanosTimeout) throws java.lang.InterruptedException {
     final var lastTime = System.nanoTime();

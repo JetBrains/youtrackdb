@@ -654,7 +654,7 @@ Each step = 1 commit = 1 session. Check off as completed.
 | [x] | 1 | `collectionMap` → `ConcurrentHashMap` | None | 49050bc85f | `AbstractStorage.java` (1 line) | `./mvnw -pl core clean test` |
 | [x] | 2 | `indexEngines` → `CopyOnWriteArrayList` | None | d336689f51 | `AbstractStorage.java` (1 line) | `./mvnw -pl core clean test` |
 | [x] | 3 | `indexEngineNameMap` → `ConcurrentHashMap` | None | 1f338f175b | `AbstractStorage.java` (1 line) | `./mvnw -pl core clean test` |
-| [ ] | 4 | Add read-side reentrancy to `ScalableRWLock` | Low | | `ScalableRWLock.java`, `ScalableRWLockTest.java` | `./mvnw -pl core clean test` |
+| [x] | 4 | Add read-side reentrancy to `ScalableRWLock` | Low | 2be1c916df | `ScalableRWLock.java`, `ScalableRWLockTest.java` | `./mvnw -pl core clean test` |
 | [ ] | 5 | Introduce `ddlLock` (coexists with `stateLock`) | Low | | `AbstractStorage.java` (~8 DDL methods) | `./mvnw -pl core clean test` then `-P ci-integration-tests` |
 | [ ] | 6 | DDL lock swap + Gremlin TX auto-close + TX-scoped read lock | Medium | | `AbstractStorage.java`, `FrontendTransactionImpl.java`, `YTDBTransaction.java`, `YTDBGraphStep.java` | `./mvnw -pl core clean test` then `-P ci-integration-tests` |
 | [ ] | 7 | Fix `makeFuzzyCheckpoint()` bug + benchmark + cleanup | Low | | `AbstractStorage.java`, `CLAUDE.md` | `./mvnw clean verify -P ci-integration-tests` |

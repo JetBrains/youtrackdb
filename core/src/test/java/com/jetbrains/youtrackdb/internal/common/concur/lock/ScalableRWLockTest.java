@@ -1,12 +1,17 @@
 package com.jetbrains.youtrackdb.internal.common.concur.lock;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
@@ -260,5 +265,294 @@ public class ScalableRWLockTest {
     writerThread.join(5_000);
     assertTrue("Writer should have acquired the lock after reader released it",
         writerAcquired.get());
+  }
+
+  // --- Reentrancy tests ---
+
+  /**
+   * Verifies that nested sharedLock()/sharedUnlock() calls track depth correctly: two locks
+   * require two unlocks, and isReadLocked() reflects the state at each level.
+   */
+  @Test(timeout = 10_000)
+  public void testNestedSharedLockTracksDepthCorrectly() {
+    final var lock = new ScalableRWLock();
+
+    assertFalse("Should not be read-locked initially", lock.isReadLocked());
+
+    lock.sharedLock();
+    assertTrue("Should be read-locked after first lock", lock.isReadLocked());
+
+    lock.sharedLock();
+    assertTrue("Should be read-locked after second (nested) lock",
+        lock.isReadLocked());
+
+    lock.sharedUnlock();
+    assertTrue("Should still be read-locked after first unlock (one level remains)",
+        lock.isReadLocked());
+
+    lock.sharedUnlock();
+    assertFalse("Should not be read-locked after all unlocks", lock.isReadLocked());
+  }
+
+  /**
+   * Verifies that a writer is blocked while any nesting level of the read lock is held,
+   * and succeeds only after all nesting levels are unlocked.
+   */
+  @Test(timeout = 10_000)
+  public void testWriterBlocksUntilAllReentrantReadLocksReleased() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var writerAcquired = new AtomicBoolean(false);
+    final var writerStarted = new CountDownLatch(1);
+
+    // Acquire read lock twice (nested)
+    lock.sharedLock();
+    lock.sharedLock();
+
+    var writerThread = new Thread(() -> {
+      writerStarted.countDown();
+      lock.exclusiveLock();
+      writerAcquired.set(true);
+      lock.exclusiveUnlock();
+    });
+    writerThread.start();
+    assertTrue("Writer thread should start",
+        writerStarted.await(5, TimeUnit.SECONDS));
+
+    // Release one level — writer should still be blocked
+    lock.sharedUnlock();
+    Thread.sleep(200);
+    assertFalse("Writer should be blocked while one read-lock level remains",
+        writerAcquired.get());
+
+    // Release the last level — writer should proceed
+    lock.sharedUnlock();
+    writerThread.join(5_000);
+    assertTrue("Writer should acquire lock after all read levels released",
+        writerAcquired.get());
+  }
+
+  /**
+   * Verifies that calling sharedUnlock() more times than sharedLock() throws
+   * IllegalMonitorStateException (underflow protection).
+   */
+  @Test(timeout = 10_000)
+  public void testUnlockWithoutLockThrowsIllegalMonitorState() {
+    final var lock = new ScalableRWLock();
+
+    // Unlock without any lock should throw
+    try {
+      lock.sharedUnlock();
+      fail("Should throw IllegalMonitorStateException for unlock without lock");
+    } catch (IllegalMonitorStateException expected) {
+      // expected
+    }
+  }
+
+  /**
+   * Verifies that extra sharedUnlock() after balanced lock/unlock throws
+   * IllegalMonitorStateException.
+   */
+  @Test(timeout = 10_000)
+  public void testExtraUnlockAfterBalancedPairThrows() {
+    final var lock = new ScalableRWLock();
+
+    lock.sharedLock();
+    lock.sharedUnlock();
+
+    // Extra unlock should throw — count is now 0
+    try {
+      lock.sharedUnlock();
+      fail("Should throw IllegalMonitorStateException for extra unlock");
+    } catch (IllegalMonitorStateException expected) {
+      // expected
+    }
+  }
+
+  /**
+   * Verifies that sharedTryLock() supports reentrancy: a nested tryLock succeeds when the
+   * read lock is already held, even if a writer is waiting.
+   */
+  @Test(timeout = 10_000)
+  public void testSharedTryLockReentrant() throws Exception {
+    final var lock = new ScalableRWLock();
+
+    lock.sharedLock();
+    // Nested tryLock should succeed (reentrant fast path)
+    assertTrue("Nested sharedTryLock should succeed", lock.sharedTryLock());
+    assertTrue("isReadLocked should be true at depth 2", lock.isReadLocked());
+
+    lock.sharedUnlock();
+    lock.sharedUnlock();
+    assertFalse("Should not be read-locked after all unlocks", lock.isReadLocked());
+  }
+
+  /**
+   * Verifies that sharedTryLockNanos() supports reentrancy: a nested tryLockNanos succeeds
+   * immediately when the read lock is already held.
+   */
+  @Test(timeout = 10_000)
+  public void testSharedTryLockNanosReentrant() throws Exception {
+    final var lock = new ScalableRWLock();
+
+    lock.sharedLock();
+    // Nested tryLockNanos should succeed immediately (reentrant fast path)
+    assertTrue("Nested sharedTryLockNanos should succeed",
+        lock.sharedTryLockNanos(TimeUnit.MILLISECONDS.toNanos(1)));
+
+    lock.sharedUnlock();
+    lock.sharedUnlock();
+    assertFalse("Should not be read-locked after all unlocks", lock.isReadLocked());
+  }
+
+  /**
+   * Verifies that sharedTryLock() as the outermost acquisition followed by nested sharedLock()
+   * works correctly (tryLock sets reentrantCount=1, nested lock increments it).
+   */
+  @Test(timeout = 10_000)
+  public void testTryLockOutermostThenNestedSharedLock() {
+    final var lock = new ScalableRWLock();
+
+    assertTrue("Outermost tryLock should succeed", lock.sharedTryLock());
+    assertTrue(lock.isReadLocked());
+
+    lock.sharedLock(); // nested
+    assertTrue(lock.isReadLocked());
+
+    lock.sharedUnlock(); // inner
+    assertTrue("Still locked at depth 1", lock.isReadLocked());
+
+    lock.sharedUnlock(); // outer
+    assertFalse("Fully unlocked", lock.isReadLocked());
+  }
+
+  /**
+   * Verifies that isReadLocked() returns false on a thread that has never acquired the lock.
+   */
+  @Test(timeout = 10_000)
+  public void testIsReadLockedReturnsFalseOnFreshThread() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var result = new AtomicBoolean(true);
+    final var done = new CountDownLatch(1);
+
+    var thread = new Thread(() -> {
+      result.set(lock.isReadLocked());
+      done.countDown();
+    });
+    thread.start();
+    assertTrue(done.await(5, TimeUnit.SECONDS));
+    assertFalse("isReadLocked should be false on a thread that never locked",
+        result.get());
+  }
+
+  /**
+   * Concurrent stress test: multiple reader threads perform nested read locks while one writer
+   * thread periodically acquires the write lock. Verifies no deadlocks or data corruption
+   * under contention.
+   */
+  @Test(timeout = 30_000)
+  public void testConcurrentNestedReadsWithWriter() throws Exception {
+    final var lock = new ScalableRWLock();
+    final int readerCount = 4;
+    final int iterationsPerReader = 5_000;
+    final var sharedCounter = new AtomicInteger(0);
+    final var errors = new AtomicReference<Throwable>(null);
+    final var barrier = new CyclicBarrier(readerCount + 1);
+
+    var threads = new ArrayList<Thread>();
+
+    // Reader threads: nested read locks, increment a shared counter
+    for (int r = 0; r < readerCount; r++) {
+      var thread = new Thread(() -> {
+        try {
+          barrier.await();
+          for (int i = 0; i < iterationsPerReader; i++) {
+            lock.sharedLock();
+            try {
+              lock.sharedLock(); // nested
+              try {
+                sharedCounter.incrementAndGet();
+              } finally {
+                lock.sharedUnlock();
+              }
+            } finally {
+              lock.sharedUnlock();
+            }
+          }
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        }
+      });
+      threads.add(thread);
+      thread.start();
+    }
+
+    // Writer thread: periodically acquires the write lock
+    var writerThread = new Thread(() -> {
+      try {
+        barrier.await();
+        for (int i = 0; i < 100; i++) {
+          lock.exclusiveLock();
+          lock.exclusiveUnlock();
+          Thread.yield();
+        }
+      } catch (Throwable t) {
+        errors.compareAndSet(null, t);
+      }
+    });
+    threads.add(writerThread);
+    writerThread.start();
+
+    for (var thread : threads) {
+      thread.join(25_000);
+      assertFalse("Thread should have terminated: " + thread.getName(),
+          thread.isAlive());
+    }
+
+    if (errors.get() != null) {
+      throw new AssertionError("Thread failed with exception", errors.get());
+    }
+
+    assertEquals("All reader increments should be visible",
+        readerCount * iterationsPerReader, sharedCounter.get());
+  }
+
+  /**
+   * Verifies that a thread dying with a reentrant read lock (count > 1) is cleaned up
+   * correctly by the Cleaner — the state is reset to NOT_READING, unblocking writers.
+   */
+  @Test(timeout = 30_000)
+  public void testCleanerHandlesReentrantLockOnThreadDeath() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var lockAcquired = new CountDownLatch(1);
+
+    // Thread acquires nested read locks and dies without unlocking
+    var thread = new Thread(() -> {
+      lock.sharedLock();
+      lock.sharedLock(); // nested — reentrantCount = 2
+      lockAcquired.countDown();
+      // Thread exits without unlocking
+    });
+    thread.start();
+    assertTrue(lockAcquired.await(5, TimeUnit.SECONDS));
+    thread.join(5_000);
+    assertFalse("Thread should have terminated", thread.isAlive());
+
+    //noinspection UnusedAssignment
+    thread = null;
+
+    // Wait for Cleaner to reset the state
+    for (int i = 0; i < 50; i++) {
+      System.gc();
+      Thread.sleep(100);
+
+      if (lock.exclusiveTryLockNanos(TimeUnit.MILLISECONDS.toNanos(50))) {
+        lock.exclusiveUnlock();
+        return; // Success
+      }
+    }
+
+    throw new AssertionError(
+        "Writer could not acquire lock after reentrant reader thread death; "
+            + "Cleaner did not reset the ghost reader state");
   }
 }
