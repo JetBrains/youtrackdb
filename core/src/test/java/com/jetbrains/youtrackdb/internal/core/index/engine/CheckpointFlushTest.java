@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -10,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.Test;
 
@@ -63,10 +66,10 @@ public class CheckpointFlushTest {
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void flushIfDirty_noArg_swallowsExceptionAndKeepsDirtyCount() {
+  public void flushIfDirty_noArg_ioFailure_swallowedAndDirtyCountPreserved() {
     // Given a manager with dirtyMutations > 0, a valid fileId, and a cache
-    // entry — the null atomicOperationsManager causes NPE inside
-    // executeInsideComponentOperation, which is caught and logged
+    // entry — the mocked atomicOperationsManager throws IOException when
+    // executeInsideAtomicOperation is called.
     var fixture = new ManagerFixtureWithFailingFlush();
     setDirtyMutations(fixture.manager, 100);
     setFileId(fixture.manager, 42);  // force non-(-1) so flush is attempted
@@ -74,7 +77,7 @@ public class CheckpointFlushTest {
     // When flushIfDirty() is called
     fixture.manager.flushIfDirty();
 
-    // Then no exception propagates (exception is caught and logged).
+    // Then no exception propagates (IOException is caught and logged).
     // dirtyMutations is NOT reset because the flush failed before
     // reaching the reset line.
     assertEquals(100, fixture.manager.getDirtyMutations());
@@ -188,9 +191,9 @@ public class CheckpointFlushTest {
   }
 
   /**
-   * Creates a manager where flushSnapshotToPage will throw because the
-   * atomicOperationsManager is null (causing NPE inside
-   * executeInsideComponentOperation). Cache is pre-populated with a
+   * Creates a manager where flushSnapshotToPage will fail with IOException.
+   * The mocked AtomicOperationsManager throws IOException when
+   * executeInsideAtomicOperation is called. Cache is pre-populated with a
    * snapshot so flushSnapshotToPage doesn't return early on cache miss.
    */
   private static class ManagerFixtureWithFailingFlush {
@@ -200,7 +203,7 @@ public class CheckpointFlushTest {
     final IndexHistogramManager manager;
 
     ManagerFixtureWithFailingFlush() {
-      var storage = createMockStorageWithNullAtomicOps();
+      var storage = createMockStorageWithFailingAtomicOps();
       var serializerFactory = BinarySerializerFactory.create(
           BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
       var keySerializer =
@@ -230,14 +233,20 @@ public class CheckpointFlushTest {
     return storage;
   }
 
-  private static AbstractStorage createMockStorageWithNullAtomicOps() {
+  private static AbstractStorage createMockStorageWithFailingAtomicOps() {
     var storage = mock(AbstractStorage.class);
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    // Return null for atomicOperationsManager — causes NPE in
-    // executeInsideComponentOperation when flushSnapshotToPage runs
-    when(storage.getAtomicOperationsManager()).thenReturn(null);
+    // Mock AtomicOperationsManager that throws IOException on flush
+    var atomicOps = mock(AtomicOperationsManager.class);
+    try {
+      doThrow(new IOException("simulated I/O failure"))
+          .when(atomicOps).executeInsideAtomicOperation(any());
+    } catch (IOException ignored) {
+      // doThrow setup doesn't actually throw
+    }
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;

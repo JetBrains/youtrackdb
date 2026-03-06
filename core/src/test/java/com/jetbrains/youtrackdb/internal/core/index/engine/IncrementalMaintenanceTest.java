@@ -25,6 +25,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -819,9 +822,8 @@ public class IncrementalMaintenanceTest {
   }
 
   @Test
-  public void checkpointFlush_failureSwallowed_dirtyCountPreserved() {
-    // Given a manager where flushSnapshotToPage will fail (null
-    // atomicOperationsManager)
+  public void checkpointFlush_ioFailure_swallowedAndDirtyCountPreserved() {
+    // Given a manager where atomicOperationsManager throws IOException
     var fixture = new FailingFlushFixture();
     setDirtyMutations(fixture.manager, 100);
     setFileId(fixture.manager, 42);
@@ -829,7 +831,8 @@ public class IncrementalMaintenanceTest {
     // When flushIfDirty() is called
     fixture.manager.flushIfDirty();
 
-    // Then no exception propagates, dirty count preserved
+    // Then no exception propagates (IOException is caught and logged).
+    // dirtyMutations is NOT reset because the flush failed.
     assertEquals(100, fixture.manager.getDirtyMutations());
   }
 
@@ -946,12 +949,19 @@ public class IncrementalMaintenanceTest {
     return storage;
   }
 
-  private static AbstractStorage createMockStorageWithNullAtomicOps() {
+  private static AbstractStorage createMockStorageWithFailingAtomicOps() {
     var storage = mock(AbstractStorage.class);
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager()).thenReturn(null);
+    var atomicOps = mock(AtomicOperationsManager.class);
+    try {
+      doThrow(new IOException("simulated I/O failure"))
+          .when(atomicOps).executeInsideAtomicOperation(any());
+    } catch (IOException ignored) {
+      // doThrow setup doesn't actually throw
+    }
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;
@@ -1031,8 +1041,10 @@ public class IncrementalMaintenanceTest {
   }
 
   /**
-   * Fixture where flushSnapshotToPage fails due to null
-   * atomicOperationsManager.
+   * Creates a manager where flushSnapshotToPage will fail with IOException.
+   * The mocked AtomicOperationsManager throws IOException when
+   * executeInsideAtomicOperation is called. Cache is pre-populated with a
+   * snapshot so flushSnapshotToPage doesn't return early on cache miss.
    */
   private static class FailingFlushFixture {
     final int engineId = 0;
@@ -1041,7 +1053,7 @@ public class IncrementalMaintenanceTest {
     final IndexHistogramManager manager;
 
     FailingFlushFixture() {
-      var storage = createMockStorageWithNullAtomicOps();
+      var storage = createMockStorageWithFailingAtomicOps();
       var serializerFactory = BinarySerializerFactory.create(
           BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
       manager = new IndexHistogramManager(

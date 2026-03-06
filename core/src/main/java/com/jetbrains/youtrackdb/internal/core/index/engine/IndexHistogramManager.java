@@ -740,8 +740,9 @@ public class IndexHistogramManager extends DurableComponent {
   /**
    * Persists the current CHM snapshot to the .ixs page if there are
    * uncommitted (dirty) mutations. Creates its own AtomicOperation (via
-   * {@code executeInsideComponentOperation}). Called by {@code AbstractStorage}
-   * during fuzzy checkpoint and full data flush.
+   * {@code executeInsideAtomicOperation}). Called by
+   * {@code AbstractStorage.flushDirtyHistograms()} during fuzzy checkpoint,
+   * synch, close, and recovery.
    *
    * <p>Failures are logged but never propagated — histogram persistence is
    * best-effort and must not block checkpoint or shutdown.
