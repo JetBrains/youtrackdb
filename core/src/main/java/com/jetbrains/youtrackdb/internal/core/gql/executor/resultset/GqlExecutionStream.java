@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
 import java.util.Iterator;
 import java.util.function.Function;
-import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import javax.annotation.Nonnull;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /// Stream of GQL execution results.
 ///

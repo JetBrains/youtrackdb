@@ -57,9 +57,9 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param db        the current DB instance
    * @return an execution plan from the cache, or null if not cached
    */
-  @Nullable
-  public static GqlExecutionPlan get(
-      @Nonnull String statement, @Nonnull GqlExecutionContext ctx, @Nonnull DatabaseSessionEmbedded db) {
+  @Nullable public static GqlExecutionPlan get(
+      @Nonnull String statement, @Nonnull GqlExecutionContext ctx,
+      @Nonnull DatabaseSessionEmbedded db) {
     var resource = db.getSharedContext().getGqlExecutionPlanCache();
     return resource.getInternal(statement, ctx);
   }
@@ -71,7 +71,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param plan      the execution plan to cache
    * @param db        the current DB instance
    */
-  public static void put(@Nonnull String statement, @Nonnull GqlExecutionPlan plan, @Nonnull DatabaseSessionEmbedded db) {
+  public static void put(@Nonnull String statement, @Nonnull GqlExecutionPlan plan,
+      @Nonnull DatabaseSessionEmbedded db) {
     var resource = db.getSharedContext().getGqlExecutionPlanCache();
     resource.putInternal(statement, plan);
   }
@@ -94,8 +95,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @return the corresponding execution plan from cache, or null if not found
    */
   @SuppressWarnings("unused")
-  @Nullable
-  public GqlExecutionPlan getInternal(@Nonnull String statement, @Nonnull GqlExecutionContext ctx) {
+  @Nullable public GqlExecutionPlan getInternal(@Nonnull String statement, @Nonnull GqlExecutionContext ctx) {
     if (capacity == 0) {
       return null;
     }

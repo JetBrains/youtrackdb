@@ -36,7 +36,6 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     return SQLMatchFilter.fromGqlNode(alias, label);
   }
 
-
   // ── buildPlan: empty patterns ──
 
   @Test
