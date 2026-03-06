@@ -57,8 +57,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is1_personProfile(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS1,
-        "personId", state.nextPersonId());
+        "personId", state.personId(i));
   }
 
   /**
@@ -67,8 +68,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is2_personPosts(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS2,
-        "personId", state.nextPersonId(),
+        "personId", state.personId(i),
         "limit", LIMIT);
   }
 
@@ -78,8 +80,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is3_personFriends(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS3,
-        "personId", state.nextPersonId());
+        "personId", state.personId(i));
   }
 
   /**
@@ -88,8 +91,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is4_messageContent(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS4,
-        "messageId", state.nextMessageId());
+        "messageId", state.messageId(i));
   }
 
   /**
@@ -98,8 +102,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is5_messageCreator(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS5,
-        "messageId", state.nextMessageId());
+        "messageId", state.messageId(i));
   }
 
   /**
@@ -108,8 +113,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is6_messageForum(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS6,
-        "messageId", state.nextMessageId());
+        "messageId", state.messageId(i));
   }
 
   /**
@@ -118,8 +124,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> is7_messageReplies(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IS7,
-        "messageId", state.nextMessageId());
+        "messageId", state.messageId(i));
   }
 
   // ==================== COMPLEX QUERIES (IC1-IC13) ====================
@@ -130,9 +137,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic1_transitiveFriends(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC1,
-        "personId", state.nextPersonId(),
-        "firstName", state.nextFirstName(),
+        "personId", state.personId(i),
+        "firstName", state.firstName(i),
         "limit", LIMIT);
   }
 
@@ -142,9 +150,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic2_recentFriendMessages(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC2,
-        "personId", state.nextPersonId(),
-        "maxDate", state.nextMaxDate(),
+        "personId", state.personId(i),
+        "maxDate", state.maxDate(i),
         "limit", LIMIT);
   }
 
@@ -155,16 +164,14 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic3_friendsInCountries(LdbcBenchmarkState state) {
-    Date startDate = state.nextMaxDate();
+    long i = state.nextIndex();
+    Date startDate = state.maxDate(i);
     Date endDate = new Date(startDate.getTime() + 30L * 24 * 60 * 60 * 1000);
-    String countryX = state.nextCountryName();
-    String countryY = state.countryNames[(int) ((state.counter.get() + 1)
-        % state.countryNames.length)];
 
     return state.executeSql(LdbcQuerySql.IC3,
-        "personId", state.nextPersonId(),
-        "countryX", countryX,
-        "countryY", countryY,
+        "personId", state.personId(i),
+        "countryX", state.countryName(i),
+        "countryY", state.countryName2(i),
         "startDate", startDate,
         "endDate", endDate,
         "limit", LIMIT);
@@ -177,11 +184,12 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic4_newTopics(LdbcBenchmarkState state) {
-    Date startDate = state.nextMaxDate();
+    long i = state.nextIndex();
+    Date startDate = state.maxDate(i);
     Date endDate = new Date(startDate.getTime() + 30L * 24 * 60 * 60 * 1000);
 
     return state.executeSql(LdbcQuerySql.IC4,
-        "personId", state.nextPersonId(),
+        "personId", state.personId(i),
         "startDate", startDate,
         "endDate", endDate,
         "limit", LIMIT);
@@ -194,9 +202,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic5_newGroups(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC5,
-        "personId", state.nextPersonId(),
-        "minDate", state.nextMaxDate(),
+        "personId", state.personId(i),
+        "minDate", state.maxDate(i),
         "limit", LIMIT);
   }
 
@@ -206,9 +215,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic6_tagCoOccurrence(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC6,
-        "personId", state.nextPersonId(),
-        "tagName", state.nextTagName(),
+        "personId", state.personId(i),
+        "tagName", state.tagName(i),
         "limit", LIMIT);
   }
 
@@ -218,8 +228,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic7_recentLikers(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC7,
-        "personId", state.nextPersonId(),
+        "personId", state.personId(i),
         "limit", LIMIT);
   }
 
@@ -229,8 +240,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic8_recentReplies(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC8,
-        "personId", state.nextPersonId(),
+        "personId", state.personId(i),
         "limit", LIMIT);
   }
 
@@ -240,9 +252,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic9_recentFofMessages(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC9,
-        "personId", state.nextPersonId(),
-        "maxDate", state.nextMaxDate(),
+        "personId", state.personId(i),
+        "maxDate", state.maxDate(i),
         "limit", LIMIT);
   }
 
@@ -252,13 +265,13 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic10_friendRecommendation(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     int startMonth = 6;
-    int endMonth = startMonth + 1;
     String startMd = String.format("%02d21", startMonth);
-    String endMd = String.format("%02d22", endMonth);
+    String endMd = String.format("%02d22", startMonth + 1);
 
     return state.executeSql(LdbcQuerySql.IC10,
-        "personId", state.nextPersonId(),
+        "personId", state.personId(i),
         "startMd", startMd,
         "endMd", endMd,
         "wrap", false,
@@ -272,9 +285,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic11_jobReferral(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC11,
-        "personId", state.nextPersonId(),
-        "countryName", state.nextCountryName(),
+        "personId", state.personId(i),
+        "countryName", state.countryName(i),
         "workFromYear", 2010,
         "limit", LIMIT);
   }
@@ -286,9 +300,10 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic12_expertSearch(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC12,
-        "personId", state.nextPersonId(),
-        "tagClassName", state.nextTagClassName(),
+        "personId", state.personId(i),
+        "tagClassName", state.tagClassName(i),
         "limit", LIMIT);
   }
 
@@ -298,8 +313,9 @@ public abstract class LdbcReadBenchmarkBase {
    */
   @Benchmark
   public List<Map<String, Object>> ic13_shortestPath(LdbcBenchmarkState state) {
+    long i = state.nextIndex();
     return state.executeSql(LdbcQuerySql.IC13,
-        "person1Id", state.nextPersonId(),
-        "person2Id", state.nextPersonId2());
+        "person1Id", state.personId(i),
+        "person2Id", state.personId2(i));
   }
 }

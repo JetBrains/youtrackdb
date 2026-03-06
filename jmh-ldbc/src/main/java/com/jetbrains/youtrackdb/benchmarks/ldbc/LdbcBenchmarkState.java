@@ -69,39 +69,51 @@ public class LdbcBenchmarkState {
   String[] tagClassNames;
   Date[] messageDates;
 
-  final AtomicLong counter = new AtomicLong();
+  private final AtomicLong counter = new AtomicLong();
 
-  public long nextPersonId() {
-    return personIds[(int) (counter.getAndIncrement() % personIds.length)];
+  /**
+   * Advances the shared counter and returns the new index.
+   * Call this once per benchmark invocation, then use the returned index
+   * for all parameter lookups to keep them consistent.
+   */
+  public long nextIndex() {
+    return counter.getAndIncrement();
   }
 
-  public long nextPersonId2() {
-    long idx = counter.get();
+  public long personId(long idx) {
+    return personIds[(int) (idx % personIds.length)];
+  }
+
+  public long personId2(long idx) {
     return personIds[(int) ((idx + personIds.length / 2) % personIds.length)];
   }
 
-  public long nextMessageId() {
-    return messageIds[(int) (counter.get() % messageIds.length)];
+  public long messageId(long idx) {
+    return messageIds[(int) (idx % messageIds.length)];
   }
 
-  public String nextFirstName() {
-    return firstNames[(int) (counter.get() % firstNames.length)];
+  public String firstName(long idx) {
+    return firstNames[(int) (idx % firstNames.length)];
   }
 
-  public String nextTagName() {
-    return tagNames[(int) (counter.get() % tagNames.length)];
+  public String tagName(long idx) {
+    return tagNames[(int) (idx % tagNames.length)];
   }
 
-  public String nextCountryName() {
-    return countryNames[(int) (counter.get() % countryNames.length)];
+  public String countryName(long idx) {
+    return countryNames[(int) (idx % countryNames.length)];
   }
 
-  public String nextTagClassName() {
-    return tagClassNames[(int) (counter.get() % tagClassNames.length)];
+  public String countryName2(long idx) {
+    return countryNames[(int) ((idx + 1) % countryNames.length)];
   }
 
-  public Date nextMaxDate() {
-    return messageDates[(int) (counter.get() % messageDates.length)];
+  public String tagClassName(long idx) {
+    return tagClassNames[(int) (idx % tagClassNames.length)];
+  }
+
+  public Date maxDate(long idx) {
+    return messageDates[(int) (idx % messageDates.length)];
   }
 
   /**
@@ -363,16 +375,21 @@ public class LdbcBenchmarkState {
     }
     log.info("zstd CLI not found, falling back to python3...");
 
-    // Strategy 2: python3 + zstandard
+    // Strategy 2: python3 + zstandard (with path traversal protection)
     String pyScript = String.join("\n",
-        "import zstandard, tarfile, io, sys",
+        "import zstandard, tarfile, os, sys",
         "archive = sys.argv[1]",
-        "target = sys.argv[2]",
+        "target = os.path.realpath(sys.argv[2])",
+        "def safe_filter(member, path):",
+        "    resolved = os.path.realpath(os.path.join(path, member.name))",
+        "    if not resolved.startswith(path + os.sep) and resolved != path:",
+        "        raise Exception('Path traversal detected: ' + member.name)",
+        "    return member",
         "with open(archive, 'rb') as fh:",
         "    dctx = zstandard.ZstdDecompressor()",
         "    with dctx.stream_reader(fh) as reader:",
         "        with tarfile.open(fileobj=reader, mode='r|') as tf:",
-        "            tf.extractall(path=target)"
+        "            tf.extractall(path=target, filter=safe_filter)"
     );
     if (tryExec("python3", "-c", pyScript, archiveAbs, targetAbs) == 0) {
       return;
@@ -531,24 +548,22 @@ public class LdbcBenchmarkState {
 
     long start = System.currentTimeMillis();
 
-    // Static entities
-    loadVerticesBySql(staticDir, "place_0_0.csv", "Place", batchSize,
-        f -> "INSERT INTO Place SET id = " + f[0]
-            + ", name = '" + esc(f[1]) + "', url = '" + esc(f[2])
-            + "', type = '" + esc(f[3]) + "'");
+    // Static entities (parameterized queries)
+    loadVertices(staticDir, "place_0_0.csv", "Place", batchSize,
+        "INSERT INTO Place SET id = :p0, name = :p1, url = :p2, type = :p3",
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2], "p3", f[3]});
 
-    loadVerticesBySql(staticDir, "organisation_0_0.csv", "Organisation", batchSize,
-        f -> "INSERT INTO Organisation SET id = " + f[0]
-            + ", type = '" + esc(f[1]) + "', name = '" + esc(f[2])
-            + "', url = '" + esc(f[3]) + "'");
+    loadVertices(staticDir, "organisation_0_0.csv", "Organisation", batchSize,
+        "INSERT INTO Organisation SET id = :p0, type = :p1, name = :p2, url = :p3",
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2], "p3", f[3]});
 
-    loadVerticesBySql(staticDir, "tagclass_0_0.csv", "TagClass", batchSize,
-        f -> "INSERT INTO TagClass SET id = " + f[0]
-            + ", name = '" + esc(f[1]) + "', url = '" + esc(f[2]) + "'");
+    loadVertices(staticDir, "tagclass_0_0.csv", "TagClass", batchSize,
+        "INSERT INTO TagClass SET id = :p0, name = :p1, url = :p2",
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2]});
 
-    loadVerticesBySql(staticDir, "tag_0_0.csv", "Tag", batchSize,
-        f -> "INSERT INTO Tag SET id = " + f[0]
-            + ", name = '" + esc(f[1]) + "', url = '" + esc(f[2]) + "'");
+    loadVertices(staticDir, "tag_0_0.csv", "Tag", batchSize,
+        "INSERT INTO Tag SET id = :p0, name = :p1, url = :p2",
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2]});
 
     // Static relationships
     loadEdgeBySql(staticDir, "place_isPartOf_place_0_0.csv",
@@ -611,8 +626,8 @@ public class LdbcBenchmarkState {
     log.info("Data loading completed in {}ms ({} seconds)", duration, duration / 1000.0);
   }
 
-  private void loadVerticesBySql(Path dir, String filename, String label, int batchSize,
-      java.util.function.Function<String[], String> sqlBuilder) throws IOException {
+  private void loadVertices(Path dir, String filename, String label, int batchSize,
+      String sql, java.util.function.Function<String[], Object[]> paramBuilder) throws IOException {
     Path csvFile = dir.resolve(filename);
     if (!Files.exists(csvFile)) {
       log.warn("File not found, skipping: {}", csvFile);
@@ -622,7 +637,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] fields : batch) {
-          ytg.sqlCommand(sqlBuilder.apply(fields)).iterate();
+          ytg.sqlCommand(sql, paramBuilder.apply(fields)).iterate();
         }
       });
     });
@@ -634,30 +649,23 @@ public class LdbcBenchmarkState {
     if (!Files.exists(csvFile)) {
       return;
     }
+    String sql = "INSERT INTO Person SET id = :id, firstName = :firstName,"
+        + " lastName = :lastName, gender = :gender, birthday = :birthday,"
+        + " creationDate = :creationDate, locationIP = :locationIP,"
+        + " browserUsed = :browserUsed, languages = :languages, emails = :emails";
     long count = processCsv(csvFile, batchSize, batch -> {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          StringBuilder sql = new StringBuilder();
-          sql.append("INSERT INTO Person SET id = ").append(f[0]);
-          sql.append(", firstName = '").append(esc(f[1])).append("'");
-          sql.append(", lastName = '").append(esc(f[2])).append("'");
-          sql.append(", gender = '").append(esc(f[3])).append("'");
-          sql.append(", birthday = ").append(f[4]);
-          sql.append(", creationDate = ").append(f[5]);
-          sql.append(", locationIP = '").append(esc(f[6])).append("'");
-          sql.append(", browserUsed = '").append(esc(f[7])).append("'");
-          if (!f[8].isEmpty()) {
-            sql.append(", languages = [");
-            appendStringList(sql, f[8]);
-            sql.append("]");
-          }
-          if (!f[9].isEmpty()) {
-            sql.append(", emails = [");
-            appendStringList(sql, f[9]);
-            sql.append("]");
-          }
-          ytg.sqlCommand(sql.toString()).iterate();
+          ytg.sqlCommand(sql,
+              "id", Long.parseLong(f[0]),
+              "firstName", f[1], "lastName", f[2], "gender", f[3],
+              "birthday", Long.parseLong(f[4]),
+              "creationDate", Long.parseLong(f[5]),
+              "locationIP", f[6], "browserUsed", f[7],
+              "languages", parseList(f[8]),
+              "emails", parseList(f[9])
+          ).iterate();
         }
       });
     });
@@ -669,13 +677,17 @@ public class LdbcBenchmarkState {
     if (!Files.exists(csvFile)) {
       return;
     }
+    String sql = "INSERT INTO Forum SET id = :id, title = :title,"
+        + " creationDate = :creationDate";
     long count = processCsv(csvFile, batchSize, batch -> {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand("INSERT INTO Forum SET id = " + f[0]
-              + ", title = '" + esc(f[1])
-              + "', creationDate = " + f[2]).iterate();
+          ytg.sqlCommand(sql,
+              "id", Long.parseLong(f[0]),
+              "title", f[1],
+              "creationDate", Long.parseLong(f[2])
+          ).iterate();
         }
       });
     });
@@ -687,24 +699,22 @@ public class LdbcBenchmarkState {
     if (!Files.exists(csvFile)) {
       return;
     }
+    String sql = "INSERT INTO Post SET id = :id, creationDate = :creationDate,"
+        + " locationIP = :locationIP, browserUsed = :browserUsed,"
+        + " language = :language, length = :length,"
+        + " imageFile = :imageFile, content = :content";
     long count = processCsv(csvFile, batchSize, batch -> {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          StringBuilder sql = new StringBuilder();
-          sql.append("INSERT INTO Post SET id = ").append(f[0]);
-          sql.append(", creationDate = ").append(f[2]);
-          sql.append(", locationIP = '").append(esc(f[3])).append("'");
-          sql.append(", browserUsed = '").append(esc(f[4])).append("'");
-          sql.append(", language = '").append(esc(f[5])).append("'");
-          sql.append(", length = ").append(f[7]);
-          if (!f[1].isEmpty()) {
-            sql.append(", imageFile = '").append(esc(f[1])).append("'");
-          }
-          if (!f[6].isEmpty()) {
-            sql.append(", content = '").append(esc(f[6])).append("'");
-          }
-          ytg.sqlCommand(sql.toString()).iterate();
+          ytg.sqlCommand(sql,
+              "id", Long.parseLong(f[0]),
+              "creationDate", Long.parseLong(f[2]),
+              "locationIP", f[3], "browserUsed", f[4],
+              "language", f[5], "length", Integer.parseInt(f[7]),
+              "imageFile", f[1].isEmpty() ? null : f[1],
+              "content", f[6].isEmpty() ? null : f[6]
+          ).iterate();
         }
       });
     });
@@ -716,16 +726,19 @@ public class LdbcBenchmarkState {
     if (!Files.exists(csvFile)) {
       return;
     }
+    String sql = "INSERT INTO Comment SET id = :id, creationDate = :creationDate,"
+        + " locationIP = :locationIP, browserUsed = :browserUsed,"
+        + " content = :content, length = :length";
     long count = processCsv(csvFile, batchSize, batch -> {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand("INSERT INTO Comment SET id = " + f[0]
-              + ", creationDate = " + f[1]
-              + ", locationIP = '" + esc(f[2])
-              + "', browserUsed = '" + esc(f[3])
-              + "', content = '" + esc(f[4])
-              + "', length = " + f[5]).iterate();
+          ytg.sqlCommand(sql,
+              "id", Long.parseLong(f[0]),
+              "creationDate", Long.parseLong(f[1]),
+              "locationIP", f[2], "browserUsed", f[3],
+              "content", f[4], "length", Integer.parseInt(f[5])
+          ).iterate();
         }
       });
     });
@@ -869,18 +882,11 @@ public class LdbcBenchmarkState {
     }
   }
 
-  private static String esc(String value) {
-    return value.replace("\\", "\\\\").replace("'", "\\'");
-  }
-
-  private static void appendStringList(StringBuilder sb, String semicolonSeparated) {
-    String[] items = semicolonSeparated.split(";");
-    for (int i = 0; i < items.length; i++) {
-      if (i > 0) {
-        sb.append(", ");
-      }
-      sb.append("'").append(esc(items[i])).append("'");
+  private static List<String> parseList(String value) {
+    if (value == null || value.isEmpty()) {
+      return List.of();
     }
+    return List.of(value.split(";"));
   }
 
   // ==================== PARAMETER SAMPLING ====================
