@@ -346,14 +346,12 @@ Each documentation file (except CLAUDE.md itself) includes YAML frontmatter that
 source_files:
   - path/to/source/File.java
   - path/to/other/**
-last_synced_commit: <short SHA of last commit where this doc was verified accurate>
 related_docs:
   - docs/other-doc.md
 ---
 ```
 
 - **`source_files`**: Glob patterns of source files whose changes may require this doc to be updated.
-- **`last_synced_commit`**: The short SHA of the last commit where this doc was verified to be in sync with its source files. Update this after reviewing and updating the doc.
 - **`related_docs`**: Other documentation files that cover related topics. Useful for cross-referencing when making changes.
 
 The central mapping of all source-to-doc relationships is in `docs/docs-sync.yml`. When adding a new doc or changing which source files a doc depends on, update both the frontmatter and the central mapping.
@@ -362,7 +360,6 @@ The central mapping of all source-to-doc relationships is in `docs/docs-sync.yml
 
 1. **When modifying source code**: Check `docs/docs-sync.yml` to see if any docs reference the files you changed. If so, review those docs and update them if needed.
 2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
-3. **After updating a doc**: Set `last_synced_commit` in the frontmatter to the current commit SHA.
 
 ### Automated Sync
 
@@ -370,4 +367,4 @@ The `.github/workflows/docs-sync.yml` GitHub Action runs on pushes to `develop` 
 
 1. Detects which docs are affected by comparing changed files against `docs/docs-sync.yml` mappings.
 2. Uses Claude Code to read the affected docs and their source files, then proposes updates via a PR.
-3. Has anti-loop safeguards: `paths-ignore` for markdown changes, actor check for bot pushes.
+3. Has anti-loop safeguards: `paths-ignore` for `docs/adr/**` and `docs/internal/**`, actor check for bot pushes, and commit-message check to skip pushes from merged docs-sync PRs.

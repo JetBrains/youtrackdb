@@ -4,7 +4,6 @@ source_files:
   - .github/scripts/mutation-gate.py
   - .github/workflows/maven-pipeline.yml
   - pom.xml
-last_synced_commit: 2d5822220f
 related_docs:
   - docs/ci-cd-diagram.md
   - CLAUDE.md

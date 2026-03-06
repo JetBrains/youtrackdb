@@ -3,7 +3,6 @@ source_files:
   - .github/workflows/maven-mirror/maven-mirror.pkr.hcl
   - .github/workflows/maven-mirror/setup.sh
   - .github/workflows/settings.xml
-last_synced_commit: 2d5822220f
 related_docs:
   - docs/ci-cd-diagram.md
 ---

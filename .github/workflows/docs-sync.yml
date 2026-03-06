@@ -4,8 +4,8 @@ on:
   push:
     branches: [ "develop" ]
     paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
+      - 'docs/adr/**'
+      - 'docs/internal/**'
 
 concurrency:
   group: docs-sync-${{ github.ref }}
@@ -19,7 +19,9 @@ jobs:
   check-affected-docs:
     name: Detect Documentation to Update
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.actor != 'github-actions[bot]'
+      && !startsWith(github.event.head_commit.message, 'Sync documentation with')
     outputs:
       affected_docs: ${{ steps.detect.outputs.affected_docs }}
       has_affected: ${{ steps.detect.outputs.has_affected }}
@@ -108,7 +110,6 @@ jobs:
             3. Use `git diff ${{ github.event.before }} HEAD` to see what changed.
             4. Update the doc to reflect code changes. Keep existing style/tone/structure.
                Do NOT rewrite sections that are still accurate.
-            5. Update last_synced_commit in frontmatter to the first 10 characters of ${{ github.sha }}.
 
             If no docs need changes, do not create any commits.
 

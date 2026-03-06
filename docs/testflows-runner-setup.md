@@ -3,7 +3,6 @@ source_files:
   - .github/workflows/testflows-orchestrator.pkr.hcl
   - .github/workflows/testflows-orchestrator/**
   - .github/workflows/maven-integration-tests-pipeline.yml
-last_synced_commit: 2d5822220f
 related_docs:
   - docs/ci-cd-diagram.md
 ---

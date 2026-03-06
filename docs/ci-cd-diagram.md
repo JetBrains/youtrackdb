@@ -8,7 +8,6 @@ source_files:
   - .github/workflows/pr-title-prefix.yml
   - .github/scripts/coverage-gate.py
   - .github/scripts/mutation-gate.py
-last_synced_commit: 2d5822220f
 related_docs:
   - docs/test-quality-requirements.md
   - docs/testflows-runner-setup.md

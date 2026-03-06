@@ -1,7 +1,6 @@
 ---
 source_files:
   - docs/*.md
-last_synced_commit: 2d5822220f
 related_docs: []
 ---
 
