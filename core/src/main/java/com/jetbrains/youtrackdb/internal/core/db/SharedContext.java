@@ -134,7 +134,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     }
   }
 
-
   public void close() {
     lock.lock();
     try {
@@ -156,7 +155,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       lock.unlock();
     }
   }
-
 
   public void reload(DatabaseSessionEmbedded database) {
     lock.lock();
@@ -228,7 +226,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       lock.unlock();
     }
   }
-
 
   public SchemaShared getSchema() {
     return schema;
