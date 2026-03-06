@@ -46,12 +46,6 @@
       <artifactId>log4j-core</artifactId>
       <version>${log4j.version}</version>
     </dependency>
-
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <scope>test</scope>
-    </dependency>
   </dependencies>
 
   <build>
@@ -159,37 +153,6 @@
   </build>
 
   <profiles>
-    <!-- Exclude JMH benchmark classes and CLI tools from coverage.
-         These are benchmark infrastructure, not library code.
-         The actual SQL queries are tested by LdbcQueryCorrectnessTest. -->
-    <profile>
-      <id>coverage</id>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.jacoco</groupId>
-            <artifactId>jacoco-maven-plugin</artifactId>
-            <executions>
-              <execution>
-                <id>jacoco-report</id>
-                <configuration>
-                  <excludes>
-                    <exclude>**/LdbcBenchmarkState.class</exclude>
-                    <exclude>**/LdbcBenchmarkState$*.class</exclude>
-                    <exclude>**/LdbcReadBenchmarkBase.class</exclude>
-                    <exclude>**/LdbcMultiThreadBenchmark.class</exclude>
-                    <exclude>**/LdbcSingleThreadBenchmark.class</exclude>
-                    <exclude>**/LdbcDatabaseTool.class</exclude>
-                    <exclude>**/LdbcExplainTool.class</exclude>
-                  </excludes>
-                </configuration>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-
     <!-- Profile to compile and run benchmarks in a single command.
          Usage: ./mvnw -pl jmh-ldbc -am verify -P bench
                 ./mvnw -pl jmh-ldbc -am verify -P bench -Djmh.args=".*is4_.* -f 1 -wi 1 -i 1" -->
@@ -219,26 +182,5 @@
   <properties>
     <!-- Default: run all benchmarks. Override with -Djmh.args="pattern" -->
     <jmh.args/>
-    <argLine>-ea
-      -Xms${heapSize}
-      -Xmx${heapSize}
-      -Dyoutrackdb.storage.diskCache.bufferSize=4096
-      -Dyoutrackdb.security.createDefaultUsers=false
-      -Dyoutrackdb.memory.directMemory.trackMode=true
-      -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
-      -XX:+IgnoreUnrecognizedVMOptions
-      --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED
-      --add-opens=java.base/sun.security.x509=ALL-UNNAMED
-      --add-opens=java.base/java.io=ALL-UNNAMED
-      --add-opens=java.base/java.nio=ALL-UNNAMED
-      --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
-      --add-opens=java.base/java.lang=ALL-UNNAMED
-      --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
-      --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
-      --add-opens=java.base/java.util=ALL-UNNAMED
-      --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
-      --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
-      --add-opens=java.base/java.net=ALL-UNNAMED
-    </argLine>
   </properties>
 </project>
