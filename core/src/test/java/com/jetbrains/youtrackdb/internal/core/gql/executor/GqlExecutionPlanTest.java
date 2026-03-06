@@ -278,7 +278,7 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     pattern.aliasToNode.put(alias, node);
     var planner = new MatchExecutionPlanner(pattern, Map.of(alias, className));
     var sqlPlan = planner.createExecutionPlan(new BasicCommandContext(session), false,
-            false);
+        false);
     return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
   }
 }
