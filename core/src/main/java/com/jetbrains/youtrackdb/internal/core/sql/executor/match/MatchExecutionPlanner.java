@@ -299,7 +299,7 @@ public class MatchExecutionPlanner {
    * @param aliasClasses maps each alias to the schema class name it is constrained to
    */
   public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses) {
-      this.matchExpressions = List.of();
+    this.matchExpressions = List.of();
     this.notMatchExpressions = List.of();
     this.returnItems = List.of();
     this.returnAliases = List.of();
