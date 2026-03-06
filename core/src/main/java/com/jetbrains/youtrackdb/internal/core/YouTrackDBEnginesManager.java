@@ -775,7 +775,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * Shuts down all constructor-allocated pools. Used to clean up resources when
    * {@link #startup()} fails and the instance is discarded.
    */
-  private void shutdownPools() {
+  void shutdownPools() {
     shutdownExecutor(walFlushExecutor, "WAL flush", 5, TimeUnit.SECONDS);
     shutdownExecutor(walWriteExecutor, "WAL write", 5, TimeUnit.SECONDS);
     shutdownExecutor(fuzzyCheckpointExecutor, "fuzzy checkpoint", 5, TimeUnit.SECONDS);
