@@ -29,7 +29,7 @@ if ! (cd "$REPO_ROOT" && ./mvnw spotless:apply -q); then
 fi
 
 # Re-stage any files that Spotless modified
-for file in $STAGED_JAVA_FILES; do
+echo "$STAGED_JAVA_FILES" | while IFS= read -r file; do
     if [ -f "$REPO_ROOT/$file" ]; then
         git add "$REPO_ROOT/$file"
     fi
