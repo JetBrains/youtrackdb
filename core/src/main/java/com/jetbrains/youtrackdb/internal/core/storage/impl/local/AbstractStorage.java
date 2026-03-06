@@ -3288,43 +3288,13 @@ public abstract class AbstractStorage
     try {
       stateLock.readLock().lock();
       try {
-
-        final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.freezeWriteOperations(null);
-        try {
-          checkOpennessAndMigration();
-
-          if (!isInError()) {
-            for (final var indexEngine : indexEngines) {
-              try {
-                if (indexEngine != null) {
-                  indexEngine.flush();
-                }
-              } catch (final Throwable t) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error while flushing index via index engine of class %s.",
-                        t,
-                        indexEngine.getClass().getSimpleName());
-              }
-            }
-
-            flushAllData();
-
-          } else {
-            LogManager.instance()
-                .error(
-                    this,
-                    "Sync can not be performed because of internal error in storage %s",
-                    null,
-                    this.name);
-          }
-
-        } finally {
-          atomicOperationsManager.unfreezeWriteOperations(lockId);
-          synchDuration.setNanos(System.nanoTime() - synchStartedAt);
+        // Flush dirty histogram stats before freezing — see
+        // flushDirtyHistograms() Javadoc for deadlock details.
+        if (!isInError()) {
+          flushDirtyHistograms();
         }
+
+        doSynch();
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3334,6 +3304,52 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  /**
+   * Core sync logic: freeze operations, flush engines and WAL, unfreeze.
+   * Extracted so that {@link #freeze} can call it after flushing histograms
+   * itself — calling {@link #synch()} from {@code freeze()} would deadlock
+   * because the frozen {@code OperationsFreezer} would block the histogram
+   * flush's {@code executeInsideAtomicOperation()} call.
+   */
+  private void doSynch() {
+    final var synchStartedAt = System.nanoTime();
+    final var lockId = atomicOperationsManager.freezeWriteOperations(null);
+    try {
+      checkOpennessAndMigration();
+
+      if (!isInError()) {
+        for (final var indexEngine : indexEngines) {
+          try {
+            if (indexEngine != null) {
+              indexEngine.flush();
+            }
+          } catch (final Throwable t) {
+            LogManager.instance()
+                .error(
+                    this,
+                    "Error while flushing index via index engine of class %s.",
+                    t,
+                    indexEngine.getClass().getSimpleName());
+          }
+        }
+
+        flushAllData();
+
+      } else {
+        LogManager.instance()
+            .error(
+                this,
+                "Sync can not be performed because of internal error in storage %s",
+                null,
+                this.name);
+      }
+
+    } finally {
+      atomicOperationsManager.unfreezeWriteOperations(lockId);
+      synchDuration.setNanos(System.nanoTime() - synchStartedAt);
     }
   }
 
@@ -3447,6 +3463,12 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
+        // Flush dirty histogram stats before freezing — see
+        // flushDirtyHistograms() Javadoc for deadlock details.
+        if (!isInError()) {
+          flushDirtyHistograms();
+        }
+
         if (throwException) {
           atomicOperationsManager.freezeWriteOperations(
               () -> new ModificationOperationProhibitedException(name,
@@ -3473,7 +3495,9 @@ public abstract class AbstractStorage
               new StorageException(name, "Error on freeze of storage '" + name + "'"), e, name);
         }
 
-        synch();
+        // Use doSynch() instead of synch() — histograms were already
+        // flushed above and the operations are already frozen by us.
+        doSynch();
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3933,12 +3957,18 @@ public abstract class AbstractStorage
 
   /**
    * Iterates all B-tree index engines and flushes dirty histogram state
-   * to their .ixs pages. Called during fuzzy checkpoint and full data flush.
+   * to their .ixs pages. Called during fuzzy checkpoint, synch, close,
+   * and recovery.
+   *
+   * <p><b>Important:</b> this method must NOT be called inside a frozen
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local
+   * .paginated.atomicoperations.operationsfreezer.OperationsFreezer}
+   * scope. Each engine's flush creates its own AtomicOperation via
+   * {@code executeInsideAtomicOperation()}, which would deadlock if the
+   * freezer is already frozen.
    *
    * <p>Failures are logged but never propagated — histogram persistence is
-   * best-effort and must not block checkpoint or shutdown. Each engine's
-   * flush creates its own AtomicOperation (independent of the WAL
-   * checkpoint's operation context).
+   * best-effort and must not block checkpoint or shutdown.
    */
   private void flushDirtyHistograms() {
     for (var engine : indexEngines) {
@@ -3972,13 +4002,15 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Flushes WAL, write cache, and cuts the log. Does <b>not</b> flush
+   * histogram data — callers that need histogram persistence must call
+   * {@link #flushDirtyHistograms()} separately <b>before</b> this method,
+   * and outside any frozen {@code OperationsFreezer} scope (see
+   * {@link #flushDirtyHistograms()} Javadoc for details).
+   */
   protected void flushAllData() {
     try {
-      // Flush histogram stats before WAL flush — ensures .ixs pages are
-      // included in the final sync. Individual engine close() also flushes
-      // via closeStatsFile(), but flushAllData() may precede engine closure.
-      flushDirtyHistograms();
-
       writeAheadLog.flush();
 
       // so we will be able to cut almost all the log
@@ -4185,6 +4217,7 @@ public abstract class AbstractStorage
           recoverListener.onStorageRecover();
         }
 
+        flushDirtyHistograms();
         flushAllData();
       } catch (final Exception e) {
         LogManager.instance().error(this, "Exception during storage data restore", e);
@@ -4555,6 +4588,7 @@ public abstract class AbstractStorage
       status = STATUS.CLOSING;
 
       if (!isInError()) {
+        flushDirtyHistograms();
         flushAllData();
       }
 
