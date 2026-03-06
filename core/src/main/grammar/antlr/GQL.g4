@@ -93,14 +93,16 @@ boolean_expression_inner: NOT boolean_expression_inner | '(' boolean_expression 
 
 comparison_expression: value_expression comparison_operator value_expression;
 
-value_expression: RID | ID | PARAMETER | property_reference | STRING | math_expression |
-                  list_literal | map_literal | temporal_literal | path_function |
-                  case_expression | aggregate_function | exists_predicate;
+value_expression: RID | BOOL | ID | PARAMETER | property_reference | STRING | math_expression |
+                  list_literal | map_literal | temporal_literal | binary_literal | decimal_literal |
+                  path_function | case_expression | aggregate_function | exists_predicate;
 
 list_literal: '[' (value_expression (',' value_expression)*)? ']';
 map_literal: '{' (map_entry (',' map_entry)*)? '}';
 map_entry: (ID | STRING) ':' value_expression;
 temporal_literal: (DATE | TIME | TIMESTAMP | DURATION) (STRING | '(' STRING ')');
+binary_literal: BINARY STRING;
+decimal_literal: DECIMAL STRING;
 path_function: (NODES | EDGES | LENGTH | LABELS) '(' (ID | STRING) ')';
 
 case_expression: CASE (value_expression)? (WHEN boolean_expression THEN value_expression)+
@@ -116,7 +118,8 @@ math_expression_inner: '(' math_expression ')' | sub '(' math_expression ')' |
 comparison_operator: EQ | NEQ | GT | GTE | LT | LTE | IN;
 sub: DASH;
 numeric_literal: (sub)? (NUMBER | INT);
-property_reference : ID (DOT ID)* ;
+property_reference : identifier (DOT identifier)* ;
+identifier: ID | QUOTED_ID;
 
 MATCH:   M A T C H;
 CALL:    C A L L;
@@ -176,6 +179,8 @@ DATE:    D A T E;
 TIME:    T I M E;
 TIMESTAMP: T I M E S T A M P;
 DURATION: D U R A T I O N;
+BINARY:  B I N A R Y;
+DECIMAL: D E C I M A L;
 NODES:   N O D E S;
 EDGES:   E D G E S;
 LENGTH:  L E N G T H;
@@ -198,6 +203,7 @@ DOT : '.' ;
 DASH: '-';
 RID: '#' [0-9]+ ':' [0-9]+ ;
 PARAMETER: '$' [a-zA-Z_][a-zA-Z_0-9]*;
+QUOTED_ID: '`' ( ~'`' | '\\`' )* '`' ;
 ID: [a-zA-Z_][a-zA-Z_0-9]* ;
 INT: [0-9]+;
 NUMBER: [0-9]+ (DOT [0-9]+)? ([eE] [+-]? [0-9]+)?;

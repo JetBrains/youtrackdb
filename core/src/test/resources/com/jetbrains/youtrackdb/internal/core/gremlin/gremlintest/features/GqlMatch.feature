@@ -385,3 +385,152 @@ Feature: GQL Match Support
     And the result should be unordered
       | result              |
       | m[{"a":"v[Bob]"}]   |
+
+  # ── Inline property filters ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_single_string
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl'})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result               |
+      | m[{"a":"v[Karl]"}]   |
+
+  Scenario: g_gql_MATCH_inline_property_filter_multiple_properties
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl30").property("age", 30).addV("GqlPerson").property("name", "Karl25").property("age", 25)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl30', age: 30})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                  |
+      | m[{"a":"v[Karl30]"}]    |
+
+  Scenario: g_gql_MATCH_inline_property_filter_no_match
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'NonExistent'})")
+      """
+    When iterated to list
+    Then the result should be empty
+
+  Scenario: g_gql_MATCH_inline_property_filter_without_alias
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (:GqlPerson {name: 'Maria'})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                    |
+      | m[{"$c0":"v[Maria]"}]     |
+
+  Scenario: g_gql_MATCH_inline_property_filter_with_select_values
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").property("age", 30).addV("GqlPerson").property("name", "Maria").property("age", 25)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl'})").select("a").values("age")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result |
+      | d[30].i |
+
+  Scenario: g_gql_MATCH_inline_property_filter_multiple_patterns
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl'}), (b:GqlPerson {name: 'Maria'})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                                    |
+      | m[{"a":"v[Karl]", "b":"v[Maria]"}]        |
+
+  # ── Inline property filter: boolean ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_boolean
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Active").property("active", true).addV("GqlPerson").property("name", "Inactive").property("active", false)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {active: true})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                    |
+      | m[{"a":"v[Active]"}]      |
+
+  # ── Inline property filter: floating-point (FLOAT/DOUBLE) ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_double
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Precise").property("score", 3.14d).addV("GqlPerson").property("name", "Other").property("score", 2.71d)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {score: 3.14})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                      |
+      | m[{"a":"v[Precise]"}]       |
+
+  # ── Inline property filter: negative number ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_negative_number
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Cold").property("temp", -10).addV("GqlPerson").property("name", "Warm").property("temp", 25)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {temp: -10})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                  |
+      | m[{"a":"v[Cold]"}]      |

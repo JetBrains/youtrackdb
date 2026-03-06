@@ -33,6 +33,7 @@ public class SQLExpression extends SimpleNode {
   protected SQLArrayConcatExpression arrayConcatExpression;
   protected SQLJson json;
   protected Boolean booleanValue;
+  private Object literalValue;
 
   public SQLExpression(int id) {
     super(id);
@@ -88,6 +89,9 @@ public class SQLExpression extends SimpleNode {
     if (booleanValue != null) {
       return booleanValue;
     }
+    if (literalValue != null) {
+      return literalValue;
+    }
     if (value instanceof SQLNumber) {
       return ((SQLNumber) value).getValue(); // only for old executor (manually replaced params)
     }
@@ -130,6 +134,9 @@ public class SQLExpression extends SimpleNode {
     }
     if (booleanValue != null) {
       return booleanValue;
+    }
+    if (literalValue != null) {
+      return literalValue;
     }
     if (value instanceof SQLNumber) {
       return ((SQLNumber) value).getValue(); // only for old executor (manually replaced params)
@@ -210,6 +217,9 @@ public class SQLExpression extends SimpleNode {
     if (booleanValue != null) {
       return true;
     }
+    if (literalValue != null) {
+      return true;
+    }
     if (rid != null) {
       return true;
     }
@@ -256,6 +266,8 @@ public class SQLExpression extends SimpleNode {
       json.toString(params, builder);
     } else if (booleanValue != null) {
       builder.append(booleanValue);
+    } else if (literalValue != null) {
+      builder.append(literalValue);
     } else if (value instanceof SimpleNode) {
       ((SimpleNode) value)
           .toString(
@@ -286,6 +298,8 @@ public class SQLExpression extends SimpleNode {
     } else if (json != null) {
       json.toGenericStatement(builder);
     } else if (booleanValue != null) {
+      builder.append(PARAMETER_PLACEHOLDER);
+    } else if (literalValue != null) {
       builder.append(PARAMETER_PLACEHOLDER);
     } else if (value instanceof SimpleNode) {
       ((SimpleNode) value).toGenericStatement(builder);
@@ -523,6 +537,7 @@ public class SQLExpression extends SimpleNode {
         arrayConcatExpression == null ? null : arrayConcatExpression.copy();
     result.json = json == null ? null : json.copy();
     result.booleanValue = booleanValue;
+    result.literalValue = literalValue;
 
     return result;
   }
@@ -559,7 +574,10 @@ public class SQLExpression extends SimpleNode {
     if (!Objects.equals(json, that.json)) {
       return false;
     }
-    return Objects.equals(booleanValue, that.booleanValue);
+    if (!Objects.equals(booleanValue, that.booleanValue)) {
+      return false;
+    }
+    return Objects.equals(literalValue, that.literalValue);
   }
 
   @Override
@@ -572,7 +590,16 @@ public class SQLExpression extends SimpleNode {
     result = 31 * result + (arrayConcatExpression != null ? arrayConcatExpression.hashCode() : 0);
     result = 31 * result + (json != null ? json.hashCode() : 0);
     result = 31 * result + (booleanValue != null ? booleanValue.hashCode() : 0);
+    result = 31 * result + (literalValue != null ? literalValue.hashCode() : 0);
     return result;
+  }
+
+  public void setBooleanValue(Boolean booleanValue) {
+    this.booleanValue = booleanValue;
+  }
+
+  public void setLiteralValue(Object literalValue) {
+    this.literalValue = literalValue;
   }
 
   public void setMathExpression(SQLMathExpression mathExpression) {
@@ -685,6 +712,7 @@ public class SQLExpression extends SimpleNode {
       result.setProperty("json", json.serialize(session));
     }
     result.setProperty("booleanValue", booleanValue);
+    result.setProperty("literalValue", literalValue);
     return result;
   }
 
@@ -710,6 +738,7 @@ public class SQLExpression extends SimpleNode {
       json.deserialize(fromResult.getProperty("json"));
     }
     booleanValue = fromResult.getProperty("booleanValue");
+    literalValue = fromResult.getProperty("literalValue");
   }
 
   public boolean isDefinedFor(Result currentRecord) {
@@ -743,7 +772,9 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.isCacheable(session);
     }
-    // TODO optimize
+    if (literalValue != null) {
+      return true;
+    }
     return json == null;
   }
 
