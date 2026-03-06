@@ -24,7 +24,8 @@ public final class IteratorGqlExecutionStream<T> implements GqlExecutionStream {
 
   /// Create a stream that maps elements using the given function.
   @SuppressWarnings("unchecked")
-  public <S> IteratorGqlExecutionStream(@Nonnull Iterator<S> source, @Nonnull Function<S, ?> mapper) {
+  public <S> IteratorGqlExecutionStream(@Nonnull Iterator<S> source,
+      @Nonnull Function<S, ?> mapper) {
     this.source = (Iterator<T>) source;
     this.mapper = (Function<T, ?>) mapper;
   }

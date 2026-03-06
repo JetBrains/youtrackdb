@@ -43,13 +43,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -1218,7 +1218,8 @@ public class MatchExecutionPlanner {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
-        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
+            context);
       }
     }
   }
@@ -1317,8 +1318,7 @@ public class MatchExecutionPlanner {
    * Returns the more specific of two class names if one is a subclass of the other,
    * or `null` if they are unrelated in the class hierarchy.
    */
-  @Nullable
-  private static String getLowerSubclass(
+  @Nullable private static String getLowerSubclass(
       DatabaseSessionEmbedded db, String className1, String className2) {
     Schema schema = db.getMetadata().getSchema();
     var class1 = schema.getClass(className1);
