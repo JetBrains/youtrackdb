@@ -83,6 +83,21 @@ mappings:
       - ".github/workflows/maven-pipeline.yml"
       - ".github/workflows/maven-integration-tests-pipeline.yml"
 
+  - doc: docs/internals/linkbag-architecture.md
+    source_patterns:
+      - "core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/**"
+
+  - doc: embedded/README.md
+    source_patterns:
+      - "embedded/pom.xml"
+      - "embedded/src/main/java/**"
+
+  - doc: perf/README.md
+    source_patterns:
+      - "perf/**"
+      - ".github/workflows/ldbc-snb-benchmark.yml"
+
   - doc: docs/README.md
     source_patterns:
       - "docs/*.md"
+      - "docs/internals/*.md"
