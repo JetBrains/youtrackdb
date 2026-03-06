@@ -1,3 +1,5 @@
+/* IC1: Transitive friends with a certain name.
+   Find Persons with a given first name connected within 3 hops via KNOWS. */
 SELECT personId, lastName, distance, birthday, creationDate, gender,
   browserUsed, locationIP, emails, languages, cityName,
   $universities as universities, $companies as companies

@@ -1,3 +1,5 @@
+/* IC2: Recent messages by friends.
+   Find most recent Messages from a Person's friends before a given date. */
 MATCH {class: Person, as: p, where: (id = :personId)}
   .out('KNOWS'){as: friend}
   .in('HAS_CREATOR'){as: msg, where: (creationDate < :maxDate)}

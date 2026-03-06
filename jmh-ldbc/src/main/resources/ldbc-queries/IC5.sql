@@ -1,3 +1,6 @@
+/* IC5: New groups.
+   Find Forums joined by friends/friends-of-friends after a given date,
+   counting Posts by those friends. */
 SELECT forumTitle, forumId, sum(postCount) as postCount
 FROM (
   SELECT forumTitle, forumId,

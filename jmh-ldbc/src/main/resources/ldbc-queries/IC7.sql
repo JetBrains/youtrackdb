@@ -1,3 +1,5 @@
+/* IC7: Recent likers.
+   Find most recent likes on a Person's Messages. */
 SELECT personId, firstName, lastName,
   $latest[0].likeCreationDate as likeCreationDate,
   $latest[0].messageId as messageId,

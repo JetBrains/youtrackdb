@@ -1,3 +1,6 @@
+/* IC3: Friends in countries.
+   Find friends/friends-of-friends who posted in both given countries
+   within a time period. */
 SELECT personId, firstName, lastName,
   $xCount[0].cnt as xCount, $yCount[0].cnt as yCount,
   ($xCount[0].cnt + $yCount[0].cnt) as totalCount

@@ -13,11 +13,14 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  *
  * <p>Usage:
  * <pre>
- * # Via Maven (recommended)
- * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcMultiThread.*"
+ * # Via Maven — single command (recommended)
+ * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcMultiThread.*"
  *
  * # Override thread count to 16
- * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcMultiThread.* -t 16"
+ * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcMultiThread.* -t 16"
+ *
+ * # Via Maven — two-step
+ * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcMultiThread.*"
  *
  * # Via uber-jar
  * java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -t 16 "LdbcMultiThread.*"

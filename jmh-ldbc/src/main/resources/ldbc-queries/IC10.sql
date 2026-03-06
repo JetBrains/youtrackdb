@@ -1,3 +1,5 @@
+/* IC10: Friend recommendation.
+   Find friends-of-friends born in a date range, score by common interests. */
 SELECT personId, firstName, lastName,
   ($posScore[0].cnt - $negScore[0].cnt) as commonInterestScore,
   gender, birthday, cityName

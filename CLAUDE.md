@@ -158,7 +158,7 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 - Debug containers: set `-Dytdb.testcontainer.debug.container=true`
 
 ### Benchmarks
-- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and 8-thread suites. Run via `./mvnw -pl jmh-ldbc -am compile exec:exec`. See `jmh-ldbc/README.md` for full documentation.
+- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and 8-thread suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command) or `./mvnw -pl jmh-ldbc -am compile exec:exec` (two-step). See `jmh-ldbc/README.md` for full documentation.
 - Legacy JMH benchmarks in `tests/src/main/java/.../benchmarks/`
 
 ### Common Test JVM Properties

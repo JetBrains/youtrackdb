@@ -1,3 +1,5 @@
+/* IC9: Recent messages by friends or friends of friends.
+   Find most recent Messages created by friends/FoF before a given date. */
 SELECT personId, firstName, lastName,
   messageId, messageContent, messageCreationDate
 FROM (

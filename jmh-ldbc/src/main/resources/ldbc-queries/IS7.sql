@@ -1,3 +1,5 @@
+/* IS7: Replies of a message.
+   Given a Message, retrieve 1-hop reply Comments with author-knows-author flag. */
 MATCH {class: Message, as: msg, where: (id = :messageId)}
   .out('HAS_CREATOR'){as: author},
   {as: msg}
