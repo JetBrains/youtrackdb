@@ -1,0 +1,15 @@
+name: Documentation Frontmatter Check
+
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - 'docs/docs-sync.yml'
+
+jobs:
+  check-frontmatter:
+    name: Validate Doc Frontmatter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 .github/scripts/docs-frontmatter-check.py
