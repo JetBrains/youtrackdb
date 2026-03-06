@@ -23,7 +23,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 
 # Run Spotless apply to format staged files
 echo "Running Spotless formatter..."
-if ! (cd "$REPO_ROOT" && ./mvnw spotless:apply -q); then
+if ! (cd "$REPO_ROOT" && ./mvnw spotless:apply); then
     echo "Spotless formatting failed. Please check the errors above."
     exit 1
 fi
