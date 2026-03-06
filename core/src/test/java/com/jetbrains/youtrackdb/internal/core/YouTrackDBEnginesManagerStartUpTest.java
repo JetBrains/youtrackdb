@@ -88,9 +88,8 @@ public class YouTrackDBEnginesManagerStartUpTest {
     try (var mocked = Mockito.mockConstruction(
         YouTrackDBEnginesManager.class,
         Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
-        (mock, context) ->
-            doThrow(new RuntimeException("simulated startup failure"))
-                .when(mock).startup())) {
+        (mock, context) -> doThrow(new RuntimeException("simulated startup failure"))
+            .when(mock).startup())) {
 
       assertThatThrownBy(() -> YouTrackDBEnginesManager.startUp(false))
           .isInstanceOf(RuntimeException.class)
