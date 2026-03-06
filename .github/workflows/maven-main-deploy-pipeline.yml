@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set Short SHA and Timestamp
         id: vars
