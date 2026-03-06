@@ -222,7 +222,7 @@ public class MatchExecutionPlanner {
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
   /** The original parsed `MATCH` statement, used for execution plan caching. */
-  private final SQLMatchStatement statement;
+  private final SQLMatchStatement statement = new SQLMatchStatement();
 
   /** Positive `MATCH` expressions (the main graph pattern). */
   protected List<SQLMatchExpression> matchExpressions;
@@ -299,7 +299,7 @@ public class MatchExecutionPlanner {
    * @param aliasClasses maps each alias to the schema class name it is constrained to
    */
   public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses) {
-    this.matchExpressions = List.of();
+      this.matchExpressions = List.of();
     this.notMatchExpressions = List.of();
     this.returnItems = List.of();
     this.returnAliases = List.of();

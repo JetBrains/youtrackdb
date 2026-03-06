@@ -97,7 +97,7 @@ public class GqlMatchStatement implements GqlStatement {
 
     var commandContext = new BasicCommandContext(ctx.session());
     var planner = new MatchExecutionPlanner(pattern, aliasClasses);
-    var sqlPlan = planner.createExecutionPlan(commandContext, false);
+    var sqlPlan = planner.createExecutionPlan(commandContext, false, false);
 
     return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
   }
