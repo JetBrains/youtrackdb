@@ -2,7 +2,7 @@
 source_files:
   - core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/**
 related_docs:
-  - docs/ci-cd-diagram.md
+  - docs/dev/ci-cd-diagram.md
 ---
 
 # LinkBag Architecture: Edge Storage in YouTrackDB

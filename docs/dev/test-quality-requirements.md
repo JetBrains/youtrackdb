@@ -5,7 +5,7 @@ source_files:
   - .github/workflows/maven-pipeline.yml
   - pom.xml
 related_docs:
-  - docs/ci-cd-diagram.md
+  - docs/dev/ci-cd-diagram.md
   - CLAUDE.md
 ---
 

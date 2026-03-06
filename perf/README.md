@@ -3,7 +3,7 @@ source_files:
   - perf/**
   - .github/workflows/ldbc-snb-benchmark.yml
 related_docs:
-  - docs/ci-cd-diagram.md
+  - docs/dev/ci-cd-diagram.md
 ---
 
 # LDBC SNB Benchmark (YouTrackDB)

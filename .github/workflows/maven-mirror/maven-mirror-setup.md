@@ -4,7 +4,7 @@ source_files:
   - .github/workflows/maven-mirror/setup.sh
   - .github/workflows/settings.xml
 related_docs:
-  - docs/ci-cd-diagram.md
+  - docs/dev/ci-cd-diagram.md
 ---
 
 # Maven Mirror (Reposilite) Setup Guide

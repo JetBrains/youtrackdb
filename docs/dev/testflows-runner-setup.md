@@ -4,7 +4,7 @@ source_files:
   - .github/workflows/testflows-orchestrator/**
   - .github/workflows/maven-integration-tests-pipeline.yml
 related_docs:
-  - docs/ci-cd-diagram.md
+  - docs/dev/ci-cd-diagram.md
 ---
 
 # TestFlows Runner Setup Guide

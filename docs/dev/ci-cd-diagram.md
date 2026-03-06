@@ -9,8 +9,8 @@ source_files:
   - .github/scripts/coverage-gate.py
   - .github/scripts/mutation-gate.py
 related_docs:
-  - docs/test-quality-requirements.md
-  - docs/testflows-runner-setup.md
+  - docs/dev/test-quality-requirements.md
+  - docs/dev/testflows-runner-setup.md
   - .github/workflows/maven-mirror/maven-mirror-setup.md
 ---
 

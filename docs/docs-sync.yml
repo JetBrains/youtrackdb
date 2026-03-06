@@ -4,7 +4,7 @@
 # is flagged for review by the docs-sync GitHub Action.
 
 mappings:
-  - doc: docs/ci-cd-diagram.md
+  - doc: docs/dev/ci-cd-diagram.md
     source_patterns:
       - ".github/workflows/maven-pipeline.yml"
       - ".github/workflows/maven-integration-tests-pipeline.yml"
@@ -16,14 +16,14 @@ mappings:
       - ".github/scripts/coverage-gate.py"
       - ".github/scripts/mutation-gate.py"
 
-  - doc: docs/test-quality-requirements.md
+  - doc: docs/dev/test-quality-requirements.md
     source_patterns:
       - ".github/scripts/coverage-gate.py"
       - ".github/scripts/mutation-gate.py"
       - ".github/workflows/maven-pipeline.yml"
       - "pom.xml"
 
-  - doc: docs/testflows-runner-setup.md
+  - doc: docs/dev/testflows-runner-setup.md
     source_patterns:
       - ".github/workflows/testflows-orchestrator.pkr.hcl"
       - ".github/workflows/testflows-orchestrator/**"
@@ -100,4 +100,5 @@ mappings:
   - doc: docs/README.md
     source_patterns:
       - "docs/*.md"
+      - "docs/dev/*.md"
       - "docs/internals/*.md"
