@@ -4,6 +4,14 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import org.openjdk.jmh.annotations.Level;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,13 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.Setup;
-import org.openjdk.jmh.annotations.State;
-import org.openjdk.jmh.annotations.TearDown;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Shared JMH state for LDBC SNB benchmarks.
@@ -279,8 +280,7 @@ public class LdbcBenchmarkState {
       Files.deleteIfExists(target);
       throw new IOException(
           "Failed to download " + url + ". "
-              + "Install curl or wget, or download manually to: " + target,
-          e);
+              + "Install curl or wget, or download manually to: " + target, e);
     }
   }
 
@@ -392,7 +392,8 @@ public class LdbcBenchmarkState {
         "    dctx = zstandard.ZstdDecompressor()",
         "    with dctx.stream_reader(fh) as reader:",
         "        with tarfile.open(fileobj=reader, mode='r|') as tf:",
-        "            tf.extractall(path=target, filter=safe_filter)");
+        "            tf.extractall(path=target, filter=safe_filter)"
+    );
     if (tryExec("python3", "-c", pyScript, archiveAbs, targetAbs) == 0) {
       return;
     }
@@ -423,7 +424,7 @@ public class LdbcBenchmarkState {
    * Blank lines and lines starting with {@code --} are skipped.
    * Trailing semicolons are stripped from each statement.
    */
-  static List<String> loadSqlStatements(String resource) {
+  private static List<String> loadSqlStatements(String resource) {
     try (InputStream is = LdbcBenchmarkState.class.getResourceAsStream(resource)) {
       if (is == null) {
         throw new IllegalStateException("Resource not found: " + resource);
@@ -470,19 +471,19 @@ public class LdbcBenchmarkState {
     // Static entities (parameterized queries)
     loadVertices(staticDir, "place_0_0.csv", "Place", batchSize,
         "INSERT INTO Place SET id = :p0, name = :p1, url = :p2, type = :p3",
-        f -> new Object[] {"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2], "p3", f[3]});
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2], "p3", f[3]});
 
     loadVertices(staticDir, "organisation_0_0.csv", "Organisation", batchSize,
         "INSERT INTO Organisation SET id = :p0, type = :p1, name = :p2, url = :p3",
-        f -> new Object[] {"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2], "p3", f[3]});
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2], "p3", f[3]});
 
     loadVertices(staticDir, "tagclass_0_0.csv", "TagClass", batchSize,
         "INSERT INTO TagClass SET id = :p0, name = :p1, url = :p2",
-        f -> new Object[] {"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2]});
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2]});
 
     loadVertices(staticDir, "tag_0_0.csv", "Tag", batchSize,
         "INSERT INTO Tag SET id = :p0, name = :p1, url = :p2",
-        f -> new Object[] {"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2]});
+        f -> new Object[]{"p0", Long.parseLong(f[0]), "p1", f[1], "p2", f[2]});
 
     // Static relationships
     loadEdgeBySql(staticDir, "place_isPartOf_place_0_0.csv",
@@ -583,7 +584,8 @@ public class LdbcBenchmarkState {
               "creationDate", Long.parseLong(f[5]),
               "locationIP", f[6], "browserUsed", f[7],
               "languages", parseList(f[8]),
-              "emails", parseList(f[9])).iterate();
+              "emails", parseList(f[9])
+          ).iterate();
         }
       });
     });
@@ -604,7 +606,8 @@ public class LdbcBenchmarkState {
           ytg.sqlCommand(sql,
               "id", Long.parseLong(f[0]),
               "title", f[1],
-              "creationDate", Long.parseLong(f[2])).iterate();
+              "creationDate", Long.parseLong(f[2])
+          ).iterate();
         }
       });
     });
@@ -630,7 +633,8 @@ public class LdbcBenchmarkState {
               "locationIP", f[3], "browserUsed", f[4],
               "language", f[5], "length", Integer.parseInt(f[7]),
               "imageFile", f[1].isEmpty() ? null : f[1],
-              "content", f[6].isEmpty() ? null : f[6]).iterate();
+              "content", f[6].isEmpty() ? null : f[6]
+          ).iterate();
         }
       });
     });
@@ -653,7 +657,8 @@ public class LdbcBenchmarkState {
               "id", Long.parseLong(f[0]),
               "creationDate", Long.parseLong(f[1]),
               "locationIP", f[2], "browserUsed", f[3],
-              "content", f[4], "length", Integer.parseInt(f[5])).iterate();
+              "content", f[4], "length", Integer.parseInt(f[5])
+          ).iterate();
         }
       });
     });
@@ -677,7 +682,8 @@ public class LdbcBenchmarkState {
         for (String[] fields : batch) {
           ytg.sqlCommand(sql,
               "fromId", Long.parseLong(fields[0]),
-              "toId", Long.parseLong(fields[1])).iterate();
+              "toId", Long.parseLong(fields[1])
+          ).iterate();
         }
       });
     });
@@ -703,7 +709,8 @@ public class LdbcBenchmarkState {
           ytg.sqlCommand(sql,
               "fromId", Long.parseLong(fields[0]),
               "toId", Long.parseLong(fields[1]),
-              "propValue", Integer.parseInt(fields[2])).iterate();
+              "propValue", Integer.parseInt(fields[2])
+          ).iterate();
         }
       });
     });
@@ -729,7 +736,8 @@ public class LdbcBenchmarkState {
           ytg.sqlCommand(sql,
               "fromId", Long.parseLong(fields[0]),
               "toId", Long.parseLong(fields[1]),
-              "propValue", Long.parseLong(fields[2])).iterate();
+              "propValue", Long.parseLong(fields[2])
+          ).iterate();
         }
       });
     });
@@ -827,7 +835,7 @@ public class LdbcBenchmarkState {
     List<String> fnList = new ArrayList<>(
         fNames.stream().map(r -> r.get("firstName").toString()).toList());
     Collections.shuffle(fnList);
-    firstNames = fnList.isEmpty() ? new String[] {"John"} : fnList.toArray(new String[0]);
+    firstNames = fnList.isEmpty() ? new String[]{"John"} : fnList.toArray(new String[0]);
 
     // Tag names
     List<Map<String, Object>> tNames = executeSql(
@@ -835,7 +843,7 @@ public class LdbcBenchmarkState {
     List<String> tnList = new ArrayList<>(
         tNames.stream().map(r -> r.get("name").toString()).toList());
     Collections.shuffle(tnList);
-    tagNames = tnList.isEmpty() ? new String[] {"Tag1"} : tnList.toArray(new String[0]);
+    tagNames = tnList.isEmpty() ? new String[]{"Tag1"} : tnList.toArray(new String[0]);
 
     // Country names
     List<Map<String, Object>> cNames = executeSql(
@@ -843,7 +851,7 @@ public class LdbcBenchmarkState {
     List<String> cnList = new ArrayList<>(
         cNames.stream().map(r -> r.get("name").toString()).toList());
     Collections.shuffle(cnList);
-    countryNames = cnList.isEmpty() ? new String[] {"China"} : cnList.toArray(new String[0]);
+    countryNames = cnList.isEmpty() ? new String[]{"China"} : cnList.toArray(new String[0]);
 
     // TagClass names
     List<Map<String, Object>> tcNames = executeSql(
@@ -852,7 +860,7 @@ public class LdbcBenchmarkState {
         tcNames.stream().map(r -> r.get("name").toString()).toList());
     Collections.shuffle(tcList);
     tagClassNames = tcList.isEmpty()
-        ? new String[] {"MusicalArtist"} : tcList.toArray(new String[0]);
+        ? new String[]{"MusicalArtist"} : tcList.toArray(new String[0]);
 
     // Message dates
     List<Map<String, Object>> dates = executeSql(
@@ -863,6 +871,6 @@ public class LdbcBenchmarkState {
     }).toList());
     Collections.shuffle(dateList);
     messageDates = dateList.isEmpty()
-        ? new Date[] {new Date()} : dateList.toArray(new Date[0]);
+        ? new Date[]{new Date()} : dateList.toArray(new Date[0]);
   }
 }
