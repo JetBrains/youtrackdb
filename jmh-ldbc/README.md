@@ -132,16 +132,16 @@ CP="target/classes:$(mvn dependency:build-classpath -DincludeScope=runtime \
     -Dmdep.outputFile=/dev/stdout -q)"
 
 # Export database to gzipped JSON (~47 MB, ~11s)
-java -cp "$CP" ...LdbcDatabaseTool export ./target/ldbc-export
+java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool export ./target/ldbc-export
 
 # Import database from JSON export (~8 min)
-java -cp "$CP" ...LdbcDatabaseTool import ./target/ldbc-export.gz ./target/new-db
+java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool import ./target/ldbc-export.gz ./target/new-db
 
 # Binary backup (~182 MB, ~20s)
-java -cp "$CP" ...LdbcDatabaseTool backup ./target/ldbc-backup
+java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool backup ./target/ldbc-backup
 
 # Restore from binary backup (~10s)
-java -cp "$CP" ...LdbcDatabaseTool restore ./target/ldbc-backup ./target/new-db
+java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool restore ./target/ldbc-backup ./target/new-db
 ```
 
 ## Configuration
