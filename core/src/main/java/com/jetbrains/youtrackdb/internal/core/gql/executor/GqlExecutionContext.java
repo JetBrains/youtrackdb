@@ -10,7 +10,7 @@ import javax.annotation.Nullable;
 /// Contains the database session and query parameters.
 /// The executor layer works with session and YTDB entities only, not graph instances.
 public record GqlExecutionContext(@Nonnull DatabaseSessionEmbedded session,
-                                  @Nonnull Map<String, Object> parameters) {
+    @Nonnull Map<String, Object> parameters) {
 
   public GqlExecutionContext(@Nonnull DatabaseSessionEmbedded session) {
     this(session, Map.of());

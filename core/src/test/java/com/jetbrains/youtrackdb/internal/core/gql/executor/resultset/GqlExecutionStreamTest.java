@@ -1,12 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import org.junit.Assert;
+import org.junit.Test;
 
 /**
  * Tests for GQL execution stream implementations: EmptyGqlExecutionStream,
@@ -60,7 +59,7 @@ public class GqlExecutionStreamTest {
 
   @Test
   public void iteratorStream_closesAutoCloseableSourceOnExhaustion() {
-    var closed = new boolean[]{false};
+    var closed = new boolean[] {false};
     class CloseableSingleIterator implements Iterator<Integer>, AutoCloseable {
 
       boolean yielded;
@@ -93,7 +92,7 @@ public class GqlExecutionStreamTest {
 
   @Test
   public void iteratorStream_close_closesAutoCloseableSource() {
-    var closed = new boolean[]{false};
+    var closed = new boolean[] {false};
     class CloseableEmptyIterator implements Iterator<Integer>, AutoCloseable {
 
       @Override

@@ -24,8 +24,7 @@ public class GqlQueryVisitor extends GQLBaseVisitor<Void> {
   // Query type flags
   private boolean hasMatch = false;
 
-  @Nullable
-  private GQLParser.Match_statementContext matchContext = null;
+  @Nullable private GQLParser.Match_statementContext matchContext = null;
 
   // Future: add more query types
 
@@ -49,8 +48,7 @@ public class GqlQueryVisitor extends GQLBaseVisitor<Void> {
   // Context getters for specialized visitors
 
   /// Returns the MATCH statement context for GqlMatchVisitor.
-  @Nullable
-  public GQLParser.Match_statementContext getMatchContext() {
+  @Nullable public GQLParser.Match_statementContext getMatchContext() {
     return matchContext;
   }
 }

@@ -2,11 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.util.HashMap;
 import java.util.Map;
+import org.junit.Assert;
+import org.junit.Test;
 
 /**
  * Tests for GqlExecutionContext record: constructors and getParameter.

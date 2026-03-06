@@ -96,9 +96,8 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     this.call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
-            YTDBCommandService.ARGUMENTS, Map.of()
-        )
-    ).iterate();
+            YTDBCommandService.ARGUMENTS, Map.of()))
+        .iterate();
   }
 
   /// Execute a generic parameterized YouTrackDB command immediately. The command is executed
@@ -112,9 +111,8 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     this.call(
         YTDBCommandService.NAME, Map.of(
             YTDBCommandService.COMMAND, command,
-            YTDBCommandService.ARGUMENTS, arguments
-        )
-    ).iterate();
+            YTDBCommandService.ARGUMENTS, arguments))
+        .iterate();
   }
 
   /// Execute a generic YouTrackDB YQL command. Returns a lazy traversal that can be chained. Users
@@ -127,9 +125,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
         YTDBCommandService.YQL_NAME,
         Map.of(
             YTDBCommandService.COMMAND, command,
-            YTDBCommandService.ARGUMENTS, Map.of()
-        )
-    );
+            YTDBCommandService.ARGUMENTS, Map.of()));
   }
 
   /// Execute a generic parameterized YouTrackDB YQL command. Returns a lazy traversal. Users must
@@ -146,9 +142,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
         YTDBCommandService.YQL_NAME,
         Map.of(
             YTDBCommandService.COMMAND, command,
-            YTDBCommandService.ARGUMENTS, arguments
-        )
-    );
+            YTDBCommandService.ARGUMENTS, arguments));
   }
 
   /// Override required because the {@code GremlinDslProcessor} does not generate a
@@ -200,9 +194,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return call(
         GqlService.NAME, Map.of(
             GqlService.QUERY, query,
-            GqlService.ARGUMENTS, arguments
-        )
-    );
+            GqlService.ARGUMENTS, arguments));
   }
 
   /// Execute a parameterized GQL (Graph Query Language) query with varargs.
@@ -234,10 +226,9 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     clone.getBytecode().addStep("call", YTDBIncrementalBackupService.NAME, params);
 
     try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {
-      return (String)
-          traversal.addStep(
-                  new CallStep<>(traversal, true, YTDBIncrementalBackupService.NAME, params))
-              .next();
+      return (String) traversal.addStep(
+          new CallStep<>(traversal, true, YTDBIncrementalBackupService.NAME, params))
+          .next();
     } catch (Exception e) {
       throw BaseException.wrapException(new DatabaseException("Error during incremental backup"), e,
           graph.toString());
@@ -256,10 +247,9 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     clone.getBytecode().addStep("call", YTDBFullBackupService.NAME, params);
 
     try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {
-      return (String)
-          traversal.addStep(
-                  new CallStep<>(traversal, true, YTDBFullBackupService.NAME, params))
-              .next();
+      return (String) traversal.addStep(
+          new CallStep<>(traversal, true, YTDBFullBackupService.NAME, params))
+          .next();
     } catch (Exception e) {
       throw BaseException.wrapException(new DatabaseException("Error during full backup"), e,
           graph.toString());
@@ -276,10 +266,9 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     clone.getBytecode().addStep("call", YTDBGraphUuidService.NAME, Map.of());
 
     try (var traversal = new DefaultYTDBGraphTraversal<>(clone)) {
-      return UUID.fromString((String)
-          traversal.addStep(
-                  new CallStep<>(traversal, true, YTDBGraphUuidService.NAME, Map.of()))
-              .next());
+      return UUID.fromString((String) traversal.addStep(
+          new CallStep<>(traversal, true, YTDBGraphUuidService.NAME, Map.of()))
+          .next());
     } catch (Exception e) {
       throw BaseException.wrapException(
           new DatabaseException("Error during retrieving database uuid"), e,

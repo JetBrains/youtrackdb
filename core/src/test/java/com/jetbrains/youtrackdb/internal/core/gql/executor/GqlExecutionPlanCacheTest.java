@@ -6,11 +6,10 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class GqlExecutionPlanCacheTest extends GraphBaseTest {
 
@@ -97,9 +96,8 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
 
     // 2) Schema change -> should invalidate cache
     var className = "TestInvalidate_" + System.nanoTime();
-    graphInternal.executeSchemaCode(schemaSession ->
-        schemaSession.getMetadata().getSchema().createClass(className)
-    );
+    graphInternal.executeSchemaCode(
+        schemaSession -> schemaSession.getMetadata().getSchema().createClass(className));
 
     // Verify invalidation using lastInvalidation timestamp
     {
