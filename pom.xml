@@ -107,6 +107,11 @@
     <errorprone.version>2.47.0</errorprone.version>
     <errorprone.extra.args/>
     <nullaway.version>0.13.1</nullaway.version>
+    <arcmutate.version>2.3.0</arcmutate.version>
+    <arcmutate.base.version>1.7.0</arcmutate.base.version>
+    <!-- Default: compare against previous commit. CI overrides with
+         -Dpit.git.from=origin/develop to compare against the PR base branch. -->
+    <pit.git.from>HEAD~1</pit.git.from>
     <jspecify.version>1.0.0</jspecify.version>
     <errorprone.args>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-sources/.*|.*/internal/core/sql/parser/.*|.*/src/test/.*|.*/generated-test-sources/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR -Xep:StringCaseLocaleUsage:ERROR -Xep:PatternMatchingInstanceof:ERROR -Xep:UnusedVariable:ERROR -Xep:UnnecessaryParentheses:ERROR -Xep:MixedMutabilityReturnType:ERROR -Xep:SystemOut:ERROR -Xep:CheckedExceptionNotThrown:ERROR -Xep:RemoveUnusedImports:ERROR -Xep:MissingOverride:ERROR -Xep:ImmutableEnumChecker:ERROR -Xep:EffectivelyPrivate:ERROR -Xep:StatementSwitchToExpressionSwitch:ERROR -Xep:OperatorPrecedence:ERROR -Xep:InvalidParam:ERROR -Xep:EmptyBlockTag:ERROR -Xep:ReferenceEquality:ERROR -Xep:EqualsGetClass:ERROR -Xep:StringSplitter:ERROR -Xep:TypeParameterUnusedInFormals:ERROR -Xep:NonApiType:OFF</errorprone.args>
     <spotless.version>3.2.1</spotless.version>
@@ -391,6 +396,11 @@
           <groupId>org.pitest</groupId>
           <artifactId>pitest-maven</artifactId>
           <version>1.22.1</version>
+        </plugin>
+        <plugin>
+          <groupId>com.arcmutate</groupId>
+          <artifactId>pitest-github-maven-plugin</artifactId>
+          <version>${arcmutate.version}</version>
         </plugin>
 
         <plugin>
@@ -1145,6 +1155,18 @@
           <plugin>
             <groupId>org.pitest</groupId>
             <artifactId>pitest-maven</artifactId>
+            <dependencies>
+              <dependency>
+                <groupId>com.arcmutate</groupId>
+                <artifactId>base</artifactId>
+                <version>${arcmutate.base.version}</version>
+              </dependency>
+              <dependency>
+                <groupId>com.arcmutate</groupId>
+                <artifactId>pitest-git-plugin</artifactId>
+                <version>${arcmutate.version}</version>
+              </dependency>
+            </dependencies>
             <configuration>
               <mutationThreshold>0</mutationThreshold>
               <failWhenNoMutations>false</failWhenNoMutations>
@@ -1154,14 +1176,13 @@
               <verbose>false</verbose>
               <verbosity>NO_SPINNER</verbosity>
               <mutators>
-                <mutator>NEGATE_CONDITIONALS</mutator>
-                <mutator>VOID_METHOD_CALLS</mutator>
-                <mutator>EMPTY_RETURNS</mutator>
-                <mutator>FALSE_RETURNS</mutator>
-                <mutator>NULL_RETURNS</mutator>
+                <mutator>STRONGER</mutator>
+                <mutator>EXTENDED</mutator>
               </mutators>
               <features>
                 <feature>+CLASSLIMIT(limit[150])</feature>
+                <feature>+GIT_MIXED(from[${pit.git.from}])</feature>
+                <feature>+gitci</feature>
               </features>
               <excludedClasses>
                 <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
@@ -1182,6 +1203,10 @@
                 <param>HTML</param>
               </outputFormats>
             </configuration>
+          </plugin>
+          <plugin>
+            <groupId>com.arcmutate</groupId>
+            <artifactId>pitest-github-maven-plugin</artifactId>
           </plugin>
         </plugins>
       </build>
