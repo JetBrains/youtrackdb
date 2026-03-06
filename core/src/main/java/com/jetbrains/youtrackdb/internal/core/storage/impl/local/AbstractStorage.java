@@ -238,6 +238,9 @@ public abstract class AbstractStorage
   protected AtomicOperationsTable atomicOperationsTable;
   protected final String url;
   protected final ScalableRWLock stateLock;
+  // Serializes DDL operations (add/drop collection/index) against each other.
+  // Does NOT block read-path operations. Lock ordering: ddlLock before stateLock.
+  private final ReentrantLock ddlLock = new ReentrantLock();
 
   protected volatile StorageConfiguration configuration;
   protected volatile CurrentStorageComponentsFactory componentsFactory;
@@ -1110,24 +1113,30 @@ public abstract class AbstractStorage
   public final int addCollection(DatabaseSessionEmbedded database, final String collectionName,
       final Object... parameters) {
     try {
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
-        if (collectionMap.containsKey(collectionName)) {
-          throw new ConfigurationException(
-              database.getDatabaseName(),
-              String.format("Collection with name:'%s' already exists", collectionName));
-        }
-        checkOpennessAndMigration();
+        stateLock.writeLock().lock();
+        try {
+          if (collectionMap.containsKey(collectionName)) {
+            throw new ConfigurationException(
+                database.getDatabaseName(),
+                String.format("Collection with name:'%s' already exists", collectionName));
+          }
+          checkOpennessAndMigration();
 
-        makeStorageDirty();
-        return atomicOperationsManager.calculateInsideAtomicOperation(
-            (atomicOperation) -> doAddCollection(atomicOperation, collectionName));
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name, "Error in creation of new collection '" + collectionName), e,
-            name);
+          makeStorageDirty();
+          return atomicOperationsManager.calculateInsideAtomicOperation(
+              (atomicOperation) -> doAddCollection(atomicOperation, collectionName));
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(name,
+                  "Error in creation of new collection '" + collectionName), e,
+              name);
+        } finally {
+          stateLock.writeLock().unlock();
+        }
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -1142,39 +1151,44 @@ public abstract class AbstractStorage
   public final int addCollection(DatabaseSessionEmbedded database, final String collectionName,
       final int requestedId) {
     try {
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
-        checkOpennessAndMigration();
+        stateLock.writeLock().lock();
+        try {
+          checkOpennessAndMigration();
 
-        if (requestedId < 0) {
-          throw new ConfigurationException(database.getDatabaseName(),
-              "Collection id must be positive!");
-        }
-        if (requestedId < collections.size() && collections.get(requestedId) != null) {
-          throw new ConfigurationException(
-              database.getDatabaseName(), "Requested collection ID ["
-              + requestedId
-              + "] is occupied by collection with name ["
-              + collections.get(requestedId).getName()
-              + "]");
-        }
-        if (collectionMap.containsKey(collectionName)) {
-          throw new ConfigurationException(
-              database.getDatabaseName(),
-              String.format("Collection with name:'%s' already exists", collectionName));
-        }
+          if (requestedId < 0) {
+            throw new ConfigurationException(database.getDatabaseName(),
+                "Collection id must be positive!");
+          }
+          if (requestedId < collections.size() && collections.get(requestedId) != null) {
+            throw new ConfigurationException(
+                database.getDatabaseName(), "Requested collection ID ["
+                + requestedId
+                + "] is occupied by collection with name ["
+                + collections.get(requestedId).getName()
+                + "]");
+          }
+          if (collectionMap.containsKey(collectionName)) {
+            throw new ConfigurationException(
+                database.getDatabaseName(),
+                String.format("Collection with name:'%s' already exists", collectionName));
+          }
 
-        makeStorageDirty();
-        return atomicOperationsManager.calculateInsideAtomicOperation(
-            atomicOperation -> doAddCollection(atomicOperation, collectionName, requestedId));
+          makeStorageDirty();
+          return atomicOperationsManager.calculateInsideAtomicOperation(
+              atomicOperation -> doAddCollection(atomicOperation, collectionName, requestedId));
 
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name,
-                "Error in creation of new collection '" + collectionName + "'"), e,
-            name);
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(name,
+                  "Error in creation of new collection '" + collectionName + "'"), e,
+              name);
+        } finally {
+          stateLock.writeLock().unlock();
+        }
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -1188,42 +1202,48 @@ public abstract class AbstractStorage
   @Override
   public final boolean dropCollection(DatabaseSessionEmbedded database, final int collectionId) {
     try {
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
-        checkOpennessAndMigration();
-        if (collectionId < 0 || collectionId >= collections.size()) {
-          throw new IllegalArgumentException(
-              "Collection id '"
-                  + collectionId
-                  + "' is outside the of range of configured collections (0-"
-                  + (collections.size() - 1)
-                  + ") in database '"
-                  + name
-                  + "'");
+        stateLock.writeLock().lock();
+        try {
+          checkOpennessAndMigration();
+          if (collectionId < 0 || collectionId >= collections.size()) {
+            throw new IllegalArgumentException(
+                "Collection id '"
+                    + collectionId
+                    + "' is outside the of range of configured collections (0-"
+                    + (collections.size() - 1)
+                    + ") in database '"
+                    + name
+                    + "'");
+          }
+
+          makeStorageDirty();
+
+          return atomicOperationsManager.calculateInsideAtomicOperation(
+              atomicOperation -> {
+                if (dropCollectionInternal(atomicOperation, collectionId)) {
+                  return false;
+                }
+
+                ((CollectionBasedStorageConfiguration) configuration)
+                    .dropCollection(atomicOperation, collectionId);
+                linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                    collectionId);
+
+                return true;
+              });
+        } catch (final Exception e) {
+          throw BaseException.wrapException(
+              new StorageException(name,
+                  "Error while removing collection '" + collectionId + "'"), e,
+              name);
+
+        } finally {
+          stateLock.writeLock().unlock();
         }
-
-        makeStorageDirty();
-
-        return atomicOperationsManager.calculateInsideAtomicOperation(
-            atomicOperation -> {
-              if (dropCollectionInternal(atomicOperation, collectionId)) {
-                return false;
-              }
-
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .dropCollection(atomicOperation, collectionId);
-              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
-                  collectionId);
-
-              return true;
-            });
-      } catch (final Exception e) {
-        throw BaseException.wrapException(
-            new StorageException(name, "Error while removing collection '" + collectionId + "'"), e,
-            name);
-
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2148,61 +2168,67 @@ public abstract class AbstractStorage
       AtomicOperation atomicOperation) {
     final var indexDefinition = indexMetadata.getIndexDefinition();
     try {
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
+        stateLock.writeLock().lock();
+        try {
 
-        checkOpennessAndMigration();
+          checkOpennessAndMigration();
 
-        // this method introduced for binary compatibility only
-        if (configuration.getBinaryFormatVersion(atomicOperation) > 15) {
-          return -1;
+          // this method introduced for binary compatibility only
+          if (configuration.getBinaryFormatVersion(atomicOperation) > 15) {
+            return -1;
+          }
+          if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
+            throw new IndexException(name,
+                "Index with name " + indexMetadata.getName() + " already exists");
+          }
+          makeStorageDirty();
+
+          final var valueSerializerId = StreamSerializerRID.INSTANCE.getId();
+
+          final var keySerializer =
+              determineKeySerializer(indexDefinition, atomicOperation);
+          if (keySerializer == null) {
+            throw new IndexException(name, "Can not determine key serializer");
+          }
+          final var keySize = determineKeySize(indexDefinition);
+          final var keyTypes =
+              Optional.of(indexDefinition).map(IndexDefinition::getTypes).orElse(null);
+          var generatedId = indexEngines.size();
+          final var engineData =
+              new IndexEngineData(
+                  generatedId,
+                  indexMetadata,
+                  true,
+                  valueSerializerId,
+                  keySerializer.getId(),
+                  keyTypes,
+                  keySize,
+                  null,
+                  null,
+                  engineProperties);
+
+          final var engine = Indexes.createIndexEngine(this, engineData);
+
+          engine.load(engineData, atomicOperation);
+
+          indexEngineNameMap.put(indexMetadata.getName(), engine);
+          indexEngines.add(engine);
+          ((CollectionBasedStorageConfiguration) configuration)
+              .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+
+          return generateIndexId(engineData.getIndexId(), engine);
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(name,
+                  "Cannot add index engine " + indexMetadata.getName() + " in storage."),
+              e, name);
+        } finally {
+          stateLock.writeLock().unlock();
         }
-        if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
-          throw new IndexException(name,
-              "Index with name " + indexMetadata.getName() + " already exists");
-        }
-        makeStorageDirty();
-
-        final var valueSerializerId = StreamSerializerRID.INSTANCE.getId();
-
-        final var keySerializer = determineKeySerializer(indexDefinition, atomicOperation);
-        if (keySerializer == null) {
-          throw new IndexException(name, "Can not determine key serializer");
-        }
-        final var keySize = determineKeySize(indexDefinition);
-        final var keyTypes =
-            Optional.of(indexDefinition).map(IndexDefinition::getTypes).orElse(null);
-        var generatedId = indexEngines.size();
-        final var engineData =
-            new IndexEngineData(
-                generatedId,
-                indexMetadata,
-                true,
-                valueSerializerId,
-                keySerializer.getId(),
-                keyTypes,
-                keySize,
-                null,
-                null,
-                engineProperties);
-
-        final var engine = Indexes.createIndexEngine(this, engineData);
-
-        engine.load(engineData, atomicOperation);
-
-        indexEngineNameMap.put(indexMetadata.getName(), engine);
-        indexEngines.add(engine);
-        ((CollectionBasedStorageConfiguration) configuration)
-            .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
-
-        return generateIndexId(engineData.getIndexId(), engine);
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name,
-                "Cannot add index engine " + indexMetadata.getName() + " in storage."),
-            e, name);
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2227,72 +2253,79 @@ public abstract class AbstractStorage
         throw new IndexException(name, "Types of indexed keys have to be provided");
       }
 
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
-        checkOpennessAndMigration();
+        stateLock.writeLock().lock();
+        try {
+          checkOpennessAndMigration();
 
-        makeStorageDirty();
-        return atomicOperationsManager.calculateInsideAtomicOperation(
-            atomicOperation -> {
-              final var keySerializer = determineKeySerializer(indexDefinition, atomicOperation);
-              if (keySerializer == null) {
-                throw new IndexException(name, "Can not determine key serializer");
-              }
-
-              final var keySize = determineKeySize(indexDefinition);
-              if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
-                // OLD INDEX FILE ARE PRESENT: THIS IS THE CASE OF PARTIAL/BROKEN INDEX
-                LogManager.instance()
-                    .warn(
-                        this,
-                        "Index with name '%s' already exists, removing it and re-create the index",
-                        indexMetadata.getName());
-                final var engine = indexEngineNameMap.remove(indexMetadata.getName());
-                if (engine != null) {
-                  indexEngines.set(engine.getId(), null);
-
-                  engine.delete(atomicOperation);
-                  ((CollectionBasedStorageConfiguration) configuration)
-                      .deleteIndexEngine(atomicOperation, indexMetadata.getName());
+          makeStorageDirty();
+          return atomicOperationsManager.calculateInsideAtomicOperation(
+              atomicOperation -> {
+                final var keySerializer =
+                    determineKeySerializer(indexDefinition, atomicOperation);
+                if (keySerializer == null) {
+                  throw new IndexException(name, "Can not determine key serializer");
                 }
-              }
-              final var valueSerializerId =
-                  StreamSerializerRID.INSTANCE.getId();
-              final var ctxCfg = configuration.getContextConfiguration();
-              final var cfgEncryptionKey =
-                  ctxCfg.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-              var genenrateId = indexEngines.size();
-              final var engineData =
-                  new IndexEngineData(
-                      genenrateId,
-                      indexMetadata,
-                      true,
-                      valueSerializerId,
-                      keySerializer.getId(),
-                      keyTypes,
-                      keySize,
-                      null,
-                      cfgEncryptionKey,
-                      engineProperties);
 
-              final var engine = Indexes.createIndexEngine(this, engineData);
+                final var keySize = determineKeySize(indexDefinition);
+                if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
+                  // OLD INDEX FILE ARE PRESENT: THIS IS THE CASE OF PARTIAL/BROKEN INDEX
+                  LogManager.instance()
+                      .warn(
+                          this,
+                          "Index with name '%s' already exists, removing it and re-create"
+                              + " the index",
+                          indexMetadata.getName());
+                  final var engine = indexEngineNameMap.remove(indexMetadata.getName());
+                  if (engine != null) {
+                    indexEngines.set(engine.getId(), null);
 
-              engine.create(atomicOperation, engineData);
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
-              indexEngines.add(engine);
+                    engine.delete(atomicOperation);
+                    ((CollectionBasedStorageConfiguration) configuration)
+                        .deleteIndexEngine(atomicOperation, indexMetadata.getName());
+                  }
+                }
+                final var valueSerializerId =
+                    StreamSerializerRID.INSTANCE.getId();
+                final var ctxCfg = configuration.getContextConfiguration();
+                final var cfgEncryptionKey =
+                    ctxCfg.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
+                var genenrateId = indexEngines.size();
+                final var engineData =
+                    new IndexEngineData(
+                        genenrateId,
+                        indexMetadata,
+                        true,
+                        valueSerializerId,
+                        keySerializer.getId(),
+                        keyTypes,
+                        keySize,
+                        null,
+                        cfgEncryptionKey,
+                        engineProperties);
 
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+                final var engine = Indexes.createIndexEngine(this, engineData);
 
-              return generateIndexId(engineData.getIndexId(), engine);
-            });
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name,
-                "Cannot add index engine " + indexMetadata.getName() + " in storage."),
-            e, name);
+                engine.create(atomicOperation, engineData);
+                indexEngineNameMap.put(indexMetadata.getName(), engine);
+                indexEngines.add(engine);
+
+                ((CollectionBasedStorageConfiguration) configuration)
+                    .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+
+                return generateIndexId(engineData.getIndexId(), engine);
+              });
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(name,
+                  "Cannot add index engine " + indexMetadata.getName() + " in storage."),
+              e, name);
+        } finally {
+          stateLock.writeLock().unlock();
+        }
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2381,27 +2414,32 @@ public abstract class AbstractStorage
     final var internalIndexId = extractInternalId(indexId);
 
     try {
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
-        checkOpennessAndMigration();
-        checkIndexId(internalIndexId);
+        stateLock.writeLock().lock();
+        try {
+          checkOpennessAndMigration();
+          checkIndexId(internalIndexId);
 
-        makeStorageDirty();
+          makeStorageDirty();
 
-        atomicOperationsManager.executeInsideAtomicOperation(
-            atomicOperation -> {
-              final var engine =
-                  deleteIndexEngineInternal(atomicOperation, internalIndexId);
-              final var engineName = engine.getName();
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .deleteIndexEngine(atomicOperation, engineName);
-            });
+          atomicOperationsManager.executeInsideAtomicOperation(
+              atomicOperation -> {
+                final var engine =
+                    deleteIndexEngineInternal(atomicOperation, internalIndexId);
+                final var engineName = engine.getName();
+                ((CollectionBasedStorageConfiguration) configuration)
+                    .deleteIndexEngine(atomicOperation, engineName);
+              });
 
-      } catch (final IOException e) {
-        throw BaseException.wrapException(new StorageException(name, "Error on index deletion"), e,
-            name);
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(name, "Error on index deletion"), e, name);
+        } finally {
+          stateLock.writeLock().unlock();
+        }
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } catch (final InvalidIndexEngineIdException ie) {
       throw logAndPrepareForRethrow(ie);
@@ -4201,32 +4239,37 @@ public abstract class AbstractStorage
   @Override
   public void setCollectionAttribute(final int id, final ATTRIBUTES attribute,
       final Object value) {
-    stateLock.writeLock().lock();
+    ddlLock.lock();
     try {
-      checkOpennessAndMigration();
-      if (id >= collections.size()) {
-        return;
+      stateLock.writeLock().lock();
+      try {
+        checkOpennessAndMigration();
+        if (id >= collections.size()) {
+          return;
+        }
+
+        final var collection = collections.get(id);
+
+        if (collection == null) {
+          return;
+        }
+
+        makeStorageDirty();
+
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
+                collection));
+      } catch (final RuntimeException ee) {
+        throw logAndPrepareForRethrow(ee);
+      } catch (final Error ee) {
+        throw logAndPrepareForRethrow(ee);
+      } catch (final Throwable t) {
+        throw logAndPrepareForRethrow(t);
+      } finally {
+        stateLock.writeLock().unlock();
       }
-
-      final var collection = collections.get(id);
-
-      if (collection == null) {
-        return;
-      }
-
-      makeStorageDirty();
-
-      atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
-              collection));
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
     } finally {
-      stateLock.writeLock().unlock();
+      ddlLock.unlock();
     }
   }
 
