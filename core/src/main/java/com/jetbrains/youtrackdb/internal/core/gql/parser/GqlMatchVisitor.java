@@ -12,10 +12,10 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Date;
 
 /// Visitor that extracts node patterns from the MATCH clause using unified YQL IR.
 ///
