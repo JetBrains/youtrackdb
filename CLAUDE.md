@@ -367,4 +367,4 @@ The `.github/workflows/docs-sync.yml` GitHub Action runs on pushes to `develop` 
 
 1. Detects which docs are affected by comparing changed files against `docs/docs-sync.yml` mappings.
 2. Uses Claude Code to read the affected docs and their source files, then proposes updates via a PR.
-3. Has anti-loop safeguards: `paths-ignore` for `docs/adr/**` and `docs/internal/**`, actor check for bot pushes, and commit-message check to skip pushes from merged docs-sync PRs.
+3. Has anti-loop safeguards: `paths-ignore` for `docs/adr/**` (ADRs are immutable), actor check for bot pushes, and commit-message check to skip pushes from merged docs-sync PRs.
