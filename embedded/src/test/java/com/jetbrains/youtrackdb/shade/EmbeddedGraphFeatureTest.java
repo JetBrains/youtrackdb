@@ -159,6 +159,10 @@ public class EmbeddedGraphFeatureTest {
 
     private static void cleanEmpty() {
       GRAPH_EMPTY.traversal().V().drop().iterate();
+      var tx = GRAPH_EMPTY.tx();
+      if (tx.isOpen()) {
+        tx.commit();
+      }
     }
 
     @Override
@@ -174,6 +178,28 @@ public class EmbeddedGraphFeatureTest {
       cleanEmpty();
     }
 
+    @Override
+    public void afterEachScenario() {
+      // Close any auto-opened TXs left by traversals. With TX-scoped lifecycle
+      // locking, open TXs pin the stateLock read guard and must be closed
+      // between scenarios to avoid blocking shutdown.
+      rollbackIfOpen(GRAPH_MODERN);
+      rollbackIfOpen(GRAPH_CLASSIC);
+      rollbackIfOpen(GRAPH_CREW);
+      rollbackIfOpen(GRAPH_GRATEFUL);
+      rollbackIfOpen(GRAPH_SINK);
+      rollbackIfOpen(GRAPH_EMPTY);
+    }
+
+    private static void rollbackIfOpen(YTDBGraph graph) {
+      if (graph != null) {
+        var tx = graph.tx();
+        if (tx.isOpen()) {
+          tx.rollback();
+        }
+      }
+    }
+
     private static void readIntoGraph(final Graph graph, final GraphData graphData) {
       try {
         final var dataFile = TestHelper.generateTempFileFromResource(
@@ -183,6 +209,12 @@ public class EmbeddedGraphFeatureTest {
             "", false
         ).getAbsolutePath();
         graph.traversal().io(dataFile).read().iterate();
+        // Commit the loaded data and close the auto-opened TX so the lifecycle
+        // read guard is released before scenarios start.
+        var tx = graph.tx();
+        if (tx.isOpen()) {
+          tx.commit();
+        }
       } catch (IOException ioe) {
         throw new IllegalStateException(ioe);
       }

@@ -175,6 +175,18 @@ public class FrontendTransactionImpl implements
 
       var storage = session.getStorage();
       atomicOperation = storage.startStorageTx();
+      // Pin the lifecycle read guard for this TX's duration so that all subsequent
+      // storage operations hit the reentrant fast path (counter-only, no barriers).
+      try {
+        storage.acquireLifecycleReadGuard();
+      } catch (Throwable t) {
+        // If the guard fails (extremely unlikely — sharedLock() only spins),
+        // clean up the atomic operation to prevent close() from calling
+        // releaseLifecycleReadGuard() on a lock that was never acquired.
+        atomicOperation.deactivate();
+        atomicOperation = null;
+        throw t;
+      }
       storageTxThreadId = Thread.currentThread().threadId();
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
@@ -895,7 +907,13 @@ public class FrontendTransactionImpl implements
         // caught at its rollback() call) would observe a stale non-null
         // atomicOperation.
         atomicOperation = null;
-        storageTxThreadId = 0;
+        // Release the lifecycle read guard that was pinned at TX begin.
+        // Must happen after atomicOperation cleanup to maintain ordering.
+        try {
+          session.getStorage().releaseLifecycleReadGuard();
+        } finally {
+          storageTxThreadId = 0;
+        }
       }
     }
     session.setNoTxMode();

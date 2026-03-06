@@ -239,7 +239,9 @@ public abstract class AbstractStorage
   protected final String url;
   protected final ScalableRWLock stateLock;
   // Serializes DDL operations (add/drop collection/index) against each other.
-  // Does NOT block read-path operations. Lock ordering: ddlLock before stateLock.
+  // Does NOT block read-path operations.
+  // Lock ordering: stateLock.readLock() outside, ddlLock inside.
+  // Lifecycle methods (shutdown/create/delete) use stateLock.writeLock() without ddlLock.
   private final ReentrantLock ddlLock = new ReentrantLock();
 
   protected volatile StorageConfiguration configuration;
@@ -1113,9 +1115,9 @@ public abstract class AbstractStorage
   public final int addCollection(DatabaseSessionEmbedded database, final String collectionName,
       final Object... parameters) {
     try {
-      ddlLock.lock();
+      stateLock.readLock().lock();
       try {
-        stateLock.writeLock().lock();
+        ddlLock.lock();
         try {
           if (collectionMap.containsKey(collectionName)) {
             throw new ConfigurationException(
@@ -1133,10 +1135,10 @@ public abstract class AbstractStorage
                   "Error in creation of new collection '" + collectionName), e,
               name);
         } finally {
-          stateLock.writeLock().unlock();
+          ddlLock.unlock();
         }
       } finally {
-        ddlLock.unlock();
+        stateLock.readLock().unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -1151,9 +1153,9 @@ public abstract class AbstractStorage
   public final int addCollection(DatabaseSessionEmbedded database, final String collectionName,
       final int requestedId) {
     try {
-      ddlLock.lock();
+      stateLock.readLock().lock();
       try {
-        stateLock.writeLock().lock();
+        ddlLock.lock();
         try {
           checkOpennessAndMigration();
 
@@ -1185,10 +1187,10 @@ public abstract class AbstractStorage
                   "Error in creation of new collection '" + collectionName + "'"), e,
               name);
         } finally {
-          stateLock.writeLock().unlock();
+          ddlLock.unlock();
         }
       } finally {
-        ddlLock.unlock();
+        stateLock.readLock().unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -1202,9 +1204,9 @@ public abstract class AbstractStorage
   @Override
   public final boolean dropCollection(DatabaseSessionEmbedded database, final int collectionId) {
     try {
-      ddlLock.lock();
+      stateLock.readLock().lock();
       try {
-        stateLock.writeLock().lock();
+        ddlLock.lock();
         try {
           checkOpennessAndMigration();
           if (collectionId < 0 || collectionId >= collections.size()) {
@@ -1240,10 +1242,10 @@ public abstract class AbstractStorage
               name);
 
         } finally {
-          stateLock.writeLock().unlock();
+          ddlLock.unlock();
         }
       } finally {
-        ddlLock.unlock();
+        stateLock.readLock().unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2168,9 +2170,9 @@ public abstract class AbstractStorage
       AtomicOperation atomicOperation) {
     final var indexDefinition = indexMetadata.getIndexDefinition();
     try {
-      ddlLock.lock();
+      stateLock.readLock().lock();
       try {
-        stateLock.writeLock().lock();
+        ddlLock.lock();
         try {
 
           checkOpennessAndMigration();
@@ -2225,10 +2227,10 @@ public abstract class AbstractStorage
                   "Cannot add index engine " + indexMetadata.getName() + " in storage."),
               e, name);
         } finally {
-          stateLock.writeLock().unlock();
+          ddlLock.unlock();
         }
       } finally {
-        ddlLock.unlock();
+        stateLock.readLock().unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2253,9 +2255,9 @@ public abstract class AbstractStorage
         throw new IndexException(name, "Types of indexed keys have to be provided");
       }
 
-      ddlLock.lock();
+      stateLock.readLock().lock();
       try {
-        stateLock.writeLock().lock();
+        ddlLock.lock();
         try {
           checkOpennessAndMigration();
 
@@ -2322,10 +2324,10 @@ public abstract class AbstractStorage
                   "Cannot add index engine " + indexMetadata.getName() + " in storage."),
               e, name);
         } finally {
-          stateLock.writeLock().unlock();
+          ddlLock.unlock();
         }
       } finally {
-        ddlLock.unlock();
+        stateLock.readLock().unlock();
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2414,9 +2416,9 @@ public abstract class AbstractStorage
     final var internalIndexId = extractInternalId(indexId);
 
     try {
-      ddlLock.lock();
+      stateLock.readLock().lock();
       try {
-        stateLock.writeLock().lock();
+        ddlLock.lock();
         try {
           checkOpennessAndMigration();
           checkIndexId(internalIndexId);
@@ -2436,10 +2438,10 @@ public abstract class AbstractStorage
           throw BaseException.wrapException(
               new StorageException(name, "Error on index deletion"), e, name);
         } finally {
-          stateLock.writeLock().unlock();
+          ddlLock.unlock();
         }
       } finally {
-        ddlLock.unlock();
+        stateLock.readLock().unlock();
       }
     } catch (final InvalidIndexEngineIdException ie) {
       throw logAndPrepareForRethrow(ie);
@@ -3879,6 +3881,23 @@ public abstract class AbstractStorage
     atomicOperationsManager.endAtomicOperation(atomicOperation, null);
   }
 
+  /**
+   * Acquires the lifecycle read guard (reentrant {@code stateLock.readLock()}).
+   * Called at TX begin to pin the read lock for the transaction's duration so that
+   * all subsequent storage operations hit the reentrant fast path (counter-only,
+   * no memory barriers). Released by {@link #releaseLifecycleReadGuard()}.
+   */
+  public void acquireLifecycleReadGuard() {
+    stateLock.readLock().lock();
+  }
+
+  /**
+   * Releases the lifecycle read guard. Called at TX end (commit/rollback).
+   */
+  public void releaseLifecycleReadGuard() {
+    stateLock.readLock().unlock();
+  }
+
   public AtomicOperation startStorageTx() {
     checkOpennessAndMigration();
 
@@ -4175,14 +4194,19 @@ public abstract class AbstractStorage
                 + name
                 + "'");
       }
-      // CREATE AND ADD THE NEW REF SEGMENT
-      collectionMap.put(collection.getName().toLowerCase(Locale.ROOT), collection);
       id = collection.getId();
     } else {
       id = collections.size();
     }
 
+    // Update collections (COWAL) before collectionMap (ConcurrentHashMap) so that
+    // a reader doing a name lookup never finds a collection whose ID-based slot is
+    // still null. See Step 6 DDL Visibility Ordering in the implementation plan.
     setCollection(id, collection);
+
+    if (collection != null) {
+      collectionMap.put(collection.getName().toLowerCase(Locale.ROOT), collection);
+    }
 
     return id;
   }
@@ -4239,9 +4263,9 @@ public abstract class AbstractStorage
   @Override
   public void setCollectionAttribute(final int id, final ATTRIBUTES attribute,
       final Object value) {
-    ddlLock.lock();
+    stateLock.readLock().lock();
     try {
-      stateLock.writeLock().lock();
+      ddlLock.lock();
       try {
         checkOpennessAndMigration();
         if (id >= collections.size()) {
@@ -4266,10 +4290,10 @@ public abstract class AbstractStorage
       } catch (final Throwable t) {
         throw logAndPrepareForRethrow(t);
       } finally {
-        stateLock.writeLock().unlock();
+        ddlLock.unlock();
       }
     } finally {
-      ddlLock.unlock();
+      stateLock.readLock().unlock();
     }
   }
 
