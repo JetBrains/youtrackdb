@@ -62,7 +62,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -80,7 +79,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       "<engine>:<db-type>:<db-name>[?<db-param>=<db-value>[&]]*";
 
   private static volatile YouTrackDBEnginesManager instance;
-  private static final Lock initLock = new ReentrantLock();
+  private static final ReentrantLock initLock = new ReentrantLock();
 
   private static volatile boolean registerDatabaseByPath = false;
 
@@ -265,16 +264,31 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       // during startup (e.g. Profiler.onStartup() -> YouTrackDBScheduler) see the
       // in-progress object instead of returning null.
       instance = youTrack;
+      YouTrackDBEnginesManager managerToShutdown = null;
       try {
         youTrack.startup();
       } catch (Exception | Error e) {
         instance = null;
-        youTrack.shutdownPools();
+        // Defer shutdownPools() to after lock release to avoid holding
+        // initLock during potentially long pool termination (up to 25s).
+        managerToShutdown = youTrack;
         throw e;
+      } finally {
+        if (managerToShutdown != null) {
+          // Release lock before shutting down pools so other threads
+          // are not blocked during the cleanup.
+          initInProgress = false;
+          initLock.unlock();
+          managerToShutdown.shutdownPools();
+        }
       }
     } finally {
-      initInProgress = false;
-      initLock.unlock();
+      // Guard against double-unlock: if the catch branch already
+      // released the lock, avoid unlocking again.
+      if (initLock.isHeldByCurrentThread()) {
+        initInProgress = false;
+        initLock.unlock();
+      }
     }
 
     return instance;
@@ -887,8 +901,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   @SuppressWarnings("unchecked")
   private WeakHashSetValueHolder<YouTrackDBStartupListener>
       pollStartupListener() {
-    return (WeakHashSetValueHolder<YouTrackDBStartupListener>)
-        removedStartupListenersQueue.poll();
+    return (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
   }
 
   private void purgeWeakShutdownListeners() {
@@ -904,8 +917,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   @SuppressWarnings("unchecked")
   private WeakHashSetValueHolder<YouTrackDBShutdownListener>
       pollShutdownListener() {
-    return (WeakHashSetValueHolder<YouTrackDBShutdownListener>)
-        removedShutdownListenersQueue.poll();
+    return (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue
+        .poll();
   }
 
   private boolean startEngine(Engine engine) {
