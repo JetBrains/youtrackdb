@@ -310,18 +310,13 @@ public class HistogramConfigurationTest {
   }
 
   @Test
-  public void persistBatchSize_controlsFlushThreshold() {
-    // Given a very high persist batch size, dirty mutations should not
-    // trigger a flush.
+  public void persistBatchSize_canBeOverridden() {
+    // Verify the config value can be overridden at runtime
     setConfig(GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE, 100_000);
 
-    // The flush condition in applyDelta reads the config value at each call:
-    //   if (dirtyMutations >= persistBatchSize)
-    // With 100,000 threshold and default 500 delta count, no flush occurs.
     int batchSize =
         GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger();
     assertEquals(100_000, batchSize);
-    assertTrue(batchSize > 500);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -487,7 +482,7 @@ public class HistogramConfigurationTest {
   }
 
   @Test
-  public void cooldownMs_controlsRebalanceRetryTiming() {
+  public void cooldownMs_canBeOverridden() {
     // Given a short cooldown
     setConfig(
         GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN, 100L);

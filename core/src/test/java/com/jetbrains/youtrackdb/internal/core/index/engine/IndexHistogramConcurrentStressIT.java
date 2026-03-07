@@ -207,7 +207,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
    * ground-truth full scan — first incrementally (no ANALYZE),
    * then after a fresh ANALYZE INDEX rebuild.
    */
-  @Test
+  @Test(timeout = 300_000)
   public void singleValueIntegerIndex_concurrentInsertsAndDeletes()
       throws Exception {
     final int KEY_RANGE = 100_000;
@@ -397,7 +397,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
    * for 2 minutes. Verifies that MCV-1 is correctly identified after the
    * stress phase.
    */
-  @Test
+  @Test(timeout = 300_000)
   public void stringIndex_concurrentSkewedInserts_mcvCorrect()
       throws Exception {
     final String className = "StressStr";
@@ -617,7 +617,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
    * 2 minutes. Verifies that the histogram correctly captures the
    * distribution and bucket frequencies are accurate.
    */
-  @Test
+  @Test(timeout = 300_000)
   public void notUniqueIndex_concurrentLowNdv_histogramAccurate()
       throws Exception {
     final int NUM_CATEGORIES = 50;
@@ -813,7 +813,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
    * One thread continuously inserts data while another thread periodically
    * runs ANALYZE INDEX. Verifies no corruption or deadlock occurs.
    */
-  @Test
+  @Test(timeout = 300_000)
   public void concurrentInsertsWithAnalyze_noCorruption() throws Exception {
     final String className = "StressAnalyze";
     final String indexName = className + "valIdx";
@@ -981,7 +981,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
    * multiple threads. Verifies that histogram selectivity estimates are
    * significantly more accurate than uniform estimates for range queries.
    */
-  @Test
+  @Test(timeout = 300_000)
   public void bimodalDistribution_histogramMoreAccurateThanUniform()
       throws Exception {
     final String className = "StressBimodal";
