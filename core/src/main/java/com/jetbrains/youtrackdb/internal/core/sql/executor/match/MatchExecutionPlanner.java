@@ -43,13 +43,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -222,7 +222,7 @@ public class MatchExecutionPlanner {
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
   /** The original parsed `MATCH` statement, used for execution plan caching. */
-  private final SQLMatchStatement statement;
+  private SQLMatchStatement statement;
 
   /** Positive `MATCH` expressions (the main graph pattern). */
   protected List<SQLMatchExpression> matchExpressions;
@@ -289,6 +289,30 @@ public class MatchExecutionPlanner {
    * during the nested-loop pattern matching.
    */
   private static final long THRESHOLD = 100;
+
+  /**
+   * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
+   * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
+   * Intended for non-SQL front-ends (e.g. GQL) that build the match IR directly.
+   *
+   * @param pattern      the pattern graph (nodes and edges)
+   * @param aliasClasses maps each alias to the schema class name it is constrained to
+   */
+  public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses) {
+    this.matchExpressions = List.of();
+    this.notMatchExpressions = List.of();
+    this.returnItems = List.of();
+    this.returnAliases = List.of();
+    this.returnNestedProjections = List.of();
+    this.groupBy = null;
+    this.orderBy = null;
+    this.unwind = null;
+
+    this.pattern = pattern;
+    this.aliasClasses = aliasClasses;
+    this.aliasFilters = Map.of();
+    this.aliasRids = Map.of();
+  }
 
   /**
    * Creates a planner by **deep-copying** every mutable component from the parsed
@@ -1194,7 +1218,8 @@ public class MatchExecutionPlanner {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
-        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
+            context);
       }
     }
   }
@@ -1293,8 +1318,7 @@ public class MatchExecutionPlanner {
    * Returns the more specific of two class names if one is a subclass of the other,
    * or `null` if they are unrelated in the class hierarchy.
    */
-  @Nullable
-  private static String getLowerSubclass(
+  @Nullable private static String getLowerSubclass(
       DatabaseSessionEmbedded db, String className1, String className2) {
     Schema schema = db.getMetadata().getSchema();
     var class1 = schema.getClass(className1);

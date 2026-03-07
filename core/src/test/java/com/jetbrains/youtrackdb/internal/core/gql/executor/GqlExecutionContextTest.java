@@ -1,0 +1,55 @@
+package com.jetbrains.youtrackdb.internal.core.gql.executor;
+
+import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import java.util.HashMap;
+import java.util.Map;
+import org.junit.Assert;
+import org.junit.Test;
+
+/**
+ * Tests for GqlExecutionContext record: constructors and getParameter.
+ * Context now contains only session (not graph), as executor layer works with YTDB entities only.
+ */
+public class GqlExecutionContextTest extends GraphBaseTest {
+
+  @Test
+  public void contextWithOneArg_usesEmptyParameters() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    var session = tx.getDatabaseSession();
+    var ctx = new GqlExecutionContext(session);
+    Assert.assertSame(session, ctx.session());
+    Assert.assertTrue(ctx.parameters().isEmpty());
+    Assert.assertNull(ctx.getParameter("name"));
+    tx.commit();
+  }
+
+  @Test
+  public void contextWithParameters_getParameter_returnsValue() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    var session = tx.getDatabaseSession();
+    Map<String, Object> params = new HashMap<>();
+    params.put("name", "Maria");
+    params.put("age", 30);
+    var ctx = new GqlExecutionContext(session, params);
+    Assert.assertEquals("Maria", ctx.getParameter("name"));
+    Assert.assertEquals(30, ctx.getParameter("age"));
+    Assert.assertNull(ctx.getParameter("missing"));
+    tx.commit();
+  }
+
+  @Test
+  public void contextWithEmptyMap_usesEmptyParameters() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    var session = tx.getDatabaseSession();
+    var ctx = new GqlExecutionContext(session, new HashMap<>());
+    Assert.assertTrue(ctx.parameters().isEmpty());
+    tx.commit();
+  }
+}

@@ -11,7 +11,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * Tests for {@code sqlCommand()} on {@code YTDBGraphTraversalSource}.
+ * Tests for {@code yql()} on {@code YTDBGraphTraversalSource}.
  * Verifies that SQL queries executed through the Gremlin traversal source return
  * correctly typed results: vertices, edges, projected scalars, and link references.
  */
@@ -31,14 +31,13 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
     graph.tx().commit();
 
     var results = graph.traversal()
-        .sqlCommand("SELECT FROM Person WHERE name = 'Alice'")
+        .yql("SELECT FROM Person WHERE name = 'Alice'")
         .toList();
 
     Assert.assertEquals(1, results.size());
     Assert.assertTrue(
         "Expected Vertex but got " + results.getFirst().getClass().getSimpleName(),
-        results.getFirst() instanceof Vertex
-    );
+        results.getFirst() instanceof Vertex);
   }
 
   @Test
@@ -52,14 +51,13 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
     graph.tx().commit();
 
     var results = graph.traversal()
-        .sqlCommand("SELECT FROM Knows")
+        .yql("SELECT FROM Knows")
         .toList();
 
     Assert.assertEquals(1, results.size());
     Assert.assertTrue(
         "Expected Edge but got " + results.getFirst().getClass().getSimpleName(),
-        results.getFirst() instanceof Edge
-    );
+        results.getFirst() instanceof Edge);
   }
 
   @Test
@@ -89,8 +87,7 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
 
     Assert.assertTrue(
         "Expected List but got " + map.get("value").getClass().getSimpleName(),
-        map.get("value") instanceof List
-    );
+        map.get("value") instanceof List);
   }
 
   @Test
@@ -99,8 +96,7 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
 
     Assert.assertTrue(
         "Expected Map but got " + map.get("value").getClass().getSimpleName(),
-        map.get("value") instanceof Map
-    );
+        map.get("value") instanceof Map);
   }
 
   @Test
@@ -110,13 +106,11 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
     graph.tx().commit();
 
     var map = executeSingleProjection(
-        "SELECT @rid AS rid FROM Person WHERE name = 'Alice'"
-    );
+        "SELECT @rid AS rid FROM Person WHERE name = 'Alice'");
 
     Assert.assertTrue(
         "Expected Vertex but got " + map.get("rid").getClass().getSimpleName(),
-        map.get("rid") instanceof Vertex
-    );
+        map.get("rid") instanceof Vertex);
   }
 
   @Test
@@ -129,20 +123,17 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
     session.command("BEGIN");
     session.command(
         "UPDATE Person SET friend = (SELECT FROM Person WHERE name = 'Bob')"
-            + " WHERE name = 'Alice'"
-    );
+            + " WHERE name = 'Alice'");
     session.command("COMMIT");
 
     var map = executeSingleProjection(
-        "SELECT friend FROM Person WHERE name = 'Alice'"
-    );
+        "SELECT friend FROM Person WHERE name = 'Alice'");
 
     if (map.get("friend") instanceof List<?> friends) {
       Assert.assertEquals(1, friends.size());
       Assert.assertTrue(
           "Expected Vertex but got " + friends.getFirst().getClass().getSimpleName(),
-          friends.getFirst() instanceof Vertex
-      );
+          friends.getFirst() instanceof Vertex);
     } else {
       Assert.fail("Expected List but got "
           + map.get("friend").getClass().getSimpleName());
@@ -151,14 +142,13 @@ public class YTDBCommandServiceExecuteSqlTest extends GraphBaseTest {
 
   private Map<String, Object> executeSingleProjection(String sql) {
     var results = graph.traversal()
-        .sqlCommand(sql)
+        .yql(sql)
         .toList();
 
     Assert.assertEquals(1, results.size());
     Assert.assertTrue(
         "Expected Map but got " + results.getFirst().getClass().getSimpleName(),
-        results.getFirst() instanceof Map
-    );
+        results.getFirst() instanceof Map);
 
     @SuppressWarnings("unchecked")
     var map = (Map<String, Object>) results.getFirst();
