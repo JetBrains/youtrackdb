@@ -1,3 +1,14 @@
+---
+source_files:
+  - .github/scripts/coverage-gate.py
+  - .github/scripts/mutation-gate.py
+  - .github/workflows/maven-pipeline.yml
+  - pom.xml
+related_docs:
+  - docs/dev/ci-cd-diagram.md
+  - CLAUDE.md
+---
+
 # Test Quality Requirements
 
 This document describes the quality gates and guidelines for tests in the YouTrackDB project. All requirements are enforced automatically by the CI pipeline on every pull request.
@@ -43,18 +54,20 @@ ls .coverage/reports/*/jacoco.xml
 
 ### Threshold
 
-Mutation testing is performed by [PIT (Pitest)](https://pitest.org/) on **new and changed production code only**. The build fails if the mutation score is below **85%**.
+Mutation testing is performed by [PIT (Pitest)](https://pitest.org/) with [Arcmutate](https://docs.arcmutate.com/) extensions on **new and changed production code only**. The build fails if the mutation score is below **85%**.
 
 A mutation score of 85% means that at least 85% of the mutations introduced into new code are detected ("killed") by the test suite.
 
 ### What PIT Does
 
-1. Identifies changed production Java classes via `git diff` against the base branch.
-2. Introduces small code mutations (e.g., changing `>` to `>=`, removing method calls, negating conditions).
+1. Uses Arcmutate's `GIT_MIXED` mode to automatically scope mutations to changed lines and code exercised by modified tests — no manual class targeting needed.
+2. Introduces code mutations using the `STRONGER` + `EXTENDED` mutator groups (e.g., changing `>` to `>=`, removing method calls, negating conditions, removing stream operations, swapping parameters).
 3. Runs relevant tests against each mutation.
 4. Reports how many mutations were killed (detected by tests) vs. survived (undetected).
 
-When the mutation score is below the threshold, a detailed PR comment is posted listing survived and no-coverage mutations by class, method, and line number so developers know exactly what to fix.
+When the mutation score is below the threshold:
+- A **summary PR comment** is posted listing survived and no-coverage mutations by class, method, and line number.
+- **Inline PR annotations** are posted on the Files Changed tab via the `pitest-github-maven-plugin`, highlighting exactly which lines have survived mutations.
 
 ### Integration Test Exclusion
 
@@ -71,16 +84,32 @@ PIT is configured via the `mutation-testing` Maven profile in the root `pom.xml`
 | `timeoutConstant` | 10000 ms | Tolerant timeout for database operations |
 | `timeoutFactor` | 1.5 | Multiplier for slow tests |
 | `failWhenNoMutations` | false | Skip gracefully if no production code changed |
+| `mutators` | `STRONGER`, `EXTENDED` | Arcmutate recommended mutator groups |
+| `features` | `+GIT_MIXED`, `+gitci`, `+CLASSLIMIT(150)` | Git-based scoping, GitHub CI output, per-class mutation cap |
 
 Generated code (SQL parser, GQL parser) is excluded from mutation analysis.
+
+### Arcmutate Extensions
+
+The project uses commercial [Arcmutate](https://docs.arcmutate.com/) extensions for PIT:
+
+- **`com.arcmutate:base`** — provides the `EXTENDED` mutator group with additional operators (stream operations, varargs, parameter swaps, etc.)
+- **`com.arcmutate:pitest-git-plugin`** — `GIT_MIXED` mode that scopes mutations to changed lines and code paths exercised by modified tests
+- **`com.arcmutate:pitest-github-maven-plugin`** — posts inline annotations on PR file diffs for survived mutations
+
+The Arcmutate licence file (`arcmutate-licence.txt`) is **not** committed to the repository (it is gitignored). In CI, the licence content is written from the `ARCMUTATE_LICENCE` GitHub Actions secret. For local development, place the licence file manually at the project root.
 
 ### Running Locally
 
 ```bash
-# Run PIT on a specific module for specific classes
+# Run PIT on a specific module (GIT_MIXED compares against HEAD~1 by default)
+./mvnw -pl core test-compile org.pitest:pitest-maven:mutationCoverage \
+  -P mutation-testing
+
+# Compare against a specific branch instead of HEAD~1
 ./mvnw -pl core test-compile org.pitest:pitest-maven:mutationCoverage \
   -P mutation-testing \
-  -DtargetClasses=com.jetbrains.youtrackdb.internal.core.SomeClass
+  -Dpit.git.from=origin/develop
 
 # HTML report is generated in target/pit-reports/
 ```
@@ -125,6 +154,6 @@ On every pull request, the CI pipeline enforces:
 |---|---|---|---|
 | Line coverage | coverage-gate.py | 85% | New/changed lines only |
 | Branch coverage | coverage-gate.py | 70% | New/changed lines only |
-| Mutation score | PIT | 85% | New/changed production classes only |
+| Mutation score | PIT + Arcmutate | 85% | Changed lines + code exercised by modified tests |
 
 All gates must pass for a PR to be mergeable.

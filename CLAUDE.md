@@ -204,7 +204,7 @@ Runs on `develop` pushes and PRs:
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
 - **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
 - **Ekstazi exclude files**: Uploaded as the `ekstazi-excludes` artifact (retained 7 days). Contains `/tmp/ekstazi-*.excludes` files listing which integration tests Ekstazi skipped. Use these to diagnose coverage gate failures caused by Ekstazi test selection (see "Investigating Coverage Gate Failures" below).
-- **Mutation testing**: PIT mutation testing on changed classes with PIT's own coverage-based test selection, fails below 85% mutation score
+- **Mutation testing**: PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensions. Uses `GIT_MIXED` mode to scope mutations to changed lines and code exercised by modified tests. Uses `STRONGER` + `EXTENDED` mutator groups. Posts inline PR annotations via `pitest-github-maven-plugin`. Fails below 85% mutation score. Requires `ARCMUTATE_LICENCE` GitHub secret.
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
 - **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, mutation-testing) into a single required status for branch protection
 - **Notifications**: Sends Zulip messages on build failure/recovery
@@ -250,6 +250,7 @@ Runs on `develop` pushes and PRs:
 - Guava, fastutil (collections)
 - LZ4 (compression)
 - BouncyCastle (TLS in server)
+- Arcmutate (commercial PIT extensions: `com.arcmutate:base` v1.7.0, `com.arcmutate:pitest-git-plugin` v2.3.0, `com.arcmutate:pitest-github-maven-plugin` v2.3.0). Requires `arcmutate-licence.txt` at project root (gitignored; provided via `ARCMUTATE_LICENCE` secret in CI)
 
 ## Pre-Commit Verification
 
@@ -334,3 +335,37 @@ When the coverage gate fails on a PR, **always check the Ekstazi exclude files f
 9. **The `lucene` module is excluded from the build** - it exists only as reference code for future reimplementation
 10. **JaCoCo and Java `assert` statements**: JaCoCo 0.8.8+ filters the synthetic `$assertionsDisabled` branch but **not** the assertion condition's own true/false branch. An inline `assert x != null` always shows 1/2 branches covered because the `false` path (assertion failure) is never taken in normal tests. To get full branch coverage, extract the check into a static helper method (e.g. `MatchAssertions.checkNotNull()`) that can be unit-tested independently for both outcomes, then call it as `assert MatchAssertions.checkNotNull(x, "label")`. The helper method gets 100% branch coverage; only the `assert` call site retains 1 phantom uncovered branch.
 11. **Gremlin annotation processor**: Gremlin DSL classes are generated automatically during `core` compilation via the `GremlinDslProcessor` annotation processor (from the `gremlin-annotations` module). Maven resolves the module dependency, so no special build order is needed — just include both modules: `./mvnw -pl gremlin-annotations,core clean package`
+
+## Documentation Sync
+
+### Cross-Reference Conventions
+
+Each documentation file (except CLAUDE.md itself) includes YAML frontmatter that declares which source files it depends on:
+
+```yaml
+---
+source_files:
+  - path/to/source/File.java
+  - path/to/other/**
+related_docs:
+  - docs/other-doc.md
+---
+```
+
+- **`source_files`**: Glob patterns of source files whose changes may require this doc to be updated.
+- **`related_docs`**: Other documentation files that cover related topics. Useful for cross-referencing when making changes.
+
+The central mapping of all source-to-doc relationships is in `docs/docs-sync.yml`. When adding a new doc or changing which source files a doc depends on, update both the frontmatter and the central mapping.
+
+### When to Update Documentation
+
+1. **When modifying source code**: Check `docs/docs-sync.yml` to see if any docs reference the files you changed. If so, review those docs and update them if needed.
+2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
+
+### Automated Sync
+
+The `.github/workflows/docs-sync.yml` GitHub Action runs on pushes to `develop` that modify source code (not markdown). It:
+
+1. Detects which docs are affected by comparing changed files against `docs/docs-sync.yml` mappings.
+2. Uses Claude Code to read the affected docs and their source files, then proposes updates via a PR.
+3. Has anti-loop safeguards: `paths-ignore` for `docs/adr/**` (ADRs are immutable), actor check for bot pushes, and commit-message check to skip pushes from merged docs-sync PRs.

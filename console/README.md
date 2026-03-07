@@ -1,3 +1,16 @@
+---
+source_files:
+  - console/src/**
+  - console/pom.xml
+  - console/docker/**
+  - console/Dockerfile
+  - core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/YTDBDemoGraphFactory.java
+  - core/src/main/java/com/jetbrains/youtrackdb/api/gremlin/YTDBGraphTraversalSourceDSL.java
+related_docs:
+  - README.md
+  - server/README.md
+---
+
 ### YTDB Gremlin Console
 
 *Note: This document is an adaptation of the

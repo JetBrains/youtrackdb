@@ -1,3 +1,14 @@
+---
+source_files:
+  - driver/src/main/java/com/jetbrains/youtrackdb/internal/driver/**
+  - driver/pom.xml
+  - core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java
+  - core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java
+related_docs:
+  - README.md
+  - server/README.md
+---
+
 Implementation of the Gremlin driver for YouTrackDB.
 
 To start to use this implementation please add `io.youtrackdb:youtrackdb-driver:${ytdb-version}`
