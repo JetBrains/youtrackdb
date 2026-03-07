@@ -100,11 +100,12 @@ public class IndexHistogramManager extends DurableComponent {
   private long fileId = -1;
 
   /**
-   * Committed mutations not yet persisted to the .ixs page. Plain long —
-   * races cause at most a duplicate flush (idempotent) or a slightly delayed
-   * flush (caught by checkpoint within 300 seconds).
+   * Committed mutations not yet persisted to the .ixs page. Volatile to
+   * ensure visibility across threads — races cause at most a duplicate flush
+   * (idempotent) or a slightly delayed flush (caught by checkpoint within
+   * 300 seconds).
    */
-  private long dirtyMutations;
+  private volatile long dirtyMutations;
 
   /** Prevents concurrent rebalances for the same index. */
   private final AtomicBoolean rebalanceInProgress = new AtomicBoolean(false);
@@ -1087,7 +1088,7 @@ public class IndexHistogramManager extends DurableComponent {
     threshold = Math.min(threshold, maxMutations);
     threshold = Math.max(threshold, minMutations);
     if (snapshot.hasDriftedBuckets()) {
-      threshold = threshold / 2;
+      threshold = Math.max(1, threshold / 2);
     }
     return threshold;
   }
@@ -1456,5 +1457,13 @@ public class IndexHistogramManager extends DurableComponent {
 
   void setLastRebalanceFailureTime(long time) {
     this.lastRebalanceFailureTime = time;
+  }
+
+  void setFileIdForTest(long fileId) {
+    this.fileId = fileId;
+  }
+
+  void setDirtyMutationsForTest(long value) {
+    this.dirtyMutations = value;
   }
 }
