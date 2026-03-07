@@ -62,7 +62,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -80,14 +79,14 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       "<engine>:<db-type>:<db-name>[?<db-param>=<db-value>[&]]*";
 
   private static volatile YouTrackDBEnginesManager instance;
-  private static final Lock initLock = new ReentrantLock();
+  private static final ReentrantLock initLock = new ReentrantLock();
 
   private static volatile boolean registerDatabaseByPath = false;
 
   private final ConcurrentMap<String, Engine> engines = new ConcurrentHashMap<String, Engine>();
 
-  private final AtomicReference<List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>>>
-      dbLifecycleListeners = new AtomicReference<>(List.of());
+  private final AtomicReference<List<RawPair<DatabaseLifecycleListener,
+      DatabaseLifecycleListener.PRIORITY>>> dbLifecycleListeners = new AtomicReference<>(List.of());
   private final ThreadGroup threadGroup;
   private final ThreadGroup storageThreadGroup;
   private final ReadWriteLock engineLock = new ReentrantReadWriteLock();
@@ -245,12 +244,14 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return startUp(false);
   }
 
-  @Nullable
   public static YouTrackDBEnginesManager startUp(boolean insideWebContainer) {
     initLock.lock();
     try {
       if (initInProgress) {
-        return null;
+        // Re-entrant call during startup (e.g. Profiler.onStartup() ->
+        // YouTrackDBScheduler.scheduleTask() -> instance()). The instance is
+        // already assigned below, return it instead of null to avoid NPE.
+        return instance;
       }
 
       initInProgress = true;
@@ -259,12 +260,35 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       final var youTrack = new YouTrackDBEnginesManager(insideWebContainer);
-      youTrack.startup();
-
+      // Assign instance before startup() so that re-entrant calls to instance()
+      // during startup (e.g. Profiler.onStartup() -> YouTrackDBScheduler) see the
+      // in-progress object instead of returning null.
       instance = youTrack;
+      YouTrackDBEnginesManager managerToShutdown = null;
+      try {
+        youTrack.startup();
+      } catch (Exception | Error e) {
+        instance = null;
+        // Defer shutdownPools() to after lock release to avoid holding
+        // initLock during potentially long pool termination (up to 25s).
+        managerToShutdown = youTrack;
+        throw e;
+      } finally {
+        if (managerToShutdown != null) {
+          // Release lock before shutting down pools so other threads
+          // are not blocked during the cleanup.
+          initInProgress = false;
+          initLock.unlock();
+          managerToShutdown.shutdownPools();
+        }
+      }
     } finally {
-      initInProgress = false;
-      initLock.unlock();
+      // Guard against double-unlock: if the catch branch already
+      // released the lock, avoid unlocking again.
+      if (initLock.isHeldByCurrentThread()) {
+        initInProgress = false;
+        initLock.unlock();
+      }
     }
 
     return instance;
@@ -504,8 +528,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * @return the obtained engine instance or {@code null} if no such engine known or the engine is
    * not running.
    */
-  @Nullable
-  public Engine getEngineIfRunning(final String engineName) {
+  @Nullable public Engine getEngineIfRunning(final String engineName) {
     engineLock.readLock().lock();
     try {
       final var engine = engines.get(engineName);
@@ -657,8 +680,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return executor;
   }
 
-  @Nullable
-  public ExecutorService getIoExecutor() {
+  @Nullable public ExecutorService getIoExecutor() {
     return ioExecutor;
   }
 
@@ -689,8 +711,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * {@link YouTrackDBInternalEmbedded} during its construction. Returns null if IO pool is
    * disabled in configuration.
    */
-  @Nullable
-  public synchronized ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
+  @Nullable public synchronized ExecutorService createIoExecutor(YouTrackDBConfigImpl config) {
     if (!config.getConfiguration()
         .getValueAsBoolean(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED)) {
       return null;
@@ -759,6 +780,18 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       exec.shutdownNow();
       Thread.currentThread().interrupt();
     }
+  }
+
+  /**
+   * Shuts down all constructor-allocated pools. Used to clean up resources when
+   * {@link #startup()} fails and the instance is discarded.
+   */
+  void shutdownPools() {
+    shutdownExecutor(walFlushExecutor, "WAL flush", 5, TimeUnit.SECONDS);
+    shutdownExecutor(walWriteExecutor, "WAL write", 5, TimeUnit.SECONDS);
+    shutdownExecutor(fuzzyCheckpointExecutor, "fuzzy checkpoint", 5, TimeUnit.SECONDS);
+    shutdownExecutor(wowCacheFlushExecutor, "WOW cache flush", 5, TimeUnit.SECONDS);
+    shutdownExecutor(scheduledPool, "scheduled pool", 5, TimeUnit.SECONDS);
   }
 
   public DatabaseThreadLocalFactory getDatabaseThreadFactory() {
@@ -857,25 +890,35 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private void purgeWeakStartupListeners() {
     synchronized (removedStartupListenersQueue) {
-      var ref =
-          (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
+      var ref = pollStartupListener();
       while (ref != null) {
         weakStartupListeners.remove(ref);
-        ref = (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
+        ref = pollStartupListener();
       }
     }
   }
 
+  @SuppressWarnings("unchecked")
+  private WeakHashSetValueHolder<YouTrackDBStartupListener>
+      pollStartupListener() {
+    return (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
+  }
+
   private void purgeWeakShutdownListeners() {
     synchronized (removedShutdownListenersQueue) {
-      var ref =
-          (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue.poll();
+      var ref = pollShutdownListener();
       while (ref != null) {
         weakShutdownListeners.remove(ref);
-        ref =
-            (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue.poll();
+        ref = pollShutdownListener();
       }
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private WeakHashSetValueHolder<YouTrackDBShutdownListener>
+      pollShutdownListener() {
+    return (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue
+        .poll();
   }
 
   private boolean startEngine(Engine engine) {
