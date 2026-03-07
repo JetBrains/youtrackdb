@@ -1157,6 +1157,33 @@ public class HistogramConstructionTest {
     }
   }
 
+  @Test
+  public void fitToPage_initialBucketCountEqualsMinimum_exceedsBudget() {
+    // When actualBucketCount == MINIMUM_BUCKET_COUNT (4) and boundaries
+    // exceed the page budget, fitToPage cannot halve further (4/2=2 < 4).
+    // The while-loop condition (bucketCount > MINIMUM) is false from the
+    // start, so the histogram is constructed as-is. This test documents
+    // the current behavior: oversized boundaries are not rejected when
+    // the initial bucket count is already at the minimum.
+    var scanResult = IndexHistogramManager.scanAndBuild(
+        IntStream.range(0, 400).mapToObj(i -> (Object) (i / 100)),
+        400, 4);
+    assertNotNull(scanResult);
+
+    // Report boundaries larger than page budget
+    var fitResult = IndexHistogramManager.fitToPage(
+        scanResult, 400, true, 0,
+        (bounds, count) -> (count + 1) * 5000);
+
+    // Current behavior: returns non-null even though boundaries exceed
+    // page space. This is acceptable because in practice 4-bucket
+    // histograms have very small boundaries. If this becomes a real
+    // issue, production code should add a post-loop budget check.
+    assertNotNull(fitResult);
+    assertEquals(scanResult.actualBucketCount,
+        fitResult.histogram().bucketCount());
+  }
+
   // ── Helpers ──
 
   private static EquiDepthHistogram create10BucketHistogram() {

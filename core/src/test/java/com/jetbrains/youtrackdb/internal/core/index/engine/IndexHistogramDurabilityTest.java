@@ -270,9 +270,10 @@ public class IndexHistogramDurabilityTest {
 
     // The B-tree has 2300 entries, but the .ixs page may still say 2000
     // (if PERSIST_BATCH_SIZE hasn't been reached). Force close without
-    // giving the flush a chance to run.
+    // giving the flush a chance to run. Do NOT close the session first
+    // — session.close() would trigger a graceful flush, defeating the
+    // crash simulation.
     session.activateOnCurrentThread();
-    session.close();
     ytdb.internal.forceDatabaseClose(dbName);
 
     // Phase 3: reopen — WAL recovery restores the B-tree to 2300 entries
@@ -533,9 +534,8 @@ public class IndexHistogramDurabilityTest {
   // ═══════════════════════════════════════════════════════════════
 
   /**
-   * Creates a class with an indexed integer field and populates it.
-   * Uses a skewed distribution (70% value 0, 30% values 1..N) so
-   * that MCV tracking is exercised.
+   * Creates a class with an indexed integer field and populates it
+   * with sequential integer values {@code 0..rowCount-1}.
    */
   private void createSchemaAndData(
       DatabaseSessionEmbedded session, int rowCount) {
