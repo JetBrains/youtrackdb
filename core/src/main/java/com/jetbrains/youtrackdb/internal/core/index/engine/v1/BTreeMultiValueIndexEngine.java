@@ -224,7 +224,7 @@ public final class BTreeMultiValueIndexEngine
           new IndexException(storage.getName(),
               "Error during removal of entry with key "
                   + key
-                  + "and RID "
+                  + " and RID "
                   + value
                   + " from index "
                   + name),

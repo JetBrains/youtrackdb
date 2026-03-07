@@ -545,25 +545,11 @@ public class RebalanceTriggerTest {
 
   private static void setFileId(
       IndexHistogramManager manager, long value) {
-    try {
-      var field =
-          IndexHistogramManager.class.getDeclaredField("fileId");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setFileIdForTest(value);
   }
 
   private static void setLastRebalanceFailureTime(
       IndexHistogramManager manager, long value) {
-    try {
-      var field = IndexHistogramManager.class
-          .getDeclaredField("lastRebalanceFailureTime");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setLastRebalanceFailureTime(value);
   }
 }

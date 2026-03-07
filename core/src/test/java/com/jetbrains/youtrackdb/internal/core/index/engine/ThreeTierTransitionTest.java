@@ -595,14 +595,7 @@ public class ThreeTierTransitionTest {
 
   private static void setFileId(
       IndexHistogramManager manager, long value) {
-    try {
-      var field =
-          IndexHistogramManager.class.getDeclaredField("fileId");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setFileIdForTest(value);
   }
 
   /**

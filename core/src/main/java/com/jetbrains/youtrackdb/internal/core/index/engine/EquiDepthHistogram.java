@@ -295,6 +295,10 @@ public record EquiDepthHistogram(
     int mcvKeyLen = IntegerSerializer.deserializeNative(data, pos);
     pos += IntegerSerializer.INT_SIZE;
 
+    if (mcvKeyLen < 0 || pos + mcvKeyLen > data.length) {
+      return null;
+    }
+
     Comparable<?> readMcvValue = null;
     if (mcvKeyLen > 0) {
       readMcvValue = (Comparable<?>) serializer.deserializeNativeObject(
