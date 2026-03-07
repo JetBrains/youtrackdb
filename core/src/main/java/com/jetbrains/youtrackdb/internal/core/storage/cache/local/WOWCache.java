@@ -1736,6 +1736,12 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long[] delete() throws IOException {
+    // Stop periodic flush before acquiring filesLock write lock to avoid deadlock:
+    // main thread holds filesLock write lock -> waits for commitExecutor (DeleteFileTask)
+    // commitExecutor runs PeriodicFlushTask -> waits for async IO completion
+    // IO thread needs filesLock read lock (for page load) -> blocked by main thread
+    stopFlush();
+
     final var result = new LongArrayList(1_024);
     filesLock.acquireWriteLock();
     try {
@@ -1778,7 +1784,6 @@ public final class WOWCache extends AbstractWriteCache
       filesLock.releaseWriteLock();
     }
 
-    stopFlush();
     doubleWriteLog.close();
 
     return result.toLongArray();
