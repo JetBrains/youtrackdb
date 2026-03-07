@@ -7,7 +7,6 @@ source_files:
   - .github/workflows/block-merge-commits.yml
   - .github/workflows/pr-title-prefix.yml
   - .github/scripts/coverage-gate.py
-  - .github/scripts/mutation-gate.py
 related_docs:
   - docs/dev/test-quality-requirements.md
   - docs/dev/testflows-runner-setup.md
@@ -218,9 +217,8 @@ Runs PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensio
 - Compiles test classes for affected modules.
 - Runs PIT's `mutationCoverage` goal with Arcmutate's `GIT_MIXED` mode, which automatically scopes mutations to changed lines and code exercised by modified tests. Uses the `STRONGER` + `EXTENDED` mutator groups.
 - Uses unit tests only; integration tests (`*IT`, `*IntegrationTest`) are excluded via the `mutation-testing` Maven profile.
-- Posts **inline PR annotations** on survived mutations via `pitest-github-maven-plugin`.
-- Posts a **summary PR comment** with per-class mutation kill rates, survived mutation lines, and detailed mutation descriptions (same pattern as the coverage gate comment).
-- Enforces an 85% mutation kill rate threshold.
+- Posts **inline PR annotations** and a **summary PR comment** on survived mutations via `pitest-github-maven-plugin`.
+- PIT's built-in `mutationThreshold` (85%) enforces the minimum mutation kill rate — the build fails if the score is below the threshold.
 
 See [Test Quality Requirements](test-quality-requirements.md) for details.
 

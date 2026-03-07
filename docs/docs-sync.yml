@@ -14,12 +14,10 @@ mappings:
       - ".github/workflows/pr-title-prefix.yml"
       - ".github/workflows/settings.xml"
       - ".github/scripts/coverage-gate.py"
-      - ".github/scripts/mutation-gate.py"
 
   - doc: docs/dev/test-quality-requirements.md
     source_patterns:
       - ".github/scripts/coverage-gate.py"
-      - ".github/scripts/mutation-gate.py"
       - ".github/workflows/maven-pipeline.yml"
       - "pom.xml"
 

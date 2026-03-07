@@ -1168,7 +1168,7 @@
               </dependency>
             </dependencies>
             <configuration>
-              <mutationThreshold>0</mutationThreshold>
+              <mutationThreshold>85</mutationThreshold>
               <failWhenNoMutations>false</failWhenNoMutations>
               <threads>1</threads>
               <timeoutConstant>10000</timeoutConstant>
