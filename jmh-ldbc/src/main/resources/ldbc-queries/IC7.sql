@@ -1,17 +1,21 @@
 /* IC7: Recent likers.
-   Find most recent likes on a Person's Messages. */
+   Find most recent likes on a Person's Messages.
+   Carries like metadata from the initial MATCH traversal and picks the latest
+   per liker via ORDER BY + first(), eliminating the per-liker correlated subquery. */
 SELECT personId, firstName, lastName,
-  $latest[0].likeCreationDate as likeCreationDate,
-  $latest[0].messageId as messageId,
-  $latest[0].messageContent as messageContent,
-  $latest[0].messageCreationDate as messageCreationDate,
+  first(likeCreationDate) as likeCreationDate,
+  first(messageId) as messageId,
+  first(messageContent) as messageContent,
+  first(messageCreationDate) as messageCreationDate,
   isNew
 FROM (
-  SELECT DISTINCT liker as likerVertex,
-    liker.id as personId,
+  SELECT liker.id as personId,
     liker.firstName as firstName,
     liker.lastName as lastName,
-    startPerson as startPerson,
+    likeEdge.creationDate as likeCreationDate,
+    message.id as messageId,
+    coalesce(message.imageFile, message.content) as messageContent,
+    message.creationDate as messageCreationDate,
     ifnull(knowsStart, true, false) as isNew
   FROM (
     MATCH {class: Person, as: startPerson, where: (id = :personId)}
@@ -19,21 +23,10 @@ FROM (
       .inE('LIKES'){as: likeEdge}
       .outV(){as: liker}
       .out('KNOWS'){as: knowsStart, where: (@rid = $matched.startPerson.@rid), optional: true}
-    RETURN startPerson, liker, knowsStart
+    RETURN liker, message, likeEdge, knowsStart
   )
-)
-LET $latest = (
-  SELECT creationDate as likeCreationDate,
-    inV().id as messageId,
-    coalesce(inV().imageFile, inV().content) as messageContent,
-    inV().creationDate as messageCreationDate
-  FROM (
-    SELECT expand(outE('LIKES')) FROM Person
-    WHERE @rid = $parent.$current.likerVertex
-  )
-  WHERE inV().out('HAS_CREATOR').@rid = $parent.$current.startPerson.@rid
   ORDER BY likeCreationDate DESC, messageId ASC
-  LIMIT 1
 )
+GROUP BY personId, firstName, lastName, isNew
 ORDER BY likeCreationDate DESC, personId ASC
 LIMIT :limit

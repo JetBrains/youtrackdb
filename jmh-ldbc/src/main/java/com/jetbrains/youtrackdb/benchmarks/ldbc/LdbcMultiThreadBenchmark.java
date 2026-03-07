@@ -7,9 +7,10 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 /**
  * Multi-threaded LDBC SNB read query benchmark (~22 min).
- * Runs all 20 interactive read queries (IS1-IS7, IC1-IC13) with 8 concurrent threads.
+ * Runs all 20 interactive read queries (IS1-IS7, IC1-IC13) with one thread per available
+ * processor ({@link Threads#MAX}).
  *
- * <p>The default thread count (8) can be overridden at runtime via the JMH {@code -t} flag.
+ * <p>The thread count can be overridden at runtime via the JMH {@code -t} flag.
  *
  * <p>Usage:
  * <pre>
@@ -26,7 +27,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  * java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -t 16 "LdbcMultiThread.*"
  * </pre>
  */
-@Threads(8)
+@Threads(Threads.MAX)
 public class LdbcMultiThreadBenchmark extends LdbcReadBenchmarkBase {
 
   public static void main(String[] args) throws RunnerException {
