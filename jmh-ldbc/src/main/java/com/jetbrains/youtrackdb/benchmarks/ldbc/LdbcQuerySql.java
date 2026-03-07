@@ -33,7 +33,8 @@ final class LdbcQuerySql {
   static final String IC12 = loadResource("ldbc-queries/IC12.sql");
   static final String IC13 = loadResource("ldbc-queries/IC13.sql");
 
-  private LdbcQuerySql() {}
+  private LdbcQuerySql() {
+  }
 
   private static String loadResource(String path) {
     try (var is = LdbcQuerySql.class.getClassLoader().getResourceAsStream(path)) {
