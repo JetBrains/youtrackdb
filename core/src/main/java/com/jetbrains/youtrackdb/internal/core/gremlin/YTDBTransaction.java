@@ -26,7 +26,8 @@ public final class YTDBTransaction extends AbstractTransaction {
   private Consumer<Transaction> readWriteConsumerInternal = READ_WRITE_BEHAVIOR.AUTO;
   private Consumer<Transaction> closeConsumerInternal = CLOSE_BEHAVIOR.ROLLBACK;
 
-  private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners = new CopyOnWriteArraySet<>();
+  private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners =
+      new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
   private DatabaseSessionEmbedded activeSession;
 
@@ -66,7 +67,6 @@ public final class YTDBTransaction extends AbstractTransaction {
       finishTx(ok, tx);
     }
   }
-
 
   public static <X extends Exception, R> R computeInTx(
       FailableFunction<YTDBGraphTraversalSource, R, X> code, YTDBGraphTraversalSource g) throws X {
@@ -140,7 +140,6 @@ public final class YTDBTransaction extends AbstractTransaction {
     transactionListeners.clear();
   }
 
-
   @Override
   protected void doClose() {
     closeConsumerInternal.accept(this);
@@ -169,6 +168,15 @@ public final class YTDBTransaction extends AbstractTransaction {
   protected void doCommit() throws TransactionException {
     if (activeSession != null) {
       try {
+        if (isTransactionMetricsEnabled()) {
+          var frontendTx = activeSession.getActiveTransactionOrNull();
+          if (frontendTx != null) {
+            frontendTx.setTransactionMetricsConfig(
+                transactionMetricsListener,
+                queryMonitoringMode,
+                getTrackingId());
+          }
+        }
         activeSession.commit();
       } finally {
         activeSession = null;
@@ -254,8 +262,8 @@ public final class YTDBTransaction extends AbstractTransaction {
   }
 
   public @Nonnull String getTrackingId() {
-    return trackingId != null ? trackingId :
-        String.valueOf(getDatabaseSession().getActiveTransaction().getId());
+    return trackingId != null ? trackingId
+        : String.valueOf(getDatabaseSession().getActiveTransaction().getId());
   }
 
   public QueryMetricsListener getQueryMetricsListener() {
@@ -268,6 +276,11 @@ public final class YTDBTransaction extends AbstractTransaction {
     Objects.requireNonNull(listener);
     this.transactionMetricsListener = listener;
     return this;
+  }
+
+  public boolean isTransactionMetricsEnabled() {
+    return transactionMetricsListener != null
+        && transactionMetricsListener != TransactionMetricsListener.NO_OP;
   }
 
   public TransactionMetricsListener getTransactionMetricsListener() {
