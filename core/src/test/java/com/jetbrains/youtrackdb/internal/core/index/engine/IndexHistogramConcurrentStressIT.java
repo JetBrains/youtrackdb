@@ -37,23 +37,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
  * Long-running randomized stress tests for index histogram correctness under
  * concurrent parallel transactions.
  *
- * <p>These tests are disabled by default due to their duration (2-5 minutes each).
- * Run manually with:
- * <pre>
- * ./mvnw -pl core clean test \
- *   -Dtest=IndexHistogramConcurrentStressTest
- * </pre>
- *
- * <p>Each test spawns multiple writer threads that perform random inserts, updates,
- * and deletes over a configurable duration. After all writers finish, the test
- * verifies that:
+ * <p>These are integration tests (IT suffix) that run via failsafe during
+ * {@code mvn verify -P ci-integration-tests}. Each test spawns multiple writer
+ * threads that perform random inserts, updates, and deletes over a configurable
+ * duration. After all writers finish, the test verifies that:
  * <ul>
  *   <li>Histogram totalCount matches the actual index size (via full scan count)</li>
  *   <li>After ANALYZE INDEX, the histogram is accurate against the ground truth</li>
@@ -62,13 +55,145 @@ import org.junit.Test;
  *   <li>Selectivity estimates are reasonable given the actual data distribution</li>
  * </ul>
  */
-@Ignore("Long-running stress tests — run manually")
-public class IndexHistogramConcurrentStressTest extends DbTestBase {
+public class IndexHistogramConcurrentStressIT extends DbTestBase {
 
   /** Duration of each stress phase in seconds. */
   private static final int DURATION_SECONDS = 120;
   /** Number of concurrent writer threads per test. */
   private static final int NUM_WRITERS = 4;
+
+  /** Duration of the CI smoke test in seconds. */
+  private static final int SMOKE_DURATION_SECONDS = 10;
+  /** Number of writer threads for the CI smoke test. */
+  private static final int SMOKE_NUM_WRITERS = 2;
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Smoke test: short concurrent histogram exercise (runs in CI)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Quick concurrent histogram smoke test that runs in CI. Verifies
+   * basic correctness of concurrent inserts + ANALYZE without the
+   * full 2-minute stress duration. Catches deadlocks, NPEs, and
+   * gross consistency violations.
+   */
+  @Test
+  public void concurrentHistogram_smokeTest() throws Exception {
+    final int KEY_RANGE = 10_000;
+    final String className = "SmokeInt";
+    final String indexName = className + "valIdx";
+
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass(className);
+    clazz.createProperty("val", PropertyType.INTEGER);
+    clazz.createIndex(
+        indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Seed initial data so histogram can be built
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      session.newEntity(className).setProperty("val", i);
+    }
+    session.commit();
+    session.execute("ANALYZE INDEX " + indexName).close();
+
+    // Stress phase: concurrent inserts and deletes
+    var errors = new AtomicReference<Exception>();
+    var stop = new AtomicBoolean(false);
+    var opsCount = new AtomicLong(0);
+    var latch = new CountDownLatch(SMOKE_NUM_WRITERS);
+
+    for (int w = 0; w < SMOKE_NUM_WRITERS; w++) {
+      final int writerId = w;
+      new Thread(() -> {
+        var rng = new Random(
+            writerId * 31L + System.nanoTime());
+        DatabaseSessionEmbedded localSession = null;
+        try {
+          localSession = openDatabase();
+          while (!stop.get()) {
+            try {
+              localSession.begin();
+              int batchSize = 10 + rng.nextInt(40);
+              for (int j = 0; j < batchSize; j++) {
+                if (rng.nextDouble() < 0.7) {
+                  var doc = localSession.newEntity(className);
+                  doc.setProperty("val", rng.nextInt(KEY_RANGE));
+                } else {
+                  int targetVal = rng.nextInt(KEY_RANGE);
+                  localSession.command(
+                      "DELETE FROM " + className
+                          + " WHERE val = ? LIMIT 1",
+                      targetVal);
+                }
+              }
+              localSession.commit();
+              opsCount.addAndGet(batchSize);
+            } catch (Exception e) {
+              try {
+                localSession.rollback();
+              } catch (Exception ignored) {
+              }
+            }
+          }
+        } catch (Exception e) {
+          errors.compareAndSet(null, e);
+        } finally {
+          if (localSession != null && !localSession.isClosed()) {
+            localSession.close();
+          }
+          latch.countDown();
+        }
+      }, "smoke-writer-" + writerId).start();
+    }
+
+    Thread.sleep(SMOKE_DURATION_SECONDS * 1000L);
+    stop.set(true);
+    assertTrue(
+        "All writers should finish within 30s after stop signal",
+        latch.await(30, TimeUnit.SECONDS));
+    if (errors.get() != null) {
+      throw errors.get();
+    }
+
+    System.out.println(
+        "[Smoke] Total operations: " + opsCount.get());
+
+    // Verify totalCount matches actual count
+    session.activateOnCurrentThread();
+    var manager = getHistogramManager(indexName);
+    var stats = manager.getStatistics();
+
+    long actualCount;
+    try (var result = session.query(
+        "SELECT count(*) as cnt FROM " + className)) {
+      actualCount =
+          ((Number) result.next().getProperty("cnt")).longValue();
+    }
+
+    assertEquals(
+        "totalCount should match actual entry count",
+        actualCount, stats.totalCount());
+
+    // ANALYZE and verify histogram is accurate
+    session.execute("ANALYZE INDEX " + indexName).close();
+
+    var statsAnalyzed = manager.getStatistics();
+    var histogramAnalyzed = manager.getHistogram();
+
+    assertEquals("totalCount after ANALYZE should match actual",
+        actualCount, statsAnalyzed.totalCount());
+
+    if (histogramAnalyzed != null) {
+      long freqSum = 0;
+      for (int i = 0; i < histogramAnalyzed.bucketCount(); i++) {
+        freqSum += histogramAnalyzed.frequencies()[i];
+      }
+      assertEquals(
+          "Sum of bucket frequencies should equal nonNullCount",
+          histogramAnalyzed.nonNullCount(), freqSum);
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════
   //  Test 1: Single-Value Integer Index — Concurrent Inserts +

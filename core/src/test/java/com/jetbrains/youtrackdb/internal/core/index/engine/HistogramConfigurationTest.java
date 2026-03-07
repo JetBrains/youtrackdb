@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -13,8 +15,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Test;
 
@@ -198,78 +205,108 @@ public class HistogramConfigurationTest {
   // Config affects IndexHistogramManager behavior
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // histogramMinSize config affects maybeScheduleHistogramWork
+  // ═══════════════════════════════════════════════════════════════════════
+
   @Test
-  public void histogramMinSize_configValuePropagates() {
-    // Given a high histogramMinSize
+  public void histogramMinSize_belowMinSize_doesNotSchedule() {
+    // Given histogramMinSize is 50,000 and the index has only 10,000 entries
     setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 50_000);
 
-    // The maybeScheduleHistogramWork path reads this at call time.
-    // Verify the config returns the overridden value.
-    assertEquals(50_000,
-        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
-            .getValueAsInteger());
-
-    // With a snapshot of 10,000 entries (below 50,000), the min-size
-    // guard in maybeScheduleHistogramWork would skip scheduling.
     var fixture = createManagerFixture();
+    // Snapshot with 10,000 non-null entries, no histogram, no previous
+    // build — would normally trigger an initial build if above min size.
     var stats = new IndexStatistics(10_000, 10_000, 0);
     var snapshot = new HistogramSnapshot(
         stats, null, 0, 0, 0, false, null, false);
     fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
-    // maybeScheduleHistogramWork with null executor is a no-op anyway,
-    // but we verify the config integration: nonNull (10k) < minSize (50k)
-    long nonNull = stats.totalCount() - stats.nullCount();
-    assertTrue("Expected nonNull < configured minSize",
-        nonNull < GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
-            .getValueAsInteger());
+    // When maybeScheduleHistogramWork is called
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task is submitted (10,000 < 50,000 min size)
+    assertTrue("Expected no task submitted when below minSize",
+        executor.submitted.isEmpty());
   }
 
   @Test
-  public void histogramMinSize_lowValue_passesGuard() {
-    // When histogramMinSize is very low, more datasets pass the guard
+  public void histogramMinSize_aboveMinSize_schedulesInitialBuild() {
+    // Given histogramMinSize is 5 and the index has 20 entries
     setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 5);
 
-    // A snapshot with 20 entries passes the min-size check
-    long nonNull = 20;
-    assertTrue("Expected nonNull >= configured minSize",
-        nonNull >= GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
-            .getValueAsInteger());
+    var fixture = createManagerFixture();
+    // Snapshot with 20 non-null entries, no histogram, no previous build
+    var stats = new IndexStatistics(20, 20, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, null, 0, 0, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 20).boxed().map(i -> (Object) i));
+
+    // When maybeScheduleHistogramWork is called
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then a task is submitted (20 >= 5 min size, initial build)
+    assertFalse("Expected task submitted when above minSize",
+        executor.submitted.isEmpty());
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // histogramBuckets config affects scanAndBuild output
+  // ═══════════════════════════════════════════════════════════════════════
 
   @Test
   public void histogramBuckets_controlsTargetBucketCount() {
-    // Given a custom bucket count
+    // Given a custom bucket count of 32 and 10,000 entries
     setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS, 32);
 
-    // When computing target buckets for 10,000 entries:
+    // scanAndBuild is called with targetBuckets computed from config.
     // target = min(32, floor(sqrt(10000))) = min(32, 100) = 32
-    int buckets =
+    int configBuckets =
         GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    int target = buckets;
     long nonNull = 10_000;
-    target = Math.min(target,
+    int target = Math.min(configBuckets,
         (int) Math.floor(Math.sqrt(nonNull)));
     target = Math.max(target,
         IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(32, target);
+
+    // Call the actual production scanAndBuild method
+    var keys = IntStream.range(0, (int) nonNull).boxed()
+        .map(i -> (Object) i);
+    var result = IndexHistogramManager.scanAndBuild(keys, nonNull, target);
+
+    assertNotNull(result);
+    assertEquals(32, result.actualBucketCount);
   }
 
   @Test
   public void histogramBuckets_capsBySqrt() {
-    // Given a custom bucket count of 200, but only 100 entries:
+    // Given a bucket count of 200 but only 100 entries:
     // target = min(200, floor(sqrt(100))) = min(200, 10) = 10
     setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS, 200);
 
-    int buckets =
+    int configBuckets =
         GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    int target = buckets;
     long nonNull = 100;
-    target = Math.min(target,
+    int target = Math.min(configBuckets,
         (int) Math.floor(Math.sqrt(nonNull)));
     target = Math.max(target,
         IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(10, target);
+
+    // Call the actual production scanAndBuild method
+    var keys = IntStream.range(0, (int) nonNull).boxed()
+        .map(i -> (Object) i);
+    var result = IndexHistogramManager.scanAndBuild(keys, nonNull, target);
+
+    assertNotNull(result);
+    assertEquals(10, result.actualBucketCount);
   }
 
   @Test
@@ -287,9 +324,13 @@ public class HistogramConfigurationTest {
     assertTrue(batchSize > 500);
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Rebalance threshold config affects maybeScheduleHistogramWork
+  // ═══════════════════════════════════════════════════════════════════════
+
   @Test
-  public void rebalanceThreshold_reflectsConfigValues() {
-    // Given custom rebalance parameters
+  public void rebalanceThreshold_mutationsAboveThreshold_schedulesRebalance() {
+    // Given custom rebalance parameters: threshold = 10,000 * 0.5 = 5,000
     setConfig(
         GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.5);
     setConfig(
@@ -297,29 +338,32 @@ public class HistogramConfigurationTest {
     setConfig(
         GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 5_000L);
 
-    // When computing rebalance threshold for 10,000 entries:
-    // threshold = floor(10,000 * 0.5) = 5,000
-    // capped by max = min(5000, 5000) = 5000
-    // floored by min = max(5000, 500) = 5000
-    double fraction =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
-            .getValueAsDouble();
-    long max =
-        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    long min =
-        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS
-            .getValueAsLong();
+    var fixture = createManagerFixture();
+    // Snapshot with histogram present, totalCountAtLastBuild=10000,
+    // mutationsSinceRebalance=5001 (above threshold of 5000)
+    var histogram = new EquiDepthHistogram(
+        2, new Comparable<?>[]{0, 50, 100},
+        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 5001, 10_000, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
-    long threshold = (long) (10_000 * fraction);
-    threshold = Math.min(threshold, max);
-    threshold = Math.max(threshold, min);
-    assertEquals(5_000L, threshold);
+    // When maybeScheduleHistogramWork is called
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then a rebalance task is submitted (5001 > 5000)
+    assertFalse("Expected rebalance scheduled when mutations exceed "
+        + "threshold", executor.submitted.isEmpty());
   }
 
   @Test
-  public void rebalanceThreshold_fractionControlsBaseValue() {
-    // Given a low fraction with a large index
+  public void rebalanceThreshold_mutationsBelowThreshold_doesNotSchedule() {
+    // Given threshold = 100,000 * 0.01 = 1,000
     setConfig(
         GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.01);
     setConfig(
@@ -328,25 +372,33 @@ public class HistogramConfigurationTest {
         GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
         1_000_000L);
 
-    // For 100,000 entries: threshold = 100,000 * 0.01 = 1,000
-    double fraction =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
-            .getValueAsDouble();
-    long threshold = (long) (100_000 * fraction);
-    long max =
-        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    long min =
-        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    threshold = Math.min(threshold, max);
-    threshold = Math.max(threshold, min);
-    assertEquals(1_000L, threshold);
+    var fixture = createManagerFixture();
+    var histogram = new EquiDepthHistogram(
+        2, new Comparable<?>[]{0, 50, 100},
+        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+    var stats = new IndexStatistics(100_000, 100_000, 0);
+    // mutationsSinceRebalance=500, threshold=1000 → below
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 500, 100_000, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 100_000).boxed()
+            .map(i -> (Object) i));
+
+    // When maybeScheduleHistogramWork is called
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted (500 < 1000)
+    assertTrue("Expected no scheduling when mutations below threshold",
+        executor.submitted.isEmpty());
   }
 
   @Test
   public void rebalanceThreshold_clampedByMinMutations() {
-    // Given a very small index where fraction * count < minMutations
+    // Given a small index: fraction * count = 5000 * 0.1 = 500,
+    // but minMutations = 2000 → threshold = 2000
     setConfig(
         GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
     setConfig(
@@ -355,25 +407,32 @@ public class HistogramConfigurationTest {
         GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
         10_000_000L);
 
-    // For 5,000 entries: fraction threshold = 500, but min is 2000
-    double fraction =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
-            .getValueAsDouble();
-    long threshold = (long) (5_000 * fraction);
-    long max =
-        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    long min =
-        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    threshold = Math.min(threshold, max);
-    threshold = Math.max(threshold, min);
-    assertEquals(2000L, threshold);
+    var fixture = createManagerFixture();
+    var histogram = new EquiDepthHistogram(
+        2, new Comparable<?>[]{0, 50, 100},
+        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+    var stats = new IndexStatistics(5_000, 5_000, 0);
+    // 1500 mutations — above raw fraction (500) but below clamped min (2000)
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 1500, 5_000, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 5_000).boxed().map(i -> (Object) i));
+
+    // When maybeScheduleHistogramWork is called
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted (1500 < 2000 clamped threshold)
+    assertTrue("Expected no scheduling when clamped by minMutations",
+        executor.submitted.isEmpty());
   }
 
   @Test
   public void rebalanceThreshold_clampedByMaxMutations() {
-    // Given a very large index where fraction * count > maxMutations
+    // Given a large index: fraction * count = 100,000 * 0.5 = 50,000,
+    // but maxMutations = 1,000 → threshold = 1,000
     setConfig(
         GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.5);
     setConfig(
@@ -381,43 +440,50 @@ public class HistogramConfigurationTest {
     setConfig(
         GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 1_000L);
 
-    // For 100,000 entries: fraction threshold = 50,000, but max is 1,000
-    double fraction =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
-            .getValueAsDouble();
-    long threshold = (long) (100_000 * fraction);
-    long max =
-        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    long min =
-        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    threshold = Math.min(threshold, max);
-    threshold = Math.max(threshold, min);
-    assertEquals(1_000L, threshold);
+    var fixture = createManagerFixture();
+    var histogram = new EquiDepthHistogram(
+        2, new Comparable<?>[]{0, 50, 100},
+        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+    var stats = new IndexStatistics(100_000, 100_000, 0);
+    // 1001 mutations — above clamped max threshold (1000)
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 1001, 100_000, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 100_000).boxed()
+            .map(i -> (Object) i));
+
+    // When maybeScheduleHistogramWork is called
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then a task is submitted (1001 > 1000 clamped threshold)
+    assertFalse("Expected rebalance scheduled when clamped by "
+        + "maxMutations", executor.submitted.isEmpty());
   }
 
   @Test
   public void maybeScheduleHistogramWork_respectsConfiguredMinSize() {
-    // Given histogramMinSize is 5000
+    // Given histogramMinSize is 5000 and index has 3000 entries
     setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 5000);
 
     var fixture = createManagerFixture();
-    // Install a snapshot with 3000 entries (below min)
     var stats = new IndexStatistics(3000, 3000, 0);
     var snapshot = new HistogramSnapshot(
         stats, null, 0, 0, 0, false, null, false);
     fixture.cache.put(fixture.engineId, snapshot);
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 3000).boxed().map(i -> (Object) i));
 
-    // When maybeScheduleHistogramWork is called (simulated via internal
-    // config read), the min-size check should prevent scheduling.
-    // Verify the config value is read correctly
-    assertEquals(5000,
-        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
-            .getValueAsInteger());
-    // 3000 < 5000 → no scheduling
-    assertTrue(3000 < GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
-        .getValueAsInteger());
+    // When maybeScheduleHistogramWork is called with a real executor
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted (3000 < 5000 min size)
+    assertTrue("Expected no scheduling when below configured minSize",
+        executor.submitted.isEmpty());
   }
 
   @Test
@@ -489,6 +555,92 @@ public class HistogramConfigurationTest {
           storage, "test-idx", engineId, true, cache,
           IntegerSerializer.INSTANCE, serializerFactory,
           IntegerSerializer.ID);
+    }
+  }
+
+  /**
+   * ExecutorService that captures submitted tasks without executing them.
+   * Used to verify whether maybeScheduleHistogramWork schedules a task.
+   */
+  private static class CapturingExecutor implements ExecutorService {
+    final List<Runnable> submitted = new ArrayList<>();
+
+    @Override
+    public void execute(Runnable command) {
+      submitted.add(command);
+    }
+
+    @Override
+    public void shutdown() {
+    }
+
+    @Override
+    public List<Runnable> shutdownNow() {
+      return List.of();
+    }
+
+    @Override
+    public boolean isShutdown() {
+      return false;
+    }
+
+    @Override
+    public boolean isTerminated() {
+      return false;
+    }
+
+    @Override
+    public boolean awaitTermination(long timeout, TimeUnit unit) {
+      return true;
+    }
+
+    @Override
+    public <T> java.util.concurrent.Future<T> submit(
+        java.util.concurrent.Callable<T> task) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> java.util.concurrent.Future<T> submit(
+        Runnable task, T result) {
+      submitted.add(task);
+      return java.util.concurrent.CompletableFuture.completedFuture(result);
+    }
+
+    @Override
+    public java.util.concurrent.Future<?> submit(Runnable task) {
+      submitted.add(task);
+      return java.util.concurrent.CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public <T> List<java.util.concurrent.Future<T>> invokeAll(
+        java.util.Collection<
+            ? extends java.util.concurrent.Callable<T>> tasks) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> List<java.util.concurrent.Future<T>> invokeAll(
+        java.util.Collection<
+            ? extends java.util.concurrent.Callable<T>> tasks,
+        long timeout, TimeUnit unit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> T invokeAny(
+        java.util.Collection<
+            ? extends java.util.concurrent.Callable<T>> tasks) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> T invokeAny(
+        java.util.Collection<
+            ? extends java.util.concurrent.Callable<T>> tasks,
+        long timeout, TimeUnit unit) {
+      throw new UnsupportedOperationException();
     }
   }
 

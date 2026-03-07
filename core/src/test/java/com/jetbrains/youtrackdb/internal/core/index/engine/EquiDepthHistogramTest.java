@@ -578,4 +578,139 @@ public class EquiDepthHistogramTest {
     Assert.assertEquals(64, restored.findBucket(6450));
     Assert.assertEquals(127, restored.findBucket(99999));
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // findBucket() — Long boundaries
+  // ═══════════════════════════════════════════════════════════════
+
+  @Test
+  public void testFindBucketWithLongBoundaries() {
+    var hist = new EquiDepthHistogram(
+        4,
+        new Comparable<?>[]{0L, 1000L, 2000L, 3000L, Long.MAX_VALUE},
+        new long[]{100, 200, 300, 400},
+        new long[]{10, 20, 30, 40},
+        1000, null, 0);
+
+    Assert.assertEquals(0, hist.findBucket(500L));
+    Assert.assertEquals(1, hist.findBucket(1500L));
+    Assert.assertEquals(2, hist.findBucket(2500L));
+    Assert.assertEquals(3, hist.findBucket(5000L));
+    Assert.assertEquals(3, hist.findBucket(Long.MAX_VALUE));
+    Assert.assertEquals(0, hist.findBucket(-1L));
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Serialization — single-bucket histogram
+  // ═══════════════════════════════════════════════════════════════
+
+  @Test
+  public void testSerializeDeserializeSingleBucketHistogram() {
+    var original = new EquiDepthHistogram(
+        1,
+        new Comparable<?>[]{0, 100},
+        new long[]{500},
+        new long[]{100},
+        500, null, 0);
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+
+    byte[] data = original.serialize(serializer, serializerFactory);
+    var restored = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+
+    Assert.assertNotNull(restored);
+    Assert.assertEquals(1, restored.bucketCount());
+    Assert.assertEquals(500, restored.nonNullCount());
+    Assert.assertEquals(0, restored.boundaries()[0]);
+    Assert.assertEquals(100, restored.boundaries()[1]);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Deserialization — truncated data guards
+  // ═══════════════════════════════════════════════════════════════
+
+  @Test
+  public void testDeserializeTruncatedFrequenciesReturnsNull() {
+    // Serialize a valid histogram, then truncate within the frequency
+    // region. Wire format after boundaries: frequencies need
+    // bucketCount × 8 bytes. Cutting mid-way triggers the bounds check.
+    var original = createIntHistogram(4, 10, 100, 10);
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    byte[] data = original.serialize(serializer, serializerFactory);
+
+    // Header: bucketCount(4) + nonNullCount(8) + mcvFrequency(8) +
+    //   mcvKeyLen(4) = 24
+    // Boundaries: 5 × (4-byte len prefix + 4-byte int) = 40
+    // Frequencies start at offset 64, need 4 × 8 = 32 bytes.
+    // Truncate after only 2 frequencies (16 bytes).
+    int truncateAt = 24 + 40 + 16;
+    byte[] truncated = new byte[truncateAt];
+    System.arraycopy(data, 0, truncated, 0, truncateAt);
+
+    var result = EquiDepthHistogram.deserialize(
+        truncated, 0, serializer, serializerFactory);
+    Assert.assertNull("Truncated frequencies should return null", result);
+  }
+
+  @Test
+  public void testDeserializeTruncatedDistinctCountsReturnsNull() {
+    // Serialize a valid histogram, then truncate within the
+    // distinctCounts region.
+    var original = createIntHistogram(4, 10, 100, 10);
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    byte[] data = original.serialize(serializer, serializerFactory);
+
+    // Header(24) + boundaries(40) + frequencies(32) = 96.
+    // DistinctCounts need 4 × 8 = 32 bytes. Truncate after only 2.
+    int truncateAt = 24 + 40 + 32 + 16;
+    byte[] truncated = new byte[truncateAt];
+    System.arraycopy(data, 0, truncated, 0, truncateAt);
+
+    var result = EquiDepthHistogram.deserialize(
+        truncated, 0, serializer, serializerFactory);
+    Assert.assertNull(
+        "Truncated distinctCounts should return null", result);
+  }
+
+  @Test
+  public void testDeserializeTruncatedBoundaryKeyReturnsNull() {
+    // Serialize a valid histogram, then truncate within the boundary
+    // section. After the header (24 bytes), the first boundary needs
+    // a 4-byte length prefix + 4-byte int. Truncate mid-length-prefix.
+    var original = createIntHistogram(4, 10, 100, 10);
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    byte[] data = original.serialize(serializer, serializerFactory);
+
+    // Cut at header(24) + 2 bytes — within the first boundary's
+    // length prefix (needs 4 bytes).
+    int truncateAt = 24 + 2;
+    byte[] truncated = new byte[truncateAt];
+    System.arraycopy(data, 0, truncated, 0, truncateAt);
+
+    var result = EquiDepthHistogram.deserialize(
+        truncated, 0, serializer, serializerFactory);
+    Assert.assertNull(
+        "Truncated boundary should return null", result);
+  }
+
+  @Test
+  public void testDeserializeNegativeMcvKeyLenReturnsNull() {
+    // Craft a byte array with valid bucketCount but negative mcvKeyLen.
+    // Format: bucketCount(4) + nonNullCount(8) + mcvFrequency(8) +
+    //   mcvKeyLen(4) — set mcvKeyLen to -1
+    byte[] data = new byte[24];
+    int pos = 0;
+    IntegerSerializer.serializeNative(4, data, pos); // bucketCount
+    pos += 4;
+    LongSerializer.serializeNative(1000L, data, pos); // nonNullCount
+    pos += 8;
+    LongSerializer.serializeNative(100L, data, pos); // mcvFrequency
+    pos += 8;
+    IntegerSerializer.serializeNative(-1, data, pos); // negative mcvKeyLen
+
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    var result = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+    Assert.assertNull("Negative mcvKeyLen should return null", result);
+  }
 }

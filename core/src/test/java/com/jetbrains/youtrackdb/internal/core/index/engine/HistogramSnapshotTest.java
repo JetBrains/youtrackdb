@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -72,5 +73,46 @@ public class HistogramSnapshotTest {
 
     assertTrue(snapshot.hllOnPage1());
     assertNotNull(snapshot.hllSketch());
+  }
+
+  @Test
+  public void testSnapshotEquality_identicalFields_areEqual() {
+    var stats = new IndexStatistics(100, 100, 5);
+    var s1 = new HistogramSnapshot(
+        stats, null, 0, 100, 0, false, null, false);
+    var s2 = new HistogramSnapshot(
+        stats, null, 0, 100, 0, false, null, false);
+    assertEquals(s1, s2);
+    assertEquals(s1.hashCode(), s2.hashCode());
+  }
+
+  @Test
+  public void testSnapshotEquality_differentVersion_notEqual() {
+    var stats = new IndexStatistics(100, 100, 5);
+    var s1 = new HistogramSnapshot(
+        stats, null, 0, 100, 0, false, null, false);
+    var s2 = new HistogramSnapshot(
+        stats, null, 0, 100, 1, false, null, false);
+    assertNotEquals(s1, s2);
+  }
+
+  @Test
+  public void snapshotWithZeroFrequencyHistogram() {
+    // Degenerate state after heavy deletions: all frequencies are 0
+    var stats = new IndexStatistics(0, 0, 0);
+    var histogram = new EquiDepthHistogram(
+        2,
+        new Comparable<?>[]{0, 50, 100},
+        new long[]{0, 0},
+        new long[]{0, 0},
+        0,
+        null, 0
+    );
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 500, 1000, 3, true, null, false);
+
+    assertNotNull(snapshot.histogram());
+    assertEquals(0, snapshot.histogram().nonNullCount());
+    assertTrue(snapshot.hasDriftedBuckets());
   }
 }
