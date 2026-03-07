@@ -703,8 +703,8 @@ jobs:
         #1. Deploy to Maven Central as -dev-SNAPSHOT
         #2. Deploy to Maven Central with -TIMESTAMP-SHA-dev-SNAPSHOT suffix (sortable by date)
         run: |
-          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -DskipTests -B
-          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -DskipTests=true -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -DskipTests -Dspotless.check.skip=true -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -DskipTests=true -Dspotless.check.skip=true -B
         env:
           # Credentials mapped to environment variables
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}

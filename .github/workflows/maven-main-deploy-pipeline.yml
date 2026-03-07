@@ -41,8 +41,8 @@ jobs:
         #2. Deploy to Maven Central with TIMESTAMP-SHA-SNAPSHOT suffix (sortable by date,
         #   tests skipped since they already passed in step 1)
         run: |
-          mvn -s .github/workflows/settings.xml clean deploy -B
-          mvn -s .github/workflows/settings.xml clean deploy -DskipTests -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dspotless.check.skip=true -B
+          mvn -s .github/workflows/settings.xml clean deploy -DskipTests -Dspotless.check.skip=true -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -B
         env:
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
@@ -88,7 +88,7 @@ jobs:
         run: |
           mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am -Ddocker.username=youtrackdb \
           -Ddocker.tags.latest=latest -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -P docker-images \
-          -Ddocker.platforms=${{ matrix.platform.docker_platform }} -B
+          -Dspotless.check.skip=true -Ddocker.platforms=${{ matrix.platform.docker_platform }} -B
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
