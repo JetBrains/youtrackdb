@@ -57,6 +57,7 @@ The `docs/` folder contains project documentation including CI/CD pipeline archi
 | `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests (CI only) |
 | `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
 | `examples` | `youtrackdb-examples` | Example applications |
+| `jmh-ldbc` | `youtrackdb-jmh-ldbc` | LDBC SNB read query benchmarks (JMH). See `jmh-ldbc/README.md` |
 
 ## Package Structure
 
@@ -157,7 +158,8 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 - Debug containers: set `-Dytdb.testcontainer.debug.container=true`
 
 ### Benchmarks
-- JMH benchmarks in `tests/src/main/java/.../benchmarks/`
+- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and multi-threaded (one thread per available processor) suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command) or `./mvnw -pl jmh-ldbc -am compile exec:exec` (two-step). See `jmh-ldbc/README.md` for full documentation.
+- Legacy JMH benchmarks in `tests/src/main/java/.../benchmarks/`
 
 ### Common Test JVM Properties
 Tests configure YouTrackDB-specific system properties in `<argLine>`:

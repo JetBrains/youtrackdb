@@ -1,0 +1,40 @@
+package com.jetbrains.youtrackdb.benchmarks.ldbc;
+
+import org.openjdk.jmh.annotations.Threads;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+
+/**
+ * Multi-threaded LDBC SNB read query benchmark (~22 min).
+ * Runs all 20 interactive read queries (IS1-IS7, IC1-IC13) with one thread per available
+ * processor ({@link Threads#MAX}).
+ *
+ * <p>The thread count can be overridden at runtime via the JMH {@code -t} flag.
+ *
+ * <p>Usage:
+ * <pre>
+ * # Via Maven — single command (recommended)
+ * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcMultiThread.*"
+ *
+ * # Override thread count to 16
+ * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcMultiThread.* -t 16"
+ *
+ * # Via Maven — two-step
+ * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcMultiThread.*"
+ *
+ * # Via uber-jar
+ * java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -t 16 "LdbcMultiThread.*"
+ * </pre>
+ */
+@Threads(Threads.MAX)
+public class LdbcMultiThreadBenchmark extends LdbcReadBenchmarkBase {
+
+  public static void main(String[] args) throws RunnerException {
+    new Runner(
+        new OptionsBuilder()
+            .include(LdbcMultiThreadBenchmark.class.getSimpleName())
+            .build())
+        .run();
+  }
+}
