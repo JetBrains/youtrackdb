@@ -42,7 +42,7 @@ The benchmark covers 20 read-only queries from the LDBC SNB Interactive v1 speci
 ## Benchmark Classes
 
 - **`LdbcSingleThreadBenchmark`** — runs all 20 queries with a single thread.
-- **`LdbcMultiThreadBenchmark`** — runs all 20 queries with 8 concurrent threads (configurable at runtime via `-t`).
+- **`LdbcMultiThreadBenchmark`** — runs all 20 queries with one thread per available processor (`Threads.MAX`, configurable at runtime via `-t`).
 
 Both classes inherit from `LdbcReadBenchmarkBase` and differ only in the `@Threads` annotation.
 
