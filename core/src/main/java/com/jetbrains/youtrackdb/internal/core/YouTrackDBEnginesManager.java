@@ -880,7 +880,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
           (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
       while (ref != null) {
         weakStartupListeners.remove(ref);
-        ref = (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
+        ref =
+            (WeakHashSetValueHolder<YouTrackDBStartupListener>)
+                removedStartupListenersQueue.poll();
       }
     }
   }
@@ -888,11 +890,13 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   private void purgeWeakShutdownListeners() {
     synchronized (removedShutdownListenersQueue) {
       var ref =
-          (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue.poll();
+          (WeakHashSetValueHolder<YouTrackDBShutdownListener>)
+              removedShutdownListenersQueue.poll();
       while (ref != null) {
         weakShutdownListeners.remove(ref);
         ref =
-            (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue.poll();
+            (WeakHashSetValueHolder<YouTrackDBShutdownListener>)
+                removedShutdownListenersQueue.poll();
       }
     }
   }
