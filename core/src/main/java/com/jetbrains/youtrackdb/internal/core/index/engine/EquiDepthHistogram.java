@@ -309,8 +309,14 @@ public record EquiDepthHistogram(
     // Read boundaries
     Comparable<?>[] readBoundaries = new Comparable<?>[readBucketCount + 1];
     for (int i = 0; i <= readBucketCount; i++) {
+      if (pos + IntegerSerializer.INT_SIZE > data.length) {
+        return null;
+      }
       int keyLen = IntegerSerializer.deserializeNative(data, pos);
       pos += IntegerSerializer.INT_SIZE;
+      if (keyLen < 0 || pos + keyLen > data.length) {
+        return null;
+      }
       readBoundaries[i] = (Comparable<?>) serializer.deserializeNativeObject(
           serializerFactory, data, pos);
       pos += keyLen;
@@ -319,6 +325,9 @@ public record EquiDepthHistogram(
     // Read frequencies
     long[] readFrequencies = new long[readBucketCount];
     for (int i = 0; i < readBucketCount; i++) {
+      if (pos + LongSerializer.LONG_SIZE > data.length) {
+        return null;
+      }
       readFrequencies[i] = LongSerializer.deserializeNative(data, pos);
       pos += LongSerializer.LONG_SIZE;
     }
@@ -326,6 +335,9 @@ public record EquiDepthHistogram(
     // Read distinct counts
     long[] readDistinctCounts = new long[readBucketCount];
     for (int i = 0; i < readBucketCount; i++) {
+      if (pos + LongSerializer.LONG_SIZE > data.length) {
+        return null;
+      }
       readDistinctCounts[i] = LongSerializer.deserializeNative(data, pos);
       pos += LongSerializer.LONG_SIZE;
     }
