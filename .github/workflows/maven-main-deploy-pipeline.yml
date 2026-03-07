@@ -17,6 +17,7 @@ jobs:
   deploy:
     name: Deploy Maven Artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 270
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -36,11 +37,12 @@ jobs:
           overwrite-settings: false
 
       - name: Maven deploy
-        #1. Deploy to Maven Central as SNAPSHOT
-        #2. Deploy to Maven Central with TIMESTAMP-SHA-SNAPSHOT suffix (sortable by date)
+        #1. Deploy to Maven Central as SNAPSHOT (full build with tests)
+        #2. Deploy to Maven Central with TIMESTAMP-SHA-SNAPSHOT suffix (sortable by date,
+        #   tests skipped since they already passed in step 1)
         run: |
           mvn -s .github/workflows/settings.xml clean deploy -B
-          mvn -s .github/workflows/settings.xml clean deploy -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -B
+          mvn -s .github/workflows/settings.xml clean deploy -DskipTests -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -B
         env:
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
