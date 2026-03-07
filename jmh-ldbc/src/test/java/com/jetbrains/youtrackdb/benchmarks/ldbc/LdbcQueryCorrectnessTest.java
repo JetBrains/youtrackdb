@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -60,12 +59,12 @@ public class LdbcQueryCorrectnessTest {
   // Place IDs
   private static final long SPRINGFIELD = 100; // City
   private static final long SHELBYVILLE = 101; // City
-  private static final long BERLIN = 102;      // City
-  private static final long CHINA = 200;       // Country
-  private static final long INDIA = 201;       // Country
-  private static final long GERMANY = 202;     // Country
-  private static final long ASIA = 300;        // Continent
-  private static final long EUROPE = 301;      // Continent
+  private static final long BERLIN = 102; // City
+  private static final long CHINA = 200; // Country
+  private static final long INDIA = 201; // Country
+  private static final long GERMANY = 202; // Country
+  private static final long ASIA = 300; // Continent
+  private static final long EUROPE = 301; // Continent
 
   // Tag/TagClass IDs
   private static final long TAG_JAVA = 400;
@@ -74,18 +73,18 @@ public class LdbcQueryCorrectnessTest {
   private static final long TC_ARTIST = 501;
 
   // Organisation IDs
-  private static final long ORG_ACME = 600;  // Company
-  private static final long ORG_MIT = 601;   // University
+  private static final long ORG_ACME = 600; // Company
+  private static final long ORG_MIT = 601; // University
 
   // Forum IDs
   private static final long FORUM_ALICE_WALL = 700;
 
   // Post IDs
-  private static final long POST_1 = 800;  // by Alice, in China, tag: Java
-  private static final long POST_2 = 801;  // by Bob, in India, tags: Python, Java
-  private static final long POST_3 = 802;  // by Bob, in China, tag: Python (old post)
-  private static final long POST_4 = 803;  // by Carol, in China, tag: Java
-  private static final long POST_5 = 804;  // by Carol, in India, tag: Python
+  private static final long POST_1 = 800; // by Alice, in China, tag: Java
+  private static final long POST_2 = 801; // by Bob, in India, tags: Python, Java
+  private static final long POST_3 = 802; // by Bob, in China, tag: Python (old post)
+  private static final long POST_4 = 803; // by Carol, in China, tag: Java
+  private static final long POST_5 = 804; // by Carol, in India, tag: Python
 
   // Comment IDs
   private static final long COMMENT_1 = 900; // by Bob, reply of Post1, tag: Java
@@ -844,8 +843,7 @@ public class LdbcQueryCorrectnessTest {
         "id", id, "fn", firstName, "ln", lastName, "g", gender,
         "bd", birthday, "cd", creationDate,
         "ip", locationIP, "br", browserUsed,
-        "lang", List.of("en"), "emails", List.of(firstName.toLowerCase() + "@test.com")
-    ).iterate();
+        "lang", List.of("en"), "emails", List.of(firstName.toLowerCase() + "@test.com")).iterate();
   }
 
   private static void insertPost(YTDBGraphTraversalSource ytg,
