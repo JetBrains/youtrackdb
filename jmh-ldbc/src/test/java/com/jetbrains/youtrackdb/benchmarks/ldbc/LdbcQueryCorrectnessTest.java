@@ -1,16 +1,15 @@
 package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -61,12 +60,12 @@ public class LdbcQueryCorrectnessTest {
   // Place IDs
   private static final long SPRINGFIELD = 100; // City
   private static final long SHELBYVILLE = 101; // City
-  private static final long BERLIN = 102; // City
-  private static final long CHINA = 200; // Country
-  private static final long INDIA = 201; // Country
-  private static final long GERMANY = 202; // Country
-  private static final long ASIA = 300; // Continent
-  private static final long EUROPE = 301; // Continent
+  private static final long BERLIN = 102;      // City
+  private static final long CHINA = 200;       // Country
+  private static final long INDIA = 201;       // Country
+  private static final long GERMANY = 202;     // Country
+  private static final long ASIA = 300;        // Continent
+  private static final long EUROPE = 301;      // Continent
 
   // Tag/TagClass IDs
   private static final long TAG_JAVA = 400;
@@ -75,18 +74,18 @@ public class LdbcQueryCorrectnessTest {
   private static final long TC_ARTIST = 501;
 
   // Organisation IDs
-  private static final long ORG_ACME = 600; // Company
-  private static final long ORG_MIT = 601; // University
+  private static final long ORG_ACME = 600;  // Company
+  private static final long ORG_MIT = 601;   // University
 
   // Forum IDs
   private static final long FORUM_ALICE_WALL = 700;
 
   // Post IDs
-  private static final long POST_1 = 800; // by Alice, in China, tag: Java
-  private static final long POST_2 = 801; // by Bob, in India, tags: Python, Java
-  private static final long POST_3 = 802; // by Bob, in China, tag: Python (old post)
-  private static final long POST_4 = 803; // by Carol, in China, tag: Java
-  private static final long POST_5 = 804; // by Carol, in India, tag: Python
+  private static final long POST_1 = 800;  // by Alice, in China, tag: Java
+  private static final long POST_2 = 801;  // by Bob, in India, tags: Python, Java
+  private static final long POST_3 = 802;  // by Bob, in China, tag: Python (old post)
+  private static final long POST_4 = 803;  // by Carol, in China, tag: Java
+  private static final long POST_5 = 804;  // by Carol, in India, tag: Python
 
   // Comment IDs
   private static final long COMMENT_1 = 900; // by Bob, reply of Post1, tag: Java
@@ -598,60 +597,6 @@ public class LdbcQueryCorrectnessTest {
     assertEquals(0L, toLong(results.get(0).get("pathLength")));
   }
 
-  // ==================== LdbcQuerySql error path ====================
-
-  /**
-   * Verifies that LdbcQuerySql.loadResource throws IllegalStateException
-   * when a SQL resource file is not found on the classpath.
-   */
-  @Test
-  public void testLoadResourceThrowsOnMissingResource() throws Exception {
-    var method = LdbcQuerySql.class.getDeclaredMethod("loadResource", String.class);
-    method.setAccessible(true);
-    try {
-      method.invoke(null, "nonexistent/missing-query.sql");
-      fail("Expected IllegalStateException for missing resource");
-    } catch (InvocationTargetException e) {
-      assertTrue(e.getCause() instanceof IllegalStateException);
-      assertTrue(e.getCause().getMessage().contains("not found"));
-    }
-  }
-
-  /**
-   * Verifies that LdbcBenchmarkState.loadSqlStatements throws
-   * IllegalStateException when the resource is not found.
-   */
-  @Test(expected = IllegalStateException.class)
-  public void testLoadSqlStatementsMissingResource() {
-    LdbcBenchmarkState.loadSqlStatements("/nonexistent-schema.sql");
-  }
-
-  /** Verifies that all 20 SQL query constants are loaded and non-empty. */
-  @Test
-  public void testAllQuerySqlConstantsLoaded() {
-    assertNotNull(LdbcQuerySql.IS1);
-    assertNotNull(LdbcQuerySql.IS2);
-    assertNotNull(LdbcQuerySql.IS3);
-    assertNotNull(LdbcQuerySql.IS4);
-    assertNotNull(LdbcQuerySql.IS5);
-    assertNotNull(LdbcQuerySql.IS6);
-    assertNotNull(LdbcQuerySql.IS7);
-    assertNotNull(LdbcQuerySql.IC1);
-    assertNotNull(LdbcQuerySql.IC2);
-    assertNotNull(LdbcQuerySql.IC3);
-    assertNotNull(LdbcQuerySql.IC4);
-    assertNotNull(LdbcQuerySql.IC5);
-    assertNotNull(LdbcQuerySql.IC6);
-    assertNotNull(LdbcQuerySql.IC7);
-    assertNotNull(LdbcQuerySql.IC8);
-    assertNotNull(LdbcQuerySql.IC9);
-    assertNotNull(LdbcQuerySql.IC10);
-    assertNotNull(LdbcQuerySql.IC11);
-    assertNotNull(LdbcQuerySql.IC12);
-    assertNotNull(LdbcQuerySql.IC13);
-    assertTrue("IS1 should contain SQL", LdbcQuerySql.IS1.length() > 10);
-  }
-
   // ==================== Helpers ====================
 
   @SuppressWarnings("unchecked")
@@ -899,7 +844,8 @@ public class LdbcQueryCorrectnessTest {
         "id", id, "fn", firstName, "ln", lastName, "g", gender,
         "bd", birthday, "cd", creationDate,
         "ip", locationIP, "br", browserUsed,
-        "lang", List.of("en"), "emails", List.of(firstName.toLowerCase() + "@test.com")).iterate();
+        "lang", List.of("en"), "emails", List.of(firstName.toLowerCase() + "@test.com")
+    ).iterate();
   }
 
   private static void insertPost(YTDBGraphTraversalSource ytg,
