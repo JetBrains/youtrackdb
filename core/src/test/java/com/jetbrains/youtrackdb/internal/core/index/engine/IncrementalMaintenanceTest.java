@@ -44,7 +44,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.Test;
@@ -554,9 +553,8 @@ public class IncrementalMaintenanceTest {
 
       // Then rebalanceInProgress flag is reset (not stuck)
       // Verify by checking that a subsequent rebalance can be scheduled
-      var rebalanceInProgress = getRebalanceInProgress(fixture.manager);
       assertFalse("rebalanceInProgress should be reset after failure",
-          rebalanceInProgress.get());
+          fixture.manager.isRebalanceInProgress());
     } finally {
       executor.shutdownNow();
     }
@@ -969,50 +967,17 @@ public class IncrementalMaintenanceTest {
 
   private static void setFileId(
       IndexHistogramManager manager, long value) {
-    try {
-      var field =
-          IndexHistogramManager.class.getDeclaredField("fileId");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setFileIdForTest(value);
   }
 
   private static void setLastRebalanceFailureTime(
       IndexHistogramManager manager, long value) {
-    try {
-      var field = IndexHistogramManager.class
-          .getDeclaredField("lastRebalanceFailureTime");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setLastRebalanceFailureTime(value);
   }
 
   private static void setDirtyMutations(
       IndexHistogramManager manager, long value) {
-    try {
-      var field =
-          IndexHistogramManager.class.getDeclaredField("dirtyMutations");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  private static AtomicBoolean getRebalanceInProgress(
-      IndexHistogramManager manager) {
-    try {
-      var field = IndexHistogramManager.class
-          .getDeclaredField("rebalanceInProgress");
-      field.setAccessible(true);
-      return (AtomicBoolean) field.get(manager);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setDirtyMutationsForTest(value);
   }
 
   /**

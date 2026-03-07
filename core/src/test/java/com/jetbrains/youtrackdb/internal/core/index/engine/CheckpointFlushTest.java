@@ -252,29 +252,13 @@ public class CheckpointFlushTest {
     return storage;
   }
 
-  // ── Reflection helpers for fields with no setter (read via getDirtyMutations()) ──
-
   private static void setDirtyMutations(
       IndexHistogramManager manager, long value) {
-    try {
-      var field =
-          IndexHistogramManager.class.getDeclaredField("dirtyMutations");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setDirtyMutationsForTest(value);
   }
 
   private static void setFileId(
       IndexHistogramManager manager, long value) {
-    try {
-      var field =
-          IndexHistogramManager.class.getDeclaredField("fileId");
-      field.setAccessible(true);
-      field.setLong(manager, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
+    manager.setFileIdForTest(value);
   }
 }
