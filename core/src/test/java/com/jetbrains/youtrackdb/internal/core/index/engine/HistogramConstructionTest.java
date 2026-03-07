@@ -871,6 +871,25 @@ public class HistogramConstructionTest {
   }
 
   @Test
+  public void mergeBuckets_7to4_lastBucketAbsorbsRemainder() {
+    // 7 buckets merged to 4 — ratio = 7/4 = 1 (integer division), so
+    // first 3 buckets get 1 source each, last bucket absorbs remainder
+    // (indices 3,4,5,6 → 4 source buckets).
+    Comparable<?>[] bounds = {0, 10, 20, 30, 40, 50, 60, 70};
+    long[] freqs = {100, 100, 100, 100, 100, 100, 100};
+    long[] ndvs = {10, 10, 10, 10, 10, 10, 10};
+
+    var result = IndexHistogramManager.mergeBuckets(
+        bounds, freqs, ndvs, 7, 4);
+
+    assertEquals(4, result.actualBucketCount);
+    assertEquals(100, result.frequencies[0]);
+    assertEquals(100, result.frequencies[1]);
+    assertEquals(100, result.frequencies[2]);
+    assertEquals(400, result.frequencies[3]); // 4 buckets merged
+  }
+
+  @Test
   public void mergeBuckets_preservesMinAndMaxBoundaries() {
     var boundaries = new Comparable<?>[]{
         "alpha", "bravo", "charlie", "delta", "echo"};
@@ -1053,6 +1072,44 @@ public class HistogramConstructionTest {
           comparator.compare(
               h.boundaries()[i], h.boundaries()[i + 1]) <= 0);
     }
+  }
+
+  @Test
+  public void fitToPage_largeMcvKey_forcesMerge() {
+    // Create a histogram where boundaries fit without MCV, but adding a
+    // large MCV key pushes the total over the page budget, forcing a
+    // merge. Use a boundary calculator that reports moderately large
+    // sizes so that the MCV key is the tipping factor.
+    var bounds = new Comparable<?>[129]; // 128 buckets
+    var freqs = new long[128];
+    var ndvs = new long[128];
+    for (int i = 0; i <= 128; i++) {
+      bounds[i] = i;
+    }
+    for (int i = 0; i < 128; i++) {
+      freqs[i] = 100;
+      ndvs[i] = 10;
+    }
+
+    var result = new IndexHistogramManager.BuildResult(
+        bounds, freqs, ndvs, 128, 1000, 50, 500);
+
+    // Large MCV key (4000 bytes) eats into the boundary budget.
+    // Page budget for 128 buckets:
+    //   8164 - 53 - 1024 - 1024 - 4000 = 2063 bytes for boundaries.
+    // With 40 bytes per boundary: 129 * 40 = 5160 > 2063 → must merge.
+    // Without MCV: 8164 - 53 - 1024 - 1024 = 6063 → 5160 < 6063 → fits.
+    int mcvKeySize = 4000;
+    IndexHistogramManager.BoundarySizeCalculator calc =
+        (b, bc) -> (bc + 1) * 40;
+
+    var fitResult = IndexHistogramManager.fitToPage(
+        result, 12800, true, mcvKeySize, calc);
+
+    // Should have merged down because of the large MCV key
+    assertNotNull(fitResult);
+    assertTrue("Large MCV key should force bucket reduction",
+        fitResult.histogram().bucketCount() < 128);
   }
 
   @Test

@@ -28,6 +28,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -36,7 +37,20 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -57,6 +71,24 @@ import org.junit.Test;
  * class verifies the CHM cache consistency that underpins persistence.
  */
 public class IndexHistogramManagerUnitTest {
+
+  private final java.util.Map<GlobalConfiguration, Object> overrides =
+      new java.util.LinkedHashMap<>();
+
+  @After
+  public void tearDown() {
+    for (var entry : overrides.entrySet()) {
+      entry.getKey().setValue(entry.getValue());
+    }
+    overrides.clear();
+  }
+
+  private void setConfig(GlobalConfiguration key, Object value) {
+    if (!overrides.containsKey(key)) {
+      overrides.put(key, key.getValue());
+    }
+    key.setValue(value);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // Empty statistics on creation
@@ -816,6 +848,283 @@ public class IndexHistogramManagerUnitTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // maybeScheduleHistogramWork — scheduling decisions
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void maybeScheduleHistogramWork_nullExecutor_isNoOp() {
+    // Given a manager with a snapshot that would trigger initial build
+    var fixture = new Fixture();
+    var stats = new IndexStatistics(5000, 5000, 0);
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(stats, null, 0, 0, 0, false, null, false));
+
+    // When called with null executor — no exception, no side effects
+    fixture.manager.maybeScheduleHistogramWork(null);
+
+    // Then rebalance is not in progress
+    assertFalse(fixture.manager.isRebalanceInProgress());
+  }
+
+  @Test
+  public void maybeScheduleHistogramWork_noCacheEntry_isNoOp() {
+    // Given a manager with NO cache entry
+    var fixture = new Fixture();
+
+    // When called with a real executor — no exception
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted
+    assertTrue(executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void maybeScheduleHistogramWork_belowMinSize_doesNotSchedule() {
+    // Given minSize = 1000 (default) and index has 500 non-null entries
+    var fixture = new Fixture();
+    var stats = new IndexStatistics(500, 500, 0);
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(stats, null, 0, 0, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 500).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted (500 < 1000 default min size)
+    assertTrue(executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void maybeScheduleHistogramWork_noHistogramNoLastBuild_schedulesInitialBuild() {
+    // Given an index above min size with no histogram and no previous build
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    var fixture = new Fixture();
+    var stats = new IndexStatistics(5000, 5000, 0);
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(stats, null, 0, 0, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 5000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then a task is submitted for initial build
+    assertFalse("Expected initial build task submitted",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void maybeScheduleHistogramWork_mutationsExceedThreshold_schedulesRebalance() {
+    // Given a histogram with mutations above the rebalance threshold
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
+        1_000_000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    // threshold = 10,000 * 0.1 = 1,000; mutationsSinceRebalance = 1,500
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 1500, 10_000, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then rebalance is scheduled (1500 > 1000)
+    assertFalse("Expected rebalance task submitted",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void maybeScheduleHistogramWork_mutationsBelowThreshold_doesNotSchedule() {
+    // Given a histogram with mutations below the rebalance threshold
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
+        1_000_000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    // threshold = 10,000 * 0.1 = 1,000; mutationsSinceRebalance = 500
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 500, 10_000, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted (500 < 1000)
+    assertTrue(executor.submitted.isEmpty());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // scheduleRebalance — cooldown and CAS guard
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void scheduleRebalance_recentFailure_skippedByCooldown() {
+    // Given a manager with a recent failure timestamp and a snapshot
+    // that would trigger rebalance
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
+        1_000_000L);
+    // Set a very long cooldown so it's always active
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN,
+        600_000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    // mutations above threshold
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 2000, 10_000, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+    // Set failure time to "just now"
+    fixture.manager.setLastRebalanceFailureTime(System.currentTimeMillis());
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then no task submitted due to cooldown
+    assertTrue("Expected no scheduling during cooldown period",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void scheduleRebalance_alreadyInProgress_skippedByCas() {
+    // Given a manager where rebalanceInProgress is already true
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 2000, 10_000, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    // First call claims the CAS
+    var executor1 = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor1);
+    assertFalse(executor1.submitted.isEmpty());
+
+    // rebalanceInProgress is now true (task was captured, not executed)
+    assertTrue(fixture.manager.isRebalanceInProgress());
+
+    // Second call should be skipped by CAS guard
+    var executor2 = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor2);
+    assertTrue("Expected second call skipped by CAS guard",
+        executor2.submitted.isEmpty());
+  }
+
+  @Test
+  public void scheduleRebalance_rejectedExecution_resetsCasFlag() {
+    // Given a shut-down executor that rejects tasks
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 2000, 10_000, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    // Create and immediately shut down an executor
+    var executor = Executors.newSingleThreadExecutor();
+    executor.shutdown();
+
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then CAS flag is reset (not stuck at true)
+    assertFalse("Expected CAS flag reset after RejectedExecutionException",
+        fixture.manager.isRebalanceInProgress());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // computeRebalanceThreshold — drift bias (tested via
+  // maybeScheduleHistogramWork)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void rebalanceThreshold_driftedBuckets_halvesThreshold() {
+    // Given hasDriftedBuckets=true, the threshold is halved.
+    // Normal threshold for 10,000 entries at 0.1 fraction = 1,000.
+    // Halved = 500.
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
+        1_000_000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+
+    // With 700 mutations and hasDriftedBuckets=true:
+    // normal threshold = 1000, halved = 500 → 700 > 500 → schedules
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 700, 10_000, 0, true, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    // Then rebalance is scheduled (700 > 500 halved threshold)
+    assertFalse("Expected rebalance with drifted buckets halving "
+        + "threshold", executor.submitted.isEmpty());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Fixtures and helpers
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -868,6 +1177,86 @@ public class IndexHistogramManagerUnitTest {
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;
+  }
+
+  /**
+   * ExecutorService that captures submitted tasks without executing them.
+   * Used to verify whether scheduling logic submits a task.
+   */
+  private static class CapturingExecutor implements ExecutorService {
+    final List<Runnable> submitted = new ArrayList<>();
+
+    @Override
+    public void execute(Runnable command) {
+      submitted.add(command);
+    }
+
+    @Override
+    public void shutdown() {
+    }
+
+    @Override
+    public List<Runnable> shutdownNow() {
+      return List.of();
+    }
+
+    @Override
+    public boolean isShutdown() {
+      return false;
+    }
+
+    @Override
+    public boolean isTerminated() {
+      return false;
+    }
+
+    @Override
+    public boolean awaitTermination(long timeout, TimeUnit unit) {
+      return true;
+    }
+
+    @Override
+    public <T> Future<T> submit(Callable<T> task) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> Future<T> submit(Runnable task, T result) {
+      submitted.add(task);
+      return CompletableFuture.completedFuture(result);
+    }
+
+    @Override
+    public Future<?> submit(Runnable task) {
+      submitted.add(task);
+      return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public <T> List<Future<T>> invokeAll(
+        Collection<? extends Callable<T>> tasks) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> List<Future<T>> invokeAll(
+        Collection<? extends Callable<T>> tasks,
+        long timeout, TimeUnit unit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> T invokeAny(
+        Collection<? extends Callable<T>> tasks) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> T invokeAny(
+        Collection<? extends Callable<T>> tasks,
+        long timeout, TimeUnit unit) {
+      throw new UnsupportedOperationException();
+    }
   }
 
   /**
