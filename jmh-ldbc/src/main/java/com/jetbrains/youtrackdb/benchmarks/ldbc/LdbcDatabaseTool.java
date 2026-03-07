@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 

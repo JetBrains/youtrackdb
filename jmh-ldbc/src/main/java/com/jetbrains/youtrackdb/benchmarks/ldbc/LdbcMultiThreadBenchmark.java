@@ -33,7 +33,7 @@ public class LdbcMultiThreadBenchmark extends LdbcReadBenchmarkBase {
     new Runner(
         new OptionsBuilder()
             .include(LdbcMultiThreadBenchmark.class.getSimpleName())
-            .build()
-    ).run();
+            .build())
+        .run();
   }
 }

@@ -31,7 +31,7 @@ public class LdbcSingleThreadBenchmark extends LdbcReadBenchmarkBase {
     new Runner(
         new OptionsBuilder()
             .include(LdbcSingleThreadBenchmark.class.getSimpleName())
-            .build()
-    ).run();
+            .build())
+        .run();
   }
 }
