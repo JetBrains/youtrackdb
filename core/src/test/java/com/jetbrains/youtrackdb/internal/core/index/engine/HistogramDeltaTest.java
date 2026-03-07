@@ -6,6 +6,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Tests for {@link HistogramDelta} — transaction-local accumulator for
@@ -78,5 +79,68 @@ public class HistogramDeltaTest {
     assertEquals(2, delta.totalCountDelta);
     assertEquals(2, delta.nullCountDelta);
     assertEquals(4, delta.mutationCount);
+  }
+
+  @Test
+  public void testRealisticPutRemoveSequence() {
+    // Simulate: 3 inserts (keys in buckets 0, 1, 1)
+    // + 1 null insert + 1 remove (bucket 0)
+    var delta = new HistogramDelta();
+
+    // Insert key into bucket 0
+    delta.totalCountDelta++;
+    delta.mutationCount++;
+    delta.initFrequencyDeltas(4, 0);
+    delta.frequencyDeltas[0]++;
+
+    // Insert key into bucket 1
+    delta.totalCountDelta++;
+    delta.mutationCount++;
+    delta.frequencyDeltas[1]++;
+
+    // Insert key into bucket 1 again
+    delta.totalCountDelta++;
+    delta.mutationCount++;
+    delta.frequencyDeltas[1]++;
+
+    // Insert null key
+    delta.totalCountDelta++;
+    delta.nullCountDelta++;
+    delta.mutationCount++;
+
+    // Remove key from bucket 0
+    delta.totalCountDelta--;
+    delta.mutationCount++;
+    delta.frequencyDeltas[0]--;
+
+    // Verify net effect
+    assertEquals(3, delta.totalCountDelta);  // 4 inserts - 1 remove
+    assertEquals(1, delta.nullCountDelta);
+    assertEquals(5, delta.mutationCount);
+    assertEquals(0, delta.frequencyDeltas[0]);  // +1 then -1
+    assertEquals(2, delta.frequencyDeltas[1]);  // +2
+    assertEquals(0, delta.frequencyDeltas[2]);
+    assertEquals(0, delta.frequencyDeltas[3]);
+  }
+
+  @Test
+  public void initFrequencyDeltasZeroBucketsAllocatesEmptyArray() {
+    var delta = new HistogramDelta();
+    delta.initFrequencyDeltas(0, 5);
+
+    assertNotNull(delta.frequencyDeltas);
+    assertEquals(0, delta.frequencyDeltas.length);
+    assertEquals(5, delta.snapshotVersion);
+  }
+
+  @Test
+  public void getOrCreateHllSmokeTest() {
+    var delta = new HistogramDelta();
+    var hll = delta.getOrCreateHll();
+
+    hll.add(12345L);
+    hll.add(67890L);
+    assertTrue("HLL estimate should be > 0 after adding values",
+        hll.estimate() > 0);
   }
 }

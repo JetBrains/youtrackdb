@@ -56,4 +56,22 @@ public class HistogramDeltaHolderTest {
     assertNotNull(map.get(2));
     assertNull(map.get(3));
   }
+
+  @Test
+  public void getDeltasOnEmptyHolderReturnsEmptyMap() {
+    var holder = new HistogramDeltaHolder();
+    var map = holder.getDeltas();
+    assertNotNull(map);
+    assertEquals(0, map.size());
+  }
+
+  @Test
+  public void negativeEngineIdWorksCorrectly() {
+    var holder = new HistogramDeltaHolder();
+    var delta = holder.getOrCreate(-1);
+    assertNotNull(delta);
+
+    delta.totalCountDelta = 42;
+    assertEquals(42, holder.getOrCreate(-1).totalCountDelta);
+  }
 }
