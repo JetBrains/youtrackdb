@@ -179,27 +179,38 @@ public class SQLWhereClauseHistogramEstimateTest {
   @Test
   public void greaterOrEqualOnBoundary_includesEntireBucket() {
     // WHERE age >= 50 — boundary between bucket 2 and 3.
-    // Selectivity ≈ 0.505 → exceeds count/2 cap → capped at 5000.
+    // Histogram: 4 buckets of 250 each, boundaries [0,25,50,75,100].
+    // GE 50 should include all of buckets 2+3 (500/1000 = 0.5) plus
+    // the equality contribution at boundary 50 (~1/50 * 250/1000).
+    // Raw selectivity should be approximately 0.50-0.52.
+    var rawSel =
+        SelectivityEstimator.estimateGreaterOrEqual(stats, histogram, 50);
+    assertTrue("GE on midpoint boundary should have selectivity ~0.5, got "
+        + rawSel, rawSel >= 0.49 && rawSel <= 0.53);
+
     var where = buildWhereClause(
         binaryCondition("age", new SQLGeOperator(-1), 50));
     var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
-    var expectedSel =
-        SelectivityEstimator.estimateGreaterOrEqual(stats, histogram, 50);
-    // High selectivity (>= 0.5) is capped at count/2
-    var raw = Math.max(1, (long) (CLASS_COUNT * expectedSel));
-    var expected = Math.min(raw, CLASS_COUNT / 2);
-    assertEquals(expected, estimate);
+    // Raw estimate ~5050 exceeds count/2 = 5000, so capped
+    assertEquals(CLASS_COUNT / 2, estimate);
   }
 
   @Test
   public void lessOrEqualOnBoundary_includesEntireBucket() {
-    // WHERE age <= 25 — boundary between bucket 0 and 1
+    // WHERE age <= 25 — boundary between bucket 0 and 1.
+    // LE 25 should include all of bucket 0 (250/1000 = 0.25) plus
+    // the equality contribution at boundary 25 (~1/50 * 250/1000).
+    // Raw selectivity should be approximately 0.25-0.27.
+    var rawSel =
+        SelectivityEstimator.estimateLessOrEqual(stats, histogram, 25);
+    assertTrue("LE on bucket boundary should have selectivity ~0.25, got "
+        + rawSel, rawSel >= 0.24 && rawSel <= 0.28);
+
     var where = buildWhereClause(
         binaryCondition("age", new SQLLeOperator(-1), 25));
     var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
-    var expectedSel =
-        SelectivityEstimator.estimateLessOrEqual(stats, histogram, 25);
-    assertEquals(Math.max(1, (long) (CLASS_COUNT * expectedSel)), estimate);
+    long expectedEstimate = Math.max(1, (long) (CLASS_COUNT * rawSel));
+    assertEquals(expectedEstimate, estimate);
   }
 
   @Test

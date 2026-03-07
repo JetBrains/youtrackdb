@@ -1124,6 +1124,92 @@ public class IndexHistogramManagerUnitTest {
         + "threshold", executor.submitted.isEmpty());
   }
 
+  @Test
+  public void rebalanceThreshold_clampedToMax_whenFractionExceedsMax() {
+    // Large index: 100M entries * 0.1 fraction = 10M, but max = 1000.
+    // So threshold = 1000. With 1500 mutations → should schedule.
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 1000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    // totalCountAtLastBuild=100M, mutations=1500 > max-clamped 1000
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 1500, 100_000_000L, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    assertFalse("Expected rebalance: 1500 > max-clamped threshold 1000",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void rebalanceThreshold_clampedToMin_whenFractionBelowMin() {
+    // Small index: 100 entries * 0.1 = 10, but min = 100.
+    // So threshold = 100. With 50 mutations → should NOT schedule.
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
+        1_000_000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(100);
+    var stats = new IndexStatistics(100, 100, 0);
+    // totalCountAtLastBuild=100, mutations=50 < min-clamped 100
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 50, 100, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    assertTrue("Expected no rebalance: 50 < min-clamped threshold 100",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void maybeScheduleHistogramWork_freshlyRebalanced_doesNotSchedule() {
+    // Steady state: histogram exists, mutations = 0, should not schedule
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    // mutationsSinceRebalance = 0 (freshly rebalanced)
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 0, 10_000, 1, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    assertTrue("Freshly rebalanced should not schedule",
+        executor.submitted.isEmpty());
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // Fixtures and helpers
   // ═══════════════════════════════════════════════════════════════════════
