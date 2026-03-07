@@ -46,6 +46,12 @@
       <artifactId>log4j-core</artifactId>
       <version>${log4j.version}</version>
     </dependency>
+
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -182,5 +188,26 @@
   <properties>
     <!-- Default: run all benchmarks. Override with -Djmh.args="pattern" -->
     <jmh.args/>
+    <argLine>-ea
+      -Xms${heapSize}
+      -Xmx${heapSize}
+      -Dyoutrackdb.storage.diskCache.bufferSize=4096
+      -Dyoutrackdb.security.createDefaultUsers=false
+      -Dyoutrackdb.memory.directMemory.trackMode=true
+      -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
+      -XX:+IgnoreUnrecognizedVMOptions
+      --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED
+      --add-opens=java.base/sun.security.x509=ALL-UNNAMED
+      --add-opens=java.base/java.io=ALL-UNNAMED
+      --add-opens=java.base/java.nio=ALL-UNNAMED
+      --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+      --add-opens=java.base/java.lang=ALL-UNNAMED
+      --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+      --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+      --add-opens=java.base/java.util=ALL-UNNAMED
+      --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+      --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+      --add-opens=java.base/java.net=ALL-UNNAMED
+    </argLine>
   </properties>
 </project>
