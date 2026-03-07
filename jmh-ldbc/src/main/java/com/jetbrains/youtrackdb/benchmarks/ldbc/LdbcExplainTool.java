@@ -2,8 +2,6 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import java.util.Date;
 import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Runs EXPLAIN and PROFILE on all LDBC queries against an existing or freshly-loaded DB.
@@ -23,51 +21,51 @@ public class LdbcExplainTool {
 
       var queries = new LinkedHashMap<String, Object[]>();
 
-      queries.put("IS1", new Object[]{LdbcQuerySql.IS1,
+      queries.put("IS1", new Object[] {LdbcQuerySql.IS1,
           "personId", state.personId(idx)});
-      queries.put("IS2", new Object[]{LdbcQuerySql.IS2,
+      queries.put("IS2", new Object[] {LdbcQuerySql.IS2,
           "personId", state.personId(idx), "limit", 20});
-      queries.put("IS3", new Object[]{LdbcQuerySql.IS3,
+      queries.put("IS3", new Object[] {LdbcQuerySql.IS3,
           "personId", state.personId(idx)});
-      queries.put("IS4", new Object[]{LdbcQuerySql.IS4,
+      queries.put("IS4", new Object[] {LdbcQuerySql.IS4,
           "messageId", state.messageId(idx)});
-      queries.put("IS5", new Object[]{LdbcQuerySql.IS5,
+      queries.put("IS5", new Object[] {LdbcQuerySql.IS5,
           "messageId", state.messageId(idx)});
-      queries.put("IS6", new Object[]{LdbcQuerySql.IS6,
+      queries.put("IS6", new Object[] {LdbcQuerySql.IS6,
           "messageId", state.messageId(idx)});
-      queries.put("IS7", new Object[]{LdbcQuerySql.IS7,
+      queries.put("IS7", new Object[] {LdbcQuerySql.IS7,
           "messageId", state.messageId(idx)});
-      queries.put("IC1", new Object[]{LdbcQuerySql.IC1,
+      queries.put("IC1", new Object[] {LdbcQuerySql.IC1,
           "personId", state.personId(idx), "firstName", state.firstName(idx), "limit", 20});
-      queries.put("IC2", new Object[]{LdbcQuerySql.IC2,
+      queries.put("IC2", new Object[] {LdbcQuerySql.IC2,
           "personId", state.personId(idx), "maxDate", state.maxDate(idx), "limit", 20});
-      queries.put("IC3", new Object[]{LdbcQuerySql.IC3,
+      queries.put("IC3", new Object[] {LdbcQuerySql.IC3,
           "personId", state.personId(idx), "countryX", state.countryName(idx),
           "countryY", state.countryName2(idx), "startDate", startDate, "endDate", endDate,
           "limit", 20});
-      queries.put("IC4", new Object[]{LdbcQuerySql.IC4,
+      queries.put("IC4", new Object[] {LdbcQuerySql.IC4,
           "personId", state.personId(idx), "startDate", startDate, "endDate", endDate,
           "limit", 20});
-      queries.put("IC5", new Object[]{LdbcQuerySql.IC5,
+      queries.put("IC5", new Object[] {LdbcQuerySql.IC5,
           "personId", state.personId(idx), "minDate", state.maxDate(idx), "limit", 20});
-      queries.put("IC6", new Object[]{LdbcQuerySql.IC6,
+      queries.put("IC6", new Object[] {LdbcQuerySql.IC6,
           "personId", state.personId(idx), "tagName", state.tagName(idx), "limit", 20});
-      queries.put("IC7", new Object[]{LdbcQuerySql.IC7,
+      queries.put("IC7", new Object[] {LdbcQuerySql.IC7,
           "personId", state.personId(idx), "limit", 20});
-      queries.put("IC8", new Object[]{LdbcQuerySql.IC8,
+      queries.put("IC8", new Object[] {LdbcQuerySql.IC8,
           "personId", state.personId(idx), "limit", 20});
-      queries.put("IC9", new Object[]{LdbcQuerySql.IC9,
+      queries.put("IC9", new Object[] {LdbcQuerySql.IC9,
           "personId", state.personId(idx), "maxDate", state.maxDate(idx), "limit", 20});
-      queries.put("IC10", new Object[]{LdbcQuerySql.IC10,
+      queries.put("IC10", new Object[] {LdbcQuerySql.IC10,
           "personId", state.personId(idx), "startMd", "0621", "endMd", "0722",
           "wrap", false, "limit", 20});
-      queries.put("IC11", new Object[]{LdbcQuerySql.IC11,
+      queries.put("IC11", new Object[] {LdbcQuerySql.IC11,
           "personId", state.personId(idx), "countryName", state.countryName(idx),
           "workFromYear", 2010, "limit", 20});
-      queries.put("IC12", new Object[]{LdbcQuerySql.IC12,
+      queries.put("IC12", new Object[] {LdbcQuerySql.IC12,
           "personId", state.personId(idx), "tagClassName", state.tagClassName(idx),
           "limit", 20});
-      queries.put("IC13", new Object[]{LdbcQuerySql.IC13,
+      queries.put("IC13", new Object[] {LdbcQuerySql.IC13,
           "person1Id", state.personId(idx), "person2Id", state.personId2(idx)});
 
       for (var entry : queries.entrySet()) {
