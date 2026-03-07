@@ -424,7 +424,7 @@ public class LdbcBenchmarkState {
    * Blank lines and lines starting with {@code --} are skipped.
    * Trailing semicolons are stripped from each statement.
    */
-  private static List<String> loadSqlStatements(String resource) {
+  static List<String> loadSqlStatements(String resource) {
     try (InputStream is = LdbcBenchmarkState.class.getResourceAsStream(resource)) {
       if (is == null) {
         throw new IllegalStateException("Resource not found: " + resource);
