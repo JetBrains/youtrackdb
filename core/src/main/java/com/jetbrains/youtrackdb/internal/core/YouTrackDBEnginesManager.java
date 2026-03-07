@@ -876,29 +876,36 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private void purgeWeakStartupListeners() {
     synchronized (removedStartupListenersQueue) {
-      var ref =
-          (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
+      var ref = pollStartupListener();
       while (ref != null) {
         weakStartupListeners.remove(ref);
-        ref =
-            (WeakHashSetValueHolder<YouTrackDBStartupListener>)
-                removedStartupListenersQueue.poll();
+        ref = pollStartupListener();
       }
     }
   }
 
+  @SuppressWarnings("unchecked")
+  private WeakHashSetValueHolder<YouTrackDBStartupListener>
+      pollStartupListener() {
+    return (WeakHashSetValueHolder<YouTrackDBStartupListener>)
+        removedStartupListenersQueue.poll();
+  }
+
   private void purgeWeakShutdownListeners() {
     synchronized (removedShutdownListenersQueue) {
-      var ref =
-          (WeakHashSetValueHolder<YouTrackDBShutdownListener>)
-              removedShutdownListenersQueue.poll();
+      var ref = pollShutdownListener();
       while (ref != null) {
         weakShutdownListeners.remove(ref);
-        ref =
-            (WeakHashSetValueHolder<YouTrackDBShutdownListener>)
-                removedShutdownListenersQueue.poll();
+        ref = pollShutdownListener();
       }
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private WeakHashSetValueHolder<YouTrackDBShutdownListener>
+      pollShutdownListener() {
+    return (WeakHashSetValueHolder<YouTrackDBShutdownListener>)
+        removedShutdownListenersQueue.poll();
   }
 
   private boolean startEngine(Engine engine) {
