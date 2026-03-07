@@ -330,6 +330,10 @@
           <includes>
             <include>**/*MTTest.java</include>
           </includes>
+          <!-- When -Dtest=SomeTest is passed for a non-MT test,
+               don't fail because it doesn't match *MTTest.java -->
+          <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+          <failIfNoTests>false</failIfNoTests>
         </configuration>
       </plugin>
     </plugins>
