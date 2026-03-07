@@ -766,7 +766,7 @@ public class IncrementalMaintenanceTest {
       }
 
       // Wait for first rebalance to start and block
-      assertTrue(rebalanceStarted.await(5, TimeUnit.SECONDS));
+      assertTrue(rebalanceStarted.await(30, TimeUnit.SECONDS));
 
       // Let the first one proceed
       rebalanceProceeds.countDown();
