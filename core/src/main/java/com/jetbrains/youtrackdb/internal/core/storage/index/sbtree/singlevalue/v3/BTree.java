@@ -92,8 +92,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private static final int SPLITERATOR_CACHE_SIZE =
       GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
-  private static final int MAX_KEY_SIZE =
-      GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
+  // Read at runtime instead of class-load time because the value depends on
+  // DISK_CACHE_PAGE_SIZE and is set by AbstractStorage.checkPageSizeAndRelatedParametersInGlobalConfiguration().
+  // A static final captured too early would be -1 (the default sentinel).
+  private static int getMaxKeySize() {
+    return GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
+  }
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
@@ -262,12 +266,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
-              if (serializedKey.length > MAX_KEY_SIZE) {
+              var maxKeySize = getMaxKeySize();
+              if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
                 throw new TooBigIndexKeyException(storage.getName(),
                     "Key size is more than allowed, operation was canceled. Current key size "
                         + serializedKey.length
                         + ", allowed  "
-                        + MAX_KEY_SIZE, getName());
+                        + maxKeySize, getName());
               }
               var bucketSearchResult =
                   findBucketForUpdate(key, atomicOperation);
