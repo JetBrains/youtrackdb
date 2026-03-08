@@ -1175,6 +1175,31 @@
               <timeoutFactor>1.5</timeoutFactor>
               <verbose>false</verbose>
               <verbosity>NO_SPINNER</verbosity>
+              <!-- Match the heap and module-opens used by surefire so the
+                   coverage minion does not OOM on the core module's 2500+
+                   test classes (especially the GRATEFUL-dataset Cucumber
+                   feature tests that need ~4 GB). -->
+              <jvmArgs>
+                <jvmArg>-Xms${heapSize}</jvmArg>
+                <jvmArg>-Xmx${heapSize}</jvmArg>
+                <jvmArg>--enable-native-access=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/sun.security.x509=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.io=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.nio=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/sun.nio.cs=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.lang=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.lang.invoke=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.lang.reflect=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.util=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.util.concurrent=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-opens=java.base/java.net=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-exports=java.base/sun.nio.ch=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-exports=java.base/sun.security.x509=ALL-UNNAMED</jvmArg>
+                <jvmArg>--add-exports=java.base/sun.security.action=ALL-UNNAMED</jvmArg>
+                <jvmArg>-XX:+IgnoreUnrecognizedVMOptions</jvmArg>
+              </jvmArgs>
               <mutators>
                 <mutator>STRONGER</mutator>
                 <mutator>EXTENDED</mutator>
@@ -1194,6 +1219,10 @@
                 <param>*IntegrationTest</param>
                 <!-- GremlinProcessRunner-based tests fail under PIT's classloader -->
                 <param>com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.*$Traversals</param>
+                <!-- Cucumber feature tests are heavyweight (GRATEFUL dataset
+                     needs ~4 GB) and do not test project-specific mutations;
+                     exclude them to reduce minion memory pressure. -->
+                <param>*FeatureTest</param>
               </excludedTestClasses>
               <targetTests>
                 <param>com.jetbrains.youtrackdb.*</param>
