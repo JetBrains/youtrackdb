@@ -1,7 +1,6 @@
 ---
 source_files:
   - .github/scripts/coverage-gate.py
-  - .github/scripts/mutation-gate.py
   - .github/workflows/maven-pipeline.yml
   - pom.xml
 related_docs:
@@ -65,9 +64,7 @@ A mutation score of 85% means that at least 85% of the mutations introduced into
 3. Runs relevant tests against each mutation.
 4. Reports how many mutations were killed (detected by tests) vs. survived (undetected).
 
-When the mutation score is below the threshold:
-- A **summary PR comment** is posted listing survived and no-coverage mutations by class, method, and line number.
-- **Inline PR annotations** are posted on the Files Changed tab via the `pitest-github-maven-plugin`, highlighting exactly which lines have survived mutations.
+PIT's built-in `mutationThreshold` enforces the minimum kill rate — the build fails if the score is below the threshold. The `pitest-github-maven-plugin` posts a **summary PR comment** and **inline PR annotations** on the Files Changed tab, highlighting exactly which lines have survived mutations.
 
 ### Integration Test Exclusion
 
@@ -95,7 +92,7 @@ The project uses commercial [Arcmutate](https://docs.arcmutate.com/) extensions 
 
 - **`com.arcmutate:base`** — provides the `EXTENDED` mutator group with additional operators (stream operations, varargs, parameter swaps, etc.)
 - **`com.arcmutate:pitest-git-plugin`** — `GIT_MIXED` mode that scopes mutations to changed lines and code paths exercised by modified tests
-- **`com.arcmutate:pitest-github-maven-plugin`** — posts inline annotations on PR file diffs for survived mutations
+- **`com.arcmutate:pitest-github-maven-plugin`** — posts a summary PR comment and inline annotations on PR file diffs for survived mutations
 
 The Arcmutate licence file (`arcmutate-licence.txt`) is **not** committed to the repository (it is gitignored). In CI, the licence content is written from the `ARCMUTATE_LICENCE` GitHub Actions secret. For local development, place the licence file manually at the project root.
 
