@@ -238,11 +238,13 @@ public abstract class AbstractStorage
       new ConcurrentHashMap<>();
 
   /**
-   * IO executor reference for histogram managers. Stored so that newly created
-   * indexes (after database open) can receive the executor immediately.
-   * Set by {@link #setIoExecutorOnHistogramManagers}.
+   * Executor reference for histogram managers. Must NOT be the ioExecutor
+   * (used by AsynchronousFileChannel for I/O completions) — blocking reads
+   * on the ioExecutor cause deadlocks. Stored so that newly created indexes
+   * (after database open) can receive the executor immediately.
+   * Set by {@link #setHistogramExecutor}.
    */
-  @Nullable private volatile ExecutorService histogramIoExecutor;
+  @Nullable private volatile ExecutorService histogramExecutor;
 
   /**
    * Storage-level semaphore limiting concurrent histogram rebalance tasks.
@@ -2516,12 +2518,12 @@ public abstract class AbstractStorage
     // Propagate the rebalance semaphore to limit concurrent rebalance tasks.
     mgr.setRebalanceSemaphore(histogramRebalanceSemaphore);
 
-    // Propagate the IO executor if already available (index created after
-    // database open). Before database open, histogramIoExecutor is null
-    // and setIoExecutorOnHistogramManagers() will wire it for all engines.
-    var executor = histogramIoExecutor;
-    if (executor != null) {
-      mgr.setIoExecutor(executor);
+    // Propagate the executor if already available (index created after
+    // database open). Before database open, histogramExecutor is null
+    // and setHistogramExecutor() will wire it for all engines.
+    var exec = histogramExecutor;
+    if (exec != null) {
+      mgr.setIoExecutor(exec);
     }
 
     return mgr;
@@ -3981,21 +3983,28 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Propagates the IO executor to all histogram managers. Called after the
-   * database is fully open so that histogram managers can schedule background
-   * rebalance work. Also triggers a proactive rebalance check on each
-   * manager — if mutations accumulated before a crash exceeded the threshold,
-   * a background rebalance is scheduled immediately.
+   * Propagates a general-purpose executor to all histogram managers for
+   * background rebalance work. Called after the database is fully open.
+   * <p>
+   * <b>Important:</b> The executor must NOT be the {@code ioExecutor} used
+   * by {@code AsynchronousFileChannel} for I/O completions. Running blocking
+   * page reads on the ioExecutor deadlocks because the completion callbacks
+   * need the same thread pool.
+   * <p>
+   * Also triggers a proactive rebalance check on each manager — if mutations
+   * accumulated before a crash exceeded the threshold, a background rebalance
+   * is scheduled immediately.
    *
-   * @param ioExecutor the IO executor from the embedded database
+   * @param executor the general-purpose executor (must NOT be the ioExecutor
+   *                 used by AsynchronousFileChannel — see class Javadoc)
    */
-  public void setIoExecutorOnHistogramManagers(ExecutorService ioExecutor) {
-    this.histogramIoExecutor = ioExecutor;
+  public void setHistogramExecutor(ExecutorService executor) {
+    this.histogramExecutor = executor;
     for (var engine : indexEngines) {
       if (engine instanceof BTreeIndexEngine btreeEngine) {
         var mgr = btreeEngine.getHistogramManager();
         if (mgr != null) {
-          mgr.setIoExecutor(ioExecutor);
+          mgr.setIoExecutor(executor);
         }
       }
     }

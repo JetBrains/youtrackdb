@@ -135,12 +135,17 @@ public class IndexHistogramManager extends DurableComponent {
   private volatile boolean bulkLoading;
 
   /**
-   * IO executor for scheduling background rebalance tasks. Set post-construction
-   * by the storage layer once the database is fully open. Before this is set,
-   * {@link #maybeScheduleHistogramWork} is a no-op (null executor returns
-   * immediately).
+   * Background executor for scheduling histogram rebalance tasks. Set
+   * post-construction by the storage layer once the database is fully open.
+   * Before this is set, {@link #maybeScheduleHistogramWork} is a no-op (null
+   * executor returns immediately).
+   * <p>
+   * <b>Must NOT be the ioExecutor used by {@code AsynchronousFileChannel}
+   * for I/O completions.</b> Running blocking page reads on the ioExecutor
+   * thread pool deadlocks because I/O completion callbacks need the same
+   * threads.
    */
-  @Nullable private volatile ExecutorService ioExecutor;
+  @Nullable private volatile ExecutorService backgroundExecutor;
 
   /**
    * Creates a new histogram manager for the given index engine.
@@ -202,10 +207,13 @@ public class IndexHistogramManager extends DurableComponent {
    * at-most-one CAS guard in {@code scheduleRebalance} prevents
    * duplicate rebalance tasks.
    *
-   * @param executor the IO executor, or null to disable background rebalance
+   * @param executor the background executor, or null to disable background
+   *                 rebalance. Must NOT be the ioExecutor used by
+   *                 AsynchronousFileChannel — blocking reads on that executor
+   *                 deadlock because completion callbacks need the same pool.
    */
   public void setIoExecutor(@Nullable ExecutorService executor) {
-    this.ioExecutor = executor;
+    this.backgroundExecutor = executor;
     if (executor != null) {
       // Proactive rebalance check after database open (Section 5.7):
       // if mutations accumulated before a crash exceeded the threshold,
@@ -521,11 +529,11 @@ public class IndexHistogramManager extends DurableComponent {
    * Returns the current histogram from the CHM cache, or null if no
    * histogram has been built yet. Evaluates the rebalance trigger on each
    * call — if mutation thresholds are exceeded, schedules a background
-   * rebalance on the IO executor (non-blocking).
+   * rebalance on the background executor (non-blocking).
    */
   @Nullable
   public EquiDepthHistogram getHistogram() {
-    maybeScheduleHistogramWork(ioExecutor);
+    maybeScheduleHistogramWork(backgroundExecutor);
     var snapshot = cache.get(engineId);
     return snapshot != null ? snapshot.histogram() : null;
   }
@@ -643,12 +651,12 @@ public class IndexHistogramManager extends DurableComponent {
    * if so. Called from planner reads (getHistogram). Does NOT block the
    * planner — returns immediately with the current (possibly stale) data.
    *
-   * @param ioExecutor the IO executor for background tasks, or null if
-   *                   background rebalance is not available
+   * @param executor the background executor for rebalance tasks, or null if
+   *                 background rebalance is not available
    */
   public void maybeScheduleHistogramWork(
-      @Nullable ExecutorService ioExecutor) {
-    if (ioExecutor == null) {
+      @Nullable ExecutorService executor) {
+    if (executor == null) {
       return;
     }
     var snapshot = cache.get(engineId);
@@ -667,14 +675,14 @@ public class IndexHistogramManager extends DurableComponent {
     // Initial build: no histogram yet and no previous build attempt
     if (snapshot.histogram() == null
         && snapshot.totalCountAtLastBuild() == 0) {
-      scheduleRebalance(ioExecutor);
+      scheduleRebalance(executor);
       return;
     }
 
     // Rebalance threshold check
     long rebalanceThreshold = computeRebalanceThreshold(snapshot);
     if (snapshot.mutationsSinceRebalance() > rebalanceThreshold) {
-      scheduleRebalance(ioExecutor);
+      scheduleRebalance(executor);
     }
   }
 
@@ -1100,7 +1108,7 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   private void scheduleRebalance(
-      ExecutorService ioExecutor) {
+      ExecutorService executor) {
     // Check cooldown
     long cooldownMs =
         GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
@@ -1113,7 +1121,7 @@ public class IndexHistogramManager extends DurableComponent {
       return;
     }
     try {
-      ioExecutor.submit(() -> {
+      executor.submit(() -> {
         try {
           doRebalance(false);
           lastRebalanceFailureTime = 0;
