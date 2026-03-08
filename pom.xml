@@ -1175,31 +1175,14 @@
               <timeoutFactor>1.5</timeoutFactor>
               <verbose>false</verbose>
               <verbosity>NO_SPINNER</verbosity>
-              <!-- Match the heap and module-opens used by surefire so the
-                   coverage minion does not OOM on the core module's 2500+
-                   test classes (especially the GRATEFUL-dataset Cucumber
-                   feature tests that need ~4 GB). -->
+              <!-- Inherit each module's argLine (heap, system properties,
+                   module-opens) so the PIT minion JVM matches surefire.
+                   Only enable-native-access is added here because it is
+                   not part of the per-module argLine properties. -->
               <jvmArgs>
-                <jvmArg>-Xms${heapSize}</jvmArg>
-                <jvmArg>-Xmx${heapSize}</jvmArg>
                 <jvmArg>--enable-native-access=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/sun.security.x509=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.io=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.nio=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/sun.nio.cs=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.lang=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.lang.invoke=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.lang.reflect=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.util=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.util.concurrent=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-opens=java.base/java.net=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-exports=java.base/sun.nio.ch=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-exports=java.base/sun.security.x509=ALL-UNNAMED</jvmArg>
-                <jvmArg>--add-exports=java.base/sun.security.action=ALL-UNNAMED</jvmArg>
-                <jvmArg>-XX:+IgnoreUnrecognizedVMOptions</jvmArg>
               </jvmArgs>
+              <argLine>${argLine}</argLine>
               <mutators>
                 <mutator>STRONGER</mutator>
                 <mutator>EXTENDED</mutator>
