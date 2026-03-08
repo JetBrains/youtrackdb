@@ -16,12 +16,16 @@ public class ScheduledThreadPoolExecutorWithLogging extends ScheduledThreadPoolE
 
   public ScheduledThreadPoolExecutorWithLogging(int corePoolSize, ThreadFactory threadFactory) {
     super(corePoolSize, threadFactory);
+    // Remove cancelled tasks from the queue immediately to prevent accumulation
+    // in long-running processes with many schedule/cancel cycles (e.g., WAL instances).
+    setRemoveOnCancelPolicy(true);
   }
 
   @SuppressWarnings("unused")
   public ScheduledThreadPoolExecutorWithLogging(
       int corePoolSize, ThreadFactory threadFactory, RejectedExecutionHandler handler) {
     super(corePoolSize, threadFactory, handler);
+    setRemoveOnCancelPolicy(true);
   }
 
   @Override
