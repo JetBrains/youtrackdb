@@ -604,8 +604,14 @@ public class IndexHistogramManager extends DurableComponent {
       return;
     }
 
+    // Compute actual non-null count from scan (consistent with frequencies)
+    long scannedNonNull = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      scannedNonNull += result.frequencies[i];
+    }
+
     // Apply boundary truncation and page budget check
-    var fitResult = fitToPage(result, nonNullCount);
+    var fitResult = fitToPage(result, scannedNonNull);
 
     // Build HLL sketch for multi-value indexes.
     // TODO(Step 5/6): Populate HLL during the key scan pass (requires
@@ -1195,7 +1201,15 @@ public class IndexHistogramManager extends DurableComponent {
         return;
       }
 
-      var fitResult = fitToPage(result, nonNullCount);
+      // Use the actual scanned count (sum of frequencies) rather than the
+      // snapshot's nonNullCount. Under concurrent writes the snapshot counter
+      // and the B-tree contents can diverge, leading to nonNullCount !=
+      // sum(frequencies) in the resulting histogram.
+      long scannedNonNullCount = 0;
+      for (int i = 0; i < result.actualBucketCount; i++) {
+        scannedNonNullCount += result.frequencies[i];
+      }
+      var fitResult = fitToPage(result, scannedNonNullCount);
       if (fitResult == null) {
         return;
       }
