@@ -437,10 +437,11 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
       throw e;
     }
-    // Wire the IO executor into histogram managers so they can schedule
-    // background rebalance work. Also triggers proactive rebalance on
-    // any index whose mutations exceeded the threshold before a crash.
-    storage.setIoExecutorOnHistogramManagers(ioExecutor);
+    // Wire the general-purpose executor into histogram managers so they can
+    // schedule background rebalance work. We deliberately avoid ioExecutor
+    // here because it is also used by AsynchronousFileChannel for I/O
+    // completions — running blocking reads on it causes deadlocks.
+    storage.setHistogramExecutor(executor);
     return storage;
   }
 
@@ -873,7 +874,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               var storage = getOrInitStorage(name);
               // THIS OPEN THE STORAGE ONLY THE FIRST TIME
               storage.open(configuration.getConfiguration());
-              storage.setIoExecutorOnHistogramManagers(ioExecutor);
+              storage.setHistogramExecutor(executor);
             }
           });
     }
