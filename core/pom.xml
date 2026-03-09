@@ -470,6 +470,17 @@
       <version>3.8.8</version>
       <scope>test</scope>
     </dependency>
+    <!-- xchart → pdfbox pulls in junit-jupiter transitively, which causes
+         surefire to auto-detect JUnit Platform instead of the configured
+         surefire-junit47 provider. Add the Vintage engine so that JUnit
+         Platform can discover and run JUnit 4 tests as well. Without this,
+         -Dtest= filtering silently finds zero JUnit 4 tests. -->
+    <dependency>
+      <groupId>org.junit.vintage</groupId>
+      <artifactId>junit-vintage-engine</artifactId>
+      <version>5.10.1</version>
+      <scope>test</scope>
+    </dependency>
 
 
     <dependency>

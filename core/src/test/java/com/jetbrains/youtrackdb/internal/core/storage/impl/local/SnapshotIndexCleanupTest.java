@@ -25,7 +25,7 @@ import org.junit.Test;
 /**
  * Tests for the snapshot index cleanup logic in {@link AbstractStorage}, including the static
  * {@link AbstractStorage#evictStaleSnapshotEntries} method and the integration with
- * {@code cleanupSnapshotIndex()} called during commit.
+ * {@code cleanupSnapshotIndex()} called from {@code resetTsMin()} at transaction close.
  */
 public class SnapshotIndexCleanupTest {
 
@@ -214,7 +214,7 @@ public class SnapshotIndexCleanupTest {
     assertThat(snapshotIndex).isEmpty();
   }
 
-  // --- Integration: cleanupSnapshotIndex via commit ---
+  // --- Integration: cleanupSnapshotIndex via transaction close (resetTsMin) ---
 
   @Test
   public void testCommitTriggersCleanupWhenThresholdExceeded() {
@@ -225,7 +225,7 @@ public class SnapshotIndexCleanupTest {
       var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
       var storage = (AbstractStorage) session.getStorage();
 
-      // Set a very low cleanup threshold to trigger cleanup on next commit
+      // Set a very low cleanup threshold to trigger cleanup on next transaction close
       storage.getContextConfiguration()
           .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 1);
 
@@ -235,21 +235,73 @@ public class SnapshotIndexCleanupTest {
       assertThat(initialSnapshotSize).isGreaterThan(1);
       assertThat(initialVisibilitySize).isGreaterThan(1);
 
-      // Perform a write to trigger a commit (which calls cleanupSnapshotIndex).
-      // Schema changes are non-transactional, so use a record insert instead.
+      // Perform a write to trigger a commit. cleanupSnapshotIndex() is called from
+      // resetTsMin() during transaction close (after commit). The committing thread's
+      // tsMin has been reset to Long.MAX_VALUE by the time cleanup runs, but
+      // computeGlobalLowWaterMark() falls back to idGen.getLastId() when all threads
+      // are idle, so eviction still proceeds correctly.
       session.command("CREATE CLASS TestCleanup");
       session.begin();
       session.command("INSERT INTO TestCleanup SET name = 'test'");
       session.commit();
 
       // After commit with threshold=1, cleanup should have run and evicted stale
-      // entries. The committing thread's tsMin is still set during cleanup (resetTsMin
-      // runs later in close()), so lwm != MAX_VALUE and eviction occurs. Entries from
-      // db init whose recordTs < lwm are removed.
+      // entries. Entries from db init whose recordTs < lwm are removed.
       assertThat(storage.getSharedSnapshotIndex().size())
           .isLessThan(initialSnapshotSize);
       assertThat(storage.getVisibilityIndex().size())
           .isLessThan(initialVisibilitySize);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  @Test
+  public void testReadOnlyTransactionTriggersCleanup() {
+    // Verifies that read-only transactions also trigger snapshot index cleanup
+    // via resetTsMin(). Before the move to resetTsMin(), cleanup only ran on
+    // write commits, so stale entries accumulated in read-heavy workloads.
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      // Set a very low cleanup threshold to trigger cleanup on next transaction close
+      storage.getContextConfiguration()
+          .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 1);
+
+      // First, create some stale snapshot entries via a write transaction.
+      session.command("CREATE CLASS TestReadCleanup");
+      session.begin();
+      session.command("INSERT INTO TestReadCleanup SET name = 'v1'");
+      session.commit();
+
+      // Update the record to create a stale snapshot entry for the old version
+      session.begin();
+      session.command("UPDATE TestReadCleanup SET name = 'v2'");
+      session.commit();
+
+      int snapshotSizeAfterWrites = storage.getSharedSnapshotIndex().size();
+      int visibilitySizeAfterWrites = storage.getVisibilityIndex().size();
+
+      // Now perform a read-only transaction. When it closes, resetTsMin()
+      // triggers cleanupSnapshotIndex() which should evict stale entries.
+      session.begin();
+      session.query("SELECT FROM TestReadCleanup").close();
+      session.commit();
+
+      // After the read-only transaction close, cleanup should have evicted
+      // stale entries (those whose recordTs < lwm).
+      assertThat(storage.getSharedSnapshotIndex().size())
+          .isLessThanOrEqualTo(snapshotSizeAfterWrites);
+      assertThat(storage.getVisibilityIndex().size())
+          .isLessThanOrEqualTo(visibilitySizeAfterWrites);
 
       session.close();
     } finally {
@@ -376,10 +428,11 @@ public class SnapshotIndexCleanupTest {
   }
 
   @Test
-  public void testCommitSkipsCleanupWhenLockHeld() throws InterruptedException {
+  public void testTransactionCloseSkipsCleanupWhenLockHeld() throws InterruptedException {
     // Exercises the tryLock failure branch inside the real cleanupSnapshotIndex():
     // a background thread holds the snapshotCleanupLock while the main thread
-    // commits. Since tryLock is not re-entrant across threads, cleanup is skipped.
+    // closes a transaction (via resetTsMin). Since tryLock is not re-entrant across
+    // threads, cleanup is skipped.
     YouTrackDBImpl youTrackDB = null;
     try {
       youTrackDB = DbTestBase.createYTDBManagerAndDb(
@@ -392,7 +445,7 @@ public class SnapshotIndexCleanupTest {
           .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 1);
 
       // Hold the cleanup lock from a background thread (tryLock is NOT re-entrant
-      // across threads, so the committing main thread's tryLock will fail)
+      // across threads, so the main thread's tryLock in resetTsMin will fail)
       var lockAcquired = new CountDownLatch(1);
       var releaseSignal = new CountDownLatch(1);
       var bgThread = new Thread(() -> {
@@ -412,7 +465,8 @@ public class SnapshotIndexCleanupTest {
       try {
         int sizeBefore = storage.getSharedSnapshotIndex().size();
 
-        // Perform a commit — cleanupSnapshotIndex will try tryLock and skip
+        // Perform a commit — cleanupSnapshotIndex (called from resetTsMin during
+        // transaction close) will try tryLock and skip
         session.command("CREATE CLASS TestLock");
         session.begin();
         session.command("INSERT INTO TestLock SET name = 'test'");

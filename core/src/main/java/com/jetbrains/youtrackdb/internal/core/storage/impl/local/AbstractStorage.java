@@ -2034,16 +2034,6 @@ public abstract class AbstractStorage
               rollback(error, atomicOperation);
             } else {
               endTxCommit(atomicOperation);
-              try {
-                cleanupSnapshotIndex();
-              } catch (final RuntimeException e) {
-                // Cleanup is best-effort — its failure must never mask a successful commit.
-                // The commit is already durable (WAL flushed, pages applied). If cleanup
-                // throws, stale snapshot entries simply accumulate until the next successful
-                // cleanup pass.
-                LogManager.instance()
-                    .warn(this, "Snapshot index cleanup failed after successful commit", e);
-              }
             }
           }
         } finally {
@@ -3877,6 +3867,12 @@ public abstract class AbstractStorage
    * <p>The reset uses an opaque write ({@link TsMinHolder#setTsMinOpaque}) instead of a
    * volatile write: no {@code StoreLoad} barrier is needed because the owning thread has no
    * subsequent loads that depend on the reset being globally visible immediately.
+   *
+   * <p>When the last transaction on the thread closes ({@code activeTxCount} reaches 0),
+   * this method also triggers snapshot index cleanup. This ensures stale snapshot entries
+   * are evicted after both read and write transactions, not just write commits. The cleanup
+   * is best-effort: it uses {@code tryLock()} internally, so it never blocks, and any
+   * failure is logged but does not propagate — it must not mask transaction close errors.
    */
   public void resetTsMin() {
     var holder = tsMinThreadLocal.get();
@@ -3896,6 +3892,15 @@ public abstract class AbstractStorage
       // could see stale tsMin but cleared txStartTimeNanos.
       holder.clearDiagnostics();
       holder.setTsMinOpaque(Long.MAX_VALUE);
+      try {
+        cleanupSnapshotIndex();
+      } catch (final RuntimeException e) {
+        // Cleanup is best-effort — its failure must never mask a successful transaction
+        // close. Stale snapshot entries simply accumulate until the next successful
+        // cleanup pass.
+        LogManager.instance()
+            .warn(this, "Snapshot index cleanup failed during resetTsMin", e);
+      }
     }
   }
 
@@ -5433,21 +5438,22 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Evicts stale snapshot index entries whose {@code recordTs} is below the global low-water-mark
-   * (the minimum {@code tsMin} across all active transactions). This prevents unbounded growth of
-   * the shared snapshot index under update-heavy workloads.
+   * Attempts to evict stale snapshot index entries if the index exceeds the configured threshold.
+   * Called from {@link #resetTsMin()} at the end of every storage transaction (both read and
+   * write), ensuring prompt cleanup even in read-heavy workloads where write commits are
+   * infrequent.
    *
-   * <p>Uses {@code tryLock} so only one thread cleans at a time — other committing threads skip
-   * cleanup if the lock is already held (no point blocking; the cleaning thread will handle it).
-   * The threshold is re-checked under the lock (double-checked pattern) to avoid redundant work
+   * <p>Uses {@code tryLock} so only one thread cleans at a time — other threads skip cleanup
+   * if the lock is already held (no point blocking; the cleaning thread will handle it). The
+   * threshold is re-checked under the lock (double-checked pattern) to avoid redundant work
    * if another thread already cleaned enough entries.
    *
    * <p>Uses {@link #snapshotIndexSize} (an {@code AtomicLong} counter) instead of
    * {@code ConcurrentSkipListMap.size()} for the threshold check. The latter is O(n) — it
-   * traverses the entire map — and calling it on every commit causes resource exhaustion
-   * under sustained heavy concurrent load (e.g., 30-minute soak tests with 10+ threads).
-   * The counter is incremented during {@code flushSnapshotBuffers()} and decremented during
-   * {@code evictStaleSnapshotEntries()}, providing an O(1) approximate size check.
+   * traverses the entire map — and calling it on every transaction close causes resource
+   * exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests with 10+
+   * threads). The counter is incremented during {@code flushSnapshotBuffers()} and decremented
+   * during {@code evictStaleSnapshotEntries()}, providing an O(1) approximate size check.
    */
   private void cleanupSnapshotIndex() {
     int threshold = configuration.getContextConfiguration()
