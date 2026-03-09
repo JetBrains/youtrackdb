@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.common.profiler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Delayed;
@@ -130,7 +132,7 @@ public class GranularTickerTest {
    * {@code if (!stopped)} branches (lines 42 and 49 in GranularTicker).
    */
   @Test
-  public void scheduledTasksSkipUpdateAfterStop() {
+  public void scheduledTasksSkipUpdateAfterStop() throws Exception {
     List<Runnable> capturedTasks = new ArrayList<>();
     // Fake scheduler that only captures the runnables — no threads, no real scheduling.
     ScheduledExecutorService fakeScheduler = new DelegatingScheduledExecutorService(
@@ -152,20 +154,28 @@ public class GranularTickerTest {
       // Verify getGranularity() returns the configured value
       assertThat(ticker.getGranularity()).isEqualTo(granularityNanos);
 
-      // Invoke the nanoTime task while ticker is running — nanoTime should update
+      // Invoke the nanoTime task while ticker is running — nanoTime must advance
+      // because real time has elapsed since start() set it.
       var nanoBefore = ticker.approximateNanoTime();
       capturedTasks.get(0).run();
       var nanoAfterRunning = ticker.approximateNanoTime();
-      assertThat(nanoAfterRunning).isGreaterThanOrEqualTo(nanoBefore);
+      assertThat(nanoAfterRunning)
+          .as("nanoTime task must update nanoTime when ticker is running")
+          .isGreaterThan(nanoBefore);
 
-      // Invoke the nanoTimeDifference task while running — approximateCurrentTimeMillis
-      // should reflect the updated difference.
-      var millisBefore = ticker.approximateCurrentTimeMillis();
+      // Corrupt nanoTimeDifference via reflection so we can verify the task restores it.
+      // Setting it to 0 makes approximateCurrentTimeMillis() = nanoTime / 1_000_000,
+      // which is NOT a valid wall-clock value.
+      Field diffField = GranularTicker.class.getDeclaredField("nanoTimeDifference");
+      diffField.setAccessible(true);
+      diffField.setLong(ticker, 0L);
+      // Invoke the nanoTimeDifference task while running — it must recalculate the offset
+      // so that approximateCurrentTimeMillis() is close to the real wall-clock time.
       capturedTasks.get(1).run();
       var millisAfterRunning = ticker.approximateCurrentTimeMillis();
-      // The millis value is derived from nanoTime/1_000_000 + nanoTimeDifference.
-      // After refreshing the difference, it should still be close to real wall-clock time.
-      assertThat(millisAfterRunning).isGreaterThan(0);
+      assertThat(millisAfterRunning)
+          .as("nanoTimeDifference task must restore wall-clock offset when running")
+          .isCloseTo(System.currentTimeMillis(), within(5000L));
 
       // Verify getTick() returns nanoTime / granularity
       var expectedTick = ticker.approximateNanoTime() / granularityNanos;
