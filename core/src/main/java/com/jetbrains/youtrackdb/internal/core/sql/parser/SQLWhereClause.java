@@ -233,15 +233,38 @@ public class SQLWhereClause extends SimpleNode {
     var histogram = index.getHistogram(session);
     var leadingField = index.getDefinition().getProperties().getFirst();
 
+    // Detect two-sided range on the leading field (e.g., f > 20 AND f < 30)
+    // and combine into a single estimateRange call for tighter estimates.
+    var rangeResult = detectTwoSidedRange(
+        condition, leadingField, stats, histogram, ctx);
+
     double selectivity = 1.0;
     boolean anyEstimated = false;
 
-    for (var expr : condition.subBlocks) {
-      var sel = estimatePredicateSelectivity(
-          expr, leadingField, stats, histogram, ctx);
-      if (sel >= 0) {
-        selectivity *= sel;
-        anyEstimated = true;
+    if (rangeResult != null) {
+      // Use the combined range selectivity and skip the two range predicates
+      selectivity *= rangeResult.selectivity;
+      anyEstimated = true;
+
+      for (var expr : condition.subBlocks) {
+        if (expr == rangeResult.lowerExpr || expr == rangeResult.upperExpr) {
+          continue; // already accounted for by the combined range
+        }
+        var sel = estimatePredicateSelectivity(
+            expr, leadingField, stats, histogram, ctx);
+        if (sel >= 0) {
+          selectivity *= sel;
+        }
+      }
+    } else {
+      // No two-sided range detected — estimate each predicate independently
+      for (var expr : condition.subBlocks) {
+        var sel = estimatePredicateSelectivity(
+            expr, leadingField, stats, histogram, ctx);
+        if (sel >= 0) {
+          selectivity *= sel;
+          anyEstimated = true;
+        }
       }
     }
 
@@ -249,6 +272,67 @@ public class SQLWhereClause extends SimpleNode {
       return -1;
     }
     return Math.max(1, (long) (classCount * selectivity));
+  }
+
+  /**
+   * Result of detecting a two-sided range pattern in an AND block.
+   */
+  private record TwoSidedRange(
+      SQLBooleanExpression lowerExpr,
+      SQLBooleanExpression upperExpr,
+      double selectivity
+  ) {}
+
+  /**
+   * Scans the AND block's sub-blocks for a pair of binary conditions on
+   * the same field where one is a lower bound (GT/GE) and the other is an
+   * upper bound (LT/LE). Returns a {@link TwoSidedRange} with the combined
+   * selectivity via {@link SelectivityEstimator#estimateRange}, or null if
+   * no such pair is found.
+   */
+  @Nullable
+  private static TwoSidedRange detectTwoSidedRange(
+      SQLAndBlock condition, String indexField,
+      IndexStatistics stats, @Nullable EquiDepthHistogram histogram,
+      CommandContext ctx) {
+    SQLBinaryCondition lower = null;
+    SQLBinaryCondition upper = null;
+
+    for (var expr : condition.subBlocks) {
+      if (!(expr instanceof SQLBinaryCondition bc)) {
+        continue;
+      }
+      if (!matchesField(bc.left, indexField)
+          || !bc.right.isEarlyCalculated(ctx)) {
+        continue;
+      }
+      var op = bc.operator;
+      if (op instanceof SQLGtOperator || op instanceof SQLGeOperator) {
+        if (lower == null) {
+          lower = bc;
+        }
+      } else if (op instanceof SQLLtOperator || op instanceof SQLLeOperator) {
+        if (upper == null) {
+          upper = bc;
+        }
+      }
+    }
+
+    if (lower == null || upper == null) {
+      return null;
+    }
+
+    var fromKey = lower.right.execute((Result) null, ctx);
+    var toKey = upper.right.execute((Result) null, ctx);
+    if (fromKey == null || toKey == null) {
+      return null;
+    }
+
+    boolean fromInclusive = lower.operator instanceof SQLGeOperator;
+    boolean toInclusive = upper.operator instanceof SQLLeOperator;
+    double sel = SelectivityEstimator.estimateRange(
+        stats, histogram, fromKey, toKey, fromInclusive, toInclusive);
+    return new TwoSidedRange(lower, upper, sel);
   }
 
   /**
