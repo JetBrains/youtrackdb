@@ -470,4 +470,19 @@ public class HyperLogLogSketchTest {
     populated.merge(empty);
     Assert.assertEquals(expectedEstimate, populated.estimate());
   }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testReadFromTruncatedBuffer() {
+    // readFrom should throw with a diagnostic message when the source
+    // buffer is too short, rather than an opaque ArrayIndexOutOfBoundsException.
+    var truncated = new byte[512]; // need 1024 (= serializedSize())
+    HyperLogLogSketch.readFrom(truncated, 0);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testReadFromTruncatedBufferWithOffset() {
+    // Buffer is large enough from offset 0 but not from offset 100.
+    var buf = new byte[HyperLogLogSketch.serializedSize()];
+    HyperLogLogSketch.readFrom(buf, 100);
+  }
 }

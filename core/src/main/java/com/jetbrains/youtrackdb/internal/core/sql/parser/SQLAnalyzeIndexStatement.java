@@ -34,9 +34,7 @@ public class SQLAnalyzeIndexStatement extends SQLSimpleExecStatement {
     if (all) {
       var results = new ArrayList<ResultInternal>();
       for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
-        if (idx.isAutomatic()) {
-          results.add(buildResult(session, idx));
-        }
+        results.add(buildResult(session, idx));
       }
       return ExecutionStream.resultIterator(results.iterator());
     } else {

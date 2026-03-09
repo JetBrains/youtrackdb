@@ -452,6 +452,34 @@ public class SelectivityEstimatorTest {
         DELTA);
   }
 
+  @Test
+  public void histogramRangeExclusiveBoundsProduceSameResultAsInclusive() {
+    // The inclusive/exclusive distinction is intentionally a no-op in the
+    // current implementation (continuous interpolation makes the probability
+    // mass at an exact point negligible). This test documents that behavior.
+    var h = new EquiDepthHistogram(
+        4,
+        new Comparable<?>[]{0, 100, 200, 300, 400},
+        new long[]{250, 250, 250, 250},
+        new long[]{100, 100, 100, 100},
+        1000, null, 0);
+    var stats = new IndexStatistics(1000, 400, 0);
+
+    double inclusiveBoth = SelectivityEstimator.estimateRange(
+        stats, h, 120, 280, true, true);
+    double exclusiveBoth = SelectivityEstimator.estimateRange(
+        stats, h, 120, 280, false, false);
+    double exclusiveFrom = SelectivityEstimator.estimateRange(
+        stats, h, 120, 280, false, true);
+    double exclusiveTo = SelectivityEstimator.estimateRange(
+        stats, h, 120, 280, true, false);
+
+    Assert.assertEquals("Exclusive bounds should match inclusive (continuous)",
+        inclusiveBoth, exclusiveBoth, DELTA);
+    Assert.assertEquals(inclusiveBoth, exclusiveFrom, DELTA);
+    Assert.assertEquals(inclusiveBoth, exclusiveTo, DELTA);
+  }
+
   // ── IS NULL / IS NOT NULL with histogram ──────────────────────────
 
   @Test
