@@ -161,6 +161,9 @@ final class HistogramStatsPage extends DurablePage {
     // Write HLL registers inline on page 0 only when NOT spilled to page 1
     if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
+      assert hllOffset + hllRegisterCount <= MAX_PAGE_SIZE_BYTES
+          : "Histogram + inline HLL exceeds page 0 capacity: "
+          + (hllOffset + hllRegisterCount) + " > " + MAX_PAGE_SIZE_BYTES;
       byte[] hllData = new byte[hllRegisterCount];
       snapshot.hllSketch().writeTo(hllData, 0);
       setBinaryValue(hllOffset, hllData);
