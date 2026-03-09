@@ -110,8 +110,8 @@ public class OrderByStep extends AbstractExecutionStep {
    * @param p   the upstream step to pull from
    * @param ctx the command context
    * @return the sorted (and possibly truncated) list of results
-   * @throws CommandExecutionException if the buffer exceeds
-   *         {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} (unbounded path only)
+   * @throws CommandExecutionException if the number of elements exceeds
+   *         {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}
    */
   private List<Result> init(ExecutionStepInternal p, CommandContext ctx) {
     var timeoutBegin = System.currentTimeMillis();
