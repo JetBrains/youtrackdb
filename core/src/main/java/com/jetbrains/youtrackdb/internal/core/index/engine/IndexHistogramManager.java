@@ -33,6 +33,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -79,6 +81,18 @@ public class IndexHistogramManager extends DurableComponent {
 
   private static final int MURMUR_SEED = 0x9747b28c;
 
+  /** VarHandle for atomic operations on {@link #dirtyMutations}. */
+  private static final VarHandle DIRTY_MUTATIONS;
+
+  static {
+    try {
+      DIRTY_MUTATIONS = MethodHandles.lookup().findVarHandle(
+          IndexHistogramManager.class, "dirtyMutations", long.class);
+    } catch (ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
   /**
    * Fixed header payload size in bytes (from NEXT_FREE_POSITION to start of
    * variable data). Used for page budget calculations.
@@ -100,12 +114,12 @@ public class IndexHistogramManager extends DurableComponent {
   private long fileId = -1;
 
   /**
-   * Committed mutations not yet persisted to the .ixs page. Volatile to
-   * ensure visibility across threads — races cause at most a duplicate flush
-   * (idempotent) or a slightly delayed flush (caught by checkpoint within
-   * 300 seconds).
+   * Committed mutations not yet persisted to the .ixs page. Accessed via
+   * {@link #DIRTY_MUTATIONS} VarHandle for atomic increments — prevents
+   * lost updates when concurrent commits call {@link #applyDelta}.
    */
-  private volatile long dirtyMutations;
+  @SuppressWarnings({"FieldMayBeFinal", "UnusedVariable"}) // accessed via DIRTY_MUTATIONS VarHandle
+  private long dirtyMutations;
 
   /** Prevents concurrent rebalances for the same index. */
   private final AtomicBoolean rebalanceInProgress = new AtomicBoolean(false);
@@ -286,7 +300,7 @@ public class IndexHistogramManager extends DurableComponent {
 
     // Proactively check if rebalance is needed after loading
     // (handles the case where mutations accumulated before a crash)
-    dirtyMutations = 0;
+    DIRTY_MUTATIONS.setRelease(this, 0L);
   }
 
   /**
@@ -295,7 +309,7 @@ public class IndexHistogramManager extends DurableComponent {
    */
   public void closeStatsFile() {
     try {
-      if (fileId != -1 && dirtyMutations > 0) {
+      if (fileId != -1 && (long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
         flushSnapshotToPage();
       }
     } catch (IOException e) {
@@ -416,15 +430,16 @@ public class IndexHistogramManager extends DurableComponent {
       }
       return computeNewSnapshot(old, delta);
     });
-    dirtyMutations += delta.mutationCount;
+    long newDirty =
+        (long) DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount)
+            + delta.mutationCount;
 
     int persistBatchSize =
         GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger();
-    if (dirtyMutations >= persistBatchSize) {
+    if (newDirty >= persistBatchSize) {
       try {
         flushSnapshotToPage();
-        // Race: concurrent increments may be lost; next checkpoint catches them.
-        dirtyMutations = 0;
+        DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
         // I/O flush failure is non-fatal — checkpoint will catch it
         logger.warn(
@@ -725,7 +740,7 @@ public class IndexHistogramManager extends DurableComponent {
   public void resetOnClear(AtomicOperation op) throws IOException {
     var emptySnapshot = createEmptySnapshot();
     cache.put(engineId, emptySnapshot);
-    dirtyMutations = 0;
+    DIRTY_MUTATIONS.setRelease(this, 0L);
 
     if (fileId != -1) {
       var cacheEntry = loadPageForWrite(op, fileId, 0, true);
@@ -747,11 +762,11 @@ public class IndexHistogramManager extends DurableComponent {
    * checkpoint/shutdown path uses the no-arg {@link #flushIfDirty()} instead.
    */
   public void flushIfDirty(AtomicOperation op) throws IOException {
-    if (dirtyMutations > 0 && fileId != -1) {
+    if ((long) DIRTY_MUTATIONS.getAcquire(this) > 0 && fileId != -1) {
       var snapshot = cache.get(engineId);
       if (snapshot != null) {
         writeSnapshotToPage(op, snapshot);
-        dirtyMutations = 0;
+        DIRTY_MUTATIONS.setRelease(this, 0L);
       }
     }
   }
@@ -767,10 +782,10 @@ public class IndexHistogramManager extends DurableComponent {
    * best-effort and must not block checkpoint or shutdown.
    */
   public void flushIfDirty() {
-    if (dirtyMutations > 0) {
+    if ((long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
       try {
         flushSnapshotToPage();   // creates its own AtomicOperation
-        dirtyMutations = 0;
+        DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
         logger.warn(
             "Failed to flush histogram stats for " + getName()
@@ -1307,7 +1322,7 @@ public class IndexHistogramManager extends DurableComponent {
       // Persist the new snapshot
       try {
         flushSnapshotToPage();
-        dirtyMutations = 0;
+        DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
         logger.warn("Failed to persist rebalanced histogram for "
             + getName(), e);
@@ -1512,7 +1527,7 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   long getDirtyMutations() {
-    return dirtyMutations;
+    return (long) DIRTY_MUTATIONS.getAcquire(this);
   }
 
   boolean isRebalanceInProgress() {
@@ -1532,6 +1547,6 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   void setDirtyMutationsForTest(long value) {
-    this.dirtyMutations = value;
+    DIRTY_MUTATIONS.setRelease(this, value);
   }
 }
