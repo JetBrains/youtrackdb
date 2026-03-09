@@ -400,6 +400,95 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  public void testOrderByLimitHeapDescending() {
+    // Verifies that the bounded min-heap in OrderByStep produces correct top-N
+    // results when N is much smaller than the total number of rows.
+    var className = "testOrderByLimitHeapDescending";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 500; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query(
+        "select from " + className + " order by val desc limit 10");
+    printExecutionPlan(result);
+
+    for (var i = 0; i < 10; i++) {
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(499 - i, (int) item.getProperty("val"));
+    }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderBySkipLimitHeapAscending() {
+    // Verifies that the bounded min-heap works correctly when combined with SKIP.
+    // maxResults = SKIP + LIMIT = 15, so the heap holds the top-15 ASC, then
+    // the downstream SkipStep discards the first 5 and LimitStep takes 10.
+    var className = "testOrderBySkipLimitHeapAscending";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 500; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query(
+        "select from " + className + " order by val asc skip 5 limit 10");
+    printExecutionPlan(result);
+
+    for (var i = 0; i < 10; i++) {
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(5 + i, (int) item.getProperty("val"));
+    }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderByLimitHeapMultipleKeys() {
+    // Verifies correct behavior with composite ORDER BY (two keys) and a small LIMIT,
+    // exercising the heap comparator with multi-key sort.
+    var className = "testOrderByLimitHeapMultipleKeys";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 200; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("group", i % 5);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query(
+        "select from " + className + " order by group asc, val desc limit 5");
+    printExecutionPlan(result);
+
+    // group=0 rows have val 0,5,10,...,195. DESC => 195,190,185,180,175
+    int[] expected = {195, 190, 185, 180, 175};
+    for (var i = 0; i < 5; i++) {
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(0, (int) item.getProperty("group"));
+      Assert.assertEquals(expected[i], (int) item.getProperty("val"));
+    }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
   public void testSelectOrderWithProjections() {
     var className = "testSelectOrderWithProjections";
     session.getMetadata().getSchema().createClass(className);

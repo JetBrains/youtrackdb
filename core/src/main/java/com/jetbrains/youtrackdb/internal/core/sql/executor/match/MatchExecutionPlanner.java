@@ -436,7 +436,13 @@ public class MatchExecutionPlanner {
       }
 
       if (this.orderBy != null) {
-        result.chain(new OrderByStep(orderBy, context, -1, enableProfiling));
+        Integer maxResults = null;
+        if (this.limit != null && this.limit.getValue(context) >= 0) {
+          var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
+              ? this.skip.getValue(context) : 0;
+          maxResults = skipSize + this.limit.getValue(context);
+        }
+        result.chain(new OrderByStep(orderBy, maxResults, context, -1, enableProfiling));
       }
 
       if (this.unwind != null) {
