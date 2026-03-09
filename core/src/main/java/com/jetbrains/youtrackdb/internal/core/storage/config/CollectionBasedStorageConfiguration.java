@@ -52,6 +52,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   public static final String MAP_FILE_EXTENSION = ".ccm";
   public static final String FREE_MAP_FILE_EXTENSION = ".fcm";
+  // Dirty page bit set extension for the config collection (distinct from the default .dpb
+  // used by regular data collections — see CollectionDirtyPageBitSet.DEF_EXTENSION).
+  public static final String DIRTY_PAGE_FILE_EXTENSION = ".dcm";
   public static final String DATA_FILE_EXTENSION = ".cd";
 
   public static final String TREE_DATA_FILE_EXTENSION = ".bd";
@@ -96,7 +99,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private static final String UUID = "UUID";
 
   private static final String[] INT_PROPERTIES =
-      new String[]{
+      new String[] {
           MINIMUM_COLLECTIONS_PROPERTY,
           VERSION_PROPERTY,
           BINARY_FORMAT_VERSION_PROPERTY,
@@ -107,7 +110,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       };
 
   private static final String[] STRING_PROPERTIES =
-      new String[]{
+      new String[] {
           SCHEMA_RECORD_ID_PROPERTY,
           INDEX_MANAGER_RECORD_ID_PROPERTY,
           LOCALE_LANGUAGE_PROPERTY,
@@ -152,7 +155,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
             storage,
             DATA_FILE_EXTENSION,
             MAP_FILE_EXTENSION,
-            FREE_MAP_FILE_EXTENSION);
+            FREE_MAP_FILE_EXTENSION,
+            DIRTY_PAGE_FILE_EXTENSION);
     btree =
         new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage,
             null);
@@ -359,8 +363,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
     if (mc == 0) {
       autoInitCollections();
-      return (Integer)
-          configuration.getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
+      return (Integer) configuration.getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT);
     }
     return mc;
   }
@@ -518,8 +521,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           write(buffer, 0);
         } else {
           write(buffer, engineData.getEngineProperties().size());
-          for (final var property :
-              engineData.getEngineProperties().entrySet()) {
+          for (final var property : engineData.getEngineProperties().entrySet()) {
             write(buffer, property.getKey());
             write(buffer, property.getValue());
           }
@@ -596,8 +598,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  @Nullable
-  public String getName() {
+  @Nullable public String getName() {
     return null;
   }
 
@@ -791,8 +792,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  @Nullable
-  public TimeZone getTimeZone() {
+  @Nullable public TimeZone getTimeZone() {
     lock.readLock().lock();
     try {
       final var timeZone = readStringProperty(TIME_ZONE_PROPERTY);
@@ -1089,7 +1089,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     final var key = PROPERTY_PREFIX_PROPERTY + name;
     updateStringProperty(atomicOperation, key, value, false);
 
-    @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
+    @SuppressWarnings("unchecked")
+    final var properties = (Map<String, String>) cache.get(
         PROPERTIES);
     properties.put(name, value);
   }
@@ -1109,8 +1110,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  @Nullable
-  public String getDirectory() {
+  @Nullable public String getDirectory() {
     if (storage instanceof DiskStorage disk) {
       return disk.getStoragePath().toString();
     } else {
@@ -1122,7 +1122,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public String getProperty(final String name) {
     lock.readLock().lock();
     try {
-      @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
+      @SuppressWarnings("unchecked")
+      final var properties = (Map<String, String>) cache.get(
           PROPERTIES);
       return properties.get(name);
     } finally {
@@ -1134,7 +1135,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public List<StorageEntryConfiguration> getProperties() {
     lock.readLock().lock();
     try {
-      @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
+      @SuppressWarnings("unchecked")
+      final var properties = (Map<String, String>) cache.get(
           PROPERTIES);
 
       final List<StorageEntryConfiguration> result = new ArrayList<>(8);
@@ -1168,7 +1170,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                     } catch (IOException e) {
                       throw BaseException.wrapException(
                           new StorageException(storage.getName(),
-                              "Can not preload configuration properties"), e, storage.getName());
+                              "Can not preload configuration properties"),
+                          e, storage.getName());
                     }
                   })
               .collect(Collectors.toMap(RawPair::first, RawPair::second));
@@ -1237,7 +1240,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         collection.deleteRecord(atomicOperation, rid.getCollectionPosition());
       }
 
-      @SuppressWarnings("unchecked") final var properties = (Map<String, String>) cache.get(
+      @SuppressWarnings("unchecked")
+      final var properties = (Map<String, String>) cache.get(
           PROPERTIES);
       properties.clear();
     } catch (Exception e) {
@@ -1338,8 +1342,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
-  @Nullable
-  public IndexEngineData getIndexEngine(final String name, int defaultIndexId,
+  @Nullable public IndexEngineData getIndexEngine(final String name, int defaultIndexId,
       AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
@@ -1360,7 +1363,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       AtomicOperation atomicOperation, final StorageCollectionConfiguration config) {
     lock.writeLock().lock();
     try {
-      @SuppressWarnings("unchecked") final var collections =
+      @SuppressWarnings("unchecked")
+      final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
       if (config.id() < collections.size()) {
         collections.set(config.id(), config);
@@ -1443,7 +1447,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public void dropCollection(final AtomicOperation atomicOperation, final int collectionId) {
     lock.writeLock().lock();
     try {
-      @SuppressWarnings("unchecked") final var collections =
+      @SuppressWarnings("unchecked")
+      final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
       if (collectionId < collections.size()) {
         collections.set(collectionId, null);
@@ -1778,8 +1783,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     return property;
   }
 
-  @Nullable
-  private static String deserializeStringValue(final byte[] raw, final int start) {
+  @Nullable private static String deserializeStringValue(final byte[] raw, final int start) {
     if (raw[start] == 0) {
       return null;
     }
@@ -1841,8 +1845,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  @Nullable
-  private RawPairObjectInteger<byte[]> readProperty(final String name,
+  @Nullable private RawPairObjectInteger<byte[]> readProperty(final String name,
       @Nonnull AtomicOperation atomicOperation) {
     try {
       final var rid = btree.get(name, atomicOperation);
@@ -1855,7 +1858,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
-              "Error during read of configuration property " + name), e, storage.getName());
+              "Error during read of configuration property " + name),
+          e, storage.getName());
     }
   }
 

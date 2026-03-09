@@ -218,6 +218,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private final FreeSpaceMap freeSpaceMap;
 
+  /**
+   * Durable bit set that tracks which data pages contain at least one stale record's start
+   * chunk. Set when {@link #keepPreviousRecordVersion} preserves a record version; cleared by
+   * the records GC after processing the page. Used to avoid full collection scans during GC.
+   */
+  private final CollectionDirtyPageBitSet dirtyPageBitSet;
+
   /** Human-readable storage name, used in exception messages and logging. */
   private final String storageName;
 
@@ -244,6 +251,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         DEF_EXTENSION,
         CollectionPositionMap.DEF_EXTENSION,
         FreeSpaceMap.DEF_EXTENSION,
+        CollectionDirtyPageBitSet.DEF_EXTENSION,
         storage);
   }
 
@@ -252,6 +260,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final String dataExtension,
       final String cpmExtension,
       final String fsmExtension,
+      final String dpbExtension,
       final AbstractStorage storage) {
     super(storage, name, dataExtension, name + dataExtension);
 
@@ -259,8 +268,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),
         cpmExtension);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());
+    dirtyPageBitSet = new CollectionDirtyPageBitSet(
+        storage, name, dpbExtension, getFullName());
     storageName = storage.getName();
-
   }
 
   @Override
@@ -328,6 +338,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             initCollectionState(atomicOperation);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
+            dirtyPageBitSet.create(atomicOperation);
           } finally {
             releaseExclusiveLock();
           }
@@ -354,14 +365,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             if (freeSpaceMap.exists(atomicOperation)) {
               freeSpaceMap.open(atomicOperation);
             } else {
-              final var additionalArgs2 = new Object[]{getName(), storageName};
+              final var additionalArgs2 = new Object[] {getName(), storageName};
               LogManager.instance()
                   .info(
                       this,
                       "Free space map is absent inside of %s collection of storage %s . Information"
                           + " about free space present inside of each page will be recovered.",
                       additionalArgs2);
-              final var additionalArgs1 = new Object[]{getName(), storageName};
+              final var additionalArgs1 = new Object[] {getName(), storageName};
               LogManager.instance()
                   .info(
                       this,
@@ -381,7 +392,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
                 if (pageIndex > 0 && pageIndex % 1_000 == 0) {
                   final var additionalArgs =
-                      new Object[]{
+                      new Object[] {
                           pageIndex + 1, filledUpTo, 100L * (pageIndex + 1) / filledUpTo, getName()
                       };
                   LogManager.instance()
@@ -392,9 +403,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 }
               }
 
-              final var additionalArgs = new Object[]{getName()};
+              final var additionalArgs = new Object[] {getName()};
               LogManager.instance()
                   .info(this, "Page scan for collection %s " + "is completed.", additionalArgs);
+            }
+
+            if (dirtyPageBitSet.exists(atomicOperation)) {
+              dirtyPageBitSet.open(atomicOperation);
+            } else {
+              dirtyPageBitSet.create(atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -416,6 +433,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       }
       readCache.closeFile(fileId, flush, writeCache);
       collectionPositionMap.close(flush);
+      dirtyPageBitSet.close(flush);
     } finally {
       releaseExclusiveLock();
     }
@@ -431,6 +449,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             deleteFile(atomicOperation, fileId);
             collectionPositionMap.delete(atomicOperation);
             freeSpaceMap.delete(atomicOperation);
+            dirtyPageBitSet.delete(atomicOperation);
           } finally {
             releaseExclusiveLock();
           }
@@ -442,8 +461,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return systemCollection;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public String encryption() {
     acquireSharedLock();
     try {
@@ -540,7 +558,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 throw BaseException.wrapException(
                     new PaginatedCollectionException(storageName,
                         "Can not store the record",
-                        this), e, storageName);
+                        this),
+                    e, storageName);
               }
             });
 
@@ -687,7 +706,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       freeSpaceMap.updatePageFreeSpace(atomicOperation, nextPageIndex, maxRecordSize);
     }
 
-    return new int[]{nextPageIndex, nextPageOffset, 0};
+    return new int[] {nextPageIndex, nextPageOffset, 0};
   }
 
   /// Builds a single chunk of a serialized record entry. The chunk layout is:
@@ -951,7 +970,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           } else {
             throw new PaginatedCollectionException(storageName,
                 "Content of record " + new RecordId(id, collectionPosition)
-                    + " was broken", this);
+                    + " was broken",
+                this);
           }
         }
 
@@ -962,7 +982,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
         if (firstEntry
             && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
-            == 0) {
+                == 0) {
           throw new RecordNotFoundException(storageName,
               new RecordId(id, collectionPosition));
         }
@@ -1029,7 +1049,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           } else {
             throw new PaginatedCollectionException(storageName,
                 "Content of record " + new RecordId(id, collectionPosition)
-                    + " was broken", this);
+                    + " was broken",
+                this);
           }
         }
 
@@ -1040,7 +1061,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
         if (firstEntry
             && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
-            == 0) {
+                == 0) {
           throw new RecordNotFoundException(storageName,
               new RecordId(id, collectionPosition));
         }
@@ -1093,7 +1114,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // Extract the actual record content that follows the metadata header.
     assert fullContentPosition + readContentSize <= fullContent.length
         : "Content size " + readContentSize + " exceeds assembled data length "
-        + fullContent.length + " at offset " + fullContentPosition;
+            + fullContent.length + " at offset " + fullContentPosition;
     var recordContent =
         Arrays.copyOfRange(fullContent, fullContentPosition, fullContentPosition + readContentSize);
 
@@ -1134,8 +1155,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   ///    reads and writes — e.g., storage configuration creates records then reads them
   ///    back. {@code snapshot.isEntryVisible()} returns false for these versions because
   ///    {@code commitTs >= maxActiveOperationTs}.
-  @Nullable
-  private PositionEntry findHistoricalPositionEntry(long collectionPosition,
+  @Nullable private PositionEntry findHistoricalPositionEntry(long collectionPosition,
       long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot,
       @Nonnull AtomicOperation atomicOperation) {
 
@@ -1284,7 +1304,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 throw BaseException.wrapException(
                     new PaginatedCollectionException(storageName,
                         "Can not update record with rid "
-                            + new RecordId(id, collectionPosition), this),
+                            + new RecordId(id, collectionPosition),
+                        this),
                     e, storageName);
               }
             });
@@ -1345,8 +1366,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       // Assert monotonicity: new versions must always be greater than old ones.
       assert oldRecordVersion < newRecordVersion
           : "Record version must increase monotonically. "
-          + "Collection: " + id + ", position: " + collectionPosition
-          + ", oldVersion: " + oldRecordVersion + ", newVersion: " + newRecordVersion;
+              + "Collection: " + id + ", position: " + collectionPosition
+              + ", oldVersion: " + oldRecordVersion + ", newVersion: " + newRecordVersion;
 
       // Store the old version's physical location in the snapshot index.
       var snapshotKey = new SnapshotKey(id, collectionPosition, oldRecordVersion);
@@ -1356,6 +1377,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       // transactions that started before newRecordVersion have completed.
       var visibilityKey = new VisibilityKey(newRecordVersion, id, collectionPosition);
       atomicOperation.putVisibilityEntry(visibilityKey, snapshotKey);
+
+      // Mark the start-chunk page as containing a stale record version, so the records
+      // GC knows to scan this page. The position map entry always points to the start
+      // chunk, so positionEntry.getPageIndex() is the correct page to mark.
+      var pageIndex = positionEntry.getPageIndex();
+      assert pageIndex <= Integer.MAX_VALUE
+          : "Page index exceeds dirty page bit set capacity: " + pageIndex;
+      dirtyPageBitSet.set((int) pageIndex, atomicOperation);
     }
   }
 
@@ -1410,8 +1439,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return 0;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public PhysicalPosition getPhysicalPosition(final PhysicalPosition position,
       AtomicOperation atomicOperation)
       throws IOException {
@@ -1483,7 +1511,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         var snapshot = atomicOperation.getAtomicOperationsSnapshot();
         var commitTs = atomicOperation.getCommitTsUnsafe();
 
-        var count = new long[]{0};
+        var count = new long[] {0};
         // Single pass over all position map entries (FILLED and REMOVED).
         // FILLED entries are counted when their version is visible.
         // REMOVED entries (tombstones) are counted only when the deletion
@@ -1505,7 +1533,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 // REMOVED: skip positions deleted by the current transaction
                 if (commitTs >= 0
                     && atomicOperation.containsVisibilityEntry(
-                    new VisibilityKey(commitTs, id, position))) {
+                        new VisibilityKey(commitTs, id, position))) {
                   return;
                 }
 
@@ -1531,7 +1559,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throw BaseException.wrapException(
           new PaginatedCollectionException(storageName,
               "Error during retrieval of size of '"
-                  + getName() + "' collection", this),
+                  + getName() + "' collection",
+              this),
           ioe, storageName);
     }
   }
@@ -1666,8 +1695,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         metrics.classMetric(CoreMetrics.RECORD_READ_RATE, storageName, name),
         metrics.classMetric(CoreMetrics.RECORD_UPDATE_RATE, storageName, name),
         metrics.classMetric(CoreMetrics.RECORD_DELETE_RATE, storageName, name),
-        metrics.classMetric(CoreMetrics.RECORD_CONFLICT_RATE, storageName, name)
-    );
+        metrics.classMetric(CoreMetrics.RECORD_CONFLICT_RATE, storageName, name));
     this.id = id;
   }
 
@@ -1678,6 +1706,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       writeCache.renameFile(fileId, newName + getExtension());
       collectionPositionMap.rename(newName);
       freeSpaceMap.rename(newName);
+      dirtyPageBitSet.rename(newName);
 
       setName(newName);
     } catch (IOException e) {
@@ -1901,18 +1930,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return "disk collection: " + getName();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CollectionBrowsePage nextPage(
       long prevPagePosition,
       final boolean forwards,
       AtomicOperation atomicOperation) throws IOException {
     final long effectivePrevPagePosition = prevPagePosition < 0 ? -1 : prevPagePosition;
     return atomicOperationsManager.executeReadOperation(this, () -> {
-      final var nextPositions = forwards ?
-          collectionPositionMap.higherPositionsEntries(
-              effectivePrevPagePosition, atomicOperation) :
-          collectionPositionMap.lowerPositionsEntriesReversed(
+      final var nextPositions = forwards ? collectionPositionMap.higherPositionsEntries(
+          effectivePrevPagePosition, atomicOperation)
+          : collectionPositionMap.lowerPositionsEntriesReversed(
               effectivePrevPagePosition, atomicOperation);
 
       if (nextPositions.length > 0) {

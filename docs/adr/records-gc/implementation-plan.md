@@ -682,7 +682,7 @@ Each step = 1 commit = 1 session. Code review loop required before each commit.
 | # | Phase | Step | Description | Status |
 |---|-------|------|-------------|--------|
 | 1 | Phase 1 | Create `CollectionDirtyPageBitSet` | New `DurableComponent` backed by `.dpb` file with page-based bit storage, WAL-logged set/clear ops | DONE |
-| 2 | Phase 1 | Integrate bit set into `PaginatedCollectionV2` | Create/open/close bit set file alongside collection; set bits in `keepPreviousRecordVersion()` | TODO |
+| 2 | Phase 1 | Integrate bit set into `PaginatedCollectionV2` | Create/open/close bit set file alongside collection; set bits in `keepPreviousRecordVersion()` | DONE |
 | 3 | Phase 2a | Safe Low-Water-Mark | Modify `computeGlobalLowWaterMark()` to fall back to `idGen.getLastId()` when idle; remove `Long.MAX_VALUE` guard from `evictStaleSnapshotEntries()` | TODO |
 | 4 | Phase 2b | Move snapshot cleanup to `resetTsMin()` | Move `cleanupSnapshotIndex()` from commit path to `resetTsMin()`, call when `activeTxCount` reaches 0 | TODO |
 | 5 | Phase 3 | Dead record counter & trigger | Add `AtomicLong deadRecordCount` to `PaginatedCollectionV2`; wire increment in `evictStaleSnapshotEntries()`; add GC config params; implement trigger condition | TODO |
