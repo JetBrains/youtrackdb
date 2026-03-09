@@ -226,7 +226,7 @@ public class IndexHistogramManager extends DurableComponent {
    *                 AsynchronousFileChannel — blocking reads on that executor
    *                 deadlock because completion callbacks need the same pool.
    */
-  public void setIoExecutor(@Nullable ExecutorService executor) {
+  public void setBackgroundExecutor(@Nullable ExecutorService executor) {
     this.backgroundExecutor = executor;
     if (executor != null) {
       // Proactive rebalance check after database open (Section 5.7):
@@ -1190,7 +1190,7 @@ public class IndexHistogramManager extends DurableComponent {
       });
     } catch (RejectedExecutionException e) {
       // Executor shut down (database closing) — reset the CAS guard
-      // so a future setIoExecutor() can re-trigger if needed.
+      // so a future setBackgroundExecutor() can re-trigger if needed.
       rebalanceInProgress.set(false);
     }
   }
