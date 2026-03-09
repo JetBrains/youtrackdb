@@ -3976,7 +3976,14 @@ public abstract class AbstractStorage
       if (engine instanceof BTreeIndexEngine btreeEngine) {
         var mgr = btreeEngine.getHistogramManager();
         if (mgr != null) {
-          mgr.flushIfDirty();
+          try {
+            mgr.flushIfDirty();
+          } catch (Exception e) {
+            LogManager.instance().error(this,
+                "Failed to flush histogram stats for engine %d (%s)"
+                    + " — histogram data may be stale after restart",
+                e, btreeEngine.getId(), mgr.getName());
+          }
         }
       }
     }
