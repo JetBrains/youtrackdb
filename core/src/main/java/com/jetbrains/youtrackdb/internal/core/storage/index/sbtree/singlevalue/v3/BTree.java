@@ -242,11 +242,11 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   @Override
   public boolean put(final AtomicOperation atomicOperation,
       final K key, final RID value) {
-    return update(atomicOperation, key, value, null);
+    return update(atomicOperation, key, value, null) > 0;
   }
 
   @Override
-  public boolean validatedPut(
+  public int validatedPut(
       AtomicOperation atomicOperation,
       final K key,
       final RID value,
@@ -254,7 +254,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     return update(atomicOperation, key, value, validator);
   }
 
-  private boolean update(
+  private int update(
       final AtomicOperation atomicOperation,
       final K k,
       final RID rid,
@@ -316,7 +316,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                   if (result == IndexEngineValidator.IGNORE) {
                     ignored = true;
                     failure = false;
-                    return false;
+                    return -1;
                   }
 
                   value = (RID) result;
@@ -345,7 +345,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                   keyBucket.updateValue(
                       bucketSearchResult.getItemIndex(), serializedValue, serializedKey.length);
                   keyBucketCacheEntry.close();
-                  return false; // update, not insert
+                  return 0; // update, not insert
                 } else {
                   keyBucket.removeLeafEntry(bucketSearchResult.getItemIndex(), serializedKey);
                   insertionIndex = bucketSearchResult.getItemIndex();
@@ -387,7 +387,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               }
               // sizeDiff == 1 means a new key was inserted;
               // sizeDiff == 0 means a value was updated (remove + re-insert).
-              return sizeDiff > 0;
+              return sizeDiff;
             } else {
               var sizeDiff = 0;
               final RID oldValue;
@@ -400,7 +400,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                 if (validator != null) {
                   final var result = validator.validate(null, oldValue, value);
                   if (result == IndexEngineValidator.IGNORE) {
-                    return false;
+                    return -1;
                   }
                 }
 
@@ -412,7 +412,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               sizeDiff++;
               updateSize(sizeDiff, atomicOperation);
               // sizeDiff == 1 means null key is new; 0 means null key updated.
-              return sizeDiff > 0;
+              return sizeDiff;
             }
           } finally {
             releaseExclusiveLock();

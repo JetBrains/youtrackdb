@@ -226,15 +226,16 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       IndexEngineValidator<Object, RID> validator) {
     try {
-      boolean wasInsert = sbTree.validatedPut(atomicOperation, key, value, validator);
-      // validatedPut returns false both for IGNORE (validator rejected) and for
-      // update (key existed). In the IGNORE case the B-tree is unchanged, so
-      // calling onPut with wasInsert=false is safe — it only bumps mutationCount.
-      var mgr = histogramManager;
-      if (mgr != null) {
-        mgr.onPut(atomicOperation, key, true, wasInsert);
+      // validatedPut returns: 1=insert, 0=update, -1=IGNORE (validator rejected).
+      // Only notify the histogram manager when the B-tree was actually modified.
+      int result = sbTree.validatedPut(atomicOperation, key, value, validator);
+      if (result >= 0) {
+        var mgr = histogramManager;
+        if (mgr != null) {
+          mgr.onPut(atomicOperation, key, true, result > 0);
+        }
       }
-      return wasInsert;
+      return result > 0;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),

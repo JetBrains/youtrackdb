@@ -25,7 +25,13 @@ public interface CellBTreeSingleValue<K> {
 
   boolean put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
-  boolean validatedPut(
+  /**
+   * Puts a key-value pair after consulting the validator.
+   *
+   * @return {@code 1} if a new key was inserted, {@code 0} if an existing key was updated,
+   *     {@code -1} if the validator rejected the operation (IGNORE).
+   */
+  int validatedPut(
       AtomicOperation atomicOperation, K key, RID value,
       IndexEngineValidator<K, RID> validator)
       throws IOException;
