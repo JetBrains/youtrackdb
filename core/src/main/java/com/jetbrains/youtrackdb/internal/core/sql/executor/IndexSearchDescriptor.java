@@ -109,6 +109,10 @@ public class IndexSearchDescriptor {
    * Returns {@link Integer#MAX_VALUE} if neither source can provide an estimate.
    */
   public int cost(CommandContext ctx) {
+    if (keyCondition == null) {
+      return Integer.MAX_VALUE;
+    }
+
     var session = ctx.getDatabaseSession();
     var stats = QueryStats.get(session);
 
