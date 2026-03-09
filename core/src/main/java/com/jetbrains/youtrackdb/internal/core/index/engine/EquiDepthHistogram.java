@@ -80,6 +80,13 @@ public record EquiDepthHistogram(
     long mcvFrequency
 ) {
 
+  /**
+   * Maximum bucket count accepted during deserialization. The production
+   * target is 128 (configurable); this ceiling is a corruption-detection
+   * guard — any persisted value above it indicates page damage.
+   */
+  static final int MAX_DESERIALIZE_BUCKET_COUNT = 10_000;
+
   // Compact constructor: validate structural invariants via assertions.
   // These are disabled in production but catch programming errors during
   // development and testing.
@@ -281,7 +288,7 @@ public record EquiDepthHistogram(
 
     // Guard against corrupted data: zero means no histogram, negative or
     // absurdly large values indicate page corruption.
-    if (readBucketCount <= 0 || readBucketCount > 10_000) {
+    if (readBucketCount <= 0 || readBucketCount > MAX_DESERIALIZE_BUCKET_COUNT) {
       return null;
     }
 
