@@ -1187,9 +1187,15 @@
                 <mutator>STRONGER</mutator>
                 <mutator>EXTENDED</mutator>
               </mutators>
+              <avoidCallsTo>
+                <avoidCallsTo>com.jetbrains.youtrackdb.internal.common.log</avoidCallsTo>
+                <avoidCallsTo>org.slf4j</avoidCallsTo>
+                <avoidCallsTo>java.util.logging</avoidCallsTo>
+                <avoidCallsTo>org.apache.logging</avoidCallsTo>
+              </avoidCallsTo>
               <features>
                 <feature>+CLASSLIMIT(limit[150])</feature>
-                <feature>+GIT_MIXED(from[${pit.git.from}])</feature>
+                <feature>+GIT(from[${pit.git.from}])</feature>
                 <feature>+gitci</feature>
               </features>
               <excludedClasses>

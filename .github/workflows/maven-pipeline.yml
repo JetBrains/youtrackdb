@@ -592,9 +592,9 @@ jobs:
         if: steps.changes.outputs.skip != 'true'
         continue-on-error: true
         run: |
-          # Arcmutate GIT_MIXED mode filters mutations to changed lines
-          # and code exercised by modified tests. No explicit targetClasses
-          # needed — the git plugin handles scoping automatically.
+          # Arcmutate GIT mode filters mutations to changed source lines only.
+          # No explicit targetClasses needed — the git plugin handles scoping
+          # automatically.
           # +gitci generates JSON output consumed by pitest-github plugin.
           # No 'clean' here — the preceding Compile step already did it.
           ./mvnw -s .github/workflows/settings.xml \
