@@ -28,7 +28,7 @@ import org.junit.Test;
  * <p>Covers:
  * <ul>
  *   <li>{@code getHistogram()} calling {@code maybeScheduleHistogramWork()}</li>
- *   <li>{@code setIoExecutor()} with proactive rebalance check</li>
+ *   <li>{@code setBackgroundExecutor()} with proactive rebalance check</li>
  *   <li>Null executor safety (no scheduling when executor is absent)</li>
  *   <li>Rebalance scheduling when mutation threshold is exceeded</li>
  * </ul>
@@ -96,10 +96,10 @@ public class RebalanceTriggerTest {
     var fixture = createRebalanceCapableFixture(2000, 10000);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called (rebalance already triggered by
-      // setIoExecutor's proactive check)
+      // setBackgroundExecutor's proactive check)
       fixture.manager.getHistogram();
 
       // Then a rebalance task completes on the executor
@@ -158,7 +158,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called
       fixture.manager.getHistogram();
@@ -180,20 +180,20 @@ public class RebalanceTriggerTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // setIoExecutor() triggers proactive rebalance check
+  // setBackgroundExecutor() triggers proactive rebalance check
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void setIoExecutor_triggersProactiveRebalanceWhenThresholdExceeded()
+  public void setBackgroundExecutor_triggersProactiveRebalanceWhenThresholdExceeded()
       throws Exception {
     // Given a manager with a snapshot whose mutationsSinceRebalance
     // exceeds the threshold (simulating accumulated mutations before crash)
     var fixture = createRebalanceCapableFixture(5000, 5000);
 
-    // When setIoExecutor() is called with a non-null executor
+    // When setBackgroundExecutor() is called with a non-null executor
     var executor = Executors.newSingleThreadExecutor();
     try {
-      fixture.manager.setIoExecutor(executor);
+      fixture.manager.setBackgroundExecutor(executor);
 
       // Then a rebalance is scheduled proactively. Wait for it.
       executor.shutdown();
@@ -210,7 +210,7 @@ public class RebalanceTriggerTest {
   }
 
   @Test
-  public void setIoExecutor_doesNotScheduleRebalanceWhenBelowThreshold() {
+  public void setBackgroundExecutor_doesNotScheduleRebalanceWhenBelowThreshold() {
     // Given a manager with mutations below threshold
     var fixture = createManagerFixture();
     var stats = new IndexStatistics(2000, 2000, 0);
@@ -220,8 +220,8 @@ public class RebalanceTriggerTest {
 
     var executor = Executors.newSingleThreadExecutor();
     try {
-      // When setIoExecutor() is called
-      fixture.manager.setIoExecutor(executor);
+      // When setBackgroundExecutor() is called
+      fixture.manager.setBackgroundExecutor(executor);
 
       // Then no rebalance is submitted
       executor.shutdown();
@@ -240,7 +240,7 @@ public class RebalanceTriggerTest {
   }
 
   @Test
-  public void setIoExecutor_withNull_doesNotThrow() {
+  public void setBackgroundExecutor_withNull_doesNotThrow() {
     // Given a manager with any state
     var fixture = createManagerFixture();
     var stats = new IndexStatistics(5000, 5000, 0);
@@ -248,8 +248,8 @@ public class RebalanceTriggerTest {
         stats, createTestHistogram(), 5000, 5000, 0, false, null, false);
     fixture.cache.put(fixture.engineId, snapshot);
 
-    // When setIoExecutor(null) is called
-    fixture.manager.setIoExecutor(null);
+    // When setBackgroundExecutor(null) is called
+    fixture.manager.setBackgroundExecutor(null);
 
     // Then no exception and no rebalance scheduled
     assertEquals(5000,
@@ -257,11 +257,11 @@ public class RebalanceTriggerTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // setIoExecutor() triggers initial build (Uniform → Histogram)
+  // setBackgroundExecutor() triggers initial build (Uniform → Histogram)
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void setIoExecutor_triggersInitialBuildWhenNoHistogramExists()
+  public void setBackgroundExecutor_triggersInitialBuildWhenNoHistogramExists()
       throws Exception {
     // Given a manager with enough entries but no histogram and
     // totalCountAtLastBuild == 0 (never built)
@@ -275,10 +275,10 @@ public class RebalanceTriggerTest {
         () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
-    // When setIoExecutor() is called
+    // When setBackgroundExecutor() is called
     var executor = Executors.newSingleThreadExecutor();
     try {
-      fixture.manager.setIoExecutor(executor);
+      fixture.manager.setBackgroundExecutor(executor);
 
       executor.shutdown();
       assertTrue("Initial build should complete",
@@ -295,11 +295,11 @@ public class RebalanceTriggerTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // setIoExecutor() does not build when below HISTOGRAM_MIN_SIZE
+  // setBackgroundExecutor() does not build when below HISTOGRAM_MIN_SIZE
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void setIoExecutor_doesNotBuildWhenBelowMinSize() {
+  public void setBackgroundExecutor_doesNotBuildWhenBelowMinSize() {
     // Given a manager with totalCount below HISTOGRAM_MIN_SIZE (1000)
     var fixture = createManagerFixture();
     var stats = new IndexStatistics(500, 500, 0);
@@ -309,8 +309,8 @@ public class RebalanceTriggerTest {
 
     var executor = Executors.newSingleThreadExecutor();
     try {
-      // When setIoExecutor() is called
-      fixture.manager.setIoExecutor(executor);
+      // When setBackgroundExecutor() is called
+      fixture.manager.setBackgroundExecutor(executor);
 
       executor.shutdown();
       assertTrue("No build should be submitted",
@@ -351,7 +351,7 @@ public class RebalanceTriggerTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called
       fixture.manager.getHistogram();
@@ -378,7 +378,7 @@ public class RebalanceTriggerTest {
     // Given a manager with an executor set but empty cache
     var fixture = createManagerFixture();
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called
       var result = fixture.manager.getHistogram();
@@ -414,7 +414,7 @@ public class RebalanceTriggerTest {
 
     var executor = Executors.newSingleThreadExecutor();
     executor.shutdown();  // shut down before setting on manager
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
 
     // When getHistogram() is called (executor is shut down, submit()
     // would throw RejectedExecutionException)
@@ -446,7 +446,7 @@ public class RebalanceTriggerTest {
     setLastRebalanceFailureTime(fixture.manager, System.currentTimeMillis());
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called
       fixture.manager.getHistogram();

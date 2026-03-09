@@ -292,10 +292,10 @@ public class ThreeTierTransitionTest {
             .mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
-    // When setIoExecutor triggers proactive build
+    // When setBackgroundExecutor triggers proactive build
     var executor = Executors.newSingleThreadExecutor();
     try {
-      fixture.manager.setIoExecutor(executor);
+      fixture.manager.setBackgroundExecutor(executor);
       executor.shutdown();
       assertTrue("Initial build should complete",
           executor.awaitTermination(10, TimeUnit.SECONDS));
@@ -326,8 +326,8 @@ public class ThreeTierTransitionTest {
 
     var executor = Executors.newSingleThreadExecutor();
     try {
-      // When setIoExecutor is called
-      fixture.manager.setIoExecutor(executor);
+      // When setBackgroundExecutor is called
+      fixture.manager.setBackgroundExecutor(executor);
       executor.shutdown();
       assertTrue("No task should be submitted",
           executor.awaitTermination(1, TimeUnit.SECONDS));

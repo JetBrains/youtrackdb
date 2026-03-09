@@ -227,7 +227,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called (triggers schedule check)
       fixture.manager.getHistogram();
@@ -269,7 +269,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       fixture.manager.getHistogram();
       executor.shutdown();
@@ -317,7 +317,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // Trigger rebalance
       fixture.manager.getHistogram();
@@ -437,7 +437,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newFixedThreadPool(2);
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // First call triggers rebalance
       fixture.manager.getHistogram();
@@ -475,7 +475,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called (within cooldown window)
       fixture.manager.getHistogram();
@@ -512,7 +512,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       fixture.manager.getHistogram();
       executor.shutdown();
@@ -545,7 +545,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       fixture.manager.getHistogram();
       executor.shutdown();
@@ -666,7 +666,7 @@ public class IncrementalMaintenanceTest {
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       fixture.manager.getHistogram();
       executor.shutdown();
@@ -690,7 +690,7 @@ public class IncrementalMaintenanceTest {
     installSnapshot(fixture, 5000, 5000, 0, histogram, 1000, 5000, 0);
 
     var executor = Executors.newSingleThreadExecutor();
-    fixture.manager.setIoExecutor(executor);
+    fixture.manager.setBackgroundExecutor(executor);
     try {
       fixture.manager.getHistogram();
       executor.shutdown();
@@ -755,7 +755,7 @@ public class IncrementalMaintenanceTest {
 
     var executor = Executors.newFixedThreadPool(4);
     for (var f : fixtures) {
-      f.manager.setIoExecutor(executor);
+      f.manager.setBackgroundExecutor(executor);
     }
     try {
       // Trigger all three

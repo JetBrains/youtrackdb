@@ -2524,7 +2524,7 @@ public abstract class AbstractStorage
     // and setHistogramExecutor() will wire it for all engines.
     var exec = histogramExecutor;
     if (exec != null) {
-      mgr.setIoExecutor(exec);
+      mgr.setBackgroundExecutor(exec);
     }
 
     return mgr;
@@ -4012,7 +4012,7 @@ public abstract class AbstractStorage
       if (engine instanceof BTreeIndexEngine btreeEngine) {
         var mgr = btreeEngine.getHistogramManager();
         if (mgr != null) {
-          mgr.setIoExecutor(executor);
+          mgr.setBackgroundExecutor(executor);
         }
       }
     }
