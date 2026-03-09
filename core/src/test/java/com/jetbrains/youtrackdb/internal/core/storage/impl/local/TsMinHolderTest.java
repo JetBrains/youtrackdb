@@ -28,7 +28,7 @@ public class TsMinHolderTest {
     // Exercises the error path (catch + throw) in lookupVarHandle, which is unreachable
     // during normal class initialization because the "tsMin" field always exists.
     assertThatThrownBy(
-            () -> TsMinHolder.lookupVarHandle(TsMinHolder.class, "nonExistent", long.class))
+        () -> TsMinHolder.lookupVarHandle(TsMinHolder.class, "nonExistent", long.class))
         .isInstanceOf(ExceptionInInitializerError.class)
         .hasCauseInstanceOf(NoSuchFieldException.class);
   }
@@ -449,19 +449,22 @@ public class TsMinHolderTest {
     tsMins.add(holder);
 
     var txStarted = new CountDownLatch(1);
+    var readerObservedActive = new CountDownLatch(1);
     var readerSawReset = new AtomicBoolean(false);
     var error = new AtomicReference<Throwable>();
 
-    // Writer thread: begin tx (volatile write), signal, then end tx (opaque reset)
-    // without any synchronization after the opaque write.
+    // Writer thread: begin tx (volatile write), signal, wait for the reader to confirm
+    // it observed the active tsMin, then end tx (opaque reset) without any further
+    // synchronization — only opaque visibility guarantees apply after this point.
     var writer = new Thread(() -> {
       try {
         holder.tsMin = 42L; // volatile write — tx begin
         holder.activeTxCount++;
         txStarted.countDown();
 
-        // Wait a moment so the reader can observe the active tsMin
-        Thread.sleep(10);
+        // Wait until the reader has verified the active tsMin before resetting.
+        // This replaces the previous Thread.sleep(10) which was racy on ARM.
+        readerObservedActive.await();
 
         // tx end — opaque reset (the code path under test).
         // No latch or fence after this: only opaque visibility guarantees apply.
@@ -472,14 +475,18 @@ public class TsMinHolderTest {
       }
     });
 
-    // Reader thread: after confirming the volatile write is visible, polls the LWM
-    // relying solely on opaque eventual visibility to see the reset.
+    // Reader thread: after confirming the volatile write is visible, signals the writer
+    // to proceed with the opaque reset, then polls the LWM relying solely on opaque
+    // eventual visibility to see the reset.
     var reader = new Thread(() -> {
       try {
         txStarted.await();
 
-        // First, verify the active tsMin is visible (volatile write + latch guarantee)
+        // Verify the active tsMin is visible (volatile write + latch guarantee)
         assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(42L);
+
+        // Let the writer proceed with the opaque reset
+        readerObservedActive.countDown();
 
         // Poll until the opaque reset propagates. No synchronization fence between
         // the opaque write and this loop — eventual visibility is all we rely on.
