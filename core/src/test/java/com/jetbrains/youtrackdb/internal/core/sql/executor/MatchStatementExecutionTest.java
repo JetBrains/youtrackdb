@@ -2093,6 +2093,51 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Verifies that ORDER BY + LIMIT on the RETURN $elements path goes through the
+   * bounded min-heap in OrderByStep (the MatchExecutionPlanner must propagate
+   * maxResults = SKIP + LIMIT). With 2 MATCH rows each yielding 2 $elements,
+   * the heap must return exactly the top-1 element by name DESC.
+   */
+  @Test
+  public void testReturnElementsOrderByLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
+            + " RETURN $elements ORDER BY name DESC LIMIT 1")
+        .toList();
+    // n1 has friends n2 and n3. MATCH produces 2 rows: (a=n1,b=n2) and (a=n1,b=n3).
+    // $elements unrolls each row into 2 records → 4 elements: n1,n2,n1,n3.
+    // ORDER BY name DESC LIMIT 1 → top-1 is "n3" (lexicographically largest).
+    assertEquals(1, result.size());
+    assertEquals("n3", result.getFirst().getProperty("name"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY without LIMIT on the RETURN $elements path goes through
+   * the unbounded sort in OrderByStep (maxResults remains null). All 4 $elements
+   * from 2 MATCH rows must be returned in sorted order.
+   */
+  @Test
+  public void testReturnElementsOrderByWithoutLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
+            + " RETURN $elements ORDER BY name ASC")
+        .toList();
+    // 2 MATCH rows * 2 aliases = 4 elements, sorted by name
+    assertEquals(4, result.size());
+    for (var i = 0; i < result.size() - 1; i++) {
+      var nameA = (String) result.get(i).getProperty("name");
+      var nameB = (String) result.get(i + 1).getProperty("name");
+      if (nameA != null && nameB != null) {
+        assertTrue(nameA.compareTo(nameB) <= 0);
+      }
+    }
+    session.commit();
+  }
+
+  /**
    * Exercises ReturnMatchPathElementsStep by using RETURN $pathElements.
    * Unlike $elements, $pathElements includes auto-generated aliases too, yielding
    * more elements per row. Each result should be an identifiable record.

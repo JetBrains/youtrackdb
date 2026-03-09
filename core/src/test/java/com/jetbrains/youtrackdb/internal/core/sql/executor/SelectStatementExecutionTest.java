@@ -419,7 +419,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     for (var i = 0; i < 10; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
-      Assert.assertEquals(499 - i, (int) item.getProperty("val"));
+      Assert.assertEquals(499 - i, (int) (Integer) item.getProperty("val"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -448,7 +448,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     for (var i = 0; i < 10; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
-      Assert.assertEquals(5 + i, (int) item.getProperty("val"));
+      Assert.assertEquals(5 + i, (int) (Integer) item.getProperty("val"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -535,6 +535,67 @@ public class SelectStatementExecutionTest extends DbTestBase {
       } catch (CommandExecutionException ex) {
         session.rollback();
       }
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
+    }
+  }
+
+  @Test
+  public void testOrderByLimitHeapWithMaxElementsAllowedDisabled() {
+    var className = "testOrderByLimitHeapWithMaxElementsAllowedDisabled";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    var oldValue = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(-1);
+      session.begin();
+      var result = session.query(
+          "select from " + className + " order by val desc limit 3");
+      printExecutionPlan(result);
+      for (var i = 0; i < 3; i++) {
+        Assert.assertTrue(result.hasNext());
+        var item = result.next();
+        Assert.assertEquals(9 - i, (int) item.getProperty("val"));
+      }
+      Assert.assertFalse(result.hasNext());
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
+    }
+  }
+
+  @Test
+  public void testOrderByWithoutLimitUnbounded() {
+    var className = "testOrderByWithoutLimitUnbounded";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 20; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    var oldValue = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(-1);
+      session.begin();
+      var result = session.query("select from " + className + " order by val asc");
+      printExecutionPlan(result);
+      for (var i = 0; i < 20; i++) {
+        Assert.assertTrue(result.hasNext());
+        var item = result.next();
+        Assert.assertEquals(i, (int) item.getProperty("val"));
+      }
+      Assert.assertFalse(result.hasNext());
+      result.close();
+      session.commit();
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
     }
