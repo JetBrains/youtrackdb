@@ -198,14 +198,14 @@ public class IncrementalMaintenanceTest {
     fixture.manager.onPut(op, 50, true, true);
     fixture.manager.applyDelta(holder.getDeltas().get(fixture.engineId));
 
-    // Then findBucket places it in bucket 2 ([50..75))
+    // Then findBucket places key=50 in bucket 2 ([50..75))
     var h = fixture.manager.getHistogram();
-    // Verify exactly one bucket changed by 1
-    int totalDelta = 0;
-    for (int i = 0; i < 4; i++) {
-      totalDelta += (int) (h.frequencies()[i] - 250);
-    }
-    assertEquals(1, totalDelta);
+    assertEquals("Bucket 2 should be incremented by 1", 251,
+        h.frequencies()[2]);
+    // Other buckets unchanged
+    assertEquals(250, h.frequencies()[0]);
+    assertEquals(250, h.frequencies()[1]);
+    assertEquals(250, h.frequencies()[3]);
   }
 
   // ═════════════════════════════════════════════════════════════════

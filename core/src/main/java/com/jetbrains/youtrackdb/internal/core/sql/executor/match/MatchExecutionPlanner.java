@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
@@ -921,14 +922,17 @@ public class MatchExecutionPlanner {
     // prefetch threshold used elsewhere in the planner. A moderate value avoids
     // making unknown-cost edges appear artificially cheap or expensive.
     long sourceRows = estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD);
-    sortedEdges.sort(Comparator.comparingDouble(entry -> {
+    // Pre-compute costs to avoid redundant schema lookups during sort comparisons
+    var edgeCosts = new HashMap<PatternEdge, Double>(sortedEdges.size());
+    for (var entry : sortedEdges) {
       var neighbor = entry.getValue() ? entry.getKey().in : entry.getKey().out;
-      if (visitedNodes.contains(neighbor)) {
-        return 0.0;
-      }
-      return estimateEdgeCost(
-          entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
-    }));
+      double cost = visitedNodes.contains(neighbor) ? 0.0
+          : estimateEdgeCost(
+              entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+      edgeCosts.put(entry.getKey(), cost);
+    }
+    sortedEdges.sort(Comparator.comparingDouble(
+        entry -> edgeCosts.getOrDefault(entry.getKey(), Double.MAX_VALUE)));
 
     for (var edgeData : sortedEdges) {
       var edge = edgeData.getKey();
@@ -1131,8 +1135,12 @@ public class MatchExecutionPlanner {
 
   /**
    * Extracts the edge class name from the method call's first parameter.
-   * Returns {@code null} if no parameter is present or cannot be resolved
-   * to a string constant.
+   * Tries {@code execute()} first to get the evaluated literal value;
+   * falls back to stripping surrounding quotes from {@code toString()}
+   * if execution returns null (e.g., context-dependent expressions).
+   *
+   * @return the edge class name, or {@code null} if no parameter is present
+   *     or the value cannot be resolved to a string
    */
   static String extractEdgeClassName(SQLMethodCall method) {
     var params = method.getParams();
@@ -1140,14 +1148,25 @@ public class MatchExecutionPlanner {
       return null;
     }
     var firstParam = params.getFirst();
+
+    // Try evaluating the expression first (handles all literal types cleanly)
+    try {
+      var value = firstParam.execute((Result) null, new BasicCommandContext());
+      if (value instanceof String s) {
+        return s;
+      }
+    } catch (Exception ignored) {
+      // expression may require a full context — fall through to toString
+    }
+
+    // Fallback: strip surrounding quotes from the string representation
     if (firstParam.getMathExpression() instanceof SQLBaseExpression base) {
       var raw = base.toString();
-      // Strip surrounding quotes if present (parser stores string literals
-      // as "value" or 'value')
       if (raw != null && raw.length() >= 2) {
         char first = raw.charAt(0);
         char last = raw.charAt(raw.length() - 1);
-        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+        if ((first == '"' && last == '"')
+            || (first == '\'' && last == '\'')) {
           return raw.substring(1, raw.length() - 1);
         }
       }

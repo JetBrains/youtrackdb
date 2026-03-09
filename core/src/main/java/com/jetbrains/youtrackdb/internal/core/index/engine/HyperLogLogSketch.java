@@ -198,6 +198,11 @@ public final class HyperLogLogSketch {
    * @return a new sketch populated from the source data
    */
   public static HyperLogLogSketch readFrom(byte[] src, int offset) {
+    if (src.length < offset + M) {
+      throw new IllegalArgumentException(
+          "HLL source buffer too short: need " + (offset + M)
+              + " bytes, got " + src.length);
+    }
     var sketch = new HyperLogLogSketch();
     System.arraycopy(src, offset, sketch.registers, 0, M);
     return sketch;
