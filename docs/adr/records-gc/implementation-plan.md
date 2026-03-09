@@ -685,7 +685,7 @@ Each step = 1 commit = 1 session. Code review loop required before each commit.
 | 2 | Phase 1 | Integrate bit set into `PaginatedCollectionV2` | Create/open/close bit set file alongside collection; set bits in `keepPreviousRecordVersion()` | DONE |
 | 3 | Phase 2a | Safe Low-Water-Mark | Modify `computeGlobalLowWaterMark()` to fall back to `idGen.getLastId()` when idle; remove `Long.MAX_VALUE` guard from `evictStaleSnapshotEntries()` | DONE |
 | 4 | Phase 2b | Move snapshot cleanup to `resetTsMin()` | Move `cleanupSnapshotIndex()` from commit path to `resetTsMin()`, call when `activeTxCount` reaches 0 | DONE |
-| 5 | Phase 3 | Dead record counter & trigger | Add `AtomicLong deadRecordCount` to `PaginatedCollectionV2`; wire increment in `evictStaleSnapshotEntries()`; add GC config params; implement trigger condition | TODO |
+| 5 | Phase 3 | Dead record counter & trigger | Add `AtomicLong deadRecordCount` to `PaginatedCollectionV2`; wire increment in `evictStaleSnapshotEntries()`; add GC config params; implement trigger condition | DONE |
 | 6 | Phase 4 | GC algorithm — helper methods | Widen `doDefragmentation()` visibility; add `isFirstRecordChunk()`, `readCollectionPositionFromRecord()` to `CollectionPage` | TODO |
 | 7 | Phase 4 | GC algorithm — core logic | Implement `collectDeadRecords()` and `deleteRecordChunks()` in `PaginatedCollectionV2` with atomic-op-per-page granularity | TODO |
 | 8 | Phase 5 | Periodic scheduling | Add scheduled GC task on `fuzzyCheckpointExecutor`; wire start/stop lifecycle; cancellation on shutdown | TODO |

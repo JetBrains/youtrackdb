@@ -302,6 +302,21 @@ public enum GlobalConfiguration {
       Boolean.class,
       false),
 
+  STORAGE_COLLECTION_GC_MIN_THRESHOLD(
+      "youtrackdb.storage.collection.gc.minThreshold",
+      "Minimum number of dead records in a collection before the records GC is considered."
+          + " Avoids thrashing on small collections.",
+      Integer.class,
+      1_000),
+
+  STORAGE_COLLECTION_GC_SCALE_FACTOR(
+      "youtrackdb.storage.collection.gc.scaleFactor",
+      "Fraction of collection size (approximate record count) added to the minimum threshold"
+          + " to compute the records GC trigger. For example, 0.1 means 10% of live records"
+          + " must be dead before GC triggers.",
+      Float.class,
+      0.1f),
+
   WAL_CACHE_SIZE(
       "youtrackdb.storage.wal.cacheSize",
       "Maximum size of WAL cache (in amount of WAL pages, each page is 4k) If set to 0, caching"

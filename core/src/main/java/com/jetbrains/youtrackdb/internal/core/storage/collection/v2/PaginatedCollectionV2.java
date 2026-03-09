@@ -54,6 +54,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -224,6 +225,19 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * the records GC after processing the page. Used to avoid full collection scans during GC.
    */
   private final CollectionDirtyPageBitSet dirtyPageBitSet;
+
+  /**
+   * Approximate count of dead records in this collection whose snapshot index entries have
+   * been evicted but whose physical record data has not yet been reclaimed by the records GC.
+   *
+   * <p>Incremented during {@link AbstractStorage#evictStaleSnapshotEntries} when a snapshot
+   * entry for this collection is evicted. Decremented (clamped to zero) after the records GC
+   * reclaims dead records. Starts at 0 on restart — pre-restart dead records are not counted,
+   * but the GC can still reclaim them; the counter may briefly go negative without the clamp.
+   *
+   * <p>Used by the GC trigger condition to decide whether a GC pass is worthwhile.
+   */
+  private final AtomicLong deadRecordCount = new AtomicLong();
 
   /** Human-readable storage name, used in exception messages and logging. */
   private final String storageName;
@@ -1568,6 +1582,41 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Override
   public long getApproximateRecordsCount() {
     return approximateRecordsCount;
+  }
+
+  /**
+   * Increments the dead record counter by one. Called from snapshot index eviction when a
+   * snapshot entry for this collection is removed.
+   */
+  public void incrementDeadRecordCount() {
+    deadRecordCount.incrementAndGet();
+  }
+
+  /**
+   * Returns the current dead record count. Primarily for testing and monitoring.
+   */
+  public long getDeadRecordCount() {
+    return deadRecordCount.get();
+  }
+
+  /**
+   * Returns whether this collection has accumulated enough dead records to justify a GC pass.
+   *
+   * <p>The trigger condition is:
+   * <pre>
+   *   deadRecords &gt; minThreshold + scaleFactor * approximateRecordsCount
+   * </pre>
+   * where {@code minThreshold} avoids thrashing on small collections and {@code scaleFactor}
+   * scales the threshold with collection size.
+   *
+   * @param minThreshold minimum dead record count before GC is considered
+   * @param scaleFactor  fraction of collection size added to the threshold
+   * @return {@code true} if the GC trigger condition is met
+   */
+  public boolean isGcTriggered(int minThreshold, float scaleFactor) {
+    long deadRecords = deadRecordCount.get();
+    long threshold = minThreshold + (long) ((double) scaleFactor * approximateRecordsCount);
+    return deadRecords > threshold;
   }
 
   @Override

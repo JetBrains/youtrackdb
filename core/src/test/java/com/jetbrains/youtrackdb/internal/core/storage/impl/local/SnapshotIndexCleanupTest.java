@@ -6,11 +6,15 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -804,5 +808,255 @@ public class SnapshotIndexCleanupTest {
     assertThat(snapshotIndex).containsKey(skAtBoundary);
     assertThat(snapshotIndex).hasSize(1);
     assertThat(visibilityIndex).hasSize(1);
+  }
+
+  // --- Dead record counter: increment during eviction ---
+
+  @Test
+  public void testEvictIncrementsDeadRecordCounterForCollection() {
+    // Verify that evicting snapshot entries increments the per-collection dead record
+    // counter via the full integration path (commit → resetTsMin → cleanupSnapshotIndex
+    // → evictStaleSnapshotEntries with collections list).
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      // Set threshold to 0 so eviction runs on every transaction close regardless
+      // of snapshot index size.
+      storage.getContextConfiguration()
+          .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+
+      // Create a class and insert records
+      session.command("CREATE CLASS TestDeadCounter");
+      session.begin();
+      session.command("INSERT INTO TestDeadCounter SET name = 'v1'");
+      session.commit();
+
+      // Update the record multiple times to create stale snapshot entries.
+      // Each update creates a visibility entry with recordTs = commit timestamp.
+      // Eviction requires recordTs < lwm, so a subsequent commit is needed to
+      // advance lwm past the previous entry's recordTs.
+      for (int i = 2; i <= 5; i++) {
+        session.begin();
+        session.command("UPDATE TestDeadCounter SET name = 'v" + i + "'");
+        session.commit();
+      }
+
+      // Sum dead record counts across ALL collections of the TestDeadCounter class.
+      // A class may be backed by multiple physical collections (e.g., testdeadcounter,
+      // testdeadcounter_1, ...), and records can go to any of them.
+      var collectionIds = session.getClass("TestDeadCounter").getCollectionIds();
+      long totalDead = 0;
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            totalDead += pc.getDeadRecordCount();
+          }
+        }
+      }
+
+      // After 4 updates, at least some snapshot entries should have been evicted
+      // and incremented the dead record counter.
+      assertThat(totalDead)
+          .as("dead record counter should be incremented by eviction")
+          .isGreaterThan(0);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  @Test
+  public void testEvictWithNullCollectionsDoesNotFail() {
+    // The 4-parameter overload passes null collections — verify no NPE.
+    var sk = new SnapshotKey(1, 100L, 5L);
+    snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
+    visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
+
+    var sizeCounter = new AtomicLong(1);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(visibilityIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void testEvictWithNullCollectionsEvictsMultipleEntries() {
+    // Tests the 5-parameter static method with null collections list and multiple
+    // entries across different components. Eviction should proceed normally and
+    // decrement the size counter, but skip dead record counting.
+    var sk1 = new SnapshotKey(1, 100L, 5L);
+    var sk2 = new SnapshotKey(2, 200L, 8L);
+    snapshotIndex.put(sk1, new PositionEntry(1L, 0, 5L));
+    snapshotIndex.put(sk2, new PositionEntry(2L, 0, 8L));
+    visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk1);
+    visibilityIndex.put(new VisibilityKey(15L, 2, 200L), sk2);
+
+    var sizeCounter = new AtomicLong(2);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter, null);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void testEvictWithOutOfBoundsComponentIdDoesNotFail() {
+    // Snapshot entry with componentId larger than collections list size.
+    // Should be evicted normally without dead record counting.
+    var sk = new SnapshotKey(999, 100L, 5L);
+    snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
+    visibilityIndex.put(new VisibilityKey(10L, 999, 100L), sk);
+
+    List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+    var sizeCounter = new AtomicLong(1);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter, collections);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void testEvictWithNegativeComponentIdDoesNotFail() {
+    // Snapshot entry with negative componentId. Should be evicted without counting.
+    var sk = new SnapshotKey(-1, 100L, 5L);
+    snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
+    visibilityIndex.put(new VisibilityKey(10L, -1, 100L), sk);
+
+    List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+    var sizeCounter = new AtomicLong(1);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter, collections);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  // --- GC trigger condition ---
+
+  @Test
+  public void testGcTriggerConditionNotMetWhenNoDeadRecords() {
+    // A fresh collection with no dead records should not trigger GC.
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestGcTrigger");
+      session.begin();
+      session.command("INSERT INTO TestGcTrigger SET name = 'v1'");
+      session.commit();
+
+      // Find any collection of this class
+      var collectionIds = session.getClass("TestGcTrigger").getCollectionIds();
+      PaginatedCollectionV2 collection = null;
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            collection = pc;
+            break;
+          }
+        }
+        if (collection != null) {
+          break;
+        }
+      }
+      assertThat(collection).isNotNull();
+
+      // With default thresholds (minThreshold=1000, scaleFactor=0.1), a collection
+      // with a few records and 0 dead records should not trigger GC.
+      assertThat(collection.isGcTriggered(1_000, 0.1f)).isFalse();
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  @Test
+  public void testGcTriggerConditionMetWhenThresholdExceeded() {
+    // Verify that the trigger fires when enough dead records accumulate.
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      // Set threshold to 0 so eviction runs on every transaction close
+      storage.getContextConfiguration()
+          .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+
+      session.command("CREATE CLASS TestGcTrigger2");
+
+      // Insert and update multiple records to accumulate dead record counts
+      for (int i = 0; i < 10; i++) {
+        session.begin();
+        session.command("INSERT INTO TestGcTrigger2 SET name = 'v" + i + "'");
+        session.commit();
+      }
+      // Update all records to create stale versions
+      for (int i = 0; i < 5; i++) {
+        session.begin();
+        session.command("UPDATE TestGcTrigger2 SET name = 'updated" + i + "'");
+        session.commit();
+      }
+
+      // Sum dead record counts across all collections of the class
+      var collectionIds = session.getClass("TestGcTrigger2").getCollectionIds();
+      long totalDead = 0;
+      PaginatedCollectionV2 collectionWithDead = null;
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            totalDead += pc.getDeadRecordCount();
+            if (pc.getDeadRecordCount() > 0) {
+              collectionWithDead = pc;
+            }
+          }
+        }
+      }
+
+      // At least some dead records should have been counted
+      assertThat(collectionWithDead)
+          .as("at least one collection should have dead records after updates")
+          .isNotNull();
+
+      // With minThreshold=0 and scaleFactor=0, any dead record triggers GC
+      assertThat(collectionWithDead.isGcTriggered(0, 0.0f)).isTrue();
+
+      // With very high threshold, it should not trigger even with dead records
+      assertThat(collectionWithDead.isGcTriggered(1_000_000, 0.0f)).isFalse();
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // --- GlobalConfiguration: GC parameters ---
+
+  @Test
+  public void testGcConfigParameterDefaults() {
+    // Verify the default values for the new GC configuration parameters.
+    assertThat(GlobalConfiguration.STORAGE_COLLECTION_GC_MIN_THRESHOLD
+        .getValueAsInteger()).isEqualTo(1_000);
+    assertThat(GlobalConfiguration.STORAGE_COLLECTION_GC_SCALE_FACTOR
+        .getValueAsFloat()).isEqualTo(0.1f);
   }
 }

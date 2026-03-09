@@ -104,6 +104,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollec
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -5470,7 +5471,7 @@ public abstract class AbstractStorage
       }
       evictStaleSnapshotEntries(
           computeGlobalLowWaterMark(), sharedSnapshotIndex, visibilityIndex,
-          snapshotIndexSize);
+          snapshotIndexSize, collections);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -5487,6 +5488,10 @@ public abstract class AbstractStorage
    * {@link #computeGlobalLowWaterMark()} falls back to {@code idGen.getLastId()} when all
    * threads are idle.
    *
+   * <p>Delegates to
+   * {@link #evictStaleSnapshotEntries(long, ConcurrentSkipListMap, ConcurrentSkipListMap,
+   * AtomicLong, List)} with a {@code null} collections list (no dead record counting).
+   *
    * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
    * @param snapshotIndex the shared snapshot index to remove stale entries from
    * @param visibilityIdx the visibility index to scan and remove stale entries from
@@ -5497,6 +5502,31 @@ public abstract class AbstractStorage
       ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
       ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx,
       @Nonnull AtomicLong sizeCounter) {
+    evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIdx, sizeCounter, null);
+  }
+
+  /**
+   * Core eviction logic: removes all visibility/snapshot entries with {@code recordTs} strictly
+   * below the given low-water-mark, and optionally increments per-collection dead record
+   * counters.
+   *
+   * <p>When {@code collections} is non-null, each evicted snapshot entry increments the
+   * {@link PaginatedCollectionV2#deadRecordCount} of the corresponding collection (looked up
+   * by {@link SnapshotKey#componentId()}). This feeds the records GC trigger condition.
+   *
+   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
+   * @param snapshotIndex the shared snapshot index to remove stale entries from
+   * @param visibilityIdx the visibility index to scan and remove stale entries from
+   * @param sizeCounter   approximate size counter to decrement for each evicted snapshot entry
+   * @param collections   storage collections indexed by collection id; nullable for unit tests
+   *                      or callers that do not need dead record counting
+   */
+  static void evictStaleSnapshotEntries(
+      long lwm,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
+      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx,
+      @Nonnull AtomicLong sizeCounter,
+      @Nullable List<StorageCollection> collections) {
     // Sentinel key: (lwm, MIN, MIN) is the smallest possible key with recordTs==lwm,
     // so headMap(exclusive) captures everything with recordTs < lwm.
     var staleEntries = visibilityIdx.headMap(
@@ -5504,8 +5534,20 @@ public abstract class AbstractStorage
     var iterator = staleEntries.entrySet().iterator();
     while (iterator.hasNext()) {
       var entry = iterator.next();
-      if (snapshotIndex.remove(entry.getValue()) != null) {
+      var snapshotKey = entry.getValue();
+      if (snapshotIndex.remove(snapshotKey) != null) {
         sizeCounter.decrementAndGet();
+        // Increment the per-collection dead record counter so the records GC
+        // trigger condition can detect when enough dead records have accumulated.
+        if (collections != null) {
+          int id = snapshotKey.componentId();
+          if (id >= 0 && id < collections.size()) {
+            var coll = collections.get(id);
+            if (coll instanceof PaginatedCollectionV2 pc) {
+              pc.incrementDeadRecordCount();
+            }
+          }
+        }
       }
       iterator.remove();
     }
