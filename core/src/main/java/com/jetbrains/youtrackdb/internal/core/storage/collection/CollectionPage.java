@@ -671,7 +671,7 @@ public final class CollectionPage extends DurablePage {
    * @param recordPosition the pointer-array slot index
    * @return {@code true} if this is an entry-point chunk
    */
-  boolean isFirstRecordChunk(final int recordPosition) {
+  public boolean isFirstRecordChunk(final int recordPosition) {
     assert !isDeleted(recordPosition)
         : "Record at position " + recordPosition + " is deleted";
     return getRecordByteValue(
@@ -696,7 +696,7 @@ public final class CollectionPage extends DurablePage {
    * @param recordPosition the pointer-array slot index
    * @return the collection position stored in the record metadata
    */
-  long readCollectionPositionFromRecord(final int recordPosition) {
+  public long readCollectionPositionFromRecord(final int recordPosition) {
     assert !isDeleted(recordPosition)
         : "Record at position " + recordPosition + " is deleted";
     assert isFirstRecordChunk(recordPosition)
@@ -719,7 +719,7 @@ public final class CollectionPage extends DurablePage {
    * @param recordPosition the pointer-array slot index
    * @return the packed next-page pointer, or {@code -1} for the last chunk
    */
-  long getNextPagePointer(final int recordPosition) {
+  public long getNextPagePointer(final int recordPosition) {
     assert !isDeleted(recordPosition)
         : "Record at position " + recordPosition + " is deleted";
     final var entryPosition = getPointerValuePosition(recordPosition);
@@ -752,7 +752,7 @@ public final class CollectionPage extends DurablePage {
     return recordPosition < indexesLength;
   }
 
-  void doDefragmentation() {
+  public void doDefragmentation() {
     final var recordsCount = getRecordsCount();
     final var freePosition = getFreePosition();
 

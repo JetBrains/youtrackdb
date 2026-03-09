@@ -51,9 +51,11 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
@@ -1617,6 +1619,231 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     long deadRecords = deadRecordCount.get();
     long threshold = minThreshold + (long) ((double) scaleFactor * approximateRecordsCount);
     return deadRecords > threshold;
+  }
+
+  /**
+   * Reclaims dead records from this collection's data pages.
+   *
+   * <p>Iterates over pages marked in the {@link #dirtyPageBitSet} and, for each start-chunk
+   * record on those pages, checks whether the record is stale:
+   * <ol>
+   *   <li>The position map no longer points to this page/slot (the record has been superseded
+   *       or deleted).</li>
+   *   <li>The snapshot index no longer contains an entry for this record version (no active
+   *       transaction can observe it).</li>
+   * </ol>
+   * If both conditions hold, the record's entire chunk chain is deleted (start chunk plus all
+   * continuation chunks) within a single atomic operation per dirty page.
+   *
+   * <p>After processing a page, the dirty bit is cleared only if no stale start chunks
+   * remain. This prevents losing track of pages that still need processing.
+   *
+   * <p>I/O errors on individual pages are caught, logged, and skipped — the GC continues
+   * with the next dirty page. The method does not throw checked exceptions.
+   *
+   * @param snapshotIndex the shared snapshot index from the storage, used to check whether
+   *                      any active transaction still references a record version
+   * @return the total number of records reclaimed across all dirty pages
+   */
+  public long collectDeadRecords(
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex) {
+    var pageIndex = -1;
+    var totalReclaimed = 0L;
+
+    while (true) {
+      final var searchFrom = pageIndex + 1;
+      // [0] = nextPageIndex (-1 = done), [1] = reclaimedInPage.
+      // Initialized to [-1, 0] so that an exception causes the loop to break.
+      final var result = new int[] {-1, 0};
+      try {
+        atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+          executeInsideComponentOperation(atomicOperation, operation -> {
+            var nextPageIndex = dirtyPageBitSet.nextSetBit(searchFrom, operation);
+            result[0] = nextPageIndex;
+
+            if (nextPageIndex == -1) {
+              return;
+            }
+
+            result[1] = processDirtyPage(
+                nextPageIndex, snapshotIndex, operation);
+          });
+        });
+      } catch (Exception e) {
+        // Log and continue with the next page. A failure on one page should not
+        // prevent GC from processing other pages. The atomic operation is rolled
+        // back by executeInsideAtomicOperation before the exception propagates.
+        LogManager.instance().error(
+            this,
+            "Error during records GC on collection '%s' in storage '%s'"
+                + " at page %d, skipping page",
+            e, getName(), storageName, searchFrom);
+        // Skip past the failing page to avoid an infinite retry loop.
+        result[0] = searchFrom;
+      }
+
+      pageIndex = result[0];
+      if (pageIndex == -1) {
+        break;
+      }
+
+      totalReclaimed += result[1];
+    }
+
+    // Subtract reclaimed records from the counter in one shot, clamped to zero.
+    // The clamp handles the post-restart case where GC deletes pre-restart dead
+    // records that were never counted (counter started at 0 on restart).
+    if (totalReclaimed > 0) {
+      final var reclaimed = totalReclaimed;
+      deadRecordCount.updateAndGet(current -> Math.max(0, current - reclaimed));
+    }
+
+    return totalReclaimed;
+  }
+
+  /**
+   * Processes a single dirty page, deleting all stale start-chunk records found on it.
+   *
+   * <p>Must be called within an atomic operation and inside the collection's component
+   * operation (exclusive lock held). This serializes against concurrent
+   * {@link #keepPreviousRecordVersion} calls that may set dirty bits on the same page.
+   *
+   * @param pageIndex     the data page index to process
+   * @param snapshotIndex the shared snapshot index
+   * @param atomicOperation the current atomic operation context
+   * @return the number of records reclaimed on this page
+   */
+  private int processDirtyPage(
+      int pageIndex,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
+      AtomicOperation atomicOperation) throws IOException {
+    final var touchedContinuationPages = new LinkedHashSet<CacheEntry>();
+    try {
+      var anyStaleRemaining = false;
+      var deletedAny = false;
+      var reclaimedInPage = 0;
+
+      try (final var cacheEntry =
+          loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+        final var page = new CollectionPage(cacheEntry);
+        final var slotsCount = page.getPageIndexesLength();
+
+        for (var recordPosition = 0; recordPosition < slotsCount;
+            recordPosition++) {
+          if (page.isDeleted(recordPosition)) {
+            continue;
+          }
+
+          // Only process start chunks. Continuation chunks on this page belong
+          // to records whose start chunks live on other pages; they will be
+          // cleaned when those pages are processed.
+          if (!page.isFirstRecordChunk(recordPosition)) {
+            continue;
+          }
+
+          var recordVersion = page.getRecordVersion(recordPosition);
+          var collectionPos =
+              page.readCollectionPositionFromRecord(recordPosition);
+
+          // Check whether this record version is the current live version.
+          var currentEntry =
+              collectionPositionMap.get(collectionPos, atomicOperation);
+
+          if (currentEntry != null
+              && currentEntry.getPageIndex() == pageIndex
+              && currentEntry.getRecordPosition() == recordPosition) {
+            // This is the live version — skip.
+            continue;
+          }
+
+          // Check whether the snapshot index still holds an entry for this
+          // record version. If it does, some active transaction may still
+          // need to read this version — skip it for now.
+          var snapshotKey =
+              new SnapshotKey(id, collectionPos, recordVersion);
+          if (snapshotIndex.containsKey(snapshotKey)) {
+            anyStaleRemaining = true;
+            continue;
+          }
+
+          // Safe to reclaim: delete the entire record across all pages in
+          // the chunk chain.
+          deleteRecordChunks(page, recordPosition, atomicOperation,
+              touchedContinuationPages);
+          reclaimedInPage++;
+          deletedAny = true;
+        }
+
+        if (!anyStaleRemaining) {
+          dirtyPageBitSet.clear(pageIndex, atomicOperation);
+        }
+
+        // Compact the start-chunk page and update the free space map so the
+        // allocator can reuse the reclaimed space.
+        if (deletedAny) {
+          page.doDefragmentation();
+          freeSpaceMap.updatePageFreeSpace(
+              atomicOperation, pageIndex, page.getMaxRecordSize());
+        }
+      }
+
+      // Defragment continuation pages and update their free space maps.
+      if (deletedAny) {
+        for (var contEntry : touchedContinuationPages) {
+          final var contPage = new CollectionPage(contEntry);
+          contPage.doDefragmentation();
+          freeSpaceMap.updatePageFreeSpace(
+              atomicOperation, (int) contEntry.getPageIndex(),
+              contPage.getMaxRecordSize());
+        }
+      }
+
+      return reclaimedInPage;
+    } finally {
+      for (var contEntry : touchedContinuationPages) {
+        contEntry.close();
+      }
+    }
+  }
+
+  /**
+   * Deletes all chunks of a record starting from the given start chunk, following the
+   * {@code nextPagePointer} chain to delete every continuation chunk on its respective page.
+   *
+   * <p>The next-page pointer is read <em>before</em> deleting each chunk so the chain can
+   * still be traversed. Continuation pages are added to {@code touchedContinuationPages} so
+   * the caller can defragment them in a single batched pass.
+   *
+   * @param startPage                the page containing the start chunk
+   * @param recordPosition           the pointer-array slot of the start chunk
+   * @param atomicOperation          the current atomic operation context
+   * @param touchedContinuationPages accumulator for continuation page cache entries that
+   *                                 need defragmentation; entries are added but not closed
+   */
+  private void deleteRecordChunks(
+      CollectionPage startPage, int recordPosition,
+      AtomicOperation atomicOperation,
+      LinkedHashSet<CacheEntry> touchedContinuationPages) throws IOException {
+    var currentPage = startPage;
+    var currentPosition = recordPosition;
+
+    while (true) {
+      // Read the forward pointer before deleting this chunk's data.
+      var nextPagePointer = currentPage.getNextPagePointer(currentPosition);
+      currentPage.deleteRecord(currentPosition, true);
+
+      if (nextPagePointer == -1) {
+        break;
+      }
+
+      var nextPageIndex = getPageIndex(nextPagePointer);
+      var nextRecordPosition = getRecordPosition(nextPagePointer);
+      var contCacheEntry =
+          loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
+      touchedContinuationPages.add(contCacheEntry);
+      currentPage = new CollectionPage(contCacheEntry);
+      currentPosition = nextRecordPosition;
+    }
   }
 
   @Override
