@@ -2,8 +2,15 @@ package com.jetbrains.youtrackdb.internal.common.profiler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Delayed;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
@@ -117,6 +124,121 @@ public class GranularTickerTest {
       scheduler.shutdownNow();
     }
   }
+
+  /**
+   * Verifies that the scheduled tasks skip updates when the ticker is stopped.
+   * Uses a very long granularity so the tasks never fire on their own, then
+   * manually invokes the captured runnables after stop() to exercise the
+   * {@code if (!stopped)} branches (lines 42 and 49 in GranularTicker).
+   */
+  @Test
+  public void scheduledTasksSkipUpdateAfterStop() throws Exception {
+    List<Runnable> capturedTasks = new ArrayList<>();
+    // Fake scheduler that only captures the runnables — no threads, no real scheduling.
+    ScheduledExecutorService fakeScheduler = new DelegatingScheduledExecutorService(
+        Executors.newSingleThreadScheduledExecutor()) {
+      @Override
+      public ScheduledFuture<?> scheduleAtFixedRate(
+          Runnable command, long initialDelay, long period, TimeUnit unit) {
+        capturedTasks.add(command);
+        return NO_OP_FUTURE;
+      }
+    };
+    try {
+      var granularityNanos = TimeUnit.HOURS.toNanos(1);
+      var ticker = new GranularTicker(
+          granularityNanos, TimeUnit.HOURS.toNanos(1), fakeScheduler);
+      ticker.start();
+      assertThat(capturedTasks).hasSize(2);
+
+      // Verify getGranularity() returns the configured value
+      assertThat(ticker.getGranularity()).isEqualTo(granularityNanos);
+
+      // Invoke the nanoTime task while ticker is running — nanoTime must advance
+      // because real time has elapsed since start() set it.
+      var nanoBefore = ticker.approximateNanoTime();
+      capturedTasks.get(0).run();
+      var nanoAfterRunning = ticker.approximateNanoTime();
+      assertThat(nanoAfterRunning)
+          .as("nanoTime task must update nanoTime when ticker is running")
+          .isGreaterThan(nanoBefore);
+
+      // Corrupt nanoTimeDifference via reflection so we can verify the task restores it.
+      // Setting it to 0 makes approximateCurrentTimeMillis() = nanoTime / 1_000_000,
+      // which is NOT a valid wall-clock value.
+      Field diffField = GranularTicker.class.getDeclaredField("nanoTimeDifference");
+      diffField.setAccessible(true);
+      diffField.setLong(ticker, 0L);
+      // Invoke the nanoTimeDifference task while running — it must recalculate the offset
+      // so that approximateCurrentTimeMillis() is close to the real wall-clock time.
+      capturedTasks.get(1).run();
+      var millisAfterRunning = ticker.approximateCurrentTimeMillis();
+      assertThat(millisAfterRunning)
+          .as("nanoTimeDifference task must restore wall-clock offset when running")
+          .isCloseTo(System.currentTimeMillis(), within(5000L));
+
+      // Verify getTick() returns nanoTime / granularity
+      var expectedTick = ticker.approximateNanoTime() / granularityNanos;
+      assertThat(ticker.getTick()).isEqualTo(expectedTick);
+
+      // Stop the ticker — sets stopped = true
+      ticker.stop();
+
+      // Capture values after stop — they should be frozen
+      var nanoAfterStop = ticker.approximateNanoTime();
+      var millisAfterStop = ticker.approximateCurrentTimeMillis();
+
+      // Invoke both tasks after stop — they should see stopped == true
+      // and skip the update, leaving nanoTime and nanoTimeDifference unchanged.
+      capturedTasks.get(0).run();
+      capturedTasks.get(1).run();
+
+      // nanoTime must not have changed (task 0 skipped the update)
+      assertThat(ticker.approximateNanoTime()).isEqualTo(nanoAfterStop);
+      // approximateCurrentTimeMillis must not have changed (task 1 skipped the update)
+      assertThat(ticker.approximateCurrentTimeMillis()).isEqualTo(millisAfterStop);
+    } finally {
+      fakeScheduler.shutdownNow();
+    }
+  }
+
+  /** A no-op {@link ScheduledFuture} that reports as not done and not cancelled. */
+  private static final ScheduledFuture<?> NO_OP_FUTURE = new ScheduledFuture<>() {
+    @Override
+    public long getDelay(TimeUnit unit) {
+      return Long.MAX_VALUE;
+    }
+
+    @Override
+    public int compareTo(Delayed o) {
+      return 0;
+    }
+
+    @Override
+    public boolean cancel(boolean mayInterruptIfRunning) {
+      return false;
+    }
+
+    @Override
+    public boolean isCancelled() {
+      return false;
+    }
+
+    @Override
+    public boolean isDone() {
+      return false;
+    }
+
+    @Override
+    public Object get() {
+      return null;
+    }
+
+    @Override
+    public Object get(long timeout, TimeUnit unit) {
+      return null;
+    }
+  };
 
   /** Constructor should reject null executor. */
   @Test
