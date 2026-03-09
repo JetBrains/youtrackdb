@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -348,19 +349,18 @@ public class IndexHistogramManagerTest {
   }
 
   @Test
-  public void computeNewSnapshotReturnsNullWhenCurrentIsNull() {
-    // Simulate engine deletion during commit: cache entry is absent
+  public void computeNewSnapshotAppliesDeltaToNonNullSnapshot() {
+    // Verify that computeNewSnapshot correctly applies a delta to a
+    // non-null snapshot (the normal commit path).
     var delta = new HistogramDelta();
     delta.totalCountDelta = 5;
 
-    // Directly test with null — the cache.compute lambda returns null
-    // when old is null. We test the computeNewSnapshot separately.
     var stats = new IndexStatistics(100, 100, 0);
     var snapshot = new HistogramSnapshot(
         stats, null, 0, 100, 0, false, null, false);
-    // Non-null case works normally
     var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
     assertNotNull(result);
+    assertEquals(105, result.stats().totalCount());
   }
 
   @Test
@@ -501,66 +501,26 @@ public class IndexHistogramManagerTest {
   }
 
   @Test
-  public void adaptiveBucketCountNdvCapArithmetic() {
-    // Verify the NDV cap formula from doRebalance(). This mirrors the
-    // production logic — keep in sync with doRebalance() if it changes.
-    // Formula: effectiveBuckets = max(MINIMUM_BUCKET_COUNT,
-    //   min(QUERY_STATS_HISTOGRAM_BUCKETS, floor(sqrt(nonNullCount)), NDV))
-
-    // Case 1: NDV < sqrt cap → NDV wins (but floored to MINIMUM_BUCKET_COUNT)
-    int target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    long nonNull = 10000;
-    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
-    long prevDistinct = 3;
-    if (prevDistinct > 0 && prevDistinct < target) {
-      target = (int) prevDistinct; // 3
+  public void adaptiveBucketCount_ndvCapReducesBuckets() {
+    // Verify via observable outcome: when NDV is very low (e.g., 5 distinct
+    // values in 10000 entries), scanAndBuild produces at most NDV buckets.
+    // This tests the production code path rather than reimplementing the
+    // formula. See also scanAndBuildWithNdvCappedTargetBucketsForBooleanIndex
+    // and scanAndBuildWithNdvCappedTargetBucketsForSmallNdv.
+    var keys = new ArrayList<Object>();
+    for (int i = 0; i < 10000; i++) {
+      keys.add(i % 5); // 5 distinct values
     }
-    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(IndexHistogramManager.MINIMUM_BUCKET_COUNT, target);
-
-    // Case 2: NDV > sqrt cap → sqrt cap wins
-    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    nonNull = 100;
-    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 10
-    prevDistinct = 50;
-    if (prevDistinct > 0 && prevDistinct < target) {
-      target = (int) prevDistinct;
-    }
-    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(10, target);
-
-    // Case 3: NDV between MINIMUM_BUCKET_COUNT and sqrt cap → NDV wins
-    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    nonNull = 10000;
-    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
-    prevDistinct = 20;
-    if (prevDistinct > 0 && prevDistinct < target) {
-      target = (int) prevDistinct; // 20
-    }
-    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(20, target);
-
-    // Case 4: prevDistinct == 0 (unknown NDV) → skip NDV cap
-    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    nonNull = 10000;
-    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
-    prevDistinct = 0;
-    if (prevDistinct > 0 && prevDistinct < target) {
-      target = (int) prevDistinct;
-    }
-    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(100, target);
-
-    // Case 5: prevDistinct == target → NDV cap not applied (equality)
-    target = GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
-    nonNull = 10000;
-    target = Math.min(target, (int) Math.floor(Math.sqrt(nonNull))); // 100
-    prevDistinct = 100;
-    if (prevDistinct > 0 && prevDistinct < target) {
-      target = (int) prevDistinct;
-    }
-    target = Math.max(target, IndexHistogramManager.MINIMUM_BUCKET_COUNT);
-    assertEquals(100, target);
+    keys.sort(null);
+    // Target buckets = min(128, sqrt(10000)=100) = 100, but NDV=5 caps it.
+    // The effective target after NDV cap should be max(5, MINIMUM_BUCKET_COUNT)=5.
+    var result = IndexHistogramManager.scanAndBuild(
+        keys.stream().map(k -> (Object) k), 10000, 5);
+    assertNotNull(result);
+    // scanAndBuild trims to actual distinct boundaries → at most 5 buckets
+    assertTrue("Bucket count should be <= 5 (NDV), was: "
+        + result.actualBucketCount, result.actualBucketCount <= 5);
+    assertEquals(5, result.totalDistinct);
   }
 
   @Test

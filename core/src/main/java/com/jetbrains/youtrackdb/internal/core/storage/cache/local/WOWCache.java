@@ -1478,6 +1478,12 @@ public final class WOWCache extends AbstractWriteCache
    * <p>Must be paired with {@link #resumeFlush()} in a finally block. Used by operations like
    * {@link #deleteFile} that must run on the {@code commitExecutor} but cannot wait for a
    * long-running periodic flush to finish naturally.
+   *
+   * <p><b>Not safe for concurrent callers.</b> Correctness relies on the subsequent
+   * {@code filesLock} write-lock acquisition serializing concurrent operations.
+   * Two concurrent {@code pauseFlush()} calls could race on the {@code stopFlush}
+   * flag and {@code flushFuture}, but this is harmless because the callers
+   * are serialized by the write lock immediately after.
    */
   private void pauseFlush() {
     stopFlush = true;
