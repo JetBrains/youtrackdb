@@ -38,7 +38,7 @@ flowchart TB
         mp_test_linux["Linux Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/>x86, arm<br/><i>Self-hosted Hetzner Runners</i>"]
         mp_test_windows["Windows Test Matrix<br/>JDK 21, 25<br/>temurin, oracle<br/><i>GitHub-hosted Runners</i>"]
         mp_coverage_gate["Coverage Gate<br/>coverage-gate.py (line + branch)<br/>85% Claude / 70% default<br/>PR comment"]
-        mp_mutation["Mutation Testing<br/>PIT + Arcmutate (unit tests only)<br/>GIT_MIXED + STRONGER + EXTENDED<br/>85% kill rate<br/>PR comment + inline annotations"]
+        mp_mutation["Mutation Testing<br/>PIT + Arcmutate (unit tests only)<br/>GIT + STRONGER + EXTENDED<br/>85% kill rate<br/>PR comment + inline annotations"]
         mp_ci_status["CI Status Gate<br/>Single required check<br/>for branch protection"]
         mp_deploy["Deploy Maven Artifacts"]
         mp_annotate["Annotate Versions"]
@@ -215,7 +215,8 @@ Runs PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensio
 - Detects changed modules via `git diff` against the base branch.
 - Writes the Arcmutate licence from the `ARCMUTATE_LICENCE` GitHub secret.
 - Compiles test classes for affected modules.
-- Runs PIT's `mutationCoverage` goal with Arcmutate's `GIT_MIXED` mode, which automatically scopes mutations to changed lines and code exercised by modified tests. Uses the `STRONGER` + `EXTENDED` mutator groups.
+- Runs PIT's `mutationCoverage` goal with Arcmutate's `GIT` mode, which automatically scopes mutations to changed source lines only. Uses the `STRONGER` + `EXTENDED` mutator groups.
+- Logging calls are excluded via `avoidCallsTo` (LogManager, SLF4J, JUL, Log4j) to prevent false positives from log statement mutations.
 - Uses unit tests only; integration tests (`*IT`, `*IntegrationTest`) are excluded via the `mutation-testing` Maven profile.
 - Posts **inline PR annotations** and a **summary PR comment** on survived mutations via `pitest-github-maven-plugin`.
 - PIT's built-in `mutationThreshold` (85%) enforces the minimum mutation kill rate — the build fails if the score is below the threshold.

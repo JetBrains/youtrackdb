@@ -34,7 +34,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 ./mvnw -pl core clean test -Dtest=SomeTestClass#testMethodName
 ```
 
-**JVM memory**: `.mvn/jvm.config` sets `-Xmx1024m` for Maven itself. Tests use `-Xms4096m -Xmx4096m` (configurable via `heapSize` property).
+**JVM memory**: `.mvn/jvm.config` sets `-Xmx8192m` for Maven itself. Tests use `-Xms4096m -Xmx4096m` (configurable via `heapSize` property).
 
 **Important**: Tests require numerous `--add-opens` JVM flags for Java module system compatibility. These are configured in each module's `pom.xml` `<argLine>` property - do not remove them.
 

@@ -59,10 +59,11 @@ A mutation score of 85% means that at least 85% of the mutations introduced into
 
 ### What PIT Does
 
-1. Uses Arcmutate's `GIT_MIXED` mode to automatically scope mutations to changed lines and code exercised by modified tests — no manual class targeting needed.
+1. Uses Arcmutate's `GIT` mode to automatically scope mutations to changed source lines only — no manual class targeting needed.
 2. Introduces code mutations using the `STRONGER` + `EXTENDED` mutator groups (e.g., changing `>` to `>=`, removing method calls, negating conditions, removing stream operations, swapping parameters).
-3. Runs relevant tests against each mutation.
-4. Reports how many mutations were killed (detected by tests) vs. survived (undetected).
+3. Logging calls are excluded from mutation via `avoidCallsTo` configuration to prevent false positives from log statement mutations.
+4. Runs relevant tests against each mutation.
+5. Reports how many mutations were killed (detected by tests) vs. survived (undetected).
 
 PIT's built-in `mutationThreshold` enforces the minimum kill rate — the build fails if the score is below the threshold. The `pitest-github-maven-plugin` posts a **summary PR comment** and **inline PR annotations** on the Files Changed tab, highlighting exactly which lines have survived mutations.
 
@@ -82,7 +83,8 @@ PIT is configured via the `mutation-testing` Maven profile in the root `pom.xml`
 | `timeoutFactor` | 1.5 | Multiplier for slow tests |
 | `failWhenNoMutations` | false | Skip gracefully if no production code changed |
 | `mutators` | `STRONGER`, `EXTENDED` | Arcmutate recommended mutator groups |
-| `features` | `+GIT_MIXED`, `+gitci`, `+CLASSLIMIT(150)` | Git-based scoping, GitHub CI output, per-class mutation cap |
+| `avoidCallsTo` | LogManager, SLF4J, JUL, Log4j | Exclude logging calls to prevent false positives |
+| `features` | `+GIT`, `+gitci`, `+CLASSLIMIT(150)` | Git-based scoping, GitHub CI output, per-class mutation cap |
 
 Generated code (SQL parser, GQL parser) is excluded from mutation analysis.
 
