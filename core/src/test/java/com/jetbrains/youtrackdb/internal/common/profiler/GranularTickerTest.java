@@ -143,30 +143,50 @@ public class GranularTickerTest {
       }
     };
     try {
+      var granularityNanos = TimeUnit.HOURS.toNanos(1);
       var ticker = new GranularTicker(
-          TimeUnit.HOURS.toNanos(1), TimeUnit.HOURS.toNanos(1), fakeScheduler);
+          granularityNanos, TimeUnit.HOURS.toNanos(1), fakeScheduler);
       ticker.start();
       assertThat(capturedTasks).hasSize(2);
 
-      // Invoke tasks while ticker is running — nanoTime should update
+      // Verify getGranularity() returns the configured value
+      assertThat(ticker.getGranularity()).isEqualTo(granularityNanos);
+
+      // Invoke the nanoTime task while ticker is running — nanoTime should update
       var nanoBefore = ticker.approximateNanoTime();
       capturedTasks.get(0).run();
       var nanoAfterRunning = ticker.approximateNanoTime();
       assertThat(nanoAfterRunning).isGreaterThanOrEqualTo(nanoBefore);
 
+      // Invoke the nanoTimeDifference task while running — approximateCurrentTimeMillis
+      // should reflect the updated difference.
+      var millisBefore = ticker.approximateCurrentTimeMillis();
+      capturedTasks.get(1).run();
+      var millisAfterRunning = ticker.approximateCurrentTimeMillis();
+      // The millis value is derived from nanoTime/1_000_000 + nanoTimeDifference.
+      // After refreshing the difference, it should still be close to real wall-clock time.
+      assertThat(millisAfterRunning).isGreaterThan(0);
+
+      // Verify getTick() returns nanoTime / granularity
+      var expectedTick = ticker.approximateNanoTime() / granularityNanos;
+      assertThat(ticker.getTick()).isEqualTo(expectedTick);
+
       // Stop the ticker — sets stopped = true
       ticker.stop();
 
-      // Capture nanoTime after stop — it should be frozen
+      // Capture values after stop — they should be frozen
       var nanoAfterStop = ticker.approximateNanoTime();
+      var millisAfterStop = ticker.approximateCurrentTimeMillis();
 
       // Invoke both tasks after stop — they should see stopped == true
-      // and skip the update, leaving nanoTime unchanged.
+      // and skip the update, leaving nanoTime and nanoTimeDifference unchanged.
       capturedTasks.get(0).run();
       capturedTasks.get(1).run();
 
       // nanoTime must not have changed (task 0 skipped the update)
       assertThat(ticker.approximateNanoTime()).isEqualTo(nanoAfterStop);
+      // approximateCurrentTimeMillis must not have changed (task 1 skipped the update)
+      assertThat(ticker.approximateCurrentTimeMillis()).isEqualTo(millisAfterStop);
     } finally {
       fakeScheduler.shutdownNow();
     }
