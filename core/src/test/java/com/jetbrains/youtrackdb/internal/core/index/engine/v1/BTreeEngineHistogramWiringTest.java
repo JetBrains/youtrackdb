@@ -101,10 +101,10 @@ public class BTreeEngineHistogramWiringTest {
   @Test
   public void singleValue_validatedPut_insert_callsOnPutWithWasInsertTrue()
       throws IOException {
-    // Given a B-tree that returns true (insert via validated put)
+    // Given a B-tree that returns 1 (insert via validated put)
     var fixture = new SingleValueFixture();
     when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(true);
+        .thenReturn(1);
 
     // When validatedPut is called
     var validator = mock(
@@ -118,12 +118,12 @@ public class BTreeEngineHistogramWiringTest {
   }
 
   @Test
-  public void singleValue_validatedPut_rejected_callsOnPutWithWasInsertFalse()
+  public void singleValue_validatedPut_update_callsOnPutWithWasInsertFalse()
       throws IOException {
-    // Given a B-tree where validator rejects (returns false)
+    // Given a B-tree where key exists and value is updated (returns 0)
     var fixture = new SingleValueFixture();
     when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(false);
+        .thenReturn(0);
 
     // When validatedPut is called
     var validator = mock(
@@ -131,9 +131,28 @@ public class BTreeEngineHistogramWiringTest {
     boolean result =
         fixture.engine.validatedPut(fixture.op, "key1", new RecordId(1, 1), validator);
 
-    // Then onPut is called with wasInsert=false (validator rejected or update)
+    // Then onPut is called with wasInsert=false (key existed, value updated)
     assertFalse(result);
     verify(fixture.manager).onPut(fixture.op, "key1", true, false);
+  }
+
+  @Test
+  public void singleValue_validatedPut_ignored_doesNotCallOnPut()
+      throws IOException {
+    // Given a B-tree where validator returns IGNORE (returns -1, no B-tree change)
+    var fixture = new SingleValueFixture();
+    when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
+        .thenReturn(-1);
+
+    // When validatedPut is called
+    var validator = mock(
+        com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator.class);
+    boolean result =
+        fixture.engine.validatedPut(fixture.op, "key1", new RecordId(1, 1), validator);
+
+    // Then onPut is NOT called — the B-tree was not modified
+    assertFalse(result);
+    verify(fixture.manager, never()).onPut(any(), any(), anyBoolean(), anyBoolean());
   }
 
   @Test
@@ -141,7 +160,7 @@ public class BTreeEngineHistogramWiringTest {
     var fixture = new SingleValueFixture();
     fixture.engine.setHistogramManager(null);
     when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(true);
+        .thenReturn(1);
 
     var validator = mock(
         com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator.class);
