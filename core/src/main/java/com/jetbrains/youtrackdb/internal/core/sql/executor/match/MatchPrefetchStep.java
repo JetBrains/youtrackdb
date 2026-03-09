@@ -51,7 +51,8 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
    * Prefix for context variable keys that hold prefetched alias data.
    * The full key is `PREFETCHED_MATCH_ALIAS_PREFIX + alias`.
    */
-  public static final String PREFETCHED_MATCH_ALIAS_PREFIX = "$$YouTrackDB_Prefetched_Alias_Prefix__";
+  public static final String PREFETCHED_MATCH_ALIAS_PREFIX =
+      "$$YouTrackDB_Prefetched_Alias_Prefix__";
 
   /** The alias whose records are being prefetched. */
   private final String alias;
@@ -97,6 +98,7 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
 
     // Store the prefetched list in the context for MatchFirstStep to consume
     ctx.setVariable(PREFETCHED_MATCH_ALIAS_PREFIX + alias, prefetched);
+
     return ExecutionStream.empty();
   }
 
