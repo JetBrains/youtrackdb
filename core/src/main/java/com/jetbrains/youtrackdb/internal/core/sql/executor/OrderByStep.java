@@ -8,7 +8,11 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.PriorityQueue;
 
 /**
  * Intermediate <b>blocking</b> step that sorts all upstream records according to an
@@ -131,6 +135,16 @@ public class OrderByStep extends AbstractExecutionStep {
    */
   private List<Result> initBoundedHeap(
       ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
+    var maxElementsAllowed =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+              + maxElementsAllowed
+              + ") . You can set "
+              + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+              + " to increase this limit");
+    }
     // Reversed comparator: peek() returns the element that sorts LAST (worst in top-N).
     var heap = new PriorityQueue<Result>(
         maxResults, (a, b) -> orderBy.compare(b, a, ctx));
@@ -152,7 +166,7 @@ public class OrderByStep extends AbstractExecutionStep {
 
     LinkedList<Result> result = new LinkedList<>();
     while (!heap.isEmpty()) {
-      result.addFirst(heap.poll()); // Dodawanie na początek odwróci kolejność z kopca "max" na wynikową
+      result.addFirst(heap.poll());
     }
     return result;
   }
