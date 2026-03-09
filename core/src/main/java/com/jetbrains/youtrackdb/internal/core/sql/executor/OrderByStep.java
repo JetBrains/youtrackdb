@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
-
 import java.util.*;
 
 /**
@@ -51,6 +50,7 @@ public class OrderByStep extends AbstractExecutionStep {
    */
   private Integer maxResults;
 
+  @SuppressWarnings("unused")
   public OrderByStep(
       SQLOrderBy orderBy, CommandContext ctx, long timeoutMillis, boolean profilingEnabled) {
     this(orderBy, null, ctx, timeoutMillis, profilingEnabled);
