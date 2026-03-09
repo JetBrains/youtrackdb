@@ -355,24 +355,92 @@ public class SQLWhereClauseHistogramEstimateTest {
     assertEquals(CLASS_COUNT / 2, estimate);
   }
 
-  // ── AND combination: f > X AND f < Y ─────────────────────────
+  // ── AND combination: f > X AND f < Y (two-sided range) ──────
 
   @Test
-  public void andCombination_multipliesSelectivities() {
+  public void andCombination_twoSidedRange_usesCombinedEstimate() {
     // Given: WHERE age > 60 AND age < 90
-    // sel(age > 60) ≈ 0.4, sel(age < 90) ≈ 0.9 → combined ≈ 0.36
+    // Two-sided range on the same field is detected and estimated via
+    // estimateRange(60, 90, false, false) instead of multiplying
+    // independent GT and LT selectivities.
     var where = buildWhereClause(
         binaryCondition("age", new SQLGtOperator(-1), 60),
         binaryCondition("age", new SQLLtOperator(-1), 90));
 
     var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
 
+    var rangeSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 60, 90, false, false);
+    assertEquals(Math.max(1, (long) (CLASS_COUNT * rangeSel)), estimate);
+  }
+
+  @Test
+  public void andCombination_twoSidedRange_tighterThanIndependent() {
+    // The combined range estimate should be tighter (smaller) than
+    // the independent multiplication of GT and LT selectivities,
+    // because independent multiplication double-counts the overlap.
+    var rangeSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 60, 90, false, false);
     var selGt =
         SelectivityEstimator.estimateGreaterThan(stats, histogram, 60);
     var selLt =
         SelectivityEstimator.estimateLessThan(stats, histogram, 90);
-    var combinedSel = selGt * selLt;
-    assertEquals(Math.max(1, (long) (CLASS_COUNT * combinedSel)), estimate);
+    assertTrue("Combined range selectivity (" + rangeSel
+            + ") should be <= independent product (" + (selGt * selLt) + ")",
+        rangeSel <= selGt * selLt);
+  }
+
+  @Test
+  public void andCombination_inclusiveRange_usesCorrectBounds() {
+    // Given: WHERE age >= 25 AND age <= 75 (inclusive on both sides)
+    var where = buildWhereClause(
+        binaryCondition("age", new SQLGeOperator(-1), 25),
+        binaryCondition("age", new SQLLeOperator(-1), 75));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    var rangeSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 25, 75, true, true);
+    assertEquals(Math.max(1, (long) (CLASS_COUNT * rangeSel)), estimate);
+  }
+
+  @Test
+  public void andCombination_rangeWithExtraPredicate_combinesCorrectly() {
+    // Given: WHERE age > 20 AND age < 80 AND name = 'Alice'
+    // The two range predicates on 'age' are combined; 'name = Alice' is
+    // on a different field and falls through to independent estimation
+    // (returns -1, no index match → not multiplied).
+    var where = buildWhereClause(
+        binaryCondition("age", new SQLGtOperator(-1), 20),
+        binaryCondition("age", new SQLLtOperator(-1), 80),
+        binaryCondition("name", new SQLEqualsOperator(-1), "Alice"));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    // Only the 'age' range is estimable (the index is on 'age').
+    // The raw estimate (classCount * rangeSel) may exceed the count/2
+    // cap applied by estimate(), so we must apply the same cap.
+    var rangeSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 20, 80, false, false);
+    long rawEstimate = Math.max(1, (long) (CLASS_COUNT * rangeSel));
+    long capped = Math.min(rawEstimate, CLASS_COUNT / 2);
+    assertEquals(capped, estimate);
+  }
+
+  @Test
+  public void andCombination_differentFields_fallsBackToIndependent() {
+    // Given: WHERE age > 60 AND name = 'Bob'
+    // No two-sided range (different fields), so independent estimation.
+    // Only age > 60 matches the index.
+    var where = buildWhereClause(
+        binaryCondition("age", new SQLGtOperator(-1), 60),
+        binaryCondition("name", new SQLEqualsOperator(-1), "Bob"));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    var selGt =
+        SelectivityEstimator.estimateGreaterThan(stats, histogram, 60);
+    assertEquals(Math.max(1, (long) (CLASS_COUNT * selGt)), estimate);
   }
 
   // ── IN: f IN (v1, v2, ...) ─────────────────────────────────
