@@ -14,9 +14,7 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      );
+              TimeUnit.SECONDS));
 
   public static final MetricDefinition<MetricScope.Global, Ratio> CACHE_HIT_RATIO =
       new MetricDefinition<>(
@@ -26,14 +24,11 @@ public class CoreMetrics {
           MetricType.ratio(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              100.0
-          )
-      );
+              100.0));
 
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
       FILE_EVICTION_RATE,
-      CACHE_HIT_RATIO
-  );
+      CACHE_HIT_RATIO);
 
   // ===================== DATABASE ===================== //
 
@@ -45,9 +40,7 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      );
+              TimeUnit.SECONDS));
 
   public static final MetricDefinition<MetricScope.Database, TimeRate> DISK_WRITE_RATE =
       new MetricDefinition<>(
@@ -57,49 +50,42 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      );
+              TimeUnit.SECONDS));
 
   public static final MetricDefinition<MetricScope.Database, Stopwatch> DATABASE_FREEZE_DURATION =
       new MetricDefinition<>(
           "DatabaseFreezeDuration",
           "Database Freeze Duration",
           "The duration of the last database freeze (in nanoseconds)",
-          MetricType.stopwatch()
-      );
+          MetricType.stopwatch());
 
   public static final MetricDefinition<MetricScope.Database, Stopwatch> DATABASE_RELEASE_DURATION =
       new MetricDefinition<>(
           "DatabaseReleaseDuration",
           "Database Release Duration",
           "The duration of the last database release (in nanoseconds)",
-          MetricType.stopwatch()
-      );
+          MetricType.stopwatch());
 
   public static final MetricDefinition<MetricScope.Database, Stopwatch> DATABASE_DROP_DURATION =
       new MetricDefinition<>(
           "DatabaseDropDuration",
           "Database Drop Duration",
           "The duration of the last database drop (in nanoseconds)",
-          MetricType.stopwatch()
-      );
+          MetricType.stopwatch());
 
   public static final MetricDefinition<MetricScope.Database, Stopwatch> DATABASE_SHUTDOWN_DURATION =
       new MetricDefinition<>(
           "DatabaseShutdownDuration",
           "Database Shutdown Duration",
           "The duration of the last database shutdown (in nanoseconds)",
-          MetricType.stopwatch()
-      );
+          MetricType.stopwatch());
 
   public static final MetricDefinition<MetricScope.Database, Stopwatch> DATABASE_SYNCH_DURATION =
       new MetricDefinition<>(
           "DatabaseSynchDuration",
           "Database Synch Duration",
           "The duration of the last database synch (in nanoseconds)",
-          MetricType.stopwatch()
-      );
+          MetricType.stopwatch());
 
   public static final MetricDefinition<MetricScope.Database, TimeRate> TRANSACTION_RATE =
       new MetricDefinition<>(
@@ -109,9 +95,7 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      );
+              TimeUnit.SECONDS));
 
   public static final MetricDefinition<MetricScope.Database, TimeRate> TRANSACTION_WRITE_RATE =
       new MetricDefinition<>(
@@ -121,21 +105,55 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      );
+              TimeUnit.SECONDS));
 
-  public static final MetricDefinition<MetricScope.Database, TimeRate> TRANSACTION_WRITE_ROLLBACK_RATE =
+  public static final MetricDefinition<MetricScope.Database,
+      TimeRate> TRANSACTION_WRITE_ROLLBACK_RATE =
+          new MetricDefinition<>(
+              "TransactionWriteRollbackRate",
+              "Transaction Write Rollback Rate",
+              "The rate of write transaction rollbacks (per second) for the last 60 seconds",
+              MetricType.rate(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  TimeUnit.SECONDS));
+
+  // --- Stale transaction monitor metrics (YTDB-550) ---
+
+  public static final MetricDefinition<MetricScope.Database, Gauge<Long>> OLDEST_TX_AGE =
       new MetricDefinition<>(
-          "TransactionWriteRollbackRate",
-          "Transaction Write Rollback Rate",
-          "The rate of write transaction rollbacks (per second) for the last 60 seconds",
-          MetricType.rate(
-              TimeInterval.of(60, TimeUnit.SECONDS),
-              TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      );
+          "OldestTxAge",
+          "Oldest Transaction Age",
+          "Age of the oldest active transaction in seconds",
+          MetricType.gauge(Long.class));
+
+  public static final MetricDefinition<MetricScope.Database, Gauge<Long>> SNAPSHOT_INDEX_SIZE =
+      new MetricDefinition<>(
+          "SnapshotIndexSize",
+          "Snapshot Index Size",
+          "Approximate number of entries in the shared snapshot index",
+          MetricType.gauge(Long.class));
+
+  public static final MetricDefinition<MetricScope.Database, Gauge<Long>> LWM_LAG =
+      new MetricDefinition<>(
+          "LwmLag",
+          "Low-Water-Mark Lag",
+          "Difference between the current commit timestamp and the global low-water-mark",
+          MetricType.gauge(Long.class));
+
+  public static final MetricDefinition<MetricScope.Database, Gauge<Integer>> STALE_TX_COUNT =
+      new MetricDefinition<>(
+          "StaleTxCount",
+          "Stale Transaction Count",
+          "Number of active transactions exceeding the warn timeout threshold",
+          MetricType.gauge(Integer.class));
+
+  public static final MetricDefinition<MetricScope.Database, Gauge<Integer>> ACTIVE_TX_COUNT =
+      new MetricDefinition<>(
+          "ActiveTxCount",
+          "Active Transaction Count",
+          "Number of currently active transactions across all threads",
+          MetricType.gauge(Integer.class));
 
   public static final Set<MetricDefinition<MetricScope.Database, ?>> DATABASE_METRICS = Set.of(
       DISK_READ_RATE,
@@ -147,8 +165,12 @@ public class CoreMetrics {
       DATABASE_SYNCH_DURATION,
       TRANSACTION_RATE,
       TRANSACTION_WRITE_RATE,
-      TRANSACTION_WRITE_ROLLBACK_RATE
-  );
+      TRANSACTION_WRITE_ROLLBACK_RATE,
+      OLDEST_TX_AGE,
+      SNAPSHOT_INDEX_SIZE,
+      LWM_LAG,
+      STALE_TX_COUNT,
+      ACTIVE_TX_COUNT);
 
   // ===================== CLASS (disabled for now) ===================== //
 
@@ -160,9 +182,8 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      ).disable();
+              TimeUnit.SECONDS))
+          .disable();
 
   public static final MetricDefinition<MetricScope.Class, TimeRate> RECORD_UPDATE_RATE =
       new MetricDefinition<MetricScope.Class, TimeRate>(
@@ -172,9 +193,8 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      ).disable();
+              TimeUnit.SECONDS))
+          .disable();
 
   public static final MetricDefinition<MetricScope.Class, TimeRate> RECORD_CONFLICT_RATE =
       new MetricDefinition<MetricScope.Class, TimeRate>(
@@ -184,10 +204,8 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          ),
-          false
-      ).disable();
+              TimeUnit.SECONDS),
+          false).disable();
 
   public static final MetricDefinition<MetricScope.Class, TimeRate> RECORD_DELETE_RATE =
       new MetricDefinition<MetricScope.Class, TimeRate>(
@@ -197,9 +215,8 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      ).disable();
+              TimeUnit.SECONDS))
+          .disable();
 
   public static final MetricDefinition<MetricScope.Class, TimeRate> RECORD_READ_RATE =
       new MetricDefinition<MetricScope.Class, TimeRate>(
@@ -209,15 +226,13 @@ public class CoreMetrics {
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
-              TimeUnit.SECONDS
-          )
-      ).disable();
+              TimeUnit.SECONDS))
+          .disable();
 
   public static final Set<MetricDefinition<MetricScope.Class, ?>> CLASS_METRICS = Set.of(
       RECORD_CREATE_RATE,
       RECORD_UPDATE_RATE,
       RECORD_CONFLICT_RATE,
       RECORD_DELETE_RATE,
-      RECORD_READ_RATE
-  );
+      RECORD_READ_RATE);
 }

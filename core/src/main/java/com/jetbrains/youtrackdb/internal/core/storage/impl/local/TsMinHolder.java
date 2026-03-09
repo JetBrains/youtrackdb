@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import javax.annotation.Nullable;
 
 /**
  * Holds the minimum active operation timestamp for a single thread. Shared between the owning
@@ -49,6 +50,14 @@ final class TsMinHolder {
 
   private static final VarHandle TS_MIN =
       lookupVarHandle(TsMinHolder.class, "tsMin", long.class);
+  private static final VarHandle TX_START_TIME_NANOS =
+      lookupVarHandle(TsMinHolder.class, "txStartTimeNanos", long.class);
+  private static final VarHandle OWNER_THREAD_NAME =
+      lookupVarHandle(TsMinHolder.class, "ownerThreadName", String.class);
+  private static final VarHandle OWNER_THREAD_ID =
+      lookupVarHandle(TsMinHolder.class, "ownerThreadId", long.class);
+  private static final VarHandle TX_START_STACK_TRACE =
+      lookupVarHandle(TsMinHolder.class, "txStartStackTrace", StackTraceElement[].class);
 
   /**
    * Looks up a {@link VarHandle} for the given field. Package-private so the error path can be
@@ -78,11 +87,72 @@ final class TsMinHolder {
   // this flag before calling tsMins.add(this) so registration happens at most once per thread.
   boolean registeredInTsMins;
 
+  // --- Diagnostic fields for stale transaction detection (YTDB-550) ---
+  //
+  // These fields use opaque access (VarHandle.setOpaque / getOpaque) instead of volatile
+  // to avoid generating StoreLoad write memory barriers on the owning thread's hot path.
+  // Opaque provides atomicity and eventual cross-thread visibility, which is sufficient
+  // for the stale transaction monitor that tolerates stale reads.
+
+  // Approximate nano time when the first transaction on this thread started (from Ticker).
+  // Set on first tx begin (activeTxCount transitions 0→1), reset on last tx end (1→0).
+  // Read by the stale transaction monitor to compute transaction age.
+  @SuppressWarnings("unused") // accessed via VarHandle
+  private long txStartTimeNanos;
+
+  // Name of the owning thread, captured at registration time. Used by the monitor to
+  // identify which thread holds a stale transaction in log messages.
+  @SuppressWarnings("unused") // accessed via VarHandle
+  private String ownerThreadName;
+
+  // ID of the owning thread, captured at registration time.
+  @SuppressWarnings("unused") // accessed via VarHandle
+  private long ownerThreadId;
+
+  // Stack trace captured at the point where the transaction was started. Only populated
+  // when STORAGE_TX_CAPTURE_STACK_TRACE is enabled. Helps diagnose leaked transactions.
+  @SuppressWarnings("unused") // accessed via VarHandle
+  @Nullable private StackTraceElement[] txStartStackTrace;
+
   /**
    * Resets {@code tsMin} to the given value using an opaque write (no {@code StoreLoad} barrier).
    * Used at end-of-transaction where the full memory fence of a volatile write is not needed.
    */
   void setTsMinOpaque(long value) {
     TS_MIN.setOpaque(this, value);
+  }
+
+  // --- Opaque accessors for diagnostic fields ---
+
+  void setTxStartTimeNanosOpaque(long value) {
+    TX_START_TIME_NANOS.setOpaque(this, value);
+  }
+
+  long getTxStartTimeNanosOpaque() {
+    return (long) TX_START_TIME_NANOS.getOpaque(this);
+  }
+
+  void setOwnerThreadNameOpaque(String value) {
+    OWNER_THREAD_NAME.setOpaque(this, value);
+  }
+
+  String getOwnerThreadNameOpaque() {
+    return (String) OWNER_THREAD_NAME.getOpaque(this);
+  }
+
+  void setOwnerThreadIdOpaque(long value) {
+    OWNER_THREAD_ID.setOpaque(this, value);
+  }
+
+  long getOwnerThreadIdOpaque() {
+    return (long) OWNER_THREAD_ID.getOpaque(this);
+  }
+
+  void setTxStartStackTraceOpaque(@Nullable StackTraceElement[] value) {
+    TX_START_STACK_TRACE.setOpaque(this, value);
+  }
+
+  @Nullable StackTraceElement[] getTxStartStackTraceOpaque() {
+    return (StackTraceElement[]) TX_START_STACK_TRACE.getOpaque(this);
   }
 }
