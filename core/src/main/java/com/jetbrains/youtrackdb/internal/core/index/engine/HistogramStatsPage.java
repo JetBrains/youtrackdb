@@ -23,6 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -180,6 +181,12 @@ final class HistogramStatsPage extends DurablePage {
   HistogramSnapshot readSnapshot(
       BinarySerializer<Object> keySerializer,
       BinarySerializerFactory serializerFactory) {
+    int version = getIntValue(FORMAT_VERSION_OFFSET);
+    if (version != 0 && version != FORMAT_VERSION) {
+      throw new StorageException(null,
+          "Unsupported histogram stats page version: " + version
+              + " (expected " + FORMAT_VERSION + ")");
+    }
     long totalCount = getLongValue(TOTAL_COUNT_OFFSET);
     long distinctCount = getLongValue(DISTINCT_COUNT_OFFSET);
     long nullCount = getLongValue(NULL_COUNT_OFFSET);
