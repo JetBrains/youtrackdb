@@ -488,6 +488,59 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  public void testOrderByLimitZeroReturnsEmpty() {
+    // Verifies that LIMIT 0 is short-circuited in OrderByStep: no upstream rows are
+    // pulled into the heap and an empty result is returned immediately.
+    var className = "testOrderByLimitZeroReturnsEmpty";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query("select from " + className + " order by val asc limit 0");
+    printExecutionPlan(result);
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderByLimitHeapRespectsMaxElementsAllowed() {
+    // Verifies that the bounded-heap path throws CommandExecutionException when
+    // LIMIT exceeds QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP, preventing OOM from
+    // a maliciously large LIMIT value.
+    var className = "testOrderByLimitHeapRespectsMaxElementsAllowed";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    var oldValue = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(3);
+      session.begin();
+      try {
+        try (var result = session.query(
+            "select from " + className + " order by val asc limit 10")) {
+          result.forEachRemaining(x -> x.getProperty("val"));
+        }
+        Assert.fail("Expected CommandExecutionException");
+      } catch (CommandExecutionException ex) {
+        session.rollback();
+      }
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
+    }
+  }
+
+  @Test
   public void testSelectOrderWithProjections() {
     var className = "testSelectOrderWithProjections";
     session.getMetadata().getSchema().createClass(className);

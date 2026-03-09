@@ -54,12 +54,6 @@ public class OrderByStep extends AbstractExecutionStep {
    */
   private Integer maxResults;
 
-  @SuppressWarnings("unused")
-  public OrderByStep(
-      SQLOrderBy orderBy, CommandContext ctx, long timeoutMillis, boolean profilingEnabled) {
-    this(orderBy, null, ctx, timeoutMillis, profilingEnabled);
-  }
-
   /**
    * @param orderBy          the ORDER BY clause defining sort keys and directions
    * @param maxResults       max rows needed (SKIP+LIMIT); null for unlimited.
@@ -164,7 +158,7 @@ public class OrderByStep extends AbstractExecutionStep {
     }
     upstream.close(ctx);
 
-    LinkedList<Result> result = new LinkedList<>();
+    var result = new LinkedList<Result>();
     while (!heap.isEmpty()) {
       result.addFirst(heap.poll());
     }
