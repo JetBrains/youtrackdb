@@ -11,6 +11,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   private final long granularity;
   private final long timestampRefreshRate;
+  private volatile boolean stopped;
   private volatile long nanoTime;
   /// Offset between {@link System#currentTimeMillis()} and {@link System#nanoTime()} converted to
   /// milliseconds. Since {@code nanoTime} has no defined origin (it is only meaningful for
@@ -37,13 +38,19 @@ public class GranularTicker implements Ticker, AutoCloseable {
     this.nanoTimeDifference = System.currentTimeMillis() - this.nanoTime / 1_000_000;
 
     nanoTimeFuture = executor.scheduleAtFixedRate(
-        () -> nanoTime = System.nanoTime(),
-        granularity, granularity, TimeUnit.NANOSECONDS
-    );
+        () -> {
+          if (!stopped) {
+            nanoTime = System.nanoTime();
+          }
+        },
+        granularity, granularity, TimeUnit.NANOSECONDS);
     nanoTimeDifferenceFuture = executor.scheduleAtFixedRate(
-        () -> nanoTimeDifference = System.currentTimeMillis() - System.nanoTime() / 1_000_000,
-        timestampRefreshRate, timestampRefreshRate, TimeUnit.NANOSECONDS
-    );
+        () -> {
+          if (!stopped) {
+            nanoTimeDifference = System.currentTimeMillis() - System.nanoTime() / 1_000_000;
+          }
+        },
+        timestampRefreshRate, timestampRefreshRate, TimeUnit.NANOSECONDS);
   }
 
   @Override
@@ -73,6 +80,7 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   @Override
   public void stop() {
+    stopped = true;
     var f1 = nanoTimeFuture;
     if (f1 != null) {
       f1.cancel(false);

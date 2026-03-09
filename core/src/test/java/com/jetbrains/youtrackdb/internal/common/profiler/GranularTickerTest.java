@@ -3,7 +3,12 @@ package com.jetbrains.youtrackdb.internal.common.profiler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Delayed;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
@@ -117,6 +122,93 @@ public class GranularTickerTest {
       scheduler.shutdownNow();
     }
   }
+
+  /**
+   * Verifies that the scheduled tasks skip updates when the ticker is stopped.
+   * Uses a very long granularity so the tasks never fire on their own, then
+   * manually invokes the captured runnables after stop() to exercise the
+   * {@code if (!stopped)} branches (lines 42 and 49 in GranularTicker).
+   */
+  @Test
+  public void scheduledTasksSkipUpdateAfterStop() {
+    List<Runnable> capturedTasks = new ArrayList<>();
+    // Fake scheduler that only captures the runnables — no threads, no real scheduling.
+    ScheduledExecutorService fakeScheduler = new DelegatingScheduledExecutorService(
+        Executors.newSingleThreadScheduledExecutor()) {
+      @Override
+      public ScheduledFuture<?> scheduleAtFixedRate(
+          Runnable command, long initialDelay, long period, TimeUnit unit) {
+        capturedTasks.add(command);
+        return NO_OP_FUTURE;
+      }
+    };
+    try {
+      var ticker = new GranularTicker(
+          TimeUnit.HOURS.toNanos(1), TimeUnit.HOURS.toNanos(1), fakeScheduler);
+      ticker.start();
+      assertThat(capturedTasks).hasSize(2);
+
+      // Invoke tasks while ticker is running — nanoTime should update
+      var nanoBefore = ticker.approximateNanoTime();
+      capturedTasks.get(0).run();
+      var nanoAfterRunning = ticker.approximateNanoTime();
+      assertThat(nanoAfterRunning).isGreaterThanOrEqualTo(nanoBefore);
+
+      // Stop the ticker — sets stopped = true
+      ticker.stop();
+
+      // Capture nanoTime after stop — it should be frozen
+      var nanoAfterStop = ticker.approximateNanoTime();
+
+      // Invoke both tasks after stop — they should see stopped == true
+      // and skip the update, leaving nanoTime unchanged.
+      capturedTasks.get(0).run();
+      capturedTasks.get(1).run();
+
+      // nanoTime must not have changed (task 0 skipped the update)
+      assertThat(ticker.approximateNanoTime()).isEqualTo(nanoAfterStop);
+    } finally {
+      fakeScheduler.shutdownNow();
+    }
+  }
+
+  /** A no-op {@link ScheduledFuture} that reports as not done and not cancelled. */
+  private static final ScheduledFuture<?> NO_OP_FUTURE = new ScheduledFuture<>() {
+    @Override
+    public long getDelay(TimeUnit unit) {
+      return Long.MAX_VALUE;
+    }
+
+    @Override
+    public int compareTo(Delayed o) {
+      return 0;
+    }
+
+    @Override
+    public boolean cancel(boolean mayInterruptIfRunning) {
+      return true;
+    }
+
+    @Override
+    public boolean isCancelled() {
+      return false;
+    }
+
+    @Override
+    public boolean isDone() {
+      return false;
+    }
+
+    @Override
+    public Object get() {
+      return null;
+    }
+
+    @Override
+    public Object get(long timeout, TimeUnit unit) {
+      return null;
+    }
+  };
 
   /** Constructor should reject null executor. */
   @Test
