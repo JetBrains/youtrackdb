@@ -68,7 +68,11 @@ PIT's built-in `mutationThreshold` enforces the minimum kill rate — the build 
 
 ### Integration Test Exclusion
 
-PIT runs only with unit tests. All integration tests (`*IT` and `*IntegrationTest` classes) are excluded from mutation analysis via the `mutation-testing` Maven profile. Integration tests are too slow for the mutation testing feedback loop and are already validated separately by the CI integration test pipeline.
+PIT runs only with unit tests. Several test types are excluded from mutation analysis via the `mutation-testing` Maven profile:
+
+- **Integration tests** (`*IT` and `*IntegrationTest` classes): Too slow for the mutation testing feedback loop and already validated separately by the CI integration test pipeline.
+- **Cucumber feature tests** (`*FeatureTest` classes): These are heavyweight tests (especially the GRATEFUL dataset which needs ~4 GB heap) that validate TinkerPop compliance but do not test project-specific mutations. Excluding them reduces memory pressure on PIT minion JVMs.
+- **GremlinProcessRunner-based tests** (`com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.*$Traversals`): These fail under PIT's classloader due to classloading incompatibilities.
 
 ### Configuration
 
