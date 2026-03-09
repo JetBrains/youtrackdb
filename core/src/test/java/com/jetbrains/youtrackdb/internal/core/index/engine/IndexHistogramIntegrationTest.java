@@ -1859,6 +1859,225 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  //  Section 17: Multi-Value Index HLL Population
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Regression test: after ANALYZE INDEX on a multi-value index, the HLL
+   * sketch must be populated with the full index contents. When incremental
+   * inserts are committed afterward, the distinctCount must remain close to
+   * the true value — not drop to the count of newly inserted keys.
+   *
+   * <p>Before the fix, the HLL was created empty during build/rebalance.
+   * The first commit after ANALYZE would merge a small delta HLL into the
+   * empty sketch, replacing the correct distinctCount (e.g., 500) with the
+   * delta's count (e.g., 5).
+   */
+  @Test
+  public void multiValueIndex_hllPopulatedAfterAnalyze_distinctCountSurvivesIncrementalInserts() {
+    // Create a multi-value index: EMBEDDEDLIST of integers
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("MvHllTest");
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
+    session.execute(
+        "CREATE INDEX MvHllTestTagsIdx ON MvHllTest (tags) NOTUNIQUE").close();
+
+    // Insert 2000 documents, each with 2-3 tags from a pool of ~500 distinct
+    // values. This creates a multi-value index with ~5000 entries and ~500 NDV.
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("MvHllTest");
+      var tags = doc.getOrCreateEmbeddedList("tags");
+      tags.add(i % 500);
+      tags.add((i % 500) + 500);
+      if (i % 3 == 0) {
+        tags.add(i % 200);
+      }
+    }
+    session.commit();
+
+    // ANALYZE INDEX — builds histogram and populates HLL
+    try (var result = session.execute("ANALYZE INDEX MvHllTestTagsIdx")) {
+      assertTrue(result.hasNext());
+      var row = result.next();
+      long totalCount = ((Number) row.getProperty("totalCount")).longValue();
+      assertTrue("totalCount should be > 2000 (multi-value expands entries)",
+          totalCount > 2000);
+      assertTrue("bucketCount should be > 0",
+          ((Number) row.getProperty("bucketCount")).intValue() > 0);
+    }
+
+    // Record the distinctCount right after ANALYZE
+    var manager = getHistogramManager("MvHllTestTagsIdx");
+    var snapshotAfterAnalyze = manager.getStatistics();
+    assertNotNull(snapshotAfterAnalyze);
+    long distinctAfterAnalyze = snapshotAfterAnalyze.distinctCount();
+    assertTrue("distinctCount after ANALYZE should be substantial (>= 400), was: "
+        + distinctAfterAnalyze, distinctAfterAnalyze >= 400);
+
+    // Now insert a small batch of 10 new documents (incremental update)
+    session.begin();
+    for (int i = 0; i < 10; i++) {
+      var doc = session.newEntity("MvHllTest");
+      var tags = doc.getOrCreateEmbeddedList("tags");
+      tags.add(1000 + i); // new distinct values
+      tags.add(1010 + i);
+    }
+    session.commit();
+
+    // After incremental inserts, distinctCount must NOT have dropped to ~20
+    var snapshotAfterInsert = manager.getStatistics();
+    assertNotNull(snapshotAfterInsert);
+    long distinctAfterInsert = snapshotAfterInsert.distinctCount();
+    assertTrue("distinctCount after small insert should remain high (>= 400), "
+            + "was: " + distinctAfterInsert
+            + " (was " + distinctAfterAnalyze + " after ANALYZE)",
+        distinctAfterInsert >= 400);
+    // It should have grown slightly (20 new distinct values added)
+    assertTrue("distinctCount should be >= distinctAfterAnalyze, was: "
+            + distinctAfterInsert + " vs " + distinctAfterAnalyze,
+        distinctAfterInsert >= distinctAfterAnalyze - 50); // HLL tolerance
+  }
+
+  /**
+   * After automatic rebalance of a multi-value index, the HLL should be
+   * repopulated from the full key scan, so subsequent incremental inserts
+   * preserve the correct distinctCount.
+   */
+  @Test
+  public void multiValueIndex_hllPopulatedAfterRebalance_distinctCountPreserved() {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("MvHllRebal");
+    clazz.createProperty("vals", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
+    session.execute(
+        "CREATE INDEX MvHllRebalValsIdx ON MvHllRebal (vals) NOTUNIQUE").close();
+
+    // Insert enough data to trigger histogram build via ANALYZE
+    session.begin();
+    for (int i = 0; i < 1500; i++) {
+      var doc = session.newEntity("MvHllRebal");
+      var vals = doc.getOrCreateEmbeddedList("vals");
+      vals.add(i % 300);
+      vals.add((i % 300) + 300);
+    }
+    session.commit();
+
+    // Build initial histogram
+    session.execute("ANALYZE INDEX MvHllRebalValsIdx").close();
+
+    var manager = getHistogramManager("MvHllRebalValsIdx");
+    long distinctBeforeRebalance = manager.getStatistics().distinctCount();
+    assertTrue("Initial distinctCount should be >= 300, was: "
+        + distinctBeforeRebalance, distinctBeforeRebalance >= 300);
+
+    // Force a rebalance by calling analyzeIndex (simulates what the
+    // background rebalance does)
+    session.execute("ANALYZE INDEX MvHllRebalValsIdx").close();
+
+    long distinctAfterRebalance = manager.getStatistics().distinctCount();
+    assertTrue("distinctCount after rebalance should be >= 300, was: "
+        + distinctAfterRebalance, distinctAfterRebalance >= 300);
+
+    // Insert a small batch and verify distinctCount doesn't drop
+    session.begin();
+    for (int i = 0; i < 5; i++) {
+      var doc = session.newEntity("MvHllRebal");
+      var vals = doc.getOrCreateEmbeddedList("vals");
+      vals.add(900 + i);
+    }
+    session.commit();
+
+    long distinctAfterInsert = manager.getStatistics().distinctCount();
+    assertTrue("distinctCount after small insert should stay >= 300, was: "
+            + distinctAfterInsert,
+        distinctAfterInsert >= 300);
+  }
+
+  /**
+   * Single-value (NOTUNIQUE) indexes should NOT have an HLL sketch —
+   * distinctCount is always derived from totalCount. Verify that
+   * incremental inserts on single-value indexes don't suffer from the
+   * empty-HLL bug (since they don't use HLL at all).
+   */
+  @Test
+  public void singleValueIndex_noHll_distinctCountEqualsNonNullCount() {
+    createClassWithIndexAndData("SvNoHll", "val", PropertyType.INTEGER,
+        2000, i -> i);
+
+    session.execute("ANALYZE INDEX SvNoHllvalIdx").close();
+
+    var manager = getHistogramManager("SvNoHllvalIdx");
+    var snapshot = manager.getStatistics();
+    assertNotNull(snapshot);
+    assertEquals("Single-value: distinctCount == totalCount",
+        2000L, snapshot.distinctCount());
+
+    // Insert 10 more entries
+    session.begin();
+    for (int i = 2000; i < 2010; i++) {
+      var doc = session.newEntity("SvNoHll");
+      doc.setProperty("val", i);
+    }
+    session.commit();
+
+    var snapshotAfter = manager.getStatistics();
+    // For single-value NOTUNIQUE, distinctCount == totalCount.
+    // The incremental delta applies totalCountDelta from committed inserts.
+    // Allow +/- 1 tolerance for batched persistence timing.
+    long distinctAfter = snapshotAfter.distinctCount();
+    assertTrue("Single-value: distinctCount should track totalCount (~2010), "
+            + "was: " + distinctAfter,
+        distinctAfter >= 2009 && distinctAfter <= 2011);
+  }
+
+  /**
+   * Multi-value index with highly skewed data (most entries share a few
+   * tag values). After ANALYZE, the HLL should correctly estimate a low
+   * NDV, and incremental inserts of new distinct values should increase it.
+   */
+  @Test
+  public void multiValueIndex_skewedData_hllTracksDistinctCorrectly() {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("MvSkewHll");
+    clazz.createProperty("cats", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    session.execute(
+        "CREATE INDEX MvSkewHllCatsIdx ON MvSkewHll (cats) NOTUNIQUE").close();
+
+    // 2000 documents, each with tags from a pool of only 10 distinct values
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("MvSkewHll");
+      var cats = doc.getOrCreateEmbeddedList("cats");
+      cats.add("cat_" + (i % 10));
+      cats.add("cat_" + ((i + 5) % 10));
+    }
+    session.commit();
+
+    session.execute("ANALYZE INDEX MvSkewHllCatsIdx").close();
+
+    var manager = getHistogramManager("MvSkewHllCatsIdx");
+    long distinct = manager.getStatistics().distinctCount();
+    // HLL should estimate ~10 distinct values
+    assertTrue("Skewed multi-value: distinctCount should be ~10, was: "
+        + distinct, distinct >= 5 && distinct <= 20);
+
+    // Insert documents with 50 NEW distinct tag values
+    session.begin();
+    for (int i = 0; i < 50; i++) {
+      var doc = session.newEntity("MvSkewHll");
+      var cats = doc.getOrCreateEmbeddedList("cats");
+      cats.add("new_cat_" + i);
+    }
+    session.commit();
+
+    long distinctAfter = manager.getStatistics().distinctCount();
+    // Should have grown to reflect ~60 distinct values
+    assertTrue("After adding 50 new distinct keys, distinctCount should grow "
+            + "from " + distinct + ", was: " + distinctAfter,
+        distinctAfter > distinct);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   //  Helpers
   // ═══════════════════════════════════════════════════════════════
 

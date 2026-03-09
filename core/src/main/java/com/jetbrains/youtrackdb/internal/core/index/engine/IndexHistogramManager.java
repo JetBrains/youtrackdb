@@ -599,8 +599,20 @@ public class IndexHistogramManager extends DurableComponent {
         Math.min(targetBuckets, (int) Math.floor(Math.sqrt(nonNullCount)));
     targetBuckets = Math.max(targetBuckets, MINIMUM_BUCKET_COUNT);
 
-    // Build histogram via single-pass scan
-    var result = scanAndBuild(effectiveKeys, nonNullCount, targetBuckets);
+    // For multi-value indexes, create the HLL sketch before the scan so
+    // scanAndBuild can populate it during the single pass over all keys.
+    // This ensures the HLL reflects the full index NDV after construction,
+    // so incremental delta merges don't reset distinctCount to near-zero.
+    HyperLogLogSketch hll = null;
+    KeyHasher hasher = null;
+    if (!isSingleValue) {
+      hll = new HyperLogLogSketch();
+      hasher = this::hashKey;
+    }
+
+    // Build histogram via single-pass scan (also populates HLL if non-null)
+    var result = scanAndBuild(
+        effectiveKeys, nonNullCount, targetBuckets, hll, hasher);
     if (result == null) {
       // Empty key stream (all entries are null) — stay in uniform mode
       var stats = new IndexStatistics(totalCount,
@@ -621,16 +633,8 @@ public class IndexHistogramManager extends DurableComponent {
     // Apply boundary truncation and page budget check
     var fitResult = fitToPage(result, scannedNonNull);
 
-    // Build HLL sketch for multi-value indexes.
-    // TODO(Step 5/6): Populate HLL during the key scan pass (requires
-    // integrating hashing into scanAndBuild or doing a second stream pass).
-    // Currently the HLL is empty; distinctCount is set from the exact scan
-    // NDV which is correct at build time. Incremental HLL updates start
-    // once the manager is wired into the engine (Step 5).
-    HyperLogLogSketch hll = null;
     boolean hllOnPage1 = false;
     if (!isSingleValue) {
-      hll = new HyperLogLogSketch();
       hllOnPage1 = fitResult != null && fitResult.hllOnPage1;
     }
 
@@ -811,6 +815,7 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Single-pass equi-depth histogram construction from a sorted key stream.
+   * Overload without HLL population — for tests and single-value indexes.
    *
    * @param effectiveKeys sorted non-null effective keys (leading field for
    *                      composite)
@@ -819,9 +824,40 @@ public class IndexHistogramManager extends DurableComponent {
    * @return the build result, or null if the key stream is empty
    */
   @Nullable
-  @SuppressWarnings("unchecked")
   static BuildResult scanAndBuild(
       Stream<Object> effectiveKeys, long nonNullCount, int targetBuckets) {
+    return scanAndBuild(effectiveKeys, nonNullCount, targetBuckets, null, null);
+  }
+
+  /**
+   * Functional interface for hashing a key into a long value for HLL.
+   * Injected to keep {@code scanAndBuild} static and testable without
+   * requiring a real serializer.
+   */
+  @FunctionalInterface
+  interface KeyHasher {
+    long hash(Object key);
+  }
+
+  /**
+   * Single-pass equi-depth histogram construction from a sorted key stream.
+   * When {@code hll} and {@code hasher} are non-null, each key is hashed
+   * and added to the HLL during the scan so that the sketch reflects the
+   * full index NDV after construction.
+   *
+   * @param effectiveKeys sorted non-null effective keys (leading field for
+   *                      composite)
+   * @param nonNullCount  expected count of non-null entries
+   * @param targetBuckets target number of buckets
+   * @param hll           optional HLL sketch to populate during the scan
+   * @param hasher        hash function for HLL; required when hll is non-null
+   * @return the build result, or null if the key stream is empty
+   */
+  @Nullable
+  @SuppressWarnings("unchecked")
+  static BuildResult scanAndBuild(
+      Stream<Object> effectiveKeys, long nonNullCount, int targetBuckets,
+      @Nullable HyperLogLogSketch hll, @Nullable KeyHasher hasher) {
     var boundaries = new Comparable<?>[targetBuckets + 1];
     var frequencies = new long[targetBuckets];
     var distinctCounts = new long[targetBuckets];
@@ -845,6 +881,11 @@ public class IndexHistogramManager extends DurableComponent {
     while (iterator.hasNext()) {
       var rawKey = iterator.next();
       var key = (Comparable<?>) rawKey;
+
+      // Populate HLL during the scan so it reflects the full index NDV.
+      if (hll != null) {
+        hll.add(hasher.hash(rawKey));
+      }
 
       if (first) {
         boundaries[0] = key;
@@ -1192,6 +1233,15 @@ public class IndexHistogramManager extends DurableComponent {
       }
       targetBuckets = Math.max(targetBuckets, MINIMUM_BUCKET_COUNT);
 
+      // For multi-value indexes, create the HLL before the scan so it gets
+      // populated during the single pass (same approach as buildHistogram).
+      HyperLogLogSketch newHll = null;
+      KeyHasher hasher = null;
+      if (!isSingleValue) {
+        newHll = new HyperLogLogSketch();
+        hasher = this::hashKey;
+      }
+
       // Scan sorted keys. Close the stream after consumption to release
       // any page read locks or prefetched cache entries.
       IndexHistogramManager.BuildResult result;
@@ -1203,7 +1253,8 @@ public class IndexHistogramManager extends DurableComponent {
         } else {
           effectiveKeys = keyStream;
         }
-        result = scanAndBuild(effectiveKeys, nonNullCount, targetBuckets);
+        result = scanAndBuild(
+            effectiveKeys, nonNullCount, targetBuckets, newHll, hasher);
       }
       if (result == null) {
         return;
@@ -1224,13 +1275,8 @@ public class IndexHistogramManager extends DurableComponent {
 
       long scannedDistinctCount = result.totalDistinct;
 
-      // Build fresh HLL for multi-value indexes.
-      // TODO(Step 5/6): Populate HLL during the key scan pass. Currently
-      // empty; distinctCount set from exact scan NDV.
-      HyperLogLogSketch newHll = null;
       boolean hllOnPage1 = false;
       if (!isSingleValue) {
-        newHll = new HyperLogLogSketch();
         hllOnPage1 = fitResult.hllOnPage1;
       }
 

@@ -28,6 +28,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -698,6 +699,170 @@ public class MultiValueIndexHistogramTest {
     );
   }
 
+  // ═════════════════════════════════════════════════════════════════
+  // HLL population during scan — regression tests for empty-HLL bug
+  // ═════════════════════════════════════════════════════════════════
+
+  @Test
+  public void scanAndBuild_withHll_populatesSketchDuringScan() {
+    // Given a key stream with 100 distinct integer keys, and an empty HLL
+    // sketch plus a hasher that simulates real hashing.
+    var hll = new HyperLogLogSketch();
+    // Use a simple hasher that distributes well enough for the test
+    IndexHistogramManager.KeyHasher hasher =
+        key -> murmurHash(key);
+
+    Stream<Object> keys = IntStream.range(0, 100).mapToObj(i -> (Object) i);
+
+    // When scanAndBuild is called with the HLL
+    var result = IndexHistogramManager.scanAndBuild(
+        keys, 100, 8, hll, hasher);
+
+    // Then the HLL is populated during the scan and estimates ~100 distinct
+    assertNotNull(result);
+    long estimate = hll.estimate();
+    assertTrue("HLL estimate should be > 0 after scan, was: " + estimate,
+        estimate > 0);
+    // HLL with p=10 has ~3.25% standard error. Allow 15% tolerance.
+    assertTrue("HLL estimate should be close to 100, was: " + estimate,
+        estimate >= 85 && estimate <= 115);
+  }
+
+  @Test
+  public void scanAndBuild_withHll_duplicateKeysCountedOnce() {
+    // Given a multi-value key stream where keys repeat (3 distinct values,
+    // 10 total entries). The HLL should track distinct values, not total.
+    var hll = new HyperLogLogSketch();
+    IndexHistogramManager.KeyHasher hasher =
+        key -> murmurHash(key);
+
+    // 3 distinct keys: 1 (5x), 2 (3x), 3 (2x)
+    Stream<Object> keys = Stream.of(1, 1, 1, 1, 1, 2, 2, 2, 3, 3);
+
+    // When scanAndBuild is called
+    var result = IndexHistogramManager.scanAndBuild(
+        keys, 10, 4, hll, hasher);
+
+    // Then HLL estimates ~3 distinct values
+    assertNotNull(result);
+    long estimate = hll.estimate();
+    assertTrue("HLL should estimate ~3 distinct values, was: " + estimate,
+        estimate >= 2 && estimate <= 5);
+    // Exact NDV from the scan should still be 3
+    assertEquals(3, result.totalDistinct);
+  }
+
+  @Test
+  public void scanAndBuild_withoutHll_backwardCompatible() {
+    // Given a key stream without an HLL (the null case for single-value)
+    Stream<Object> keys = IntStream.range(0, 50).mapToObj(i -> (Object) i);
+
+    // When the 3-arg overload is called (no HLL)
+    var result = IndexHistogramManager.scanAndBuild(keys, 50, 4);
+
+    // Then it works normally — same as before
+    assertNotNull(result);
+    assertEquals(50, result.totalDistinct);
+  }
+
+  @Test
+  public void populatedHll_survivesDeltaMerge_distinctCountStaysCorrect() {
+    // Regression test: after build/rebalance, the HLL should be populated
+    // with the full index contents. When a small delta is merged, the
+    // distinctCount should remain close to the original, not drop to the
+    // delta's count.
+
+    // Given: a populated HLL representing 1000 distinct keys
+    var hll = new HyperLogLogSketch();
+    IndexHistogramManager.KeyHasher hasher =
+        key -> murmurHash(key);
+    for (int i = 0; i < 1000; i++) {
+      hll.add(hasher.hash(i));
+    }
+    long baselineEstimate = hll.estimate();
+    assertTrue("Baseline HLL estimate should be ~1000, was: "
+        + baselineEstimate, baselineEstimate >= 900 && baselineEstimate <= 1100);
+
+    // Build a snapshot with this populated HLL (simulates post-build state)
+    var histogram = new EquiDepthHistogram(
+        2,
+        new Comparable<?>[]{0, 500, 1000},
+        new long[]{500, 500},
+        new long[]{500, 500},
+        1000, null, 0
+    );
+    var stats = new IndexStatistics(1000, baselineEstimate, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 0, 1000, 1, false, hll, false);
+
+    // When: a small delta with 5 new keys is merged
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 5;
+    delta.mutationCount = 5;
+    delta.initFrequencyDeltas(2, 1); // version matches
+    delta.frequencyDeltas[0] = 5;
+    var deltaHll = new HyperLogLogSketch();
+    for (int i = 1000; i < 1005; i++) {
+      deltaHll.add(hasher.hash(i));
+    }
+    delta.hllSketch = deltaHll;
+
+    var newSnapshot = IndexHistogramManager.computeNewSnapshot(
+        snapshot, delta);
+
+    // Then: distinctCount should be ~1005, NOT ~5
+    long newDistinct = newSnapshot.stats().distinctCount();
+    assertTrue("After merging 5 new keys into 1000-key HLL, "
+            + "distinctCount should be ~1005, was: " + newDistinct,
+        newDistinct >= 950 && newDistinct <= 1060);
+  }
+
+  @Test
+  public void emptyHll_afterDeltaMerge_distinctCountDropsToNearZero() {
+    // Demonstrates the bug that existed before HLL was populated during scan:
+    // an empty HLL merged with a small delta produces a tiny distinctCount.
+    // This test documents the expected WRONG behavior with an empty HLL,
+    // proving why populating the HLL during scan is essential.
+
+    // Given: an EMPTY HLL (the old broken behavior)
+    var emptyHll = new HyperLogLogSketch();
+
+    var histogram = new EquiDepthHistogram(
+        2,
+        new Comparable<?>[]{0, 500, 1000},
+        new long[]{500, 500},
+        new long[]{500, 500},
+        1000, null, 0
+    );
+    var stats = new IndexStatistics(1000, 1000, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 0, 1000, 1, false, emptyHll, false);
+
+    // When: a small delta with 5 keys is merged
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 5;
+    delta.mutationCount = 5;
+    delta.initFrequencyDeltas(2, 1);
+    delta.frequencyDeltas[0] = 5;
+    IndexHistogramManager.KeyHasher hasher =
+        key -> murmurHash(key);
+    var deltaHll = new HyperLogLogSketch();
+    for (int i = 0; i < 5; i++) {
+      deltaHll.add(hasher.hash(i));
+    }
+    delta.hllSketch = deltaHll;
+
+    var newSnapshot = IndexHistogramManager.computeNewSnapshot(
+        snapshot, delta);
+
+    // Then: distinctCount drops catastrophically from 1000 to ~5
+    // This is the WRONG behavior that the fix prevents.
+    long newDistinct = newSnapshot.stats().distinctCount();
+    assertTrue("Empty HLL + small delta should produce tiny distinctCount "
+            + "(demonstrating the bug), was: " + newDistinct,
+        newDistinct < 20);
+  }
+
   private static AtomicOperation mockOp(HistogramDeltaHolder holder) {
     var op = mock(AtomicOperation.class);
     when(op.getOrCreateHistogramDeltas()).thenReturn(holder);
@@ -713,6 +878,15 @@ public class MultiValueIndexHistogramTest {
         new HistogramSnapshot(
             stats, histogram, 0, totalCount, 0, false,
             hll, hllOnPage1));
+  }
+
+  /**
+   * Simple hash function for test HLL population — hashes the string
+   * representation of the key via MurmurHash3.
+   */
+  private static long murmurHash(Object key) {
+    byte[] bytes = key.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    return MurmurHash3.murmurHash3_x64_64(bytes, 0x7f3a21e5);
   }
 
   private static AbstractStorage createMockStorage() {
