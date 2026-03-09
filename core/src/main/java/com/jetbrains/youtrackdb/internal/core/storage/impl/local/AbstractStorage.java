@@ -5473,12 +5473,15 @@ public abstract class AbstractStorage
   /**
    * Core eviction logic: removes all visibility/snapshot entries with {@code recordTs} strictly
    * below the given low-water-mark. Extracted as a static method for direct unit testing (same
-   * pattern as {@link #computeGlobalLowWaterMark(Set)}).
+   * pattern as {@link #computeGlobalLowWaterMark(Set, long)}).
    *
-   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted.
-   *     {@code Long.MAX_VALUE} means "no active transactions" — nothing is evicted (safety net;
-   *     in practice lwm is never MAX_VALUE during cleanup because the committing thread's tsMin
-   *     is still set — {@code resetTsMin()} runs later in {@code FrontendTransactionImpl.close()}).
+   * <p>The {@code lwm} parameter is always a concrete upper bound — either an active
+   * transaction's snapshot timestamp or {@code idGen.getLastId()} when no transactions are
+   * active. It is never {@code Long.MAX_VALUE} in normal operation because
+   * {@link #computeGlobalLowWaterMark()} falls back to {@code idGen.getLastId()} when all
+   * threads are idle.
+   *
+   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
    * @param snapshotIndex the shared snapshot index to remove stale entries from
    * @param visibilityIdx the visibility index to scan and remove stale entries from
    * @param sizeCounter   approximate size counter to decrement for each evicted snapshot entry
@@ -5488,9 +5491,6 @@ public abstract class AbstractStorage
       ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
       ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx,
       @Nonnull AtomicLong sizeCounter) {
-    if (lwm == Long.MAX_VALUE) {
-      return;
-    }
     // Sentinel key: (lwm, MIN, MIN) is the smallest possible key with recordTs==lwm,
     // so headMap(exclusive) captures everything with recordTs < lwm.
     var staleEntries = visibilityIdx.headMap(
@@ -5537,8 +5537,21 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Computes the global low-water-mark. Reads {@code idGen.getLastId()} <b>before</b> scanning
+   * {@code tsMins} so that any transaction starting after the read has {@code tsMin >= fallback},
+   * eliminating the race where a new transaction's {@code tsMin} is lower than the fallback.
+   *
+   * @return the minimum active {@code tsMin}, or {@code idGen.getLastId()} when no transactions
+   *     are active. Never returns {@code Long.MAX_VALUE}.
+   */
   public long computeGlobalLowWaterMark() {
-    return computeGlobalLowWaterMark(tsMins);
+    // Read the fallback BEFORE scanning tsMins. Because idGen is monotonic
+    // and every new transaction sets tsMin >= idGen.getLastId() at its start
+    // time, any transaction that begins after this read will have
+    // tsMin >= fallbackLwm.
+    long fallbackLwm = idGen.getLastId();
+    return computeGlobalLowWaterMark(tsMins, fallbackLwm);
   }
 
   public ConcurrentSkipListMap<SnapshotKey, PositionEntry> getSharedSnapshotIndex() {
@@ -5559,9 +5572,19 @@ public abstract class AbstractStorage
    * represent idle threads (no active transaction) and are effectively ignored since any real
    * timestamp will be smaller.
    *
-   * <p>If no holders are registered (or all are idle), returns {@code Long.MAX_VALUE}.
+   * <p>When no holders are registered or all are idle (minimum is {@code Long.MAX_VALUE}), falls
+   * back to {@code currentId}. This ensures that when no transactions are active, the LWM equals
+   * the latest generated operation id — all committed record versions have
+   * {@code version <= currentId}, and any transaction starting after the caller read
+   * {@code currentId} has {@code tsMin >= currentId}, so stale versions with
+   * {@code V_new <= currentId} are unreachable.
+   *
+   * @param tsMins the set of per-thread {@link TsMinHolder} instances
+   * @param currentId fallback value when all holders are idle; typically
+   *     {@code idGen.getLastId()} read <b>before</b> scanning {@code tsMins}
+   * @return the minimum active timestamp, or {@code currentId} when no transactions are active
    */
-  static long computeGlobalLowWaterMark(Set<TsMinHolder> tsMins) {
+  static long computeGlobalLowWaterMark(Set<TsMinHolder> tsMins, long currentId) {
     long min = Long.MAX_VALUE;
     // Weakly-consistent iteration over the Guava concurrent weak-key set.
     // No explicit synchronization needed — stale or missing entries are
@@ -5571,6 +5594,9 @@ public abstract class AbstractStorage
       if (ts < min) {
         min = ts;
       }
+    }
+    if (min == Long.MAX_VALUE) {
+      min = currentId;
     }
     return min;
   }

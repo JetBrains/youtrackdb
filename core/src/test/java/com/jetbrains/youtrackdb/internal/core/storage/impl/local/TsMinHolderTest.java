@@ -60,7 +60,9 @@ public class TsMinHolderTest {
     holder.tsMin = 100L;
     tsMins.add(holder);
 
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(100L);
+    // Active holder's tsMin (100) is less than the fallback (500), so LWM = 100.
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 500L))
+        .isEqualTo(100L);
   }
 
   @Test
@@ -79,7 +81,9 @@ public class TsMinHolderTest {
     h3.tsMin = 200L;
     tsMins.add(h3);
 
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(100L);
+    // Minimum across active holders is 100, regardless of fallback.
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 500L))
+        .isEqualTo(100L);
   }
 
   @Test
@@ -94,11 +98,28 @@ public class TsMinHolderTest {
     // idle.tsMin remains Long.MAX_VALUE (no active tx)
     tsMins.add(idle);
 
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(50L);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 500L))
+        .isEqualTo(50L);
   }
 
   @Test
-  public void testLowWaterMarkAllIdle() {
+  public void testLowWaterMarkActiveTsMinWinsOverLowerFallback() {
+    // In production, currentId >= tsMin always holds (idGen is monotonic and tsMin
+    // is derived from a snapshot taken after getLastId()). If currentId were somehow
+    // lower, the active tsMin still wins because min(tsMin) < Long.MAX_VALUE causes
+    // the fallback branch to be skipped.
+    var tsMins = newTsMinsSet();
+
+    var holder = new TsMinHolder();
+    holder.tsMin = 100L;
+    tsMins.add(holder);
+
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 50L))
+        .isEqualTo(100L);
+  }
+
+  @Test
+  public void testLowWaterMarkAllIdleFallsBackToCurrentId() {
     var tsMins = newTsMinsSet();
 
     var h1 = new TsMinHolder();
@@ -107,15 +128,19 @@ public class TsMinHolderTest {
     var h2 = new TsMinHolder();
     tsMins.add(h2);
 
-    // Both holders have default MAX_VALUE (idle)
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(Long.MAX_VALUE);
+    // Both holders are idle (tsMin == MAX_VALUE). The LWM falls back to
+    // the currentId parameter instead of returning Long.MAX_VALUE.
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 42L))
+        .isEqualTo(42L);
   }
 
   @Test
-  public void testLowWaterMarkEmptySet() {
+  public void testLowWaterMarkEmptySetFallsBackToCurrentId() {
     var tsMins = newTsMinsSet();
 
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(Long.MAX_VALUE);
+    // No holders registered. The LWM falls back to currentId.
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 99L))
+        .isEqualTo(99L);
   }
 
   @Test
@@ -126,15 +151,19 @@ public class TsMinHolderTest {
     holder.tsMin = 100L;
     tsMins.add(holder);
 
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(100L);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 500L))
+        .isEqualTo(100L);
 
-    // Simulate transaction end — tsMin goes back to MAX_VALUE
+    // Simulate transaction end — tsMin goes back to MAX_VALUE.
+    // With no active transactions, LWM falls back to currentId (500).
     holder.tsMin = Long.MAX_VALUE;
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(Long.MAX_VALUE);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 500L))
+        .isEqualTo(500L);
 
-    // Simulate new transaction begin
+    // Simulate new transaction begin — active tsMin (200) wins over fallback.
     holder.tsMin = 200L;
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(200L);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 500L))
+        .isEqualTo(200L);
   }
 
   @Test
@@ -201,7 +230,8 @@ public class TsMinHolderTest {
     var weakRef = new WeakReference<>(ephemeral);
 
     assertThat(tsMins).hasSize(2);
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(100L);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 1000L))
+        .isEqualTo(100L);
 
     // Release the strong reference — the weak-key entry becomes eligible for GC
     //noinspection UnusedAssignment
@@ -227,7 +257,8 @@ public class TsMinHolderTest {
       // so computeGlobalLowWaterMark (which iterates) should see only the survivor.
       // Note: size() may still overcount because Guava's segment cleanup is lazy,
       // but iteration is the semantically important operation for this data structure.
-      assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(500L);
+      assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 1000L))
+          .isEqualTo(500L);
     }
     // If GC didn't collect within the timeout, the test is inconclusive but not a failure —
     // weak-key GC behavior is JVM-dependent. The survivor invariant still holds.
@@ -280,13 +311,15 @@ public class TsMinHolderTest {
 
     // Both threads registered — LWM should be the minimum (50)
     assertThat(tsMins).hasSize(2);
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(50L);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 1000L))
+        .isEqualTo(50L);
 
     // Thread 2 "ends" its transaction.
     // Mutated from main thread for test simplicity (in production, only the owning thread writes).
     t2Holder.get().tsMin = Long.MAX_VALUE;
     t2Holder.get().activeTxCount--;
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(200L);
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 1000L))
+        .isEqualTo(200L);
 
     checkDone.countDown();
     t1.join(5000);
@@ -392,15 +425,17 @@ public class TsMinHolderTest {
       try {
         barrier.await(); // synchronize start
         while (!stop.get() && error.get() == null) {
-          long lwm = AbstractStorage.computeGlobalLowWaterMark(tsMins);
+          // Use a fallback of 999 (below any worker's tsMin range of 1000+)
+          // so we can distinguish "fallback was used" from "active tsMin found".
+          long lwm = AbstractStorage.computeGlobalLowWaterMark(tsMins, 999L);
           // Safety invariant: LWM must be <= every active holder's tsMin.
           // Since we can't atomically snapshot all holders + the LWM, we check
-          // a weaker but still useful property: LWM must be a value that was
-          // actually written (either a valid timestamp >= 1000, or MAX_VALUE).
+          // a weaker but still useful property: LWM must be either the fallback
+          // value (999, when all idle) or a valid timestamp >= 1000 (active tx).
           assertThat(lwm)
-              .as("LWM must be MAX_VALUE (all idle) or a valid timestamp >= 1000")
+              .as("LWM must be fallback (999, all idle) or a valid timestamp >= 1000")
               .satisfiesAnyOf(
-                  v -> assertThat(v).isEqualTo(Long.MAX_VALUE),
+                  v -> assertThat(v).isEqualTo(999L),
                   v -> assertThat(v).isGreaterThanOrEqualTo(1000L));
         }
       } catch (Throwable t) {
@@ -429,8 +464,9 @@ public class TsMinHolderTest {
       throw new AssertionError("Thread failure", error.get());
     }
 
-    // All workers done, all txs ended — LWM must be MAX_VALUE
-    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(Long.MAX_VALUE);
+    // All workers done, all txs ended — LWM falls back to currentId (999)
+    assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 999L))
+        .isEqualTo(999L);
   }
 
   /**
@@ -482,8 +518,11 @@ public class TsMinHolderTest {
       try {
         txStarted.await();
 
-        // Verify the active tsMin is visible (volatile write + latch guarantee)
-        assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins)).isEqualTo(42L);
+        // Use a fallback of 999 so we can detect when the opaque reset propagates
+        // (LWM goes from 42 to 999).
+        // First, verify the active tsMin is visible (volatile write + latch guarantee)
+        assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, 999L))
+            .isEqualTo(42L);
 
         // Let the writer proceed with the opaque reset
         readerObservedActive.countDown();
@@ -492,7 +531,7 @@ public class TsMinHolderTest {
         // the opaque write and this loop — eventual visibility is all we rely on.
         // On x86 this is near-instant; on ARM it may take more iterations.
         for (int i = 0; i < 10_000_000; i++) {
-          if (AbstractStorage.computeGlobalLowWaterMark(tsMins) == Long.MAX_VALUE) {
+          if (AbstractStorage.computeGlobalLowWaterMark(tsMins, 999L) == 999L) {
             readerSawReset.set(true);
             break;
           }
@@ -516,7 +555,7 @@ public class TsMinHolderTest {
     }
 
     assertThat(readerSawReset)
-        .as("Reader must eventually see the opaque reset to MAX_VALUE")
+        .as("Reader must eventually see the opaque reset (LWM falls to fallback)")
         .isTrue();
   }
 
@@ -578,9 +617,13 @@ public class TsMinHolderTest {
       assertThat(allStarted.await(10, TimeUnit.SECONDS))
           .as("All workers should start within 10s (round %d)", round).isTrue();
 
+      // Use a fallback value below any worker's tsMin range so that when all
+      // txs end, the LWM becomes the fallback (not Long.MAX_VALUE).
+      long fallback = baseTs - 1;
+
       // Checkpoint 1: all txs active — LWM must equal the minimum tsMin.
       long expectedMin = baseTs; // worker 0 has the smallest ts
-      assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins))
+      assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, fallback))
           .as("LWM with all txs active (round %d)", round)
           .isEqualTo(expectedMin);
 
@@ -589,13 +632,13 @@ public class TsMinHolderTest {
       assertThat(allEnded.await(10, TimeUnit.SECONDS))
           .as("All workers should end within 10s (round %d)", round).isTrue();
 
-      // Checkpoint 2: all txs ended via opaque reset — LWM must be MAX_VALUE.
+      // Checkpoint 2: all txs ended via opaque reset — LWM falls back to currentId.
       // The latch provides happens-before with the opaque writes, so visibility
       // is guaranteed here (this checkpoint tests functional correctness, not
       // opaque visibility — testOpaqueResetEventuallyVisibleToReader covers that).
-      assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins))
+      assertThat(AbstractStorage.computeGlobalLowWaterMark(tsMins, fallback))
           .as("LWM after all txs ended (round %d)", round)
-          .isEqualTo(Long.MAX_VALUE);
+          .isEqualTo(fallback);
 
       if (error.get() != null) {
         throw new AssertionError("Worker thread failure in round " + round, error.get());

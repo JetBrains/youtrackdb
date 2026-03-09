@@ -57,7 +57,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(20L, 1, 200L), sk2);
 
     // lwm = 15: entries with recordTs < 15 (i.e., recordTs=10) should be evicted
-    AbstractStorage.evictStaleSnapshotEntries(15L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(15L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).doesNotContainKey(sk1);
     assertThat(snapshotIndex).containsKey(sk2);
@@ -72,7 +73,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
 
     // lwm = 10: entry with recordTs=10 should be PRESERVED (headMap is exclusive)
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).containsKey(sk);
     assertThat(visibilityIndex).hasSize(1);
@@ -84,7 +86,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(20L, 1, 100L), sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).containsKey(sk);
     assertThat(visibilityIndex).hasSize(1);
@@ -103,7 +106,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(skAbove, new PositionEntry(11L, 0, 11L));
     visibilityIndex.put(new VisibilityKey(100L, 1, 11L), skAbove);
 
-    AbstractStorage.evictStaleSnapshotEntries(50L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(50L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).hasSize(1);
     assertThat(snapshotIndex).containsKey(skAbove);
@@ -113,20 +117,26 @@ public class SnapshotIndexCleanupTest {
   // --- evictStaleSnapshotEntries: no-op cases ---
 
   @Test
-  public void testEvictNoOpWhenLwmIsMaxValue() {
+  public void testEvictWithLwmMaxValueEvictsAllEntries() {
+    // After the LWM fallback change, computeGlobalLowWaterMark() never returns
+    // Long.MAX_VALUE. But even if Long.MAX_VALUE is passed directly, eviction
+    // now proceeds (the old Long.MAX_VALUE guard was removed). All entries with
+    // recordTs < Long.MAX_VALUE are evicted.
     var sk = new SnapshotKey(1, 100L, 5L);
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(Long.MAX_VALUE, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(
+        Long.MAX_VALUE, snapshotIndex, visibilityIndex, new AtomicLong());
 
-    assertThat(snapshotIndex).hasSize(1);
-    assertThat(visibilityIndex).hasSize(1);
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(visibilityIndex).isEmpty();
   }
 
   @Test
   public void testEvictNoOpOnEmptyIndexes() {
-    AbstractStorage.evictStaleSnapshotEntries(100L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(100L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
@@ -138,7 +148,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(50L, 1, 100L), sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).hasSize(1);
     assertThat(visibilityIndex).hasSize(1);
@@ -161,7 +172,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(30L, 3, 300L), sk3);
 
     // lwm = 25: evict entries with recordTs=10 and recordTs=20; keep recordTs=30
-    AbstractStorage.evictStaleSnapshotEntries(25L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(25L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).hasSize(1);
     assertThat(snapshotIndex).containsKey(sk3);
@@ -178,7 +190,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(vk, sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     // Both maps must be empty — entry was removed from both
     assertThat(snapshotIndex).isEmpty();
@@ -194,7 +207,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
     // snapshotIndex is empty — no corresponding entry
 
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(visibilityIndex).isEmpty();
     assertThat(snapshotIndex).isEmpty();
@@ -321,12 +335,14 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
 
     // First eviction removes the entry
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
 
     // Second eviction is a no-op (no entries to evict)
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
   }
@@ -430,7 +446,8 @@ public class SnapshotIndexCleanupTest {
       visibilityIndex.put(new VisibilityKey((long) i, 1, (long) i), sk);
     }
 
-    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     // Entries with recordTs 0..499 evicted, entries 500..999 preserved
     assertThat(snapshotIndex).hasSize(count - (int) lwm);
@@ -487,7 +504,8 @@ public class SnapshotIndexCleanupTest {
 
     // Evictor: start together with reader, then evict entries below lwm
     barrier.await(5, TimeUnit.SECONDS);
-    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     evictionDone.set(true);
 
     readerThread.join(10_000);
@@ -532,7 +550,8 @@ public class SnapshotIndexCleanupTest {
     readerThread.start();
 
     barrier.await(5, TimeUnit.SECONDS);
-    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     readerThread.join(10_000);
     assertThat(readerThread.isAlive()).isFalse();
@@ -631,7 +650,8 @@ public class SnapshotIndexCleanupTest {
     }
 
     // Round 1: lwm=10 removes entries 0..9
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).hasSize(20);
     assertThat(visibilityIndex).hasSize(20);
     for (int i = 0; i < 10; i++) {
@@ -644,7 +664,8 @@ public class SnapshotIndexCleanupTest {
     }
 
     // Round 2: lwm=20 removes entries 10..19
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).hasSize(10);
     assertThat(visibilityIndex).hasSize(10);
     for (int i = 10; i < 20; i++) {
@@ -657,7 +678,8 @@ public class SnapshotIndexCleanupTest {
     }
 
     // Round 3: lwm=30 removes entries 20..29
-    AbstractStorage.evictStaleSnapshotEntries(30L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(30L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
   }
@@ -686,7 +708,8 @@ public class SnapshotIndexCleanupTest {
     // Entry at lwm boundary
     visibilityIndex.put(new VisibilityKey(20L, 4, 400L), skAtLwm);
 
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     // All three entries with recordTs=10 should be evicted
     assertThat(snapshotIndex).doesNotContainKey(sk1);
