@@ -186,7 +186,7 @@ public class GranularTickerTest {
 
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
-      return true;
+      return false;
     }
 
     @Override
