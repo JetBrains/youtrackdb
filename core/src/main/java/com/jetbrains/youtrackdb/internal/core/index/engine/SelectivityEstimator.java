@@ -611,9 +611,13 @@ public final class SelectivityEstimator {
 
   /**
    * Clamps a value to [0.0, 1.0]. Guards against residual drift from
-   * incremental maintenance producing out-of-range values.
+   * incremental maintenance producing out-of-range values, and against
+   * NaN from unexpected division-by-zero in upstream formulas.
    */
   static double clamp(double v) {
+    if (Double.isNaN(v)) {
+      return 0.0;
+    }
     return Math.min(Math.max(v, 0.0), 1.0);
   }
 }
