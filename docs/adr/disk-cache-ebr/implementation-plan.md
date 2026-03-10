@@ -143,10 +143,15 @@ public final class EpochTable {
 Slot and global epoch access uses `VarHandle` with **different access modes
 depending on the ordering requirements**:
 
-**`enter()` — opaque write + full fence:**
+**`enter()` — opaque write + full fence + grow-safety retry:**
 ```java
-SLOTS_HANDLE.setOpaque(slots, slotIndex, GLOBAL_EPOCH_HANDLE.getOpaque(this));
-VarHandle.fullFence();
+long epoch = (long) GLOBAL_EPOCH_HANDLE.getOpaque(this);
+long[] s;
+do {
+  s = slots;                                              // volatile read
+  SLOTS_HANDLE.setOpaque(s, slotIndex, epoch);
+  VarHandle.fullFence();
+} while (s != slots);                                     // volatile read — detect grow
 ```
 — **no CAS**, opaque write to a thread-owned cache line followed by a
 **StoreLoad fence** (`VarHandle.fullFence()`). The fence is required to
@@ -157,6 +162,31 @@ remain in the store buffer (x86) or be reordered past subsequent loads
 (ARM) while the thread proceeds to access entries in the CHM. The reclaimer
 could then read the stale `INACTIVE` value, compute a safeEpoch that is too
 high, and free an entry the thread is about to access — a use-after-free.
+
+**Grow-safety retry loop:** The `do`/`while` loop guards against a race
+with `grow()`. If `grow()` replaces the `slots` array between the volatile
+read (loop top) and the fence, the opaque write lands in the **old** array.
+`computeSafeEpoch()` reads the **new** array, where the slot still holds the
+stale `INACTIVE` value copied during `grow()`, making this thread invisible
+to the reclaimer — a use-after-free. The post-fence re-read of `slots`
+detects the replacement (`s != slots`) and retries on the new array.
+
+**Correctness argument:** When the loop exits (`s == slots`), the thread's
+epoch is written to the array that `slots` currently references. Any
+*subsequent* `grow()` call will `System.arraycopy` from this array,
+preserving the epoch value in the new array. The timing argument:
+
+- `grow()` copies **after** our fenced write → the copy includes our epoch
+  (the `fullFence()` ensures global visibility on real hardware before the
+  second volatile read of `slots`).
+- `grow()` copies **before** our write or **concurrently** → `grow()` publishes
+  a new array via `slots = newSlots` (volatile write). Our post-fence volatile
+  re-read of `slots` observes the new reference → loop retries.
+
+Since `grow()` is rare (only when thread count exceeds array capacity), the
+loop body executes **once** in the common case. The retry adds one extra
+volatile read of `slots` (which is a plain load on x86, `ldar` on ARM) —
+negligible cost.
 
 Opaque (rather than volatile) is used for the store itself because the
 fence already provides the required StoreLoad barrier; a volatile store
@@ -180,20 +210,33 @@ reads past the `INACTIVE` store, allowing the reclaimer to free memory that
 the thread is still reading. On x86 (TSO), release compiles to a plain store
 (no extra cost); on ARM, it compiles to `stlr` (store-release, lightweight).
 
+**`exit()` and `grow()` — liveness only, no safety issue:** `exit()` has the
+same TOCTOU on the `slots` reference as `enter()`: if `grow()` replaces the
+array between the volatile read and the release write, the `INACTIVE` value
+lands in the old array. The new array retains the stale epoch value copied
+during `grow()`, causing `computeSafeEpoch()` to see a phantom active slot.
+Unlike `enter()`, this is **not** a safety violation — it is conservative
+(delays reclamation, never causes use-after-free). The phantom clears itself
+on the thread's next `enter()`/`exit()` cycle, which writes to the current
+array. No retry loop is needed here.
+
 **`advanceEpoch()` — opaque write:**
 `GLOBAL_EPOCH_HANDLE.setOpaque(this, epoch + 1)` — called under `evictionLock`
 so no contention. Opaque is sufficient because the eviction lock's
 unlock provides the necessary release fence.
 
 **Slot lifecycle summary:**
-- `enter()`: opaque write + `fullFence()` (StoreLoad barrier ensures slot
-  is visible to reclaimer before thread reads shared data)
+- `enter()`: opaque write + `fullFence()` in a retry loop (StoreLoad barrier
+  ensures slot is visible to reclaimer before thread reads shared data;
+  retry loop ensures the write targets the current `slots` array even if
+  `grow()` races — see "Grow-safety retry loop" above)
 - `exit()`: release write (ensures critical section completes before exit)
 - `advanceEpoch()`: opaque write (evictionLock provides ordering)
 
-The critical property: `enter()` and `exit()` are **single writes to
+The critical property: `enter()` and `exit()` are **writes to
 thread-local slots** — no contended atomics, no cache-line bouncing between
-threads.
+threads. In the common case (no concurrent `grow()`), `enter()` executes
+the loop body exactly once.
 
 **JMM formal analysis — enter() / computeSafeEpoch() pairing:**
 
@@ -388,6 +431,14 @@ private void grow(int requiredIndex) {
     // A reader that sees the old array may miss newly added slots, but
     // those slots were just written with a current epoch — missing them
     // is conservative (delays reclamation, never causes a safety violation).
+    //
+    // Safety w.r.t. concurrent enter()/exit():
+    // - enter() uses a retry loop that re-reads `slots` after the fence.
+    //   If grow() replaced the array, enter() detects the change and
+    //   retries on the new array — see "Grow-safety retry loop" above.
+    // - exit() may write INACTIVE to the old array if it races with
+    //   grow(). This is a liveness issue only (delays reclamation),
+    //   not a safety violation — see "exit() and grow()" note above.
     slots = newSlots;
   } finally {
     growLock.unlock();
@@ -453,7 +504,8 @@ To catch violations early, `SlotHandle` tracks an `active` flag (plain
 `boolean`, thread-local — no synchronization needed):
 
 - **`enter()`**: `assert !handle.active : "EBR critical section is not reentrant"`;
-  then set `handle.active = true`, write epoch to slot, execute fence.
+  then set `handle.active = true`, write epoch to slot, execute fence
+  (with grow-safety retry loop — see `enter()` description above).
 - **`exit()`**: `assert handle.active`; set `handle.active = false`, write
   `INACTIVE` (release).
 
@@ -586,7 +638,7 @@ be reversed. The required order within eviction is:
 
 ```
 retire()  →  data.remove()  →  record retireEpoch  →  add to retired list
-   (1)           (2)                 (3)                     (3)
+   (1)           (2)                 (3)                     (4)
 ```
 
 All steps run under `evictionLock`, so no additional synchronization is needed
@@ -628,6 +680,7 @@ private void reclaimRetired() {
   CacheEntry entry;
   while ((entry = retiredList.peek()) != null && entry.retireEpoch() <= safeEpoch) {
     retiredList.poll();
+    retiredListSize--;       // volatile write; visible to outside-lock backpressure check
     entry.getCachePointer().decrementReadersReferrer();
     entry.clearCachePointer();
   }
@@ -643,12 +696,12 @@ rates. Entries are appended during eviction and drained from the head during
 reclamation, so ordering is naturally FIFO by epoch.
 A `volatile int retiredListSize` is maintained alongside the deque. All
 mutations (increment on append, decrement on reclaim) happen under
-`evictionLock`, so plain writes to the field are safe — mutual exclusion
-guarantees atomicity, and the lock's release fence publishes the new value.
-The field is declared `volatile` solely so that `enterCriticalSection()` can
-read it **outside the lock** for the backpressure check with guaranteed
-visibility. A stale read is harmless (triggers reclamation one cycle early or
-late).
+`evictionLock`, so no CAS is needed — mutual exclusion guarantees atomicity.
+Because the field is declared `volatile`, every `retiredListSize++` /
+`retiredListSize--` is a volatile write, which ensures visibility to
+`enterCriticalSection()` when it reads the counter **outside the lock** for
+the backpressure check. A stale read is harmless (triggers reclamation one
+cycle early or late).
 
 #### 4. CacheEntry Simplification
 
@@ -691,9 +744,11 @@ and `acquireEntry()`. With EBR, this race is harmless for reads:
 2. **Data correctness**: A retired entry contains the same page data as a
    freshly loaded one — it's the same disk page.
 3. **LRU tracking**: `afterRead()` posts the entry to the read buffer, which
-   eventually calls `WTinyLFUPolicy.onAccess()`. That method already checks
-   `!cacheEntry.isDead()` and skips dead/retired entries, so posting a stale
-   entry is harmless.
+   eventually calls `WTinyLFUPolicy.onAccess()`. That method currently checks
+   `!cacheEntry.isDead()` and skips dead entries. With EBR, `FROZEN` and `DEAD`
+   are collapsed into `RETIRED` (state = -1), so this guard must be updated to
+   use `isRetired()` (or an equivalent check for `state < 0`). Posting a
+   retired entry is harmless — the updated guard simply skips it.
 4. **`data.compute()` path**: The compute lambda holds CHM's per-bucket lock,
    so eviction cannot concurrently remove the same key. The returned entry is
    guaranteed to be in the CHM when compute returns.
@@ -791,7 +846,7 @@ The `readersWritersReferrer` CAS does occur on the **write path** (via
 
 | Operation | Before (per access) | After (per access) |
 |---|---|---|
-| Component operation enter | Nothing | Opaque write to thread-local slot + StoreLoad fence (once per component op) |
+| Component operation enter | Nothing | Opaque write to thread-local slot + StoreLoad fence + volatile re-read of `slots` for grow-safety (once per component op) |
 | Component operation exit | Nothing | Release write to thread-local slot (once per component op) |
 | `loadForRead` (cache hit) | CAS on `state` (acquireEntry) | Nothing (return entry directly) |
 | `loadForRead` (cache miss) | CAS on `state` (acquireEntry) + structural pointer CAS in `WOWCache.load()` | Structural pointer CAS in `WOWCache.load()` only (no entry CAS) |
@@ -804,16 +859,17 @@ The `readersWritersReferrer` CAS does occur on the **write path** (via
 **Net result for reads**: Each `loadForRead` / `releaseFromRead` on the cache
 hit path goes from **2 CAS operations** (on `CacheEntry.state`) to **nothing**.
 The only new per-access cost is the epoch enter/exit — **1 opaque write +
-1 StoreLoad fence** (enter) and **1 release write** (exit) — but this cost is
-paid **once per component operation**, which may include multiple page accesses.
-The fence on enter is cheaper than the CAS it replaces (one barrier vs. a
-serializing read-modify-write that bounces cache lines), and the exit is a
-plain store on x86. This eliminates all cross-core cache-line invalidation on
-the read path.
+1 StoreLoad fence + 1 volatile read** (enter, for grow-safety) and
+**1 release write** (exit) — but this cost is paid **once per component
+operation**, which may include multiple page accesses. The fence on enter is
+cheaper than the CAS it replaces (one barrier vs. a serializing
+read-modify-write that bounces cache lines), the extra volatile read is a
+plain load on x86 (`ldar` on ARM), and the exit is a plain store on x86.
+This eliminates all cross-core cache-line invalidation on the read path.
 
 A component operation that reads N pages (cache hits) previously paid 2N CAS
-operations; with EBR it pays 1 opaque write + 1 fence + 1 release write,
-regardless of N.
+operations; with EBR it pays 1 opaque write + 1 fence + 1 volatile read +
+1 release write, regardless of N.
 
 **Write path**: unchanged — retains 1 CAS on `acquireEntry()` and 1 CAS on
 `releaseEntry()`. This is necessary to prevent CachePointer divergence (see
@@ -827,6 +883,21 @@ lock the write path already acquires.
 `clearFile()` currently iterates pages and calls `freeze()` on each, failing if any
 entry has `state > 0`. With EBR, the `state` field still tracks write holders
 (see "Write Path" above), so `retire()` can still fail if `state > 0`.
+
+**Precondition — no concurrent writers on the file's pages:** `clearFile()` is
+called during file close or deletion, after the component's exclusive lock has
+been acquired (via `acquireExclusiveLock()` on `DurableComponent`) and all
+in-flight component operations on that file have completed. This guarantees
+`state == 0` for all entries belonging to the file — no writer holds any of
+them. The higher-level locking protocol (`AtomicOperationsManager` exclusive
+lock on the component) enforces this invariant. If this precondition were
+violated (a writer still holds an entry), `removeEntriesForFile()` would
+remove the entry from the CHM while the writer still references it, leading
+to CachePointer divergence on `releaseFromWrite()`. This is the same
+precondition that the current (pre-EBR) `freeze()`-based `clearFile()`
+relies on — `freeze()` would fail on held entries, surfacing the violation
+as an error.
+
 The approach:
 
 1. Remove entries from CHM (making them unreachable).
@@ -1129,7 +1200,6 @@ the hot `doLoad` read path that EBR optimizes.
 
 **Files to create:**
 - `core/.../storage/cache/ebr/EpochTable.java` — epoch table with padded slots
-- `core/.../storage/cache/ebr/RetiredEntryQueue.java` — queue of entries awaiting reclamation
 
 **Key design decisions:**
 - Initial slot count: `Runtime.getRuntime().availableProcessors() * 4`; grows
@@ -1233,14 +1303,19 @@ into Phase 3, and this phase is renumbered.
    `retire()` replaces both `freeze()` and `makeDead()`: CAS from `0` to `-1`.
 3. Remove `freeze()` / `makeDead()` from `CacheEntry` interface — replace with
    `retire()`.
-4. Verify all three paths that retain `acquireEntry()`:
+4. Update all `isDead()` / `isFrozen()` guards to use `isRetired()` (or
+   equivalent `state < 0` check). In particular, `WTinyLFUPolicy.onAccess()`
+   currently checks `!cacheEntry.isDead()` to skip evicted entries — this must
+   be changed to `!cacheEntry.isRetired()` so that retired entries posted to
+   the read buffer are correctly skipped.
+5. Verify all three paths that retain `acquireEntry()`:
    - **`loadForWrite` / `releaseFromWrite`**: entry stays in CHM while writer holds
      it; `retire()` fails when `state > 0`.
    - **`silentLoadForRead` (in-cache path)**: entry found in CHM, protected by ref
      count; `retire()` fails when `state > 0`.
    - **`silentLoadForRead` (outside-cache path)**: entry not in CHM, protected by
      `acquireEntry()` + `decrementReadersReferrer()` on release.
-5. Run full test suite, integration tests, and benchmarks.
+6. Run full test suite, integration tests, and benchmarks.
 
 ## Risk Assessment
 
