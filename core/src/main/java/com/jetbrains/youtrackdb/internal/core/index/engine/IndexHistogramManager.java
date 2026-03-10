@@ -1722,12 +1722,11 @@ public class IndexHistogramManager extends DurableComponent {
       if (!rebalanceInProgress.get()) {
         return cache.get(engineId);
       }
-      try {
-        Thread.sleep(100);
-      } catch (InterruptedException e) {
+      if (Thread.interrupted()) {
         Thread.currentThread().interrupt();
         return cache.get(engineId);
       }
+      LockSupport.parkNanos(100_000_000L); // 100 ms
     }
     return cache.get(engineId);
   }

@@ -621,11 +621,6 @@ public final class SelectivityEstimator {
   }
 
   /**
-   * Clamps a value to [0.0, 1.0]. Guards against residual drift from
-   * incremental maintenance producing out-of-range values, and against
-   * NaN from unexpected division-by-zero in upstream formulas.
-   */
-  /**
    * Dispatches a binary comparison operator to the appropriate selectivity
    * estimation method. Returns {@code -1} if the operator is not supported.
    *
@@ -668,6 +663,11 @@ public final class SelectivityEstimator {
     return -1;
   }
 
+  /**
+   * Clamps a value to [0.0, 1.0]. Guards against residual drift from
+   * incremental maintenance producing out-of-range values, and against
+   * NaN from unexpected division-by-zero in upstream formulas.
+   */
   static double clamp(double v) {
     if (Double.isNaN(v)) {
       return 0.0;
