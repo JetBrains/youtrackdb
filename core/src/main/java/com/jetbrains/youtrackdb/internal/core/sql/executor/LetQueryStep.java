@@ -56,10 +56,14 @@ public class LetQueryStep extends AbstractExecutionStep {
     // so that $parent.$current in the subquery resolves to the current LET row
     // without corrupting ctx's own $current (which may be used by a lazy upstream
     // MATCH pipeline still producing results).
+    //
+    // IMPORTANT: setSystemVariable must be called BEFORE setParentWithoutOverridingChild.
+    // BasicCommandContext.setSystemVariable delegates to the parent when the parent
+    // already owns the variable, so setting the parent first would cause VAR_CURRENT
+    // to be written to ctx (the outer context) instead of stored locally.
     var currentRowCtx = new BasicCommandContext();
-    currentRowCtx.setDatabaseSession(session);
-    currentRowCtx.setParentWithoutOverridingChild(ctx);
     currentRowCtx.setSystemVariable(CommandContext.VAR_CURRENT, result);
+    currentRowCtx.setParentWithoutOverridingChild(ctx);
 
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);

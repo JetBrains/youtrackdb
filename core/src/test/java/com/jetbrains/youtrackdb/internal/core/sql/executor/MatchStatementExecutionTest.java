@@ -2915,6 +2915,63 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Verifies that $parent.$current in a LET subquery resolves to the current outer
+   * record, even when a preceding LET clause runs a scan that internally sets
+   * VAR_CURRENT on its execution context.
+   *
+   * <p>The first LET ($allPersons) scans the Person table, causing the subquery's
+   * LoaderExecutionStream to call setSystemVariable(VAR_CURRENT, ...) for each
+   * scanned record. Without the intermediate context isolation in LetQueryStep,
+   * this write would propagate to the outer pipeline context via the
+   * setSystemVariable delegation chain, corrupting $current for the second LET.
+   *
+   * <p>The second LET ($selfLookup) references $parent.$current.name. If isolation
+   * is correct, it sees the current outer row's name; if corrupted, it sees the
+   * last Person scanned by the first LET and the assertEquals on name fails.
+   */
+  @Test
+  public void testMatchWithMultipleLetAndParentCurrent() {
+    // Use the existing Person/Friend fixture (n1..n6).
+    // MATCH returns two persons; two LETs follow:
+    //  1. $allPersons = full scan of Person (corrupts ctx.$current without fix)
+    //  2. $selfLookup = correlates via $parent.$current.name (detects corruption)
+    session.begin();
+    var result =
+        session.query(
+            "SELECT name, $selfLookup as selfLookup FROM ("
+                + "  MATCH {class: Person, as: person, where: (name IN ['n1','n2','n3'])}"
+                + "  RETURN person.name as name"
+                + ") LET $allPersons = (SELECT FROM Person),"
+                + "    $selfLookup = (SELECT name FROM Person"
+                + "                   WHERE name = $parent.$current.name)");
+    var names = new HashSet<String>();
+    while (result.hasNext()) {
+      var item = result.next();
+      var name = (String) item.getProperty("name");
+      assertNotNull("name must not be null", name);
+
+      @SuppressWarnings("unchecked")
+      var selfLookup = (List<Result>) item.getProperty("selfLookup");
+      assertNotNull("selfLookup must not be null for " + name, selfLookup);
+      assertEquals(
+          "$parent.$current.name must resolve to the current row's name (" + name + ")",
+          1,
+          selfLookup.size());
+      assertEquals(
+          "$parent.$current.name must match the outer row's name",
+          name,
+          selfLookup.get(0).getProperty("name"));
+      names.add(name);
+    }
+    result.close();
+    // All three requested persons must have been returned
+    assertTrue("Expected n1 in results", names.contains("n1"));
+    assertTrue("Expected n2 in results", names.contains("n2"));
+    assertTrue("Expected n3 in results", names.contains("n3"));
+    session.commit();
+  }
+
   private List<? extends Identifiable> getManagedPathElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
