@@ -436,7 +436,7 @@ long computeSafeEpoch() {
       if (logicalIndex < ownersSnapshot.length
           && ownersSnapshot[logicalIndex] != null
           && ownersSnapshot[logicalIndex].get() == null) {
-        reclaimSlot(logicalIndex, ownersSnapshot);
+        reclaimSlot(logicalIndex);
       }
       // INACTIVE does not affect min — skip.
     } else if (slotValue < min) {
@@ -468,6 +468,39 @@ long computeSafeEpoch() {
  * offer the same index to the free list twice. Holding growLock makes
  * the read + CAS atomic w.r.t. grow()'s copy-and-publish sequence.
  *
+ * TOCTOU guard — re-check after CAS: The caller
+ * (computeSafeEpoch()) reads slotOwners[i] with a plain array
+ * read OUTSIDE growLock and decides the owning thread is dead
+ * (WeakReference cleared). Between that read and the CAS inside
+ * this method, a new thread may have taken the slot from the free
+ * list and reset slotReleased to 0 (volatile write / release).
+ * On weakly-ordered architectures (ARM, RISC-V), the caller's
+ * earlier plain read of slotOwners[i] may observe a stale value
+ * (e.g., the previous dead thread's cleared WeakReference) even
+ * though the new thread has already written a live WeakReference.
+ * The CAS sees the new thread's 0 and succeeds — stealing the
+ * slot while the new thread is actively using it.
+ *
+ * The fix: after the CAS succeeds, re-read slotOwners from the
+ * current volatile field (not the caller's snapshot) and verify
+ * the owning thread is still dead. The CAS on slotReleased has
+ * acquire semantics; if it read the new thread's volatile write
+ * of 0, the release-acquire pairing guarantees the new thread's
+ * prior plain write to slotOwners[i] is visible. If the re-check
+ * finds a live thread, the CAS is undone (slotReleased reset to
+ * 0) and the slot is NOT returned to the free list.
+ *
+ * Correctness argument for the re-check: slotReleased[i] can
+ * only transition from 1 to 0 via slotReleased.set(i, 0) in the
+ * slot-reuse initialization sequence (line "slotReleased.set(
+ * slotIndex, 0)"). That volatile write is preceded (in the new
+ * thread's program order) by slotOwners[i] = new WeakReference<>
+ * (Thread.currentThread()). The CAS's acquire read of 0 therefore
+ * establishes a happens-before from the new thread's set(0),
+ * which transitively includes the slotOwners write. The re-check
+ * reading slotOwners[logicalIndex] after the CAS is guaranteed
+ * to see the new thread's WeakReference (or a later value).
+ *
  * Lock ordering: when evictionLock is held (reclaimRetired() /
  * assistReclamation() path), the nesting is evictionLock → growLock.
  * When called from waitForSafeEpoch() (outside evictionLock), only
@@ -477,20 +510,33 @@ long computeSafeEpoch() {
  * Cost: one uncontended lock acquisition per dead-thread slot during
  * scan — cold path only.
  */
-private void reclaimSlot(int logicalIndex,
-    WeakReference<Thread>[] ownersSnapshot) {
+private void reclaimSlot(int logicalIndex) {
   growLock.lock();
   try {
     if (slotReleased.compareAndSet(logicalIndex, 0, 1)) {
-      // Note: this null write targets ownersSnapshot, which was captured
-      // at the start of computeSafeEpoch(). If grow() replaced slotOwners
-      // after the snapshot was taken, this write goes to the old array —
-      // the new slotOwners retains the stale (cleared) WeakReference.
-      // This is benign: the next scan will re-check the stale reference,
-      // call reclaimSlot() again, and the CAS will fail (already 1).
-      // The stale reference is overwritten when the slot is reused by a
-      // new thread (which sets slotOwners[i] = new WeakReference<>(...)).
-      ownersSnapshot[logicalIndex] = null;  // help GC
+      // Re-check: the slot may have been reused by a new thread between
+      // the caller's slotOwners read (outside growLock) and this CAS.
+      // The CAS has acquire semantics: if it read 0 from the new thread's
+      // volatile write (slotReleased.set(i, 0)), the release-acquire
+      // pairing guarantees the new thread's prior slotOwners[i] write
+      // (plain, but ordered before the volatile write by program order)
+      // is visible here. Reading the current slotOwners volatile field
+      // (not the caller's snapshot) ensures we see the latest array even
+      // if grow() replaced it.
+      WeakReference<Thread>[] currentOwners = slotOwners;  // volatile read
+      WeakReference<Thread> ref = currentOwners[logicalIndex];
+      if (ref != null && ref.get() != null) {
+        // A live thread owns this slot — undo the CAS and bail out.
+        // The new thread will eventually die and be reclaimed by a
+        // future scan or by the Cleaner.
+        slotReleased.set(logicalIndex, 0);
+        return;
+      }
+      // Thread is confirmed dead (or slot has no owner). Safe to reclaim.
+      // Write null to the current slotOwners array (not the caller's
+      // snapshot) to help GC and to prevent future scans from seeing
+      // the stale cleared WeakReference.
+      currentOwners[logicalIndex] = null;
       freeList.offer(logicalIndex);
     }
   } finally {
@@ -644,7 +690,39 @@ Cleaner.Cleanable cleanable = CLEANER.register(handle,
     () -> epochTable.releaseSlot(slotIndex));
 slotCleanables[slotIndex] = cleanable;
 threadLocal.set(handle);
+```
 
+**Slot reuse writes and concurrent `grow()`:** The plain writes to
+`slotOwners[slotIndex]` and `slotCleanables[slotIndex]` during slot reuse
+are NOT protected by `growLock`. If `grow()` runs concurrently, it could
+copy the old array (containing the stale value) into the new array before
+the plain write lands. The plain write then targets the old array, and the
+new array retains the stale value.
+
+This is benign for the same reason as the `exit()` vs. `grow()` race: the
+stale value in the new array is conservative, not dangerous. Specifically:
+
+- **`slotOwners`**: The new array retains the old `WeakReference` (or
+  `null`). On the next `computeSafeEpoch()` scan, if the slot is `INACTIVE`,
+  the scan checks the stale `slotOwners` entry. If it looks like a dead
+  thread, `reclaimSlot()` fires — but the re-check after the CAS (see
+  "TOCTOU guard" above) reads the current `slotOwners` volatile field and
+  sees the live thread (the `slotReleased.set(0)` volatile write acts as a
+  release barrier for the `slotOwners` plain write). The CAS is undone.
+  On the thread's next `enter()`, the `fullFence()` makes all prior writes
+  globally visible, so subsequent scans see the correct `slotOwners` value.
+
+- **`slotCleanables`**: The new array retains the old `Cleanable` reference.
+  If the old `Cleanable` is `null` (slot was freshly allocated, never used)
+  or has already been cleaned (via `oldCleanable.clean()` above), this is
+  harmless — the action is a no-op. On the next slot reuse cycle, the new
+  owner reads `slotCleanables[slotIndex]` and calls `clean()` on whatever
+  reference it finds, which is idempotent.
+
+In both cases, the stale value self-corrects on the thread's next
+`enter()`/`exit()` cycle or slot reuse. No safety violation occurs.
+
+```java
 // In EpochTable:
 void releaseSlot(int slotIndex) {
   // Acquire growLock for the same reason as reclaimSlot(): the volatile
@@ -749,17 +827,28 @@ slot stores a `WeakReference` to its owning `Thread` (set during slot
 allocation — see code above). During the scan, when a slot is `INACTIVE`,
 the scan checks `slotOwners[i].get()`. If the `WeakReference` is cleared
 (returns `null`), the owning thread is dead and can never call `enter()`
-again — the slot is safe to reclaim with **no TOCTOU race**.
+again — the slot is a reclamation candidate.
 
-This is safe because a cleared `WeakReference` means the `Thread` object is
-unreachable — the thread has terminated and cannot execute any further code.
-Unlike the "alive but between critical sections" case (where the thread
-could call `enter()` at any moment), a dead thread is a permanent state.
-The scan can unconditionally reclaim the slot without coordinating with
-`enter()`.
+However, the scan's `slotOwners[i]` read is a **plain array read outside
+`growLock`**, so it can observe a stale value on weakly-ordered architectures
+(ARM, RISC-V). Between the scan's read and the `slotReleased` CAS inside
+`reclaimSlot()`, a new thread may have taken the slot from the free list,
+written a live `WeakReference` to `slotOwners[i]` (plain write), and reset
+`slotReleased` to 0 (volatile write / release). The scan would still see
+the old dead thread's cleared `WeakReference`, and the CAS would succeed on
+the new thread's 0 — stealing the slot.
 
-**Double-free prevention:** Three mechanisms work together to prevent the
-same slot from being returned to the free list more than once:
+To prevent this, `reclaimSlot()` performs a **re-check of `slotOwners`
+after the CAS succeeds**. The CAS on `slotReleased` has acquire semantics;
+if it read the new thread's volatile write of 0, the release-acquire
+pairing guarantees the new thread's prior plain write to `slotOwners[i]`
+is visible. If the re-check finds a live thread, the CAS is undone
+(`slotReleased` reset to 0) and the slot is not returned to the free list.
+See the `reclaimSlot()` Javadoc for the full correctness argument.
+
+**Slot theft and double-free prevention:** Four mechanisms work together
+to prevent a slot from being returned to the free list while a live thread
+owns it, and to prevent the same slot from being returned more than once:
 
 1. **`slotReleased` CAS guard (Cleaner vs. scan):** Both the Cleaner
    (`releaseSlot()`) and scan-based reclamation (`reclaimSlot()`) do
@@ -767,7 +856,23 @@ same slot from being returned to the free list more than once:
    performs the actual reclamation (`freeList.offer()`). The loser is a
    no-op. See the `releaseSlot()` and `reclaimSlot()` code above.
 
-2. **`Cleanable.clean()` on slot reuse (old Cleaner vs. new owner):**
+2. **Re-check after CAS in `reclaimSlot()` (scan vs. new owner):**
+   After the CAS succeeds, `reclaimSlot()` re-reads the current
+   `slotOwners` volatile field and checks whether the owning thread is
+   still dead. The CAS has acquire semantics: if it read the new
+   thread's volatile write of `slotReleased = 0`, the release-acquire
+   pairing guarantees the new thread's prior plain write to
+   `slotOwners[i]` is visible. If the re-check finds a live thread, the
+   CAS is undone (`slotReleased` reset to 0) and the slot is NOT
+   returned to the free list. This closes a TOCTOU window between the
+   caller's plain read of `slotOwners[i]` (outside `growLock`) and the
+   CAS (inside `growLock`), which is exploitable on weakly-ordered
+   architectures (ARM, RISC-V) where the plain read can observe a stale
+   cleared `WeakReference` even though a new live thread has already
+   taken the slot. See the `reclaimSlot()` Javadoc for the full
+   correctness argument.
+
+3. **`Cleanable.clean()` on slot reuse (old Cleaner vs. new owner):**
    When a new thread takes a slot from the free list, it calls
    `oldCleanable.clean()` **before** resetting `slotReleased` to 0. This
    deregisters the old Cleaner action, ensuring it can never fire after
@@ -782,7 +887,7 @@ same slot from being returned to the free list more than once:
    (`releaseSlot()`) finds `slotReleased = 1` and the CAS fails — the
    call is a harmless no-op that only deregisters the `Cleanable`.
 
-3. **Ordering invariant:** On reuse, `oldCleanable.clean()` runs first,
+4. **Ordering invariant:** On reuse, `oldCleanable.clean()` runs first,
    then `slotReleased.set(slotIndex, 0)`, then `CLEANER.register()`
    stores the new `Cleanable`. This ensures at most one live `Cleanable`
    per slot at any time.
@@ -1131,6 +1236,15 @@ With EBR, the `CacheEntry.state` field changes meaning:
   actual epoch value during `retire()` under `evictionLock`, before the entry
   is appended to the retired list.
 
+  **Note:** The default `retireEpoch` value (`Long.MAX_VALUE`) is numerically
+  identical to the `INACTIVE` sentinel used for epoch slots. These are
+  unrelated: `INACTIVE` is a slot-level marker ("thread not in critical
+  section"), while `retireEpoch` is entry-level metadata ("epoch at
+  retirement"). They never interact — `retireEpoch` is compared only against
+  `safeEpoch` in `reclaimRetired()`, and `INACTIVE` is compared only against
+  slot values in `computeSafeEpoch()`. The shared numeric value is a
+  coincidence, not a design coupling.
+
 **Why `acquireEntry()` is not needed on the read path (`doLoad()`):**
 
 The current `doLoad()` has a `while(true)` retry loop that exists solely because
@@ -1467,8 +1581,15 @@ void clearFile(long fileId) {
 }
 
 private List<CacheEntry> removeRetiredEntriesForFile(long fileId) {
-  // Scan the retired list (ArrayDeque) and remove entries matching fileId.
+  // Scan the retired list and remove entries matching fileId.
   // Called under evictionLock, so no concurrent modification.
+  //
+  // Note: ArrayDeque.iterator().remove() is O(n) per removal (shifts
+  // elements), giving O(n*k) worst case where k is the number of matching
+  // entries. This is acceptable because the retired list is bounded by the
+  // backpressure threshold (1% of cache size, floor 64). If profiling shows
+  // this is a bottleneck for large files, the retired list could be changed
+  // to a LinkedList (O(1) iterator removal) or partitioned by file ID.
   var result = new ArrayList<CacheEntry>();
   var it = retiredList.iterator();
   while (it.hasNext()) {
@@ -1715,6 +1836,22 @@ the standard EBR trade-off. Mitigations:
 - Worst case: memory is held longer but never leaked. When the thread exits
   its critical section, all deferred entries become reclaimable.
 
+**Threads that die mid-critical-section:** If a thread terminates inside a
+critical section (e.g., due to an `Error` or `OutOfMemoryError`), the slot
+holds a non-`INACTIVE` epoch value, blocking reclamation. In normal operation
+this cannot happen: the `exit()` call is in a `finally` block inside
+`AtomicOperationsManager` (see "Exception-safety invariant" above), so even
+unchecked exceptions trigger `exitCriticalSection()`. The only scenarios that
+bypass `finally` are deprecated `Thread.stop()` or JVM-level crashes.
+
+The scan-based slot reclamation in `computeSafeEpoch()` checks `slotOwners`
+only for **INACTIVE** slots, so it does not detect threads that die
+mid-critical-section. In this case, the Cleaner is the fallback: when the
+dead thread's `SlotHandle` becomes GC-eligible, the Cleaner fires
+`releaseSlot()`, which sets the slot to `INACTIVE` and returns it to the
+free list. Until GC collects the `SlotHandle`, the stale epoch blocks
+reclamation — a bounded liveness issue, not a safety violation.
+
 #### Outside-Cache Entries and `silentLoadForRead`
 
 `silentLoadForRead` is used by `DiskStorage.backupPagesWithChanges()` for
@@ -1883,24 +2020,30 @@ for all entries (no writers) and no thread is inside an EBR critical section.
 
 The approach is identical to `close()`:
 
-1. **Acquire `evictionLock`.**
-2. **Retire and remove all entries from the CHM and LRU lists.** For each
+1. **Flush the current thread's read batch** (`flushCurrentThreadReadBatch()`)
+   before acquiring `evictionLock` — ensures this thread's pending read-buffer
+   entries are visible to the drain in step 3.
+2. **Acquire `evictionLock`.**
+3. **Drain read and write buffers** (`emptyBuffers()`). Same rationale as
+   `clearFile()` and `close()`: ensures all pending entries are processed
+   into the LRU lists before retirement.
+4. **Retire and remove all entries from the CHM and LRU lists.** For each
    entry, call `retire()` (CAS from `0` to `RETIRED`) before removal —
    same as `clearFile()` / `close()` — to protect against any straggling
    read-buffer drain (see `clearFile()` discussion above for rationale). The
    precondition guarantees `state == 0` for all entries, so every `retire()`
    CAS succeeds. If any `retire()` CAS fails, throw `IllegalStateException`
    without removing that entry from the CHM (precondition violation).
-3. **Drain the retired list completely.** Collect previously retired entries.
-4. **Record `retireEpoch`** as the current global epoch.
-5. **Advance the epoch.**
-6. **Reset `cacheSize` to 0.**
-7. **Release `evictionLock`.**
-8. **Call `waitForSafeEpoch(retireEpoch)`.** Same defense-in-depth rationale
-   as `close()` — under normal conditions all slots are `INACTIVE` and this
-   returns immediately.
-9. **Physically reclaim all collected entries:** call
-   `decrementReadersReferrer()` and `clearCachePointer()` on each.
+5. **Drain the retired list completely.** Collect previously retired entries.
+6. **Record `retireEpoch`** as the current global epoch.
+7. **Advance the epoch.**
+8. **Reset `cacheSize` to 0.**
+9. **Release `evictionLock`.**
+10. **Call `waitForSafeEpoch(retireEpoch)`.** Same defense-in-depth rationale
+    as `close()` — under normal conditions all slots are `INACTIVE` and this
+    returns immediately.
+11. **Physically reclaim all collected entries:** call
+    `decrementReadersReferrer()` and `clearCachePointer()` on each.
 
 ```java
 // In LockFreeReadCache:
@@ -1942,15 +2085,17 @@ void clear() {
 ```
 
 **Difference from `close()`:** `clear()` resets `cacheSize` to 0 (the cache
-remains operational) and calls `flushCurrentThreadReadBatch()` +
-`emptyBuffers()` before retirement to ensure all pending read/write buffer
-entries are processed into the LRU lists first — matching the current
-`clear()` implementation's behavior. `close()` omits the buffer drain because
-the cache is shutting down and buffer contents are irrelevant.
+remains operational). Both `clear()` and `close()` call
+`flushCurrentThreadReadBatch()` + `emptyBuffers()` before retirement to
+ensure all pending read/write buffer entries are processed into the LRU
+lists first — for `clear()` this matches the current implementation's
+behavior; for `close()` it is largely cosmetic (the cache is going away)
+but prevents stale buffer entries from interacting with the retirement
+path in unexpected ways.
 
 **Reuse of `retireAndRemoveAllEntries()` and `drainRetiredList()`:** Both
-`clear()` and `close()` share the same helper methods. The only differences
-are the buffer drain and `cacheSize` reset in `clear()`.
+`clear()` and `close()` share the same helper methods. The only difference
+is the `cacheSize` reset in `clear()`.
 
 ## Implementation Phases
 
@@ -1983,13 +2128,18 @@ are the buffer drain and `cacheSize` reset in `clear()`.
   production. Cost: one thread-local field read per call — negligible.
 - Virtual thread support: `WeakReference<Thread>` per slot + scan-based
   reclamation in `computeSafeEpoch()`. Dead threads' slots are eagerly
-  reclaimed during scans without waiting for the Cleaner. Double-free
-  prevention via three layers: (1) `AtomicIntegerArray slotReleased` CAS
-  guard between Cleaner and scan paths, (2) `Cleanable.clean()` on slot
-  reuse to deregister the old Cleaner action before resetting
-  `slotReleased`, (3) ordering invariant (`clean()` → reset → register).
-  Zero hot-path cost — the `WeakReference` is created during slot
-  allocation and checked only during scans under `evictionLock`.
+  reclaimed during scans without waiting for the Cleaner. Slot theft and
+  double-free prevention via four layers: (1) `AtomicIntegerArray
+  slotReleased` CAS guard between Cleaner and scan paths, (2) re-check
+  of `slotOwners` after the CAS succeeds in `reclaimSlot()` — uses the
+  CAS's acquire semantics to observe the new thread's `slotOwners` write,
+  undoes the CAS if the thread is alive (closes the TOCTOU between the
+  caller's stale plain read and the CAS on weakly-ordered architectures),
+  (3) `Cleanable.clean()` on slot reuse to deregister the old Cleaner
+  action before resetting `slotReleased`, (4) ordering invariant
+  (`clean()` → reset → register). Zero hot-path cost — the
+  `WeakReference` is created during slot allocation and checked only
+  during scans under `evictionLock`.
 
 **Tests:**
 - Unit tests for EpochTable: concurrent enter/exit, safeEpoch computation correctness
@@ -2000,6 +2150,13 @@ are the buffer drain and `cacheSize` reset in `clear()`.
 - Unit test: verify double-free prevention — both Cleaner and scan attempt to
   reclaim the same slot, verify only one succeeds (slot appears in free list
   exactly once)
+- Unit test: verify `reclaimSlot()` re-check prevents slot theft — thread A
+  dies, thread B takes the slot from the free list and resets `slotReleased`
+  to 0 (but has not yet called `enter()`). Simulate a scan that calls
+  `reclaimSlot()` with a stale dead-thread `WeakReference`. Verify: the CAS
+  on `slotReleased` succeeds (reads B's 0), the re-check sees B's live
+  `WeakReference`, the CAS is undone (`slotReleased` reset to 0), and the
+  slot is NOT returned to the free list. Verify B can still use the slot.
 - Unit test: verify `Cleanable` cancellation on slot reuse — thread A dies,
   scan reclaims its slot (sets `slotReleased = 1`, returns to free list),
   thread B takes the slot, calls `oldCleanable.clean()`, resets
@@ -2015,6 +2172,10 @@ are the buffer drain and `cacheSize` reset in `clear()`.
 
 **Files to modify:**
 - `ReadCache.java` — add `enterCriticalSection()` / `exitCriticalSection()` to interface
+  with default no-op implementations (`default void enterCriticalSection() {}`,
+  `default void exitCriticalSection() {}`). This ensures that other `ReadCache`
+  implementations (e.g., `DummyReadCache`, test mocks) compile without change.
+  Only `LockFreeReadCache` overrides with the real EBR logic.
 - `LockFreeReadCache.java` — implement `enterCriticalSection()` / `exitCriticalSection()`
   (delegates to `epochTable.enter()` / `epochTable.exit()` with backpressure check)
 - `AtomicOperationsManager.java` — enter/exit epoch around component operation lambdas
@@ -2123,7 +2284,7 @@ into Phase 3, and this phase is renumbered.
 | Complexity of slot management | Reuse existing `AtomicOperationsTable` pattern already proven in this codebase |
 | Correctness of epoch ordering | Formal argument: a thread that read an entry must have entered before the entry was retired; reclamation waits for all such threads to exit. Verified by stress tests. |
 | Write path correctness | Write path retains `acquireEntry()` / `releaseEntry()` CAS to prevent CachePointer divergence. `retire()` (CAS from 0 to -1) fails when writers hold the entry, same as today's `freeze()`. EBR only removes read-path CAS. Low risk. |
-| Virtual thread slot exhaustion | Scan-based reclamation in `computeSafeEpoch()` eagerly detects dead threads via `WeakReference<Thread>` and returns slots to the free list — zero hot-path cost. Bounded by concurrent active threads, not total virtual thread count. GC-dependent detection (same as Cleaner) but faster: no Cleaner-thread delay, slot is reclaimed on the next scan after GC clears the reference. `Cleanable.clean()` on slot reuse deregisters the old Cleaner action before `slotReleased` is reset, preventing the old-Cleaner-after-reset race. |
+| Virtual thread slot exhaustion | Scan-based reclamation in `computeSafeEpoch()` eagerly detects dead threads via `WeakReference<Thread>` and returns slots to the free list — zero hot-path cost. Bounded by concurrent active threads, not total virtual thread count. GC-dependent detection (same as Cleaner) but faster: no Cleaner-thread delay, slot is reclaimed on the next scan after GC clears the reference. `Cleanable.clean()` on slot reuse deregisters the old Cleaner action before `slotReleased` is reset, preventing the old-Cleaner-after-reset race. `reclaimSlot()` re-checks `slotOwners` after the CAS succeeds, using the CAS's acquire semantics to detect concurrent slot reuse by a live thread — prevents slot theft on weakly-ordered architectures (ARM, RISC-V). |
 
 ## Open Questions
 
