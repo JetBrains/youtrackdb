@@ -488,14 +488,23 @@ the standard EBR trade-off. Mitigations:
 #### Outside-Cache Entries (insideCache = false)
 
 Entries created with `insideCache = false` (e.g., `silentLoadForRead`) are not
-part of the CHM and not managed by the eviction policy. These currently use
-`decrementReadersReferrer()` on release. With EBR, these entries use the
-same epoch-based critical section as regular cache entries. The caller must
-be inside a critical section (enter/exit) when accessing the entry. On
-`releaseFromRead`, the entry is added to the retired list with the current
-epoch and reclaimed during the next drain cycle, just like in-cache entries.
-This uniform approach eliminates a separate code path and reduces the risk
-of correctness bugs from inconsistent handling.
+part of the CHM and not managed by the eviction policy. These entries **retain
+the existing reference-counting mechanism**: `incrementReadersReferrer()` on
+load, `decrementReadersReferrer()` on release. When the reference count drops
+to zero, the pointer's direct memory buffer is returned to the `ByteBufferPool`
+immediately — no deferred reclamation.
+
+**Rationale**: Outside-cache entries have a clear single-owner lifecycle (the
+caller that requested the load owns the entry until it calls release). Requiring
+callers to be inside an EBR critical section would be fragile — these entries
+can be accessed outside `calculateInsideComponentOperation` /
+`executeInsideComponentOperation` boundaries (e.g., during recovery, schema
+reads, or direct buffer access patterns), where no epoch is active. Forgetting
+to enter the epoch before using an outside-cache entry would silently produce
+a correctness bug with no compile-time or runtime warning. Reference counting
+is simple, self-contained, and already correct for this use case. The per-entry
+CAS cost is acceptable because outside-cache loads are infrequent compared to
+the hot read path that EBR optimizes.
 
 ## Implementation Phases
 
@@ -571,7 +580,8 @@ operations the thread is outside the epoch, allowing reclamation to proceed.
 1. Remove `acquireEntry()` / `releaseEntry()` from `CacheEntry` interface.
 2. Remove `FROZEN` state — replace with `RETIRED`.
 3. Remove `freeze()` / `makeDead()` from `CacheEntry` interface — replace with `retire()`.
-4. Update `silentLoadForRead` path (outside-cache entries).
+4. Verify `silentLoadForRead` path (outside-cache entries) still works correctly
+   with the existing reference-counting mechanism — no EBR changes needed.
 5. Run full test suite, integration tests, and benchmarks.
 
 ## Risk Assessment
@@ -594,11 +604,13 @@ operations the thread is outside the epoch, allowing reclamation to proceed.
 2. ~~**Retired list bound**~~: **Decided — 1% of maxCacheSize.** When the retired
    list exceeds this threshold, the drain cycle blocks (synchronous reclamation)
    until the list drains below the threshold or all active epochs advance.
-3. ~~**`silentLoadForRead` outside-cache path**~~: **Decided — EBR-ify it.** Use
-   the same epoch-based critical section for outside-cache entries. This ensures
-   a single uniform approach across all cache paths, improving implementation
-   robustness and eliminating the risk of forgetting to handle the two paths
-   differently.
+3. ~~**`silentLoadForRead` outside-cache path**~~: **Decided — keep reference
+   counting.** Outside-cache entries retain the existing `incrementReadersReferrer()`
+   / `decrementReadersReferrer()` mechanism. Requiring callers to be inside an EBR
+   critical section would be fragile: these entries can be accessed outside component
+   operation boundaries (recovery, schema reads, direct buffer access) where no epoch
+   is active. Reference counting is simple, self-contained, and the per-entry CAS cost
+   is acceptable for this infrequent path.
 4. ~~**Integration with `OperationsFreezer`**~~: **Decided — remain independent.**
    The two mechanisms serve fundamentally different purposes:
    - **OperationsFreezer**: a **blocking barrier** for write operations. It can
