@@ -96,9 +96,10 @@ has a recorded epoch `<= E`.
 
 ### Epoch Table Design
 
-We use a fixed-size, cache-line-padded array of epoch slots — one per thread (or per
-thread-local slot). This is similar to the existing `AtomicOperationsTable` pattern
-already used in this codebase.
+We use a dynamically-growable, cache-line-padded array of epoch slots — one per
+thread. This is similar to the `LongAdder` / `Striped64` pattern in the JDK, which
+grows its cells array under contention, and to the existing `AtomicOperationsTable`
+pattern already used in this codebase.
 
 ```java
 public final class EpochTable {
@@ -125,8 +126,9 @@ public final class EpochTable {
 
   // Per-slot epoch values. INACTIVE means the thread is not in a critical section.
   // Each slot is padded to its own cache line (128 bytes) to avoid false sharing.
-  // Accessed via SLOTS_HANDLE (opaque reads/writes).
-  private final long[] slots;
+  // Accessed via SLOTS_HANDLE for per-element access.
+  // The array reference is volatile to support dynamic growth (see Slot Assignment).
+  private volatile long[] slots;
 }
 ```
 
@@ -211,8 +213,12 @@ catastrophically allow reclaiming nearly all retired entries.
 long computeSafeEpoch() {
   long currentEpoch = (long) GLOBAL_EPOCH_HANDLE.getOpaque(this);
   long min = currentEpoch;
-  for (int i = 0; i < slotCount; i++) {
-    long slotValue = (long) SLOTS_HANDLE.getAcquire(slots, i);
+  // Read the volatile slots reference once. If a concurrent grow() swaps
+  // the array, we scan the snapshot we captured — safe because any newly
+  // added slots hold a current epoch and missing them is conservative.
+  long[] slotsSnapshot = slots;
+  for (int i = 0; i < slotsSnapshot.length; i++) {
+    long slotValue = (long) SLOTS_HANDLE.getAcquire(slotsSnapshot, i);
     if (slotValue < min) {
       min = slotValue;
     }
@@ -243,13 +249,45 @@ section. The index is cached in a `ThreadLocal<SlotHandle>` for subsequent acces
 
 **Allocation:** A `ConcurrentLinkedQueue<Integer>` free list holds available slot
 indices. A thread first tries `freeList.poll()`; if empty, it allocates a new index
-via `AtomicInteger.getAndIncrement()` (up to the array capacity).
+via `AtomicInteger.getAndIncrement()`. If the index exceeds the current array
+capacity, the array is grown (see below).
 
-**Slot count:** The array is sized to `availableProcessors() * 4` (configurable).
-This is generous for typical workloads. If all slots are exhausted, the thread
-falls back to a **shared overflow slot** that uses a traditional `AtomicLong`
-counter (increment on enter, decrement on exit). This is slower but correct, and
-only activates under extreme thread counts.
+**Initial size:** `availableProcessors() * 4`. This is generous for typical
+workloads; growth is rare in practice and only occurs under high thread counts.
+
+**Dynamic growth:** When a thread needs a slot index beyond the current array
+capacity, the array is grown under a dedicated `growLock` (a simple
+`ReentrantLock`, separate from `evictionLock`):
+
+```java
+private void grow(int requiredIndex) {
+  growLock.lock();
+  try {
+    long[] current = slots;
+    if (requiredIndex < current.length) {
+      return;  // another thread already grew
+    }
+    int newSize = Math.max(current.length * 2, requiredIndex + 1);
+    long[] newSlots = new long[newSize];
+    // Copy existing slots. All new slots are 0, but must be INACTIVE.
+    System.arraycopy(current, 0, newSlots, 0, current.length);
+    Arrays.fill(newSlots, current.length, newSize, INACTIVE);
+    // Volatile write publishes the new array. Readers (computeSafeEpoch)
+    // read the volatile `slots` reference once and scan that snapshot.
+    // A reader that sees the old array may miss newly added slots, but
+    // those slots were just written with a current epoch — missing them
+    // is conservative (delays reclamation, never causes a safety violation).
+    slots = newSlots;
+  } finally {
+    growLock.unlock();
+  }
+}
+```
+
+This follows the `LongAdder` / `Striped64` pattern: start small, grow on
+demand, never shrink. Growth is O(thread count) in the worst case, but
+slot reuse via `Cleaner` means the array rarely grows beyond the high-water
+mark of concurrent threads.
 
 **Slot reuse:** When a thread dies, its slot must be returned to the free list.
 We use `SlotHandle` — a small helper object held by the `ThreadLocal` — combined
@@ -604,7 +642,8 @@ the hot read path that EBR optimizes.
 - `core/.../storage/cache/ebr/RetiredEntryQueue.java` — queue of entries awaiting reclamation
 
 **Key design decisions:**
-- Slot count: `Runtime.getRuntime().availableProcessors() * 4` (default), configurable
+- Initial slot count: `Runtime.getRuntime().availableProcessors() * 4`; grows
+  dynamically (2x) under `growLock` when exhausted (LongAdder/Striped64 pattern)
 - Padding: 128 bytes per slot (2 cache lines, covers Intel + ARM)
 - Epoch type: `long` (effectively unbounded at 1 increment per drain cycle)
 - All access via `VarHandle` (`MethodHandles.arrayElementVarHandle(long[].class)`
