@@ -1279,7 +1279,7 @@ public final class WOWCache extends AbstractWriteCache
 
         final RawPair<String, String> file;
         final var future =
-            commitExecutor.submit(new DeleteFileTask(this, fileId));
+            commitExecutor().submit(new DeleteFileTask(this, fileId));
         try {
           file = future.get();
         } catch (final java.lang.InterruptedException e) {
@@ -1289,7 +1289,8 @@ public final class WOWCache extends AbstractWriteCache
         } catch (final Exception e) {
           throw BaseException.wrapException(
               new WriteCacheException(storageName,
-                  "File data removal was abnormally terminated"), e,
+                  "File data removal was abnormally terminated"),
+              e,
               storageName);
         }
 
@@ -1520,7 +1521,7 @@ public final class WOWCache extends AbstractWriteCache
     stopFlush = false;
     if (pagesFlushInterval > 0) {
       flushFuture =
-          commitExecutor.schedule(
+          commitExecutor().schedule(
               new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
     }
   }

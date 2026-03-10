@@ -36,11 +36,11 @@ import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -603,8 +603,7 @@ public class IndexHistogramManager extends DurableComponent {
           newHistogram.distinctCounts(),
           Math.max(0, nonNullSum),
           newHistogram.mcvValue(),
-          newHistogram.mcvFrequency()
-      );
+          newHistogram.mcvFrequency());
     }
     // If version differs (rebalance occurred), frequencyDeltas are discarded.
     // The rebalanced histogram's frequencies are already accurate.
@@ -620,8 +619,7 @@ public class IndexHistogramManager extends DurableComponent {
         current.version(),
         hasDrifted,
         newHll,
-        current.hllOnPage1()
-    );
+        current.hllOnPage1());
   }
 
   // ---- Planner reads ----
@@ -630,8 +628,7 @@ public class IndexHistogramManager extends DurableComponent {
    * Returns the current index statistics from the CHM cache.
    * Reload from page on cache miss.
    */
-  @Nullable
-  public IndexStatistics getStatistics() {
+  @Nullable public IndexStatistics getStatistics() {
     var snapshot = cache.get(engineId);
     if (snapshot != null) {
       return snapshot.stats();
@@ -645,8 +642,7 @@ public class IndexHistogramManager extends DurableComponent {
    * call — if mutation thresholds are exceeded, schedules a background
    * rebalance on the background executor (non-blocking).
    */
-  @Nullable
-  public EquiDepthHistogram getHistogram() {
+  @Nullable public EquiDepthHistogram getHistogram() {
     maybeScheduleHistogramWork(backgroundExecutor);
     var snapshot = cache.get(engineId);
     return snapshot != null ? snapshot.histogram() : null;
@@ -655,8 +651,7 @@ public class IndexHistogramManager extends DurableComponent {
   /**
    * Returns the full snapshot from the CHM cache.
    */
-  @Nullable
-  public HistogramSnapshot getSnapshot() {
+  @Nullable public HistogramSnapshot getSnapshot() {
     return cache.get(engineId);
   }
 
@@ -808,8 +803,7 @@ public class IndexHistogramManager extends DurableComponent {
    *
    * @return the refreshed snapshot, or null if the index is empty
    */
-  @Nullable
-  public HistogramSnapshot analyzeIndex() {
+  @Nullable public HistogramSnapshot analyzeIndex() {
     if (keyStreamSupplier == null) {
       return null;
     }
@@ -890,7 +884,7 @@ public class IndexHistogramManager extends DurableComponent {
     if (observed > 0
         && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
       try {
-        flushSnapshotToPage();   // creates its own AtomicOperation
+        flushSnapshotToPage(); // creates its own AtomicOperation
       } catch (IOException e) {
         // Restore the count so the next checkpoint or applyDelta re-triggers.
         DIRTY_MUTATIONS.getAndAdd(this, observed);
@@ -944,8 +938,7 @@ public class IndexHistogramManager extends DurableComponent {
    * @param targetBuckets target number of buckets
    * @return the build result, or null if the key stream is empty
    */
-  @Nullable
-  static BuildResult scanAndBuild(
+  @Nullable static BuildResult scanAndBuild(
       Stream<Object> effectiveKeys, long nonNullCount, int targetBuckets) {
     return scanAndBuild(effectiveKeys, nonNullCount, targetBuckets, null, null);
   }
@@ -974,8 +967,7 @@ public class IndexHistogramManager extends DurableComponent {
    * @param hasher        hash function for HLL; required when hll is non-null
    * @return the build result, or null if the key stream is empty
    */
-  @Nullable
-  @SuppressWarnings("unchecked")
+  @Nullable @SuppressWarnings("unchecked")
   static BuildResult scanAndBuild(
       Stream<Object> effectiveKeys, long nonNullCount, int targetBuckets,
       @Nullable HyperLogLogSketch hll, @Nullable KeyHasher hasher) {
@@ -1088,8 +1080,7 @@ public class IndexHistogramManager extends DurableComponent {
    * {@link #fitToPage(BuildResult, long, boolean, int,
    * BoundarySizeCalculator)}.
    */
-  @Nullable
-  private FitResult fitToPage(BuildResult result, long nonNullCount) {
+  @Nullable private FitResult fitToPage(BuildResult result, long nonNullCount) {
     int mcvKeySize = result.mcvValue != null
         ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
         : 0;
@@ -1113,8 +1104,7 @@ public class IndexHistogramManager extends DurableComponent {
    * @return the fit result, or null if keys are too large for any useful
    *         histogram
    */
-  @Nullable
-  static FitResult fitToPage(BuildResult result, long nonNullCount,
+  @Nullable static FitResult fitToPage(BuildResult result, long nonNullCount,
       boolean singleValue, int mcvKeySize,
       BoundarySizeCalculator boundarySizeCalc) {
     int bucketCount = result.actualBucketCount;
@@ -1221,9 +1211,9 @@ public class IndexHistogramManager extends DurableComponent {
     int pagePayload =
         DurablePage.MAX_PAGE_SIZE_BYTES - DurablePage.NEXT_FREE_POSITION;
     return pagePayload - FIXED_HEADER_SIZE
-        - HISTOGRAM_BLOB_HEADER_SIZE                // blob header inside EquiDepthHistogram.serialize()
-        - bucketCount * LongSerializer.LONG_SIZE    // frequencies
-        - bucketCount * LongSerializer.LONG_SIZE    // distinctCounts
+        - HISTOGRAM_BLOB_HEADER_SIZE // blob header inside EquiDepthHistogram.serialize()
+        - bucketCount * LongSerializer.LONG_SIZE // frequencies
+        - bucketCount * LongSerializer.LONG_SIZE // distinctCounts
         - hllSize
         - mcvKeySize;
   }
@@ -1421,11 +1411,10 @@ public class IndexHistogramManager extends DurableComponent {
             finalHistogram,
             0, // reset mutationsSinceRebalance
             old.stats().totalCount(), // totalCountAtLastBuild
-            old.version() + 1,       // increment version
-            false,                    // reset hasDriftedBuckets
+            old.version() + 1, // increment version
+            false, // reset hasDriftedBuckets
             finalHll,
-            finalHllOnPage1
-        );
+            finalHllOnPage1);
       });
 
       // Persist the new snapshot. On failure, mark dirty so the next
@@ -1450,8 +1439,7 @@ public class IndexHistogramManager extends DurableComponent {
   /**
    * Waits for an in-progress rebalance to complete (for ANALYZE INDEX).
    */
-  @Nullable
-  private HistogramSnapshot waitForRebalanceAndReturn() {
+  @Nullable private HistogramSnapshot waitForRebalanceAndReturn() {
     // Poll with bounded timeout (100ms intervals, 30s max)
     for (int i = 0; i < 300; i++) {
       if (!rebalanceInProgress.get()) {
@@ -1636,12 +1624,12 @@ public class IndexHistogramManager extends DurableComponent {
     } else if (key instanceof java.util.Date v) {
       return MurmurHash3.murmurHash3_x64_64(v.getTime(), MURMUR_SEED);
     } else if (key instanceof String v) {
-      // Two-round hash: String.hashCode() (32-bit, no allocation) fed
-      // through MurmurHash3 long mixer for good 64-bit distribution.
-      // The HLL only needs uniform bit distribution, not collision
-      // resistance — this is sufficient and avoids a byte[] allocation
-      // per key on the hot onPut path for multi-value string indexes.
-      return MurmurHash3.murmurHash3_x64_64(v.hashCode(), MURMUR_SEED);
+      // Hash chars directly for full 64-bit entropy. Unlike the
+      // String.hashCode() → long mixer approach (which caps at 2^32
+      // distinct outputs and plateaus the HLL around ~4M), this reads
+      // charAt() values into MurmurHash3 blocks — no byte[] allocation,
+      // full 64-bit range, O(n) same as hashCode() on first call.
+      return MurmurHash3.murmurHash3_x64_64(v, MURMUR_SEED);
     }
     // Remaining variable-length types (byte[], Decimal, CompositeKey):
     // fall back to serialization.
