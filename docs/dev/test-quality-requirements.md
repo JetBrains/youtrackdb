@@ -12,7 +12,7 @@ related_docs:
 
 # Test Quality Requirements
 
-This document describes the quality gates and guidelines for tests in the YouTrackDB project. All requirements are enforced automatically by the CI pipeline on every pull request.
+This document describes the quality gates and guidelines for tests in the YouTrackDB project. All requirements are enforced automatically by the CI pipeline on pull requests when they are marked as ready for review (draft PRs are skipped).
 
 ## Code Coverage
 
@@ -25,7 +25,7 @@ Coverage is measured for **new and changed code only** (not the entire codebase)
 | Line Coverage | 85% |
 | Branch Coverage | 70% |
 
-These thresholds apply to all pull requests regardless of author.
+These thresholds apply to all non-draft pull requests regardless of author.
 
 ### How It Works
 
@@ -123,7 +123,7 @@ The Arcmutate licence file (`arcmutate-licence.txt`) is **not** committed to the
 
 3. **Place tests in the related module.** Tests for `core` code go in `core/src/test/java`, tests for `server` code go in `server/src/test/java`, etc.
 
-4. **Target 85% line / 70% branch coverage.** Aim for at least 85% line coverage and 70% branch coverage on new code. These are the thresholds enforced by the CI coverage gate on all pull requests.
+4. **Target 85% line / 70% branch coverage.** Aim for at least 85% line coverage and 70% branch coverage on new code. These are the thresholds enforced by the CI coverage gate on all non-draft pull requests.
 
 ### Test Types and Naming
 
@@ -147,7 +147,7 @@ The Arcmutate licence file (`arcmutate-licence.txt`) is **not** committed to the
 
 ### What the CI Checks
 
-On every pull request, the CI pipeline enforces:
+On every non-draft pull request, the CI pipeline enforces:
 
 | Gate | Tool | Threshold | Scope |
 |---|---|---|---|

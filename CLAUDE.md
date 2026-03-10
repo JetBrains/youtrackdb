@@ -200,6 +200,7 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 
 ### Primary Pipeline (`maven-pipeline.yml`)
 Runs on `develop` pushes and PRs:
+- **Draft PR handling**: Skips CI on draft PRs; runs when PRs are marked ready for review
 - **Change detection**: Skips CI for non-build-relevant changes (markdown, docs, etc.)
 - **Concurrency**: Cancels in-progress builds when new commits arrive on the same PR/branch
 - **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
@@ -224,9 +225,9 @@ Runs on `develop` pushes and PRs:
 - Sends Zulip notifications on failure/recovery
 
 ### Guard Workflows
-- **check-commit-prefix.yml**: Enforces `YTDB-NNN:` prefix on commit messages
-- **block-merge-commits.yml**: Prevents merge commits in PRs
-- **pr-title-prefix.yml**: Auto-prefixes PR titles with YTDB issue number from branch name
+- **check-commit-prefix.yml**: Enforces `YTDB-NNN:` prefix on commit messages (skips draft PRs)
+- **block-merge-commits.yml**: Prevents merge commits in PRs (skips draft PRs)
+- **pr-title-prefix.yml**: Auto-prefixes PR titles with YTDB issue number from branch name (skips draft PRs)
 
 ## Key Entry Points
 

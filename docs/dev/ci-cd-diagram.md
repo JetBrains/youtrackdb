@@ -21,7 +21,7 @@ related_docs:
 flowchart TB
     subgraph triggers["Triggers"]
         push_develop["Push to develop"]
-        pr_develop["PR to develop"]
+        pr_develop["PR to develop<br/>(non-draft)"]
         schedule["Daily Schedule<br/>(2:00 AM UTC)"]
         push_main["Push to main"]
         manual["Manual Dispatch"]
@@ -162,26 +162,30 @@ These workflows run on pull requests to ensure code quality and consistency:
 #### block-merge-commits.yml
 
 Rejects PRs that contain merge commits to enforce a linear commit history. Runs on PR open,
-synchronize, and reopen events. If merge commits are detected, the check fails and prompts the
+synchronize, reopen, and ready_for_review events. **Skips draft PRs** — only runs when PRs are
+marked as ready for review. If merge commits are detected, the check fails and prompts the
 developer to rebase their branch.
 
 #### check-commit-prefix.yml
 
 Verifies that all commits in a PR contain the issue prefix from the PR title (e.g., `YTDB-123`).
-This ensures traceability between commits and issues. Skips merge commits and provides instructions
-for fixing commit messages if the check fails.
+This ensures traceability between commits and issues. **Skips draft PRs** — only runs when PRs are
+marked as ready for review. Skips merge commits and provides instructions for fixing commit messages
+if the check fails.
 
 #### pr-title-prefix.yml
 
 Automatically adds the issue prefix to the PR title based on the branch name. If the branch is named
 `ytdb-123-feature-name` or `YTDB/123/feature`, the workflow extracts `YTDB-123` and prepends it to
-the PR title if not already present.
+the PR title if not already present. **Skips draft PRs** — only runs when PRs are marked as ready
+for review.
 
 ### maven-pipeline.yml (Develop Branch)
 
-This is the primary CI pipeline triggered on every push or pull request to the `develop` branch. It
-uses a concurrency group (`cancel-in-progress: true`) to cancel redundant in-progress builds when
-new commits arrive on the same PR or branch.
+This is the primary CI pipeline triggered on every push or pull request to the `develop` branch.
+**Skips draft PRs** — only runs when PRs are marked as ready for review. It uses a concurrency
+group (`cancel-in-progress: true`) to cancel redundant in-progress builds when new commits arrive
+on the same PR or branch.
 
 #### JOB 1-2: Test Matrix
 
@@ -293,7 +297,7 @@ uses a two-machine setup: a self-hosted orchestrator runner and a remote databas
 
 | Trigger | Scale Factor | Ref | Condition |
 |---------|-------------|-----|-----------|
-| PR label (`benchmark`) | SF0.1 | PR head | Label present, not from fork |
+| PR label (`benchmark`) | SF0.1 | PR head | Label present, not from fork, not draft |
 | Manual dispatch | User-selected | Any branch | Always |
 
 **Job Flow**:
@@ -335,14 +339,14 @@ For complete setup and configuration instructions, see [TestFlows Runner Setup](
 
 | Workflow                                 | Trigger                      | Purpose                                                          | Infrastructure                                      | Artifacts                                                       |
 |------------------------------------------|------------------------------|------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------|
-| **block-merge-commits.yml**              | PR to any branch             | Reject merge commits in PRs                                      | GitHub-hosted runners                               | N/A                                                             |
-| **check-commit-prefix.yml**              | PR to `develop`              | Verify commits have issue prefix                                 | GitHub-hosted runners                               | N/A                                                             |
-| **pr-title-prefix.yml**                  | PR to `develop`              | Auto-add issue prefix to PR title                                | GitHub-hosted runners                               | N/A                                                             |
-| **maven-pipeline.yml**                   | Push/PR to `develop`, Manual | Tests, coverage gate, mutation testing, deploy                   | Self-hosted (Linux) + GitHub-hosted (Windows)       | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`       |
+| **block-merge-commits.yml**              | Non-draft PR to any branch   | Reject merge commits in PRs                                      | GitHub-hosted runners                               | N/A                                                             |
+| **check-commit-prefix.yml**              | Non-draft PR to `develop`    | Verify commits have issue prefix                                 | GitHub-hosted runners                               | N/A                                                             |
+| **pr-title-prefix.yml**                  | Non-draft PR to `develop`    | Auto-add issue prefix to PR title                                | GitHub-hosted runners                               | N/A                                                             |
+| **maven-pipeline.yml**                   | Push/non-draft PR to `develop`, Manual | Tests, coverage gate, mutation testing, deploy                   | Self-hosted (Linux) + GitHub-hosted (Windows)       | `X.Y.Z-dev-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-dev-SNAPSHOT`       |
 | **maven-integration-tests-pipeline.yml** | Daily schedule (2 AM UTC)    | Run integration tests, merge to main                             | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A (triggers main pipeline)                                    |
 | **maven-integration-tests-pipeline.yml** | Manual dispatch              | Run integration tests only (no merge/notify)                     | Self-hosted (Hetzner/Linux) + GitHub-hosted (Windows) | N/A                                                             |
 | **maven-main-deploy-pipeline.yml**       | Push to `main`, Manual       | Deploy release artifacts & Docker                                | GitHub-hosted runners                               | `X.Y.Z-SNAPSHOT`, `X.Y.Z-TIMESTAMP-SHA-SNAPSHOT`, Docker images |
-| **ldbc-snb-benchmark.yml**               | PR label, Manual             | Run LDBC SNB benchmark                                           | Self-hosted benchmark runner                        | Benchmark results artifact                                      |
+| **ldbc-snb-benchmark.yml**               | Non-draft PR label, Manual   | Run LDBC SNB benchmark                                           | Self-hosted benchmark runner                        | Benchmark results artifact                                      |
 
 ## PR Quality Gates
 
