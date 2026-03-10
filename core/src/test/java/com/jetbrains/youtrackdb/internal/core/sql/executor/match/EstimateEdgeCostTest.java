@@ -98,7 +98,8 @@ public class EstimateEdgeCostTest {
 
   @Test
   public void extractEdgeClassNameFromQuotedString() {
-    // Simulate .out('Knows') — the parser stores string as "Knows" (with quotes)
+    // Simulate .out('Knows') — mock's execute() returns null (not a String), so
+    // extractEdgeClassName falls through to the toString path which strips quotes.
     var method = mockMethodCall("out", "\"Knows\"");
     assertEquals("Knows", MatchExecutionPlanner.extractEdgeClassName(method));
   }
