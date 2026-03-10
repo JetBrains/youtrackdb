@@ -127,13 +127,21 @@ public final class EpochTable {
 
   static final long INACTIVE = Long.MAX_VALUE;
 
+  // Cache-line padding: 128 bytes per slot = 16 longs. Only the first long in
+  // each 16-long group holds the epoch value; the remaining 15 are unused padding.
+  // This prevents false sharing between threads writing to adjacent slots.
+  // Slot i is stored at array index i * SLOT_STRIDE.
+  private static final int SLOT_STRIDE = 128 / Long.BYTES;  // 16
+
   // Global epoch, incremented periodically (e.g. on each eviction drain cycle).
   // Accessed via GLOBAL_EPOCH_HANDLE (opaque reads/writes).
   @SuppressWarnings("unused")
   private volatile long globalEpoch;
 
   // Per-slot epoch values. INACTIVE means the thread is not in a critical section.
-  // Each slot is padded to its own cache line (128 bytes) to avoid false sharing.
+  // Each slot is padded to its own cache line via stride-based indexing: slot i
+  // lives at index i * SLOT_STRIDE (128 bytes apart). The array is sized as
+  // numSlots * SLOT_STRIDE.
   // Accessed via SLOTS_HANDLE for per-element access.
   // The array reference is volatile to support dynamic growth (see Slot Assignment).
   private volatile long[] slots;
@@ -146,10 +154,11 @@ depending on the ordering requirements**:
 **`enter()` — opaque write + full fence + grow-safety retry:**
 ```java
 long epoch = (long) GLOBAL_EPOCH_HANDLE.getOpaque(this);
+int paddedIndex = slotIndex * SLOT_STRIDE;
 long[] s;
 do {
   s = slots;                                              // volatile read
-  SLOTS_HANDLE.setOpaque(s, slotIndex, epoch);
+  SLOTS_HANDLE.setOpaque(s, paddedIndex, epoch);
   VarHandle.fullFence();
 } while (s != slots);                                     // volatile read — detect grow
 ```
@@ -201,7 +210,7 @@ which uses `Relaxed` store + `SeqCst` fence in its `pin()` operation for
 the same reason.
 
 **`exit()` — release write:**
-`SLOTS_HANDLE.setRelease(slots, slotIndex, INACTIVE)`
+`SLOTS_HANDLE.setRelease(slots, slotIndex * SLOT_STRIDE, INACTIVE)`
 — **no CAS**, single release write. Release semantics are required here:
 all memory accesses within the critical section (page data reads, pointer
 dereferences) must be ordered **before** the slot is marked `INACTIVE`.
@@ -231,6 +240,8 @@ unlock provides the necessary release fence.
   retry loop ensures the write targets the current `slots` array even if
   `grow()` races — see "Grow-safety retry loop" above)
 - `exit()`: release write (ensures critical section completes before exit)
+- `releaseSlot()`: release write (consistency with `exit()` — same logical
+  operation; see "Slot reuse" in Slot Assignment for rationale)
 - `advanceEpoch()`: opaque write (evictionLock provides ordering)
 
 The critical property: `enter()` and `exit()` are **writes to
@@ -356,36 +367,40 @@ Slot reads use **acquire** semantics (`getAcquire`). This serves two purposes:
    reads shared data). See "JMM formal analysis" above for the detailed
    argument.
 
-**Defensive guard against `INACTIVE` leak:** The `min` variable is initialized
-to `globalEpoch`, so it can only reach `Long.MAX_VALUE` (`INACTIVE`) if
+**Defensive guard against `globalEpoch` corruption:** The `min` variable is
+initialized to `currentEpoch`, and slot values can only lower it (active
+slots hold valid epochs < `INACTIVE`). The only way `min` could reach
+`INACTIVE` is if `currentEpoch` itself equals `INACTIVE` — meaning
 `globalEpoch` itself is `INACTIVE` — which should never happen. However, as a
-defensive measure, `computeSafeEpoch` explicitly checks for this case and
-returns `globalEpoch` instead of `Long.MAX_VALUE - 1`, which would
-catastrophically allow reclaiming nearly all retired entries.
+defensive measure, `computeSafeEpoch` explicitly checks for this corruption
+and returns `-1` (reclaim nothing) rather than allowing `Long.MAX_VALUE - 1`
+to propagate as a safe epoch, which would catastrophically reclaim all
+retired entries.
 
 ```java
 long computeSafeEpoch() {
   long currentEpoch = (long) GLOBAL_EPOCH_HANDLE.getOpaque(this);
+  // Defensive check: globalEpoch must never be INACTIVE. If it is,
+  // something has gone badly wrong — refuse to reclaim anything.
+  if (currentEpoch == INACTIVE) {
+    return -1;
+  }
   long min = currentEpoch;
   // Read the volatile slots reference once. If a concurrent grow() swaps
   // the array, we scan the snapshot we captured — safe because any newly
   // added slots hold a current epoch and missing them is conservative.
   long[] slotsSnapshot = slots;
-  for (int i = 0; i < slotsSnapshot.length; i++) {
+  // Iterate only the padded slot positions (stride = SLOT_STRIDE).
+  for (int i = 0; i < slotsSnapshot.length; i += SLOT_STRIDE) {
     long slotValue = (long) SLOTS_HANDLE.getAcquire(slotsSnapshot, i);
     if (slotValue < min) {
       min = slotValue;
     }
   }
-  // If min is INACTIVE, all slots are inactive and globalEpoch was not
-  // corrupted — safe epoch is the current global epoch. Guard against
-  // the pathological case where globalEpoch == INACTIVE (should never
-  // happen) to avoid returning Long.MAX_VALUE - 1.
-  if (min == INACTIVE) {
-    return currentEpoch;
-  }
   // min is the oldest active epoch. Entries retired strictly before min
-  // are safe to reclaim.
+  // are safe to reclaim. If all slots are INACTIVE, min == currentEpoch
+  // (since INACTIVE > any valid epoch), so safeEpoch == currentEpoch - 1:
+  // entries retired before the current epoch can be reclaimed.
   return min - 1;
 }
 ```
@@ -406,8 +421,11 @@ indices. A thread first tries `freeList.poll()`; if empty, it allocates a new in
 via `AtomicInteger.getAndIncrement()`. If the index exceeds the current array
 capacity, the array is grown (see below).
 
-**Initial size:** `availableProcessors() * 4`. This is generous for typical
-workloads; growth is rare in practice and only occurs under high thread counts.
+**Initial size:** `availableProcessors() * 4` logical slots, which translates
+to an array of `availableProcessors() * 4 * SLOT_STRIDE` longs (each logical
+slot occupies `SLOT_STRIDE` = 16 array elements for cache-line padding). This
+is generous for typical workloads; growth is rare in practice and only occurs
+under high thread counts.
 
 **Dynamic growth:** When a thread needs a slot index beyond the current array
 capacity, the array is grown under a dedicated `growLock` (a simple
@@ -418,14 +436,22 @@ private void grow(int requiredIndex) {
   growLock.lock();
   try {
     long[] current = slots;
-    if (requiredIndex < current.length) {
+    int requiredPaddedIndex = requiredIndex * SLOT_STRIDE;
+    if (requiredPaddedIndex < current.length) {
       return;  // another thread already grew
     }
-    int newSize = Math.max(current.length * 2, requiredIndex + 1);
+    // Grow in terms of logical slots, then multiply by stride for the array.
+    int currentSlotCount = current.length / SLOT_STRIDE;
+    int newSlotCount = Math.max(currentSlotCount * 2, requiredIndex + 1);
+    int newSize = newSlotCount * SLOT_STRIDE;
     long[] newSlots = new long[newSize];
     // Copy existing slots. All new slots are 0, but must be INACTIVE.
     System.arraycopy(current, 0, newSlots, 0, current.length);
-    Arrays.fill(newSlots, current.length, newSize, INACTIVE);
+    // Fill only the padded slot positions with INACTIVE; padding longs
+    // remain 0 (never read).
+    for (int i = current.length; i < newSize; i += SLOT_STRIDE) {
+      newSlots[i] = INACTIVE;
+    }
     // Volatile write publishes the new array. Readers (computeSafeEpoch)
     // read the volatile `slots` reference once and scan that snapshot.
     // A reader that sees the old array may miss newly added slots, but
@@ -474,10 +500,44 @@ void releaseSlot(int slotIndex) {
   // Read the current volatile slots reference — never a stale array
   // captured at registration time. If grow() replaced the array since
   // the slot was allocated, this still writes to the live array.
-  SLOTS_HANDLE.setOpaque(slots, slotIndex, INACTIVE);
+  SLOTS_HANDLE.setRelease(slots, slotIndex * SLOT_STRIDE, INACTIVE);
   freeList.offer(slotIndex);
 }
 ```
+
+**Why `setRelease` (not `setOpaque`) in `releaseSlot()`:** This method writes
+`INACTIVE` to mark a slot as no longer active — the same logical operation as
+`exit()`, which uses `setRelease` with an explicit justification: all memory
+accesses performed by the owning thread during its last critical section must
+be ordered **before** the slot is marked `INACTIVE`, so that the reclaimer
+cannot free memory the thread was still reading.
+
+The same argument applies to `releaseSlot()`. Although the owning thread has
+already died (the Cleaner fires after the ThreadLocal becomes unreachable),
+the thread's last `exit()` call wrote `INACTIVE` with release semantics —
+so by the time the Cleaner runs, all critical-section accesses are long
+completed. In this narrow sense, `setOpaque` would be technically safe: the
+prior `exit()` already established the necessary ordering.
+
+However, `setRelease` is used here for two reasons:
+
+1. **Consistency:** `releaseSlot()` and `exit()` perform the same logical
+   operation (mark slot inactive). Using different access modes for the same
+   operation invites confusion and makes it harder to reason about correctness
+   during review. A reader seeing `setOpaque` in `releaseSlot()` would
+   naturally ask "why is this weaker than `exit()`?" — and the answer
+   ("because the thread is already dead") requires non-local reasoning about
+   the Cleaner lifecycle. Using the same mode eliminates this question.
+
+2. **Defense in depth:** If a future code change introduces a path where
+   `releaseSlot()` is called while the thread is still alive (e.g., an
+   explicit `unregister()` method for thread pool reuse), `setOpaque` would
+   be a latent bug — the slot could be marked `INACTIVE` before the thread's
+   in-progress critical section completes, making it invisible to the
+   reclaimer. `setRelease` is safe in all scenarios.
+
+The cost difference is zero on x86 (both compile to a plain store under TSO)
+and negligible on ARM (`stlr` vs `str` — one instruction, no barrier).
 
 The cleaner action calls a method on `EpochTable` rather than closing over
 the `slots` array reference directly. This avoids a subtle bug: if `grow()`
@@ -523,7 +583,7 @@ to `LockFreeReadCache`:
 ```java
 // In LockFreeReadCache:
 public void enterCriticalSection() {
-  if (retiredListSize.get() >= retiredListThreshold) {
+  if (retiredListSize >= retiredListThreshold) {
     assistReclamation();
   }
   epochTable.enter();  // asserts not already active; writes epoch + fence
@@ -594,6 +654,31 @@ public void executeInsideComponentOperation(
 
 The epoch protects all page accesses within the lambda.
 
+**Exception-safety invariant:** `enterCriticalSection()` is intentionally placed
+**outside** the `try` block. This is the standard Java resource-acquisition
+pattern: if `enterCriticalSection()` throws, the `finally` block does not
+execute, so `exitCriticalSection()` is not called on a slot that was never
+entered. This is correct **only if** `enterCriticalSection()` is atomic with
+respect to the epoch slot — it either fully completes (slot written + fence
+executed) or throws without writing the slot.
+
+This invariant holds because `enterCriticalSection()` calls
+`assistReclamation()` **before** `epochTable.enter()`. If `assistReclamation()`
+throws (e.g., a bug in `reclaimRetired()`), no slot write has occurred —
+`epochTable.enter()` was never called. If `epochTable.enter()` itself were to
+throw after writing the slot (e.g., due to a JVM-level error), the slot would
+be left active indefinitely, delaying reclamation — a liveness issue but not a
+safety violation. In practice, `enter()` cannot throw: the only operations are
+VarHandle accesses (which do not throw for valid indices) and `fullFence()`
+(which does not throw). The `grow()` call during slot allocation guarantees
+the array is large enough before `enter()` runs, so
+`ArrayIndexOutOfBoundsException` cannot occur.
+
+**Maintainer rule:** Do not reorder `assistReclamation()` to run after
+`epochTable.enter()` — doing so would break this invariant, because an
+exception in `assistReclamation()` would leave the slot active with no
+matching `exit()`.
+
 #### 2. Entry Eviction (Deferred Reclamation)
 
 Currently, `WTinyLFUPolicy.purgeEden()` calls `entry.freeze()` and immediately
@@ -632,6 +717,19 @@ order is essential for two reasons:
   free it (since `retireEpoch <= safeEpoch`). Recording `retireEpoch` after
   CHM removal ensures that any thread which entered at or after `retireEpoch`
   will **not** find the entry in the CHM — it was already removed.
+
+**Prerequisite — ConcurrentHashMap linearizability:** The epoch safety argument
+above depends on `ConcurrentHashMap` providing linearizable operations: once
+`data.remove(key)` returns, no concurrent or subsequent `data.get(key)` call
+returns the removed entry. Java's `ConcurrentHashMap` guarantees this — `get()`
+reads node chains via volatile references, so it observes all prior structural
+modifications (including `remove()`). This is what ensures that a thread
+entering an EBR critical section **after** CHM removal cannot obtain a
+reference to the removed entry: the thread's `data.get()` is linearized after
+the `data.remove()`, so it returns `null`. Without this guarantee, a thread
+could enter at epoch `E`, read a stale CHM snapshot containing the removed
+entry, obtain a reference, and then the reclaimer (seeing `retireEpoch <= safeEpoch`)
+could free the entry while the thread still holds it — a use-after-free.
 
 **CHM removal before retireEpoch recording** is equally critical and must not
 be reversed. The required order within eviction is:
@@ -753,9 +851,14 @@ and `acquireEntry()`. With EBR, this race is harmless for reads:
    so eviction cannot concurrently remove the same key. The returned entry is
    guaranteed to be in the CHM when compute returns.
 
-Therefore the read-side `doLoad()` simplifies to a straight-line flow:
-`data.get()` or `data.compute()`, then `afterRead()` / `afterAdd()`, return.
-No CAS, no retry loop.
+Therefore the read-side `doLoadForRead()` eliminates the CAS and the retry
+loop. The flow still has two branches — **cache hit** (`data.get()` returns
+non-null → `afterRead()` → return) and **cache miss** (`data.get()` returns
+null → `data.compute()` to load and insert → `afterAdd()` → return) — but
+neither branch performs a CAS on `CacheEntry.state` or retries on acquire
+failure. The retry loop in the current `doLoad()` exists solely because
+`acquireEntry()` can fail; with EBR protecting the read path, that loop is
+removed.
 
 **Why `acquireEntry()` IS still needed on the write path (`loadForWrite()`):**
 
@@ -891,31 +994,51 @@ in-flight component operations on that file have completed. This guarantees
 `state == 0` for all entries belonging to the file — no writer holds any of
 them. The higher-level locking protocol (`AtomicOperationsManager` exclusive
 lock on the component) enforces this invariant. If this precondition were
-violated (a writer still holds an entry), `removeEntriesForFile()` would
-remove the entry from the CHM while the writer still references it, leading
-to CachePointer divergence on `releaseFromWrite()`. This is the same
-precondition that the current (pre-EBR) `freeze()`-based `clearFile()`
-relies on — `freeze()` would fail on held entries, surfacing the violation
-as an error.
+violated (a writer still holds an entry), `retireAndRemoveEntriesForFile()`
+would fail the `retire()` CAS (state > 0) — surfacing the violation as an
+error, same as today's `freeze()` failure. Even if the removal proceeded
+past a failed retire, removing the entry from the CHM while the writer still
+references it would lead to CachePointer divergence on `releaseFromWrite()`.
+
+**Why `retire()` before CHM removal is essential in `clearFile()`:**
+Concurrent readers in EBR critical sections may have obtained a reference to
+an entry via `data.get()` before `clearFile()` removes it from the CHM. These
+readers call `afterRead()`, which posts the entry to the read buffer. When
+the read buffer is later drained (in a future drain cycle, under
+`evictionLock`), `onAccess()` checks `isRetired()` and skips retired entries.
+If the entry were removed from the CHM and LRU lists **without** first
+setting its state to `RETIRED`, `onAccess()` would see `state == 0` and
+attempt to move the entry within the LRU — but the entry is no longer in any
+list, causing LRU data structure corruption. Calling `retire()` first (CAS
+from `0` to `RETIRED`) ensures `onAccess()` correctly skips these entries.
 
 The approach:
 
-1. Remove entries from CHM (making them unreachable).
-2. Record the current `globalEpoch` as `retireEpoch` for these entries.
-3. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
+1. **Retire each entry** — call `retire()` (CAS from `0` to `RETIRED`) on every
+   entry belonging to the file. The precondition guarantees `state == 0` for all
+   of them, so the CAS always succeeds. This is essential: a concurrent reader
+   that obtained a reference to the entry (via `data.get()` before CHM removal)
+   may post it to the read buffer via `afterRead()`. When the read buffer is
+   drained in a future drain cycle, `onAccess()` checks `isRetired()` and skips
+   the entry. Without this step, `onAccess()` would see `state == 0` and attempt
+   to move the entry in the LRU lists — but the entry is no longer in any list,
+   causing data structure corruption.
+2. Remove entries from CHM (making them unreachable) and from LRU lists.
+3. Record the current `globalEpoch` as `retireEpoch` for these entries.
+4. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
    holds `evictionLock`.
-4. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
+5. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
    **spins/parks outside the lock** until `computeSafeEpoch() >= retireEpoch`.
    Releasing the lock is essential: threads that are currently inside critical
    sections need to finish and call `exit()`, and threads that enter new
-   critical sections after step 3 will record an epoch > `retireEpoch` (so
+   critical sections after step 4 will record an epoch > `retireEpoch` (so
    they don't block reclamation). If `waitForSafeEpoch` were called under
    `evictionLock`, it would deadlock — no drain cycle could advance the epoch
    or make progress while the lock is held.
-5. Once `waitForSafeEpoch` returns, all threads that could have observed the
+6. Once `waitForSafeEpoch` returns, all threads that could have observed the
    removed entries have exited their critical sections. Physically reclaim
    the entries (release pointers back to `ByteBufferPool`).
-6. Proceed with file close/delete.
+7. Proceed with file close/delete.
 
 ```java
 // In LockFreeReadCache:
@@ -925,7 +1048,12 @@ void clearFile(long fileId) {
 
   evictionLock.lock();
   try {
-    removed = removeEntriesForFile(fileId);  // remove from CHM + LRU
+    // Retire entries first (CAS 0 → RETIRED) so that concurrent readers
+    // who obtained a reference via data.get() before CHM removal will see
+    // isRetired() == true in onAccess() and skip the LRU update.
+    // Precondition guarantees state == 0 for all file entries, so retire()
+    // always succeeds.
+    removed = retireAndRemoveEntriesForFile(fileId);  // retire + remove from CHM + LRU
     removeRetiredEntriesForFile(fileId, removed);  // also drain from retired list
     retireEpoch = epochTable.currentEpoch();
     epochTable.advanceEpoch();
@@ -1194,6 +1322,94 @@ is simple, self-contained, and already correct for this use case. The per-entry
 CAS cost is acceptable because `silentLoadForRead` is infrequent compared to
 the hot `doLoad` read path that EBR optimizes.
 
+#### Cache Shutdown / Close
+
+`LockFreeReadCache.close()` must reclaim **all** entries (both live in the CHM
+and deferred in the retired list) and release their direct memory buffers back
+to `ByteBufferPool`. With EBR, physical reclamation requires waiting for all
+threads to exit their critical sections, same as `clearFile()`.
+
+**Precondition — no concurrent component operations:** `close()` is called
+during storage shutdown (`DiskStorage.shutdown()`), after
+`OperationsFreezer.prohibitNewOperations()` has blocked all new operations and
+`OperationsFreezer.waitTillAllOperationsComplete()` has drained in-flight ones.
+This guarantees that no thread is inside a component operation — and therefore
+no thread is inside an EBR critical section — when `close()` begins. All epoch
+slots are `INACTIVE`.
+
+The approach:
+
+1. **Acquire `evictionLock`.**
+2. **Retire and remove all entries from the CHM and LRU lists.** For each
+   entry, call `retire()` (CAS from `0` to `RETIRED`) before removal —
+   same as `clearFile()` — to protect against any straggling read-buffer
+   drain (see `clearFile()` discussion above for rationale). The
+   precondition guarantees `state == 0` for all entries (no writers), so
+   every `retire()` CAS succeeds.
+3. **Drain the retired list completely.** All previously retired entries
+   (from prior eviction cycles) are collected alongside the entries from
+   step 2.
+4. **Record `retireEpoch`** as the current global epoch.
+5. **Advance the epoch.**
+6. **Release `evictionLock`.**
+7. **Call `waitForSafeEpoch(retireEpoch)`.** Because the precondition
+   guarantees no threads are in critical sections, all slots are `INACTIVE`
+   and `computeSafeEpoch()` returns `>= retireEpoch` immediately — the wait
+   completes without spinning. This step is included for **defense in depth**:
+   if the precondition were violated (a thread still in a critical section),
+   the wait would block until that thread exits, preventing a use-after-free
+   rather than silently corrupting memory. The bounded timeout (30 seconds)
+   surfaces the violation as an `IllegalStateException`.
+8. **Physically reclaim all collected entries:** call
+   `decrementReadersReferrer()` and `clearCachePointer()` on each.
+
+```java
+// In LockFreeReadCache:
+void close() {
+  List<CacheEntry> allEntries;
+  long retireEpoch;
+
+  evictionLock.lock();
+  try {
+    // Retire + remove all entries from CHM and LRU lists.
+    allEntries = retireAndRemoveAllEntries();
+    // Drain the entire retired list into the same collection.
+    drainRetiredList(allEntries);
+    retireEpoch = epochTable.currentEpoch();
+    epochTable.advanceEpoch();
+  } finally {
+    evictionLock.unlock();
+  }
+
+  // Defense in depth: wait for any (unexpected) in-flight critical sections.
+  // Under normal shutdown, all slots are INACTIVE and this returns immediately.
+  epochTable.waitForSafeEpoch(retireEpoch);
+
+  // Physically reclaim all entries.
+  for (var entry : allEntries) {
+    entry.getCachePointer().decrementReadersReferrer();
+    entry.clearCachePointer();
+  }
+}
+
+private void drainRetiredList(List<CacheEntry> sink) {
+  // Called under evictionLock.
+  CacheEntry entry;
+  while ((entry = retiredList.poll()) != null) {
+    retiredListSize--;
+    sink.add(entry);
+  }
+}
+```
+
+**Interaction with `OperationsFreezer`:** The freezer and EBR remain
+independent (see "Open Questions" item 4). The freezer's
+`prohibitNewOperations()` / `waitTillAllOperationsComplete()` sequence
+guarantees the EBR precondition (no active critical sections) without any
+coupling between the two mechanisms. EBR's `waitForSafeEpoch` is a redundant
+safety net — it adds no cost under normal shutdown (immediate return) and
+catches precondition violations under abnormal conditions.
+
 ## Implementation Phases
 
 ### Phase 1: EpochTable Infrastructure
@@ -1204,8 +1420,16 @@ the hot `doLoad` read path that EBR optimizes.
 **Key design decisions:**
 - Initial slot count: `Runtime.getRuntime().availableProcessors() * 4`; grows
   dynamically (2x) under `growLock` when exhausted (LongAdder/Striped64 pattern)
-- Padding: 128 bytes per slot (2 cache lines, covers Intel + ARM)
-- Epoch type: `long` (effectively unbounded at 1 increment per drain cycle)
+- Padding: 128 bytes per slot (2 cache lines, covers Intel + ARM) via stride-based
+  indexing (`SLOT_STRIDE = 16`). Slot `i` lives at array index `i * SLOT_STRIDE`.
+  The `long[]` array is sized as `numSlots * SLOT_STRIDE`; intervening elements
+  are unused padding.
+- Epoch type: `long` (overflow-safe). The epoch increments once per drain cycle.
+  At the most aggressive realistic rate — one drain cycle per microsecond
+  (1 million/sec) — a `long` counter overflows after `2^63 / 10^6 / 3600 /
+  24 / 365 ≈ 292,471 years`. In practice, drain cycles are far less frequent
+  (triggered on cache miss or write-buffer activity, typically milliseconds
+  apart), so overflow is not a concern for any realistic deployment lifetime.
 - All access via `VarHandle` (`MethodHandles.arrayElementVarHandle(long[].class)`
   for per-slot access, field `VarHandle` for global epoch). Access modes:
   `setOpaque` + `VarHandle.fullFence()` for enter, `setOpaque` for advanceEpoch,
