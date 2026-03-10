@@ -104,7 +104,7 @@ public final class EdgeFanOutEstimator {
 
     if (direction == Direction.BOTH) {
       return estimateBothFanOut(
-          session, schema, edgeCount, sourceClassName,
+          session, schema, edgeCount, sourceCount, sourceClassName,
           outVertexClass, inVertexClass);
     }
 
@@ -120,9 +120,19 @@ public final class EdgeFanOutEstimator {
       DatabaseSessionEmbedded session,
       ImmutableSchema schema,
       long edgeCount,
+      long sourceCount,
       String sourceClassName,
       String outVertexClass,
       String inVertexClass) {
+    // When neither vertex class is declared in the schema (schema-less or
+    // mixed mode), fall back to a naive estimate: the source vertex can
+    // appear on both sides, so fan-out ≈ 2 × edgeCount / sourceCount.
+    // Without this, BOTH edges with no schema metadata appear free (0.0),
+    // biasing the planner to always start from them.
+    if (outVertexClass == null && inVertexClass == null) {
+      return 2.0 * edgeCount / sourceCount;
+    }
+
     double outFanOut = 0.0;
     double inFanOut = 0.0;
 
