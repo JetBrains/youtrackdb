@@ -260,6 +260,7 @@ private static final Cleaner CLEANER = Cleaner.create();
 
 class SlotHandle {
   final int slotIndex;
+  int nestingDepth;  // thread-local, no synchronization needed
   // registered with CLEANER on allocation
 }
 
@@ -277,6 +278,27 @@ action fires, the slot is marked `INACTIVE`, and its index is returned to the fr
 list. This is reliable on JDK 21+ (no finalization dependency) and requires no
 polling or manual cleanup.
 
+**Reentrancy:** A component operation may internally trigger another component
+operation (nested `calculateInsideComponentOperation` /
+`executeInsideComponentOperation`). Without reentrancy support, the inner
+`enter()` would overwrite the slot with a newer epoch, and the inner `exit()`
+would set the slot to `INACTIVE` while the outer critical section is still
+active — a use-after-free bug.
+
+To handle this, `SlotHandle` tracks a `nestingDepth` counter (plain `int`,
+thread-local — no synchronization needed):
+
+- **`enter()`**: If `nestingDepth > 0`, just increment and return the existing
+  slot index — skip the slot write and fence entirely (the slot already holds
+  a valid epoch from the outermost enter). Otherwise, write the epoch to the
+  slot, execute the fence, and set `nestingDepth = 1`.
+- **`exit()`**: Decrement `nestingDepth`. If it reaches 0, write `INACTIVE`
+  (release). Otherwise, do nothing — the outer critical section is still active.
+
+This keeps the fast path (non-reentrant) unchanged (one branch on a
+thread-local int) and makes the reentrant path essentially free (increment/
+decrement, no memory barriers).
+
 ### Integration Points
 
 #### 1. Critical Section Boundaries
@@ -287,18 +309,19 @@ to `LockFreeReadCache`:
 
 ```java
 // In LockFreeReadCache:
-public long enterCriticalSection() {
-  return epochTable.enter();  // returns slot index
+public void enterCriticalSection() {
+  epochTable.enter();  // reentrant-safe; increments nesting depth
 }
 
-public void exitCriticalSection(long stamp) {
-  epochTable.exit(stamp);
+public void exitCriticalSection() {
+  epochTable.exit();   // decrements nesting depth; writes INACTIVE only at depth 0
 }
 ```
 
 These methods are also exposed on the `ReadCache` interface so that
 `DurableComponent` and `AtomicOperationsManager` can call them without
-coupling to the concrete implementation.
+coupling to the concrete implementation. The slot index is managed internally
+by the thread-local `SlotHandle`, so the caller does not need to pass a stamp.
 
 **Where to call them:**
 
@@ -323,11 +346,11 @@ public void executeInsideComponentOperation(
     final TxConsumer consumer) {
   Objects.requireNonNull(atomicOperation);
   acquireExclusiveLockTillOperationComplete(atomicOperation, component);
-  final long stamp = readCache.enterCriticalSection();
+  readCache.enterCriticalSection();
   try {
     consumer.accept(atomicOperation);
   } finally {
-    readCache.exitCriticalSection(stamp);
+    readCache.exitCriticalSection();
   }
 }
 ```
@@ -523,9 +546,15 @@ the hot read path that EBR optimizes.
   `setOpaque` + `VarHandle.fullFence()` for enter, `setOpaque` for advanceEpoch,
   `setRelease` for exit, `getAcquire` for reclaimer slot reads.
   No `AtomicLong` / `AtomicLongArray` wrappers.
+- Reentrant critical sections: `SlotHandle.nestingDepth` (plain `int`) tracks
+  nesting depth. Only the outermost `enter()` writes the epoch + fence; only
+  the outermost `exit()` writes `INACTIVE`. This is safe because component
+  operations can nest (e.g., an index operation triggers a cluster page load).
 
 **Tests:**
 - Unit tests for EpochTable: concurrent enter/exit, safeEpoch computation correctness
+- Unit tests for reentrant enter/exit: nested calls preserve the epoch slot
+  and only the outermost exit writes INACTIVE
 - Stress tests: many threads entering/exiting while reclamation scans run
 
 ### Phase 2: Integrate EBR into LockFreeReadCache
