@@ -153,7 +153,7 @@ final class HistogramStatsPage extends DurablePage {
           keySerializer, serializerFactory);
       histogramDataLength = histData.length;
       if (VARIABLE_DATA_OFFSET + histogramDataLength > MAX_PAGE_SIZE_BYTES) {
-        throw new StorageException(
+        throw new IllegalStateException(
             "Histogram data exceeds page 0 capacity: "
                 + (VARIABLE_DATA_OFFSET + histogramDataLength)
                 + " > " + MAX_PAGE_SIZE_BYTES);
@@ -168,7 +168,7 @@ final class HistogramStatsPage extends DurablePage {
     if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
       if (hllOffset + hllRegisterCount > MAX_PAGE_SIZE_BYTES) {
-        throw new StorageException(
+        throw new IllegalStateException(
             "Histogram + inline HLL exceeds page 0 capacity: "
                 + (hllOffset + hllRegisterCount) + " > "
                 + MAX_PAGE_SIZE_BYTES);
