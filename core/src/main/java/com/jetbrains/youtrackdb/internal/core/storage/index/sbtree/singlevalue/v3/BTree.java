@@ -92,12 +92,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private static final int SPLITERATOR_CACHE_SIZE =
       GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
-  // Read at runtime instead of class-load time because the value depends on
-  // DISK_CACHE_PAGE_SIZE and is set by AbstractStorage.checkPageSizeAndRelatedParametersInGlobalConfiguration().
-  // A static final captured too early would be -1 (the default sentinel).
-  private static int getMaxKeySize() {
-    return GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
-  }
+  // Cached per-instance in create()/load() instead of reading from
+  // GlobalConfiguration on every put(). Cannot be a static final because
+  // the value depends on DISK_CACHE_PAGE_SIZE which is set by
+  // AbstractStorage.checkPageSizeAndRelatedParametersInGlobalConfiguration()
+  // after class loading.
+  private int maxKeySize;
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
@@ -160,6 +160,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
           acquireExclusiveLock();
           try {
             this.keySize = keySize;
+            this.maxKeySize =
+                GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
             if (keyTypes != null) {
               this.keyTypes = Arrays.copyOf(keyTypes, keyTypes.length);
             } else {
@@ -271,7 +273,6 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
-              var maxKeySize = getMaxKeySize();
               if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
                 throw new TooBigIndexKeyException(storage.getName(),
                     "Key size is more than allowed, operation was canceled. Current key size "
@@ -458,6 +459,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       nullBucketFileId = openFile(atomicOperation, name + nullFileExtension);
 
       this.keySize = keySize;
+      this.maxKeySize =
+          GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
       this.keyTypes = keyTypes;
       this.keySerializer = keySerializer;
     } catch (final IOException e) {

@@ -2001,8 +2001,20 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
    */
   @Test
   public void singleValueIndex_noHll_distinctCountEqualsNonNullCount() {
-    createClassWithIndexAndData("SvNoHll", "val", PropertyType.INTEGER,
-        2000, i -> i);
+    // Use UNIQUE index to get a true single-value engine where
+    // distinctCount == totalCount (no HLL involved).
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("SvNoHll");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    clazz.createIndex("SvNoHllvalIdx",
+        SchemaClass.INDEX_TYPE.UNIQUE, "val");
+
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("SvNoHll");
+      doc.setProperty("val", i);
+    }
+    session.commit();
 
     session.execute("ANALYZE INDEX SvNoHllvalIdx").close();
 
@@ -2021,7 +2033,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     session.commit();
 
     var snapshotAfter = manager.getStatistics();
-    // For single-value NOTUNIQUE, distinctCount == totalCount.
+    // For single-value UNIQUE, distinctCount == totalCount (exact).
     // The incremental delta applies totalCountDelta from committed inserts.
     // Allow +/- 1 tolerance for batched persistence timing.
     long distinctAfter = snapshotAfter.distinctCount();
@@ -2105,6 +2117,59 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
   /**
    * Retrieves the IndexHistogramManager for a named index via reflection.
    */
+  /**
+   * ANALYZE INDEX while a background rebalance is already in progress
+   * should wait for the background rebalance to complete and return a
+   * refreshed snapshot (Section 10.9.2 of the ADR).
+   */
+  @Test
+  public void analyzeIndex_whileBackgroundRebalanceInProgress_waitsAndReturns() {
+    // Given: an index with enough data to have a histogram
+    createClassWithIndexAndData("AnalyzeConc", "val", PropertyType.INTEGER,
+        2000, i -> i);
+
+    var manager = getHistogramManager("AnalyzeConcvalIdx");
+    assertNotNull(manager);
+
+    // Trigger ANALYZE INDEX to build initial histogram
+    session.execute("ANALYZE INDEX AnalyzeConcvalIdx").close();
+
+    var statsBefore = manager.getStatistics();
+    assertNotNull(statsBefore);
+    assertEquals(2000L, statsBefore.totalCount());
+
+    // Insert more data to make the histogram stale
+    session.begin();
+    for (int i = 2000; i < 3000; i++) {
+      var doc = session.newEntity("AnalyzeConc");
+      doc.setProperty("val", i);
+    }
+    session.commit();
+
+    // Run two concurrent ANALYZE INDEX calls — both should succeed
+    // and return consistent results. The second should either wait
+    // for the first or see the already-fresh histogram.
+    var thread = new Thread(() ->
+        session.execute("ANALYZE INDEX AnalyzeConcvalIdx").close());
+    thread.start();
+
+    // Main thread also analyzes — exercises concurrent ANALYZE
+    session.execute("ANALYZE INDEX AnalyzeConcvalIdx").close();
+
+    try {
+      thread.join(30_000);
+    } catch (InterruptedException e) {
+      fail("ANALYZE thread did not complete in time");
+    }
+
+    // After both complete, statistics should reflect all 3000 entries
+    var statsAfter = manager.getStatistics();
+    assertNotNull(statsAfter);
+    assertTrue("totalCount should be ~3000 after concurrent ANALYZE, was: "
+            + statsAfter.totalCount(),
+        statsAfter.totalCount() >= 2999 && statsAfter.totalCount() <= 3001);
+  }
+
   private IndexHistogramManager getHistogramManager(String indexName) {
     try {
       var idx = session.getSharedContext().getIndexManager().getIndex(indexName);

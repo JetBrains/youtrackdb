@@ -152,6 +152,10 @@ final class HistogramStatsPage extends DurablePage {
       byte[] histData = snapshot.histogram().serialize(
           keySerializer, serializerFactory);
       histogramDataLength = histData.length;
+      assert VARIABLE_DATA_OFFSET + histogramDataLength <= MAX_PAGE_SIZE_BYTES
+          : "Histogram data exceeds page 0 capacity: "
+          + (VARIABLE_DATA_OFFSET + histogramDataLength)
+          + " > " + MAX_PAGE_SIZE_BYTES;
       setIntValue(HISTOGRAM_DATA_LENGTH_OFFSET, histogramDataLength);
       setBinaryValue(VARIABLE_DATA_OFFSET, histData);
     } else {
@@ -208,6 +212,14 @@ final class HistogramStatsPage extends DurablePage {
 
     var stats = new IndexStatistics(totalCount, distinctCount, nullCount);
 
+    // Guard against corrupted histogramDataLength: a value that is negative
+    // or exceeds the page capacity would cause an OOM or IndexOutOfBounds
+    // before EquiDepthHistogram.deserialize() gets to validate the blob.
+    if (histogramDataLength < 0
+        || VARIABLE_DATA_OFFSET + histogramDataLength > MAX_PAGE_SIZE_BYTES) {
+      histogramDataLength = 0;
+    }
+
     EquiDepthHistogram histogram = null;
     if (histogramDataLength > 0) {
       byte[] histData =
@@ -221,8 +233,11 @@ final class HistogramStatsPage extends DurablePage {
     HyperLogLogSketch hll = null;
     if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
-      byte[] hllData = getBinaryValue(hllOffset, hllRegisterCount);
-      hll = HyperLogLogSketch.readFrom(hllData, 0);
+      // Guard against corrupted hllOffset pointing past the page.
+      if (hllOffset + hllRegisterCount <= MAX_PAGE_SIZE_BYTES) {
+        byte[] hllData = getBinaryValue(hllOffset, hllRegisterCount);
+        hll = HyperLogLogSketch.readFrom(hllData, 0);
+      }
     }
 
     return new HistogramSnapshot(

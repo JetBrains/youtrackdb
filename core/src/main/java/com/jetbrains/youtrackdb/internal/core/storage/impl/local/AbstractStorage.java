@@ -2189,6 +2189,10 @@ public abstract class AbstractStorage
       var delta = entry.getValue();
       // Engine may have been dropped concurrently — the commit is already
       // durable, so the delta for a removed engine is stale and safe to skip.
+      // Safety: indexEngines is a plain ArrayList; concurrent structural
+      // modification is prevented by the stateLock read lock held on the
+      // commit path and the atomic operation serialization for index
+      // creation/deletion.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -2438,11 +2442,7 @@ public abstract class AbstractStorage
       // partially-wired manager to avoid broken state (fileId == -1, no
       // snapshot in cache) causing issues on onPut/onRemove.
       histogramSnapshotCache.remove(engineData.getIndexId());
-      if (btreeEngine instanceof BTreeSingleValueIndexEngine sv) {
-        sv.setHistogramManager(null);
-      } else if (btreeEngine instanceof BTreeMultiValueIndexEngine mv) {
-        mv.setHistogramManager(null);
-      }
+      btreeEngine.setHistogramManager(null);
       LogManager.instance().warn(
           this,
           "Failed to wire histogram manager for index '%s': %s",
@@ -2506,14 +2506,13 @@ public abstract class AbstractStorage
     // Uses null atomic operation — the B-tree read path falls back to
     // reading directly from the read cache without atomic consistency.
     if (isSingleValue) {
-      var svEngine = (BTreeSingleValueIndexEngine) engine;
-      mgr.setKeyStreamSupplier(() -> svEngine.keyStream(null));
-      svEngine.setHistogramManager(mgr);
+      mgr.setKeyStreamSupplier(
+          () -> ((BTreeSingleValueIndexEngine) engine).keyStream(null));
     } else {
-      var mvEngine = (BTreeMultiValueIndexEngine) engine;
-      mgr.setKeyStreamSupplier(() -> mvEngine.keyStream(null));
-      mvEngine.setHistogramManager(mgr);
+      mgr.setKeyStreamSupplier(
+          () -> ((BTreeMultiValueIndexEngine) engine).keyStream(null));
     }
+    engine.setHistogramManager(mgr);
 
     // Propagate the rebalance semaphore to limit concurrent rebalance tasks.
     mgr.setRebalanceSemaphore(histogramRebalanceSemaphore);

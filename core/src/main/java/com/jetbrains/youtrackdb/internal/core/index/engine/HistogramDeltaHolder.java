@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -46,9 +47,9 @@ public final class HistogramDeltaHolder {
   }
 
   /**
-   * Returns the full delta map (for iteration during commit).
+   * Returns an unmodifiable view of the delta map (for iteration during commit).
    */
   public Map<Integer, HistogramDelta> getDeltas() {
-    return deltas;
+    return Collections.unmodifiableMap(deltas);
   }
 }

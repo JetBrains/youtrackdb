@@ -322,6 +322,7 @@ public final class BTreeSingleValueIndexEngine
    * Sets the histogram manager for this engine. Called during engine
    * lifecycle (create/load) once the manager is initialized.
    */
+  @Override
   public void setHistogramManager(@Nullable IndexHistogramManager histogramManager) {
     this.histogramManager = histogramManager;
   }

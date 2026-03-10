@@ -711,6 +711,73 @@ public class SQLWhereClauseHistogramEstimateTest {
     assertEquals(CLASS_COUNT / 2, estimate);
   }
 
+  // ── OR: multiple AND blocks (disjunctive normal form) ───────
+
+  @Test
+  public void orCondition_sumOfAndBlockEstimates() {
+    // Given: WHERE age = 10 OR age = 90
+    // Flattened as two AND blocks (disjunctive normal form).
+    // The estimate() method sums the per-block estimates.
+    var andBlock1 = new SQLAndBlock(-1);
+    andBlock1.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 10));
+    var andBlock2 = new SQLAndBlock(-1);
+    andBlock2.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 90));
+
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(mock(SQLBooleanExpression.class));
+    where.setFlattened(List.of(andBlock1, andBlock2));
+
+    // When
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    // Then: sum of the two equality estimates (capped at classCount/2)
+    var sel1 = SelectivityEstimator.estimateEquality(stats, histogram, 10);
+    var sel2 = SelectivityEstimator.estimateEquality(stats, histogram, 90);
+    long expected1 = Math.max(1, (long) (CLASS_COUNT * sel1));
+    long expected2 = Math.max(1, (long) (CLASS_COUNT * sel2));
+    long count = CLASS_COUNT / 2; // upper-bound cap from estimate()
+    // Each block estimate is capped at count individually, then summed
+    assertEquals(
+        Math.min(Math.min(expected1, count) + Math.min(expected2, count),
+            count),
+        estimate);
+  }
+
+  @Test
+  public void orCondition_threeBlocks_sumsEstimates() {
+    // Given: WHERE age = 10 OR age = 50 OR age = 90
+    var andBlock1 = new SQLAndBlock(-1);
+    andBlock1.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 10));
+    var andBlock2 = new SQLAndBlock(-1);
+    andBlock2.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 50));
+    var andBlock3 = new SQLAndBlock(-1);
+    andBlock3.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 90));
+
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(mock(SQLBooleanExpression.class));
+    where.setFlattened(List.of(andBlock1, andBlock2, andBlock3));
+
+    // When
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    // Then: sum of three equality estimates, capped at count
+    var sel1 = SelectivityEstimator.estimateEquality(stats, histogram, 10);
+    var sel2 = SelectivityEstimator.estimateEquality(stats, histogram, 50);
+    var sel3 = SelectivityEstimator.estimateEquality(stats, histogram, 90);
+    long e1 = Math.max(1, (long) (CLASS_COUNT * sel1));
+    long e2 = Math.max(1, (long) (CLASS_COUNT * sel2));
+    long e3 = Math.max(1, (long) (CLASS_COUNT * sel3));
+    long count = CLASS_COUNT / 2;
+    long expectedSum = Math.min(e1, count) + Math.min(e2, count)
+        + Math.min(e3, count);
+    assertEquals(Math.min(expectedSum, count), estimate);
+  }
+
   // ── Helpers ──────────────────────────────────────────────────
 
   /**

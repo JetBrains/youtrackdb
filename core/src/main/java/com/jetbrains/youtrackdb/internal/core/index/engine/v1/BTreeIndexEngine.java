@@ -14,6 +14,9 @@ public interface BTreeIndexEngine extends V1IndexEngine {
   @Nullable
   IndexHistogramManager getHistogramManager();
 
+  /** Sets (or clears) the histogram manager for this engine. */
+  void setHistogramManager(@Nullable IndexHistogramManager histogramManager);
+
   /**
    * Builds the initial histogram from the current B-tree contents.
    * Called after index creation + population (rebuild), or during migration.
