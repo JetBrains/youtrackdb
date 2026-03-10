@@ -340,8 +340,16 @@ public class IndexHistogramManager extends DurableComponent {
   /**
    * Flushes dirty state and releases resources. Called by the engine
    * during index close.
+   *
+   * <p>Waits for any in-progress background rebalance to finish before
+   * cleanup, then permanently blocks future rebalances by leaving
+   * {@code rebalanceInProgress = true}. This prevents a background task
+   * from installing a phantom CHM entry or writing to a closed file.
    */
   public void closeStatsFile() {
+    // Acquire exclusive rebalance guard — wait for any in-progress
+    // background rebalance to finish, then block future ones.
+    waitForAndBlockRebalance();
     try {
       if (fileId != -1 && (long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
         flushSnapshotToPage();
@@ -356,13 +364,30 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Deletes the .ixs file. Called by the engine during index deletion.
+   *
+   * <p>Waits for any in-progress background rebalance to finish before
+   * deletion, then permanently blocks future rebalances.
    */
   public void deleteStatsFile(AtomicOperation op) throws IOException {
+    waitForAndBlockRebalance();
     if (fileId != -1) {
       deleteFile(op, fileId);
     }
     cache.remove(engineId);
     fileId = -1;
+  }
+
+  /**
+   * Spins until the rebalance CAS guard can be acquired, then leaves it
+   * set to permanently prevent future background rebalances. Used by
+   * {@link #closeStatsFile()} and {@link #deleteStatsFile} to ensure no
+   * background task touches the file or cache after cleanup.
+   */
+  private void waitForAndBlockRebalance() {
+    while (!rebalanceInProgress.compareAndSet(false, true)) {
+      Thread.onSpinWait();
+    }
+    // Leave rebalanceInProgress == true to block future schedules.
   }
 
   // ---- Incremental updates ----
@@ -813,11 +838,18 @@ public class IndexHistogramManager extends DurableComponent {
    * checkpoint/shutdown path uses the no-arg {@link #flushIfDirty()} instead.
    */
   public void flushIfDirty(AtomicOperation op) throws IOException {
-    if ((long) DIRTY_MUTATIONS.getAcquire(this) > 0 && fileId != -1) {
+    long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
+    if (observed > 0 && fileId != -1
+        && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
       var snapshot = cache.get(engineId);
       if (snapshot != null) {
-        writeSnapshotToPage(op, snapshot);
-        DIRTY_MUTATIONS.setRelease(this, 0L);
+        try {
+          writeSnapshotToPage(op, snapshot);
+        } catch (IOException e) {
+          // Restore the count so the next flush re-triggers.
+          DIRTY_MUTATIONS.getAndAdd(this, observed);
+          throw e;
+        }
       }
     }
   }
@@ -833,11 +865,14 @@ public class IndexHistogramManager extends DurableComponent {
    * best-effort and must not block checkpoint or shutdown.
    */
   public void flushIfDirty() {
-    if ((long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
+    long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
+    if (observed > 0
+        && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
       try {
         flushSnapshotToPage();   // creates its own AtomicOperation
-        DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
+        // Restore the count so the next checkpoint or applyDelta re-triggers.
+        DIRTY_MUTATIONS.getAndAdd(this, observed);
         logger.warn("Failed to flush histogram stats for {}"
             + " during checkpoint", getName(), e);
       }

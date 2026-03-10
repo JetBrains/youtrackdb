@@ -344,8 +344,8 @@ public class IndexHistogramManagerTest {
     var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
 
     assertEquals(505, result.stats().totalCount());
-    // Single-value: distinctCount == totalCount
-    assertEquals(505, result.stats().distinctCount());
+    // Single-value: distinctCount == totalCount - nullCount (non-null keys)
+    assertEquals(495, result.stats().distinctCount());
   }
 
   @Test
