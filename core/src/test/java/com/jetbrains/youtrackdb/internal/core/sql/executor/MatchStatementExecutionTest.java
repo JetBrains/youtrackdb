@@ -3021,6 +3021,104 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Regression test: MATCH with $matched dependency on an optional node where the
+   * dependency is resolved via a different branch of the pattern graph. This reproduces
+   * the IS7 LDBC query pattern:
+   *
+   * <pre>
+   *   msg --HAS_CREATOR--> author
+   *   msg <--REPLY_OF-- reply --HAS_CREATOR--> replyAuthor --KNOWS--> knowsCheck
+   *                                                           (optional, where: @rid = $matched.author.@rid)
+   * </pre>
+   *
+   * With cost-based edge sorting, the planner may visit the reply branch before the
+   * author branch, causing knowsCheck's $matched.author dependency to be unsatisfied
+   * when first encountered. The planner must still schedule the replyAuthor→knowsCheck
+   * edge after the author dependency is resolved.
+   */
+  @Test
+  public void testMatchedDependencyOptionalNodeDifferentBranch() {
+    // Schema: Message, Comment extends Message, Author (V classes), edge classes
+    session.execute("CREATE class Message extends V").close();
+    session.execute("CREATE class Comment extends V").close();
+    session.execute("CREATE class Author extends V").close();
+    session.execute("CREATE class HAS_CREATOR extends E").close();
+    session.execute("CREATE class REPLY_OF extends E").close();
+    session.execute("CREATE class KNOWS extends E").close();
+
+    session.begin();
+    // Create graph:  msg --HAS_CREATOR--> alice
+    //                reply1 --REPLY_OF--> msg, reply1 --HAS_CREATOR--> bob
+    //                reply2 --REPLY_OF--> msg, reply2 --HAS_CREATOR--> carol
+    //                bob --KNOWS--> alice (so bob knows the author)
+    session.execute("CREATE VERTEX Message set id = 1").close();
+    session.execute("CREATE VERTEX Comment set id = 10, content = 'reply1'").close();
+    session.execute("CREATE VERTEX Comment set id = 20, content = 'reply2'").close();
+    session.execute("CREATE VERTEX Author set id = 100, name = 'Alice'").close();
+    session.execute("CREATE VERTEX Author set id = 200, name = 'Bob'").close();
+    session.execute("CREATE VERTEX Author set id = 300, name = 'Carol'").close();
+
+    session.execute(
+        "CREATE EDGE HAS_CREATOR from (select from Message where id = 1)"
+            + " to (select from Author where id = 100)")
+        .close();
+    session.execute(
+        "CREATE EDGE REPLY_OF from (select from Comment where id = 10)"
+            + " to (select from Message where id = 1)")
+        .close();
+    session.execute(
+        "CREATE EDGE REPLY_OF from (select from Comment where id = 20)"
+            + " to (select from Message where id = 1)")
+        .close();
+    session.execute(
+        "CREATE EDGE HAS_CREATOR from (select from Comment where id = 10)"
+            + " to (select from Author where id = 200)")
+        .close();
+    session.execute(
+        "CREATE EDGE HAS_CREATOR from (select from Comment where id = 20)"
+            + " to (select from Author where id = 300)")
+        .close();
+    session.execute(
+        "CREATE EDGE KNOWS from (select from Author where id = 200)"
+            + " to (select from Author where id = 100)")
+        .close();
+    session.commit();
+
+    // Query mirrors the IS7 LDBC pattern:
+    // - msg is the root (WHERE clause)
+    // - author is reached via HAS_CREATOR from msg
+    // - reply is reached via in('REPLY_OF') from msg
+    // - replyAuthor is reached via HAS_CREATOR from reply
+    // - knowsCheck depends on $matched.author (optional)
+    session.begin();
+    var query =
+        "MATCH {class: Message, as: msg, where: (id = 1)}"
+            + "  .out('HAS_CREATOR'){as: author},"
+            + "  {as: msg}"
+            + "  .in('REPLY_OF'){as: reply}"
+            + "  .out('HAS_CREATOR'){as: replyAuthor}"
+            + "  .out('KNOWS'){as: knowsCheck,"
+            + "    where: (@rid = $matched.author.@rid), optional: true}"
+            + " RETURN reply.id as replyId,"
+            + "   replyAuthor.name as replyAuthorName,"
+            + "   ifnull(knowsCheck, false, true) as knowsOriginalAuthor"
+            + " ORDER BY replyId";
+    var results = session.query(query).toList();
+
+    assertEquals(2, results.size());
+    // reply1 (id=10) by Bob who KNOWS Alice → true
+    assertEquals(10, ((Number) results.get(0).getProperty("replyId")).intValue());
+    assertEquals("Bob", results.get(0).getProperty("replyAuthorName"));
+    assertEquals(true, results.get(0).getProperty("knowsOriginalAuthor"));
+
+    // reply2 (id=20) by Carol who does NOT know Alice → false
+    assertEquals(20, ((Number) results.get(1).getProperty("replyId")).intValue());
+    assertEquals("Carol", results.get(1).getProperty("replyAuthorName"));
+    assertEquals(false, results.get(1).getProperty("knowsOriginalAuthor"))
+    session.commit();
+  }
+
+  /**
    * Verifies that $parent.$current in a LET subquery resolves to the current outer
    * record, even when a preceding LET clause runs a scan that internally sets
    * VAR_CURRENT on its execution context.
@@ -3074,6 +3172,67 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue("Expected n1 in results", names.contains("n1"));
     assertTrue("Expected n2 in results", names.contains("n2"));
     assertTrue("Expected n3 in results", names.contains("n3"));
+    session.commit();
+  }
+
+  /**
+   * Tests that $matched references work correctly with non-optional nodes, where the
+   * referenced alias is resolved via a sibling branch in the MATCH pattern.
+   *
+   * <pre>
+   *   root --EdgeA--> nodeA
+   *   root --EdgeB--> nodeB --EdgeC--> check {where: ($matched.nodeA != $currentMatch)}
+   * </pre>
+   *
+   * The planner must ensure nodeA is visited before evaluating check's $matched
+   * condition, regardless of edge traversal cost ordering.
+   */
+  @Test
+  public void testMatchedDependencyAcrossBranches() {
+    session.execute("CREATE class Root extends V").close();
+    session.execute("CREATE class NodeA extends V").close();
+    session.execute("CREATE class NodeB extends V").close();
+    session.execute("CREATE class Check extends V").close();
+    session.execute("CREATE class EdgeA extends E").close();
+    session.execute("CREATE class EdgeB extends E").close();
+    session.execute("CREATE class EdgeC extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX Root set name = 'root'").close();
+    session.execute("CREATE VERTEX NodeA set name = 'a1'").close();
+    session.execute("CREATE VERTEX NodeB set name = 'b1'").close();
+    session.execute("CREATE VERTEX Check set name = 'c1'").close();
+
+    session.execute(
+        "CREATE EDGE EdgeA from (select from Root where name = 'root')"
+            + " to (select from NodeA where name = 'a1')")
+        .close();
+    session.execute(
+        "CREATE EDGE EdgeB from (select from Root where name = 'root')"
+            + " to (select from NodeB where name = 'b1')")
+        .close();
+    session.execute(
+        "CREATE EDGE EdgeC from (select from NodeB where name = 'b1')"
+            + " to (select from Check where name = 'c1')")
+        .close();
+    session.commit();
+
+    // nodeA and check (c1) are different vertices, so the $matched.nodeA != $currentMatch
+    // condition is satisfied and the match succeeds.
+    session.begin();
+    var query =
+        "MATCH {class: Root, as: root, where: (name = 'root')}"
+            + "  .out('EdgeA'){as: nodeA},"
+            + "  {as: root}"
+            + "  .out('EdgeB'){as: nodeB}"
+            + "  .out('EdgeC'){as: check, where: ($matched.nodeA != $currentMatch)}"
+            + " RETURN nodeA.name as aName, nodeB.name as bName, check.name as cName";
+    var results = session.query(query).toList();
+
+    assertEquals(1, results.size());
+    assertEquals("a1", results.get(0).getProperty("aName"));
+    assertEquals("b1", results.get(0).getProperty("bName"));
+    assertEquals("c1", results.get(0).getProperty("cName"))
     session.commit();
   }
 

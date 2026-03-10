@@ -16,8 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -25,23 +23,19 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests for {@link MatchExecutionPlanner#estimateRootEntries} (private, tested via reflection).
+ * Tests for {@link MatchExecutionPlanner#estimateRootEntries} (package-private).
  *
  * <p>Validates the cap behavior added in Step 17: when a filter's estimate exceeds the actual
  * class count, the result is capped at the class count.
  */
 public class EstimateRootEntriesTest {
 
-  private Method estimateRootEntries;
   private DatabaseSessionEmbedded db;
   private ImmutableSchema schema;
   private CommandContext ctx;
 
   @Before
-  public void setUp() throws Exception {
-    estimateRootEntries = findEstimateRootEntries();
-    estimateRootEntries.setAccessible(true);
-
+  public void setUp() {
     db = mock(DatabaseSessionEmbedded.class);
     schema = mock(ImmutableSchema.class);
     var metadata = mock(MetadataDefault.class);
@@ -52,39 +46,12 @@ public class EstimateRootEntriesTest {
     when(ctx.getDatabaseSession()).thenReturn(db);
   }
 
-  /**
-   * Locates {@code MatchExecutionPlanner.estimateRootEntries} via
-   * reflection. Produces a clear error message if the method signature
-   * changes, instead of a generic {@code NoSuchMethodException}.
-   */
-  private static Method findEstimateRootEntries() throws NoSuchMethodException {
-    try {
-      return MatchExecutionPlanner.class.getDeclaredMethod(
-          "estimateRootEntries",
-          Map.class, Map.class, Map.class, CommandContext.class);
-    } catch (NoSuchMethodException e) {
-      throw new NoSuchMethodException(
-          "MatchExecutionPlanner.estimateRootEntries(Map, Map, Map,"
-              + " CommandContext) not found — the method signature may"
-              + " have changed. Update this test to match.");
-    }
-  }
-
-  @SuppressWarnings("unchecked")
   private Map<String, Long> invoke(
       Map<String, String> aliasClasses,
       Map<String, SQLRid> aliasRids,
-      Map<String, SQLWhereClause> aliasFilters)
-      throws Exception {
-    try {
-      return (Map<String, Long>) estimateRootEntries.invoke(
-          null, aliasClasses, aliasRids, aliasFilters, ctx);
-    } catch (InvocationTargetException e) {
-      if (e.getCause() instanceof RuntimeException re) {
-        throw re;
-      }
-      throw e;
-    }
+      Map<String, SQLWhereClause> aliasFilters) {
+    return MatchExecutionPlanner.estimateRootEntries(
+        aliasClasses, aliasRids, aliasFilters, ctx);
   }
 
   private SchemaClassInternal mockClass(String name, long count) {
@@ -96,7 +63,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void ridAliasReturnsOne() throws Exception {
+  public void ridAliasReturnsOne() {
     var rids = Map.of("a", mock(SQLRid.class));
     var result = invoke(Map.of(), rids, Map.of());
 
@@ -104,7 +71,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void noFilterReturnsClassCount() throws Exception {
+  public void noFilterReturnsClassCount() {
     mockClass("Person", 5000L);
 
     var result = invoke(Map.of("a", "Person"), Map.of(), Map.of());
@@ -113,7 +80,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void filterEstimateBelowClassCountIsUnchanged() throws Exception {
+  public void filterEstimateBelowClassCountIsUnchanged() {
     mockClass("Person", 5000L);
     var filter = mock(SQLWhereClause.class);
     when(filter.estimate(any(), anyLong(), any())).thenReturn(200L);
@@ -124,7 +91,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void filterEstimateExceedingClassCountIsCapped() throws Exception {
+  public void filterEstimateExceedingClassCountIsCapped() {
     mockClass("Person", 1000L);
     var filter = mock(SQLWhereClause.class);
     when(filter.estimate(any(), anyLong(), any())).thenReturn(5000L);
@@ -135,7 +102,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void filterEstimateEqualToClassCountIsUnchanged() throws Exception {
+  public void filterEstimateEqualToClassCountIsUnchanged() {
     mockClass("Person", 3000L);
     var filter = mock(SQLWhereClause.class);
     when(filter.estimate(any(), anyLong(), any())).thenReturn(3000L);
@@ -146,7 +113,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void multipleAliasesWithMixedScenarios() throws Exception {
+  public void multipleAliasesWithMixedScenarios() {
     mockClass("Person", 1000L);
     mockClass("City", 50L);
 
@@ -169,7 +136,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void aliasWithNoClassNameIsOmitted() throws Exception {
+  public void aliasWithNoClassNameIsOmitted() {
     var filter = mock(SQLWhereClause.class);
     var result = invoke(Map.of(), Map.of(), Map.of("x", filter));
 
@@ -177,14 +144,14 @@ public class EstimateRootEntriesTest {
   }
 
   @Test(expected = CommandExecutionException.class)
-  public void nonExistentClassThrows() throws Exception {
+  public void nonExistentClassThrows() {
     when(schema.existsClass("Ghost")).thenReturn(false);
 
     invoke(Map.of("a", "Ghost"), Map.of(), Map.of());
   }
 
   @Test
-  public void zeroClassCountCapsFilterEstimateToZero() throws Exception {
+  public void zeroClassCountCapsFilterEstimateToZero() {
     mockClass("Empty", 0L);
     var filter = mock(SQLWhereClause.class);
     when(filter.estimate(any(), anyLong(), any())).thenReturn(50L);
@@ -195,7 +162,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void filterReturningZeroIsPreserved() throws Exception {
+  public void filterReturningZeroIsPreserved() {
     mockClass("Person", 5000L);
     var filter = mock(SQLWhereClause.class);
     when(filter.estimate(any(), anyLong(), any())).thenReturn(0L);
@@ -206,7 +173,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void ridTakesPriorityOverClassForSameAlias() throws Exception {
+  public void ridTakesPriorityOverClassForSameAlias() {
     mockClass("Person", 5000L);
 
     var aliasClasses = Map.of("a", "Person");
@@ -218,7 +185,7 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void emptyInputsProduceEmptyResult() throws Exception {
+  public void emptyInputsProduceEmptyResult() {
     var result = invoke(Map.of(), Map.of(), Map.of());
 
     assertTrue(result.isEmpty());
