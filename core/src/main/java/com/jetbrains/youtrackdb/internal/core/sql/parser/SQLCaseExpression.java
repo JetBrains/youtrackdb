@@ -102,6 +102,9 @@ public class SQLCaseExpression extends SQLMathExpression {
 
   @Override
   public void extractSubQueries(SubQueryCollector collector) {
+    for (var cond : whenConditions) {
+      cond.extractSubQueries(collector);
+    }
     for (var expr : thenExpressions) {
       expr.extractSubQueries(collector);
     }
