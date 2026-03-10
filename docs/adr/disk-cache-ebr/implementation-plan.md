@@ -2334,6 +2334,583 @@ into Phase 3, and this phase is renumbered.
      `acquireEntry()` + `decrementReadersReferrer()` on release.
 6. Run full test suite, integration tests, and benchmarks.
 
+### Phase 5: Comprehensive Testing
+
+This phase defines all tests required to validate the EBR implementation —
+covering the `EpochTable` in isolation, the integrated cache behavior, edge
+cases, and concurrent safety. Tests are organized into four groups:
+
+- **Group A — EpochTable unit tests** (pure `EpochTable` logic, no cache)
+- **Group B — CacheEntry state machine unit tests** (simplified lifecycle)
+- **Group C — LockFreeReadCache integration tests** (cache + EBR together)
+- **Group D — Concurrency stress tests** (thread-safety under load)
+
+**Test framework**: JUnit 4 with `surefire-junit47` runner (consistent with
+existing `core` module tests). Concurrent tests use
+`ConcurrentTestHelper` / `TestBuilder` from `test-commons` where applicable,
+or raw `ExecutorService` + `Future` + `CountDownLatch` / `CyclicBarrier` for
+fine-grained thread coordination. Assertions use AssertJ where available,
+plain JUnit otherwise.
+
+**Test location**: `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/`
+- `ebr/EpochTableTest.java` — Group A
+- `ebr/EpochTableStressTest.java` — Group A stress tests
+- `chm/CacheEntryStateTest.java` — Group B
+- `chm/LockFreeReadCacheEBRTest.java` — Group C
+- `chm/LockFreeReadCacheEBRStressTest.java` — Group D
+
+---
+
+#### Group A — EpochTable Unit Tests
+
+**File: `ebr/EpochTableTest.java`**
+
+**A1. Basic enter/exit lifecycle**
+- Create `EpochTable`. Call `enter(slotIndex)`, verify slot holds the
+  current global epoch (via `computeSafeEpoch()` returning `epoch - 1`).
+  Call `exit(slotIndex)`, verify `computeSafeEpoch()` returns
+  `currentEpoch - 1` (no active slots).
+
+**A2. `computeSafeEpoch` — all slots inactive**
+- Create `EpochTable`, advance epoch to `E`. With no threads in critical
+  sections, `computeSafeEpoch()` must return `E - 1`.
+
+**A3. `computeSafeEpoch` — single active slot**
+- Thread enters at epoch `E`. Advance epoch to `E+3`. `computeSafeEpoch()`
+  must return `E - 1` (the active slot holds back reclamation). Thread
+  exits. `computeSafeEpoch()` must return `E+3 - 1 = E+2`.
+
+**A4. `computeSafeEpoch` — multiple active slots at different epochs**
+- Three threads enter at epochs `E`, `E+1`, `E+2` (advancing between each
+  enter). `computeSafeEpoch()` must return `E - 1` (minimum active epoch).
+  Thread at `E` exits. `computeSafeEpoch()` must return `E+1 - 1 = E`.
+  Remaining threads exit. `computeSafeEpoch()` must jump to
+  `currentEpoch - 1`.
+
+**A5. `advanceEpoch` — monotonic increment**
+- Call `advanceEpoch()` 100 times. Verify `currentEpoch()` returns 100
+  (starting from 0). Verify `computeSafeEpoch()` returns 99 with no
+  active slots.
+
+**A6. `computeSafeEpoch` — defensive guard against INACTIVE globalEpoch**
+- Use reflection to set `globalEpoch` to `Long.MAX_VALUE` (`INACTIVE`).
+  Verify `computeSafeEpoch()` returns `-1` (refuse to reclaim).
+
+**A7. Reentrancy — nested `enter()` throws**
+- Call `enter()`, then call `enter()` again on the same thread. Verify
+  `IllegalStateException` is thrown with message containing "not reentrant".
+  Verify that after the exception, the original critical section is still
+  active (slot still holds the epoch). Call `exit()` to clean up — must
+  succeed.
+
+**A8. Unmatched `exit()` throws**
+- Call `exit()` without a preceding `enter()`. Verify
+  `IllegalStateException` is thrown with message containing "without
+  matching enter".
+
+**A9. Slot allocation — first enter allocates slot**
+- Create `EpochTable` on a fresh thread. Call `enter()`. Verify that
+  the thread got a valid slot index (between 0 and initial capacity).
+  Call `exit()`.
+
+**A10. Slot reuse via free list**
+- Allocate a slot on thread A (enter + exit). Simulate thread A death
+  (trigger Cleaner or call `releaseSlot()` directly). Start thread B.
+  Thread B's `enter()` should reuse thread A's slot index (poll from
+  free list). Verify by checking that no array growth occurred (slot
+  count unchanged).
+
+**A11. Dynamic array growth**
+- Create `EpochTable` with initial capacity `N`. Allocate `N+1` slots
+  (each on a separate thread). Verify the array grew (new capacity >=
+  `N+1`). Verify all existing slot values were preserved during growth
+  (enter on all threads, check `computeSafeEpoch()`). Verify new slots
+  default to `INACTIVE`.
+
+**A12. `enter()` grow-safety retry loop**
+- Requires white-box testing: instrument or subclass `EpochTable` to
+  force `grow()` to run between the opaque write and the post-fence
+  volatile read in `enter()`. Verify that `enter()` retries and the
+  epoch value is correctly written to the new array. Verify
+  `computeSafeEpoch()` sees the active slot.
+
+**A13. `exit()` races with `grow()` — conservative behavior**
+- Start thread T in a critical section. Force `grow()` from another
+  thread. Have T call `exit()`. Verify that even if `exit()` writes to
+  the old array (missed the new one), `computeSafeEpoch()` returns a
+  value <= the safe epoch (conservative — delays reclamation). On T's
+  next `enter()`/`exit()` cycle on the new array, verify
+  `computeSafeEpoch()` returns the correct value.
+
+**A14. Scan-based slot reclamation — dead thread detection**
+- Allocate a slot on thread A (enter + exit, so slot is INACTIVE).
+  Obtain the `WeakReference<Thread>` for slot A. Clear the reference
+  (simulate GC collecting the thread). Call `computeSafeEpoch()`.
+  Verify: (a) the slot index was returned to the free list, (b)
+  `slotOwners[index]` is `null`, (c) `slotReleased[index]` is 1.
+
+**A15. Double-free prevention — Cleaner vs. scan race**
+- Allocate a slot on thread A (enter + exit). Trigger both
+  `releaseSlot(index)` (Cleaner path) and `reclaimSlot(index)` (scan
+  path) concurrently from two threads using a `CyclicBarrier`. Verify:
+  the slot index appears in the free list exactly **once**. One of
+  the two calls' CAS must fail.
+
+**A16. `reclaimSlot()` re-check prevents slot theft**
+- Thread A allocates slot S, enters, exits, then dies (WeakReference
+  cleared). Thread B takes slot S from the free list, writes a new
+  live `WeakReference` to `slotOwners[S]`, and resets `slotReleased`
+  to 0 — but does NOT call `enter()` yet. A scan calls
+  `reclaimSlot(S)` using the stale dead-thread WeakReference. Verify:
+  the CAS on `slotReleased` succeeds (reads B's 0), the re-check sees
+  B's live `WeakReference`, the CAS is undone (`slotReleased` reset to
+  0), and the slot is NOT returned to the free list. Thread B can then
+  `enter()` and `exit()` normally.
+
+**A17. `Cleanable` cancellation on slot reuse**
+- Thread A allocates slot S, enters, exits, dies. Scan reclaims slot S
+  (sets `slotReleased = 1`, returns to free list). Thread B takes S,
+  calls `oldCleanable.clean()` (should be no-op since scan already
+  reclaimed), resets `slotReleased = 0`, registers new `Cleanable`.
+  Verify: A's Cleaner action does not fire after B's reset. B's slot
+  remains active and is not spuriously returned to the free list.
+
+**A18. `waitForSafeEpoch` — immediate return when all inactive**
+- Create `EpochTable`, advance epoch to `E`. No threads in critical
+  sections. Call `waitForSafeEpoch(E)`. Verify it returns immediately
+  (within a few milliseconds, measured wall-clock).
+
+**A19. `waitForSafeEpoch` — blocks until thread exits**
+- Thread T enters at epoch `E`. Advance epoch. Call
+  `waitForSafeEpoch(E)` on another thread — it must not return. After
+  a brief delay, have T call `exit()`. Verify `waitForSafeEpoch`
+  returns promptly (within a few hundred milliseconds of T's exit).
+
+**A20. `waitForSafeEpoch` — throws if called inside critical section**
+- Enter a critical section on the current thread. Call
+  `waitForSafeEpoch(currentEpoch)`. Verify `IllegalStateException` is
+  thrown immediately (not after timeout). Exit the critical section.
+
+**A21. `waitForSafeEpoch` — timeout fires on stuck slot**
+- Configure a short timeout (e.g., 500ms). Enter a critical section
+  on thread T and do not exit. Call `waitForSafeEpoch` from another
+  thread. Verify `IllegalStateException` is thrown after approximately
+  the configured timeout. Clean up: exit T's critical section.
+
+**A22. `currentEpoch()` — same-thread coherence with `advanceEpoch()`**
+- Call `advanceEpoch()` on thread T. Immediately call
+  `currentEpoch()` on the same thread T. Verify the returned value
+  equals the pre-advance value + 1. (Validates opaque same-thread
+  coherence.)
+
+---
+
+**File: `ebr/EpochTableStressTest.java`**
+
+**A23. Concurrent enter/exit — epoch safety invariant**
+- `N` threads (e.g., 16), each performing 100K iterations of:
+  `enter()` → read `currentEpoch()` → verify slot epoch <=
+  `currentEpoch` → `exit()`. One dedicated thread advances the epoch
+  every 100μs. No assertion failures allowed. Validates that
+  `computeSafeEpoch()` never returns a value higher than the minimum
+  active slot.
+
+**A24. Concurrent enter/exit with growth**
+- Start with initial capacity 4. Spawn 64 threads, each doing
+  enter/exit in a tight loop (10K iterations). Verify: no
+  `ArrayIndexOutOfBoundsException`, `computeSafeEpoch()` always
+  returns a valid value, and all threads complete without error.
+
+**A25. Virtual thread slot exhaustion stress**
+- Spawn 10K virtual threads (via `Thread.ofVirtual()`), each doing:
+  `enter()` → short sleep (1ms) → `exit()`. Concurrently, a
+  reclamation thread calls `computeSafeEpoch()` in a loop (which
+  triggers scan-based slot reclamation for dead virtual threads).
+  After all virtual threads complete, verify: (a) the slot array did
+  NOT grow to 10K entries (reclamation kept it bounded), (b) the
+  final slot count is bounded by the peak concurrency (not total
+  thread count), (c) no double-free (each slot index appears at most
+  once in the free list — drain and count).
+
+**A26. Concurrent `grow()` + `enter()` + `computeSafeEpoch()`**
+- Three thread groups running concurrently for 5 seconds:
+  - Group 1 (8 threads): `enter()` → short work → `exit()` loop
+  - Group 2 (1 thread): forces `grow()` repeatedly (allocates new
+    slot indices beyond current capacity)
+  - Group 3 (2 threads): calls `computeSafeEpoch()` in a loop
+  Verify: no exceptions, `computeSafeEpoch()` never returns a value
+  that would allow reclaiming an entry visible to an active thread
+  (checked via an auxiliary `AtomicLong` tracking the minimum entered
+  epoch across all threads — `computeSafeEpoch()` must be < this
+  minimum).
+
+**A27. Concurrent `releaseSlot()` + `reclaimSlot()` + slot reuse**
+- Spawn 100 threads that each: allocate a slot, enter, exit, then
+  die. Concurrently, a reclamation thread calls `computeSafeEpoch()`
+  repeatedly (triggering scan-based reclamation). Additionally, 50
+  new threads start and reuse slots from the free list. After all
+  threads complete, verify: no duplicate slot indices in the free
+  list, no `IllegalStateException` from slot operations, total
+  allocated slots <= peak concurrency + free list size.
+
+---
+
+#### Group B — CacheEntry State Machine Unit Tests
+
+**File: `chm/CacheEntryStateTest.java`**
+
+**B1. `retire()` from state 0 — succeeds**
+- Create a `CacheEntryImpl` with `state == 0`. Call `retire()`. Verify
+  it returns `true` and `isRetired()` returns `true`.
+
+**B2. `retire()` from state > 0 — fails (writer holds entry)**
+- Create a `CacheEntryImpl`. Call `acquireEntry()` (state → 1). Call
+  `retire()`. Verify it returns `false` and `isAlive()` returns `true`.
+  Call `releaseEntry()` to clean up.
+
+**B3. `retire()` from RETIRED state — fails (already retired)**
+- Create a `CacheEntryImpl`. Call `retire()` (succeeds). Call
+  `retire()` again. Verify it returns `false`.
+
+**B4. `acquireEntry()` on retired entry — fails**
+- Create a `CacheEntryImpl`. Call `retire()`. Call `acquireEntry()`.
+  Verify it returns `false`.
+
+**B5. `releaseEntry()` on alive entry — decrements correctly**
+- Create a `CacheEntryImpl`. Call `acquireEntry()` twice (state → 2).
+  Call `releaseEntry()` (state → 1). Verify `isReleased()` is `false`.
+  Call `releaseEntry()` (state → 0). Verify `isReleased()` is `true`.
+
+**B6. `retireEpoch` default is `Long.MAX_VALUE`**
+- Create a `CacheEntryImpl`. Verify `retireEpoch()` returns
+  `Long.MAX_VALUE`. This ensures non-retired entries are never
+  accidentally reclaimable.
+
+**B7. `retireEpoch` set during `retire()` under eviction**
+- Create a `CacheEntryImpl`. Simulate eviction: set `retireEpoch` to
+  epoch 42. Verify `retireEpoch()` returns 42.
+
+**B8. `isRetired()` replaces `isDead()` and `isFrozen()`**
+- Verify `isRetired()` returns `true` iff `state < 0`. Verify
+  `isAlive()` returns `true` iff `state >= 0`. The old `FROZEN` (-1)
+  and `DEAD` (-2) states are collapsed into `RETIRED` (-1).
+
+**B9. Concurrent `retire()` vs. `acquireEntry()` — mutual exclusion**
+- Spawn N threads: half call `retire()`, half call `acquireEntry()`,
+  all starting from a `CyclicBarrier`. Verify: exactly one of
+  `retire()` or `acquireEntry()` succeeds (they are mutually exclusive
+  when `state == 0`). If `retire()` wins, `acquireEntry()` returns
+  `false`. If `acquireEntry()` wins first, `retire()` returns `false`
+  until all holders release.
+
+---
+
+#### Group C — LockFreeReadCache Integration Tests
+
+**File: `chm/LockFreeReadCacheEBRTest.java`**
+
+These tests use a real `LockFreeReadCache` with a mocked `WriteCache`
+(following the `MockedWriteCache` pattern from existing tests). Cache
+size is small (64–256 entries) to force frequent eviction.
+
+**C1. Read path — no CAS on `CacheEntry.state`**
+- Enter critical section. Load a page for read (`loadForRead`). Verify
+  the entry's `state` is 0 (no `acquireEntry()` was called). Release
+  from read (`releaseFromRead`). Verify `state` is still 0 (no
+  `releaseEntry()` was called). Exit critical section.
+
+**C2. Write path — CAS on `CacheEntry.state` is retained**
+- Enter critical section. Load a page for write (`loadForWrite`).
+  Verify the entry's `state` is 1 (`acquireEntry()` was called).
+  Release from write (`releaseFromWrite`). Verify `state` is 0
+  (`releaseEntry()` was called). Exit critical section.
+
+**C3. Read hit — returns entry directly without retry loop**
+- Pre-populate the cache with page P. Enter critical section. Call
+  `loadForRead(P)`. Verify it returns the same entry (cache hit) on
+  the first call without internal retry. Exit critical section.
+
+**C4. Read miss — triggers `data.compute()` and afterAdd**
+- Enter critical section. Call `loadForRead(P)` for a page not in
+  cache. Verify: (a) the entry was loaded from the write cache
+  (via `writeCache.load()`), (b) the entry is now in the CHM,
+  (c) `cacheSize` incremented by 1. Exit critical section.
+
+**C5. Eviction retires entries — deferred reclamation**
+- Fill the cache beyond capacity to trigger eviction. Verify: (a)
+  evicted entries are in state `RETIRED`, (b) evicted entries are
+  NOT in the CHM, (c) evicted entries ARE in the retired list, (d)
+  `decrementReadersReferrer()` has NOT been called yet (deferred).
+
+**C6. `reclaimRetired()` frees entries when safe**
+- Retire entries at epoch `E`. Advance epoch to `E+1`. Ensure no
+  threads are in critical sections. Call `reclaimRetired()` (via
+  triggering a drain cycle). Verify: (a) retired entries with
+  `retireEpoch <= safeEpoch` have been reclaimed (CachePointer
+  cleared), (b) `retiredListSize` decremented correctly, (c) the
+  direct memory buffer was returned to `ByteBufferPool`.
+
+**C7. `reclaimRetired()` does NOT free entries with active readers**
+- Thread T enters at epoch `E`. Advance epoch to `E+1`. Retire entries
+  at epoch `E+1`. Advance again. `computeSafeEpoch()` returns `E - 1`
+  (T holds back reclamation). Call `reclaimRetired()`. Verify: entries
+  with `retireEpoch = E+1` are NOT reclaimed. Have T exit. Now
+  `reclaimRetired()` should reclaim them.
+
+**C8. Read of retired entry between `retire()` and `data.remove()`**
+- This tests the window described in the plan. Use a `CyclicBarrier`
+  to coordinate: eviction thread pauses between `retire()` and
+  `data.remove()` (requires instrumentation or a test hook). Reader
+  thread calls `data.get()` during this window, obtains the retired
+  entry. Verify: (a) the entry is readable (data is valid), (b)
+  `afterRead()` posts it to the read buffer, (c) when the read buffer
+  is drained, `onAccess()` checks `isRetired()` and skips the LRU
+  update (no LRU corruption).
+
+**C9. Writer on retired entry — `acquireEntry()` fails, retry works**
+- Set up a page in the cache. Coordinate: eviction retires the entry,
+  writer calls `loadForWrite()` which calls `doLoadForWrite()`. The
+  writer's `acquireEntry()` fails (state < 0). Verify: the retry loop
+  iterates, and on the next iteration (after `data.remove()` completes),
+  a new entry is created via `data.compute()` and the writer succeeds.
+
+**C10. Backpressure — `assistReclamation()` on enter**
+- Fill the retired list above the threshold (`max(cacheSize/100, 64)`).
+  Call `enterCriticalSection()`. Verify: `assistReclamation()` was
+  triggered (epoch was advanced, some retired entries were reclaimed).
+  The thread proceeds to enter normally after the assist.
+
+**C11. Backpressure — `tryLock` fails gracefully**
+- Hold `evictionLock` on thread A. Fill the retired list above
+  threshold. Thread B calls `enterCriticalSection()`. Verify: B's
+  `assistReclamation()` calls `tryLock()` which fails (A holds the
+  lock). B proceeds to enter the critical section anyway (no blocking,
+  no deadlock). Release lock on A.
+
+**C12. `clearFile()` — retires and waits for safe epoch**
+- Pre-populate cache with pages from file F. Have thread T enter a
+  critical section (reading a page from file F). Call `clearFile(F)` on
+  another thread — this should: (a) retire all entries for F, (b)
+  remove them from CHM, (c) advance epoch, (d) release `evictionLock`,
+  (e) spin in `waitForSafeEpoch()` until T exits. Have T exit. Verify:
+  `clearFile` returns, all entries for F are physically reclaimed
+  (pointers cleared), no entries for other files were affected.
+
+**C13. `clearFile()` — drains retired list for the file**
+- Evict some entries from file F (they go to the retired list). Then
+  call `clearFile(F)`. Verify: (a) previously retired entries for F
+  were removed from the retired list via `removeRetiredEntriesForFile`,
+  (b) they were physically reclaimed after `waitForSafeEpoch`, (c)
+  entries for other files remain in the retired list untouched.
+
+**C14. `clearFile()` — `retire()` failure throws**
+- Simulate a precondition violation: have a writer hold an entry for
+  file F (state > 0) while `clearFile(F)` runs. Verify:
+  `retireAndRemoveEntriesForFile()` throws `IllegalStateException`
+  when `retire()` CAS fails. The entry is NOT removed from the CHM.
+
+**C15. `close()` — retires all entries, waits, reclaims**
+- Pre-populate cache with entries. Ensure no threads are in critical
+  sections (precondition). Call `close()`. Verify: (a) all entries
+  retired and removed from CHM, (b) retired list drained, (c) all
+  entries physically reclaimed (pointers cleared), (d)
+  `waitForSafeEpoch` returned immediately (all slots INACTIVE).
+
+**C16. `clear()` — retires all, resets `cacheSize`, cache remains usable**
+- Pre-populate cache. Call `clear()`. Verify: (a) all entries reclaimed,
+  (b) `cacheSize` is 0, (c) the cache is still usable — loading a new
+  page succeeds and inserts into the CHM.
+
+**C17. `silentLoadForRead` — retains reference counting**
+- Call `silentLoadForRead(P)` for a page in the cache. Verify:
+  `acquireEntry()` was called (state > 0). Call `releaseFromRead`.
+  Verify: `releaseEntry()` was called (state back to 0). This confirms
+  the outside-EBR path still uses reference counting.
+
+**C18. `silentLoadForRead` — outside-cache entry lifecycle**
+- Call `silentLoadForRead(P)` for a page NOT in the cache. Verify: (a)
+  the returned entry has `insideCache() == false`, (b) the entry is NOT
+  in the CHM, (c) `releaseFromRead` calls both `releaseEntry()` and
+  `decrementReadersReferrer()`, freeing the buffer immediately.
+
+**C19. Eviction with active writer — `retire()` fails, entry moves back**
+- Pre-populate cache to capacity. Hold a write lock on entry E (via
+  `loadForWrite`). Trigger eviction that selects E as a victim. Verify:
+  `retire()` CAS fails (state > 0), E is moved back to eden (not
+  removed from CHM), and eviction selects a different victim.
+
+**C20. `onAccess()` skips retired entries in read buffer**
+- Retire an entry E. Post E to the read buffer (via `afterRead()`).
+  Trigger a drain cycle that processes the read buffer. Verify:
+  `WTinyLFUPolicy.onAccess()` calls `isRetired()` on E and skips
+  the LRU update — no list manipulation occurs for E.
+
+**C21. `clearCachePointer()` safety for entries in read buffer**
+- Retire entry E, reclaim E (calls `clearCachePointer()`, setting
+  `dataPointer` to null). E is still in the read buffer (not yet
+  drained). Trigger a drain cycle. Verify: `onAccess()` processes E
+  without `NullPointerException` — it checks `isRetired()` first and
+  skips, never dereferencing `dataPointer`.
+
+**C22. Page reload after retirement — dirty page shares CachePointer**
+- Modify page P via `loadForWrite` + `releaseFromWrite` (stores
+  CachePointer P1 in `writeCachePages`). Evict the entry for P
+  (retired, added to retired list). Reload P via `loadForRead`.
+  Verify: the new entry E' shares CachePointer P1 (from
+  `writeCachePages`), not a fresh disk read. Both E (retired) and E'
+  (live) point to the same P1. Reclaim E. Verify:
+  `referrersCount` on P1 is still > 0 (writer referrer keeps it alive).
+
+**C23. Page reload after retirement — clean page gets new CachePointer**
+- Load page P (clean, never modified). Evict the entry. Reload P.
+  Verify: the new entry E' has a different CachePointer P2 (loaded
+  from disk). Reclaim the old entry. Verify: P1's buffer is freed
+  (referrersCount reaches 0).
+
+**C24. `retiredListSize` invariant — never negative**
+- Perform a sequence of evictions and reclamations. After each
+  `reclaimRetired()` call, verify `retiredListSize >= 0`. After
+  `clearFile()`, verify `retiredListSize >= 0`. After `close()`,
+  verify `retiredListSize == 0`.
+
+**C25. Epoch advancement in `drainBuffers()` — correct ordering**
+- Trigger a drain cycle. Verify the ordering: (1) `advanceEpoch()`
+  was called first, (2) `reclaimRetired()` ran second (using the new
+  epoch for safeEpoch computation), (3) buffer draining and eviction
+  ran last (new entries retired at the advanced epoch).
+
+**C26. `emptyBuffers()` in `clearFile()` processes pending entries**
+- Insert entries into the CHM via `data.compute()` but don't drain
+  the write buffer (entries are in the buffer but not yet in LRU
+  lists). Call `clearFile()`. Verify: `emptyBuffers()` inside
+  `clearFile()` processed the pending entries into LRU lists before
+  `retireAndRemoveEntriesForFile()` ran, so LRU removal succeeded
+  cleanly.
+
+---
+
+#### Group D — Concurrency Stress Tests
+
+**File: `chm/LockFreeReadCacheEBRStressTest.java`**
+
+All stress tests run for a configurable duration (default 10 seconds,
+overridable via system property for CI). They use `ConcurrentTestHelper`
+where appropriate.
+
+**D1. Concurrent reads + eviction — no use-after-free**
+- Cache size: 128 entries. Key space: 1024 pages (Zipfian distribution).
+  N reader threads (e.g., 8) each performing 100K iterations of:
+  `enterCriticalSection()` → `loadForRead(randomPage)` → read data
+  from CachePointer (verify checksum/magic bytes) → `releaseFromRead`
+  → `exitCriticalSection()`. Eviction runs naturally from cache
+  pressure. Verify: (a) no `NullPointerException` from accessing a
+  reclaimed pointer, (b) no data corruption (checksum matches), (c)
+  `assertConsistency()` passes at the end.
+
+**D2. Concurrent reads + writes + eviction**
+- Cache size: 128. Key space: 512. 4 reader threads + 4 writer threads.
+  Readers: same as D1. Writers: `enterCriticalSection()` →
+  `loadForWrite(randomPage)` → modify data (write magic bytes) →
+  `releaseFromWrite` → `exitCriticalSection()`. Verify: (a) no
+  use-after-free, (b) no CachePointer divergence (writer's pointer is
+  always the same as the CHM entry's pointer), (c) readers see either
+  old or new data (both valid), never garbage, (d)
+  `assertConsistency()` passes.
+
+**D3. Concurrent reads + `clearFile()`**
+- Cache populated with pages from files F1, F2, F3. 8 reader threads
+  reading from all files. One thread calls `clearFile(F2)` midway
+  through the test. Verify: (a) `clearFile` completes without error,
+  (b) after `clearFile`, no entries for F2 remain in the cache, (c)
+  entries for F1 and F3 are unaffected, (d) subsequent reads of F2
+  pages load fresh from disk.
+
+**D4. Concurrent reads + `close()`**
+- 8 reader threads reading pages. After 2 seconds, signal shutdown:
+  `OperationsFreezer.prohibitNewOperations()` +
+  `waitTillAllOperationsComplete()`. Then call `close()`. Verify: (a)
+  `close()` completes without error (all slots INACTIVE by the time
+  `waitForSafeEpoch` is called), (b) all entries physically reclaimed.
+
+**D5. Backpressure under high eviction rate**
+- Cache size: 64 (very small). Key space: 10K (high miss rate →
+  frequent eviction → large retired list). 16 reader threads. Verify:
+  (a) `retiredListSize` stays bounded (the 1% threshold + backpressure
+  mechanism prevents unbounded growth), (b) no OOM from accumulated
+  retired entries, (c) track peak `retiredListSize` — should not
+  exceed `2 * threshold` for sustained periods.
+
+**D6. Writer prevents eviction — `retire()` failure and retry**
+- Cache size: 64. 4 writer threads holding entries for extended periods
+  (simulate slow writes with brief sleep). 4 reader threads. Eviction
+  runs frequently due to small cache. Verify: (a) `retire()` CAS
+  fails for entries held by writers (state > 0), (b) eviction moves
+  these entries back to eden and selects other victims, (c) no
+  deadlock between writers and eviction, (d) all writers eventually
+  complete.
+
+**D7. `waitForSafeEpoch` progress — no stuck threads**
+- 8 reader threads doing enter/exit in a tight loop. One thread
+  calls `clearFile(F)` which internally calls `waitForSafeEpoch`.
+  Verify: `waitForSafeEpoch` completes within a reasonable time
+  (well under the 30-second timeout). Measure the actual wait duration
+  — it should be on the order of the component operation duration
+  (microseconds to low milliseconds), not seconds.
+
+**D8. Mixed workload — reads, writes, eviction, clearFile, backpressure**
+- The "kitchen sink" test. Cache size: 128. Key space: 2048.
+  - 8 reader threads (Zipfian)
+  - 4 writer threads (uniform random)
+  - 1 file-clear thread (clears a random file every 500ms)
+  - Natural eviction + backpressure from cache pressure
+  Run for 10 seconds. Verify: (a) no exceptions, (b) no
+  use-after-free (data integrity checks in readers), (c)
+  `assertConsistency()` after each clearFile and at the end, (d)
+  `retiredListSize >= 0` throughout, (e) all threads complete.
+
+**D9. Virtual threads — slot management under churn**
+- Cache size: 256. Spawn 1000 virtual threads, each doing 100
+  iterations of: `enterCriticalSection()` → `loadForRead(randomPage)`
+  → `releaseFromRead` → `exitCriticalSection()`. Concurrently, drain
+  cycles run (advancing epoch, triggering scan-based slot reclamation).
+  After all virtual threads complete and GC runs, verify: (a) slot
+  array size is bounded (not 1000 slots), (b) free list contains
+  reclaimed slots, (c) no leaked slot resources, (d) cache is
+  consistent.
+
+**D10. Epoch monotonicity under concurrent advancement**
+- Multiple threads call `assistReclamation()` concurrently (each
+  trying `tryLock` on `evictionLock`). Track epoch values observed by
+  each thread. Verify: epoch is strictly monotonically increasing
+  (never decreases, never duplicates when observed under the lock).
+
+---
+
+#### Test Infrastructure Notes
+
+**Verification helpers to add to `LockFreeReadCache` (test-visible):**
+- `assertConsistency()` — already exists. Extend to verify: (a) no
+  entries in the CHM are in `RETIRED` state (retired entries must be
+  removed from CHM), (b) `retiredListSize` matches `retiredList.size()`,
+  (c) `cacheSize` matches `data.size()`.
+- `getRetiredListSize()` — package-private accessor for test assertions.
+- `getRetiredList()` — package-private accessor returning a snapshot (copy)
+  for test inspection.
+- `getEpochTable()` — package-private accessor for direct `EpochTable`
+  inspection in unit tests.
+
+**Test-only hooks (package-private, annotated `@VisibleForTesting`):**
+- `EpochTable.getSlotCount()` — returns current number of allocated logical
+  slots.
+- `EpochTable.getFreeListSize()` — returns current free list size.
+- `EpochTable.getSlotValue(int logicalIndex)` — returns the raw epoch value
+  in a slot (for white-box assertions).
+
+**Write pattern for stress tests:** Each writer writes a recognizable pattern
+to the page buffer — e.g., a magic header (4 bytes) + thread ID (8 bytes) +
+sequence number (8 bytes) + CRC32 of the payload. Readers verify the CRC32
+to detect data corruption from use-after-free or CachePointer divergence.
+
 ## Risk Assessment
 
 | Risk | Mitigation |
