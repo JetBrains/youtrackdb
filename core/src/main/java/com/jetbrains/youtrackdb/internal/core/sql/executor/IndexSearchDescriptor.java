@@ -220,7 +220,7 @@ public class IndexSearchDescriptor {
       return -1;
     }
     if (!bc.getLeft().isBaseIdentifier()
-        || !field.equals(bc.getLeft().toString())
+        || !field.equals(bc.getLeft().getDefaultAlias().getStringValue())
         || !bc.getRight().isEarlyCalculated(ctx)) {
       return -1;
     }
