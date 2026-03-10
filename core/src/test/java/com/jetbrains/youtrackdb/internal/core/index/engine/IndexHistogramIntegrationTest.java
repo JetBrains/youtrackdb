@@ -2170,6 +2170,166 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
         statsAfter.totalCount() >= 2999 && statsAfter.totalCount() <= 3001);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  //  T2: Concurrent ANALYZE INDEX during active writer transactions
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Regression: ANALYZE INDEX must produce a consistent snapshot even when
+   * concurrent writer threads are actively inserting data. The scan reads
+   * from the live cache (not MVCC snapshot), so it may see concurrent
+   * mutations — but the resulting histogram must be structurally valid and
+   * the statistics must be non-negative.
+   */
+  @Test
+  public void analyzeIndexDuringConcurrentWrites_producesValidHistogram()
+      throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("ConcAnalyze");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    var indexName = "ConcAnalyzeIdx";
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert initial data to get past HISTOGRAM_MIN_SIZE
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("ConcAnalyze");
+      doc.setProperty("val", i);
+    }
+    session.commit();
+
+    // Start a writer thread that continuously inserts
+    var writerRunning = new java.util.concurrent.atomic.AtomicBoolean(true);
+    var writerErrors = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var writerThread = new Thread(() -> {
+      try (var writerSession = openDatabase()) {
+        int counter = 2000;
+        while (writerRunning.get()) {
+          writerSession.begin();
+          for (int i = 0; i < 50; i++) {
+            var doc = writerSession.newEntity("ConcAnalyze");
+            doc.setProperty("val", counter++);
+          }
+          writerSession.commit();
+        }
+      } catch (Throwable t) {
+        writerErrors.set(t);
+      }
+    });
+    writerThread.start();
+
+    try {
+      // Run ANALYZE INDEX concurrently with the writer
+      Thread.sleep(50); // let writer start
+      session.activateOnCurrentThread();
+      try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+        assertTrue("ANALYZE should return a result", result.hasNext());
+        var row = result.next();
+        long totalCount =
+            ((Number) row.getProperty("totalCount")).longValue();
+        int bucketCount =
+            ((Number) row.getProperty("bucketCount")).intValue();
+
+        // Histogram must be structurally valid
+        assertTrue("totalCount must be >= 2000, was: " + totalCount,
+            totalCount >= 2000);
+        assertTrue("bucketCount must be > 0, was: " + bucketCount,
+            bucketCount > 0);
+      }
+
+      // Verify the histogram manager has a valid snapshot
+      var manager = getHistogramManager(indexName);
+      var histogram = manager.getHistogram();
+      assertNotNull("Histogram must be present after ANALYZE", histogram);
+      assertTrue("nonNullCount must be > 0",
+          histogram.nonNullCount() > 0);
+      // Boundaries must be sorted
+      for (int i = 0; i < histogram.bucketCount(); i++) {
+        @SuppressWarnings("unchecked")
+        int cmp = ((Comparable<Object>) histogram.boundaries()[i])
+            .compareTo(histogram.boundaries()[i + 1]);
+        assertTrue("Boundaries must be sorted: boundary[" + i + "]="
+                + histogram.boundaries()[i] + " > boundary[" + (i + 1) + "]="
+                + histogram.boundaries()[i + 1],
+            cmp <= 0);
+      }
+    } finally {
+      writerRunning.set(false);
+      writerThread.join(10_000);
+      assertNull("Writer thread should not have errors",
+          writerErrors.get());
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T5: Multi-value index integration test with HLL distinctCount
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Regression: multi-value index with ANALYZE INDEX must produce an
+   * accurate HLL-based distinctCount that matches the actual number of
+   * distinct original keys (not composite key count).
+   */
+  @Test
+  public void multiValueIndex_analyzeIndex_hllDistinctCountMatchesActual() {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("MVHll");
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    var indexName = "MVHllTagsIdx";
+    session.execute("CREATE INDEX " + indexName + " ON MVHll (tags) NOTUNIQUE")
+        .close();
+
+    // Insert 500 documents, each with 2-4 tags drawn from 50 distinct values.
+    // This creates ~1500 composite index entries but only 50 distinct tag values.
+    session.begin();
+    for (int i = 0; i < 500; i++) {
+      var doc = session.newEntity("MVHll");
+      var tags = doc.getOrCreateEmbeddedList("tags");
+      tags.add("tag" + (i % 50));
+      tags.add("tag" + ((i + 17) % 50));
+      if (i % 3 == 0) {
+        tags.add("tag" + ((i + 31) % 50));
+      }
+      if (i % 7 == 0) {
+        tags.add("tag" + ((i + 43) % 50));
+      }
+    }
+    session.commit();
+
+    // ANALYZE INDEX builds a histogram and computes exact NDV from key stream
+    try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+      assertTrue(result.hasNext());
+      var row = result.next();
+      long totalCount =
+          ((Number) row.getProperty("totalCount")).longValue();
+      long distinctCount =
+          ((Number) row.getProperty("distinctCount")).longValue();
+      int bucketCount =
+          ((Number) row.getProperty("bucketCount")).intValue();
+
+      // totalCount should be the number of composite entries (>> 500)
+      assertTrue("totalCount must be > 500 (multi-value), was: " + totalCount,
+          totalCount > 500);
+      // distinctCount should be close to 50 (exact NDV from scan)
+      assertEquals("distinctCount should be 50 (exact from scan)",
+          50, distinctCount);
+      // Histogram should be present
+      assertTrue("bucketCount must be > 0", bucketCount > 0);
+    }
+
+    // Verify via the histogram manager directly
+    var manager = getHistogramManager(indexName);
+    var stats = manager.getStatistics();
+    assertNotNull(stats);
+    assertEquals("distinctCount from stats must be 50",
+        50, stats.distinctCount());
+    // HLL sketch should be populated (multi-value)
+    var snapshot = manager.getSnapshot();
+    assertNotNull("Snapshot must be present", snapshot);
+    assertNotNull("HLL sketch must be present for multi-value index",
+        snapshot.hllSketch());
+  }
+
   private IndexHistogramManager getHistogramManager(String indexName) {
     try {
       var idx = session.getSharedContext().getIndexManager().getIndex(indexName);
