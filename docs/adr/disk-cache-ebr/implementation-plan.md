@@ -304,12 +304,25 @@ class SlotHandle {
 
 // On thread-local init:
 var handle = new SlotHandle(slotIndex);
-CLEANER.register(handle, () -> {
+CLEANER.register(handle, () -> epochTable.releaseSlot(slotIndex));
+threadLocal.set(handle);
+
+// In EpochTable:
+void releaseSlot(int slotIndex) {
+  // Read the current volatile slots reference — never a stale array
+  // captured at registration time. If grow() replaced the array since
+  // the slot was allocated, this still writes to the live array.
   SLOTS_HANDLE.setOpaque(slots, slotIndex, INACTIVE);
   freeList.offer(slotIndex);
-});
-threadLocal.set(handle);
+}
 ```
+
+The cleaner action calls a method on `EpochTable` rather than closing over
+the `slots` array reference directly. This avoids a subtle bug: if `grow()`
+replaces the `slots` array between slot allocation and cleaner execution,
+a captured reference would point to the stale (old) array, and the
+`INACTIVE` write would be lost. By reading the volatile `slots` field
+inside `releaseSlot()`, the write always targets the current live array.
 
 When the thread dies, its `ThreadLocal` value becomes unreachable, the `Cleaner`
 action fires, the slot is marked `INACTIVE`, and its index is returned to the free
