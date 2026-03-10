@@ -102,52 +102,150 @@ already used in this codebase.
 
 ```java
 public final class EpochTable {
-  // Global epoch, incremented periodically (e.g. on each eviction drain cycle).
-  private final AtomicLong globalEpoch = new AtomicLong(0);
 
-  // Per-slot epoch values. INACTIVE means the thread is not in a critical section.
-  // Padded to avoid false sharing.
-  private final PaddedAtomicLong[] slots; // one per max concurrent thread
+  private static final VarHandle SLOTS_HANDLE =
+      MethodHandles.arrayElementVarHandle(long[].class);
+
+  private static final VarHandle GLOBAL_EPOCH_HANDLE;
+  static {
+    try {
+      GLOBAL_EPOCH_HANDLE = MethodHandles.lookup()
+          .findVarHandle(EpochTable.class, "globalEpoch", long.class);
+    } catch (ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   static final long INACTIVE = Long.MAX_VALUE;
+
+  // Global epoch, incremented periodically (e.g. on each eviction drain cycle).
+  // Accessed via GLOBAL_EPOCH_HANDLE (opaque reads/writes).
+  @SuppressWarnings("unused")
+  private volatile long globalEpoch;
+
+  // Per-slot epoch values. INACTIVE means the thread is not in a critical section.
+  // Each slot is padded to its own cache line (128 bytes) to avoid false sharing.
+  // Accessed via SLOTS_HANDLE (opaque reads/writes).
+  private final long[] slots;
 }
 ```
 
-**Slot lifecycle:**
-- `enter()`: `slot[tid] = globalEpoch.get()` (plain or opaque write — **no CAS**)
-- `exit()`: `slot[tid] = INACTIVE` (plain or opaque write — **no CAS**)
-- `safeToReclaim(epoch)`: scan all slots; if every active slot has value `> epoch`,
-  the epoch is safe.
+All slot and global epoch access uses `VarHandle` with **opaque** access mode:
 
-The critical property: `enter()` and `exit()` are **single writes to thread-local
-slots** — no contended atomics, no cache-line bouncing between threads.
+- `VarHandle.setOpaque` — guarantees the write is visible to other threads
+  eventually (no reordering with other opaque/volatile accesses on the same
+  variable), but does **not** impose a full StoreLoad fence. This is sufficient
+  because we only need eventual visibility during reclamation scans.
+- `VarHandle.getOpaque` — guarantees a fresh read (no caching/hoisting), but
+  no cross-variable ordering.
+
+**Slot lifecycle:**
+- `enter()`: `SLOTS_HANDLE.setOpaque(slots, slotIndex, GLOBAL_EPOCH_HANDLE.getOpaque(this))`
+  — **no CAS**, single opaque write to a thread-owned cache line.
+- `exit()`: `SLOTS_HANDLE.setOpaque(slots, slotIndex, INACTIVE)`
+  — **no CAS**, single opaque write.
+- `advanceEpoch()`: `GLOBAL_EPOCH_HANDLE.setOpaque(this, epoch + 1)`
+  — single opaque write, called under `evictionLock` so no contention.
+
+The critical property: `enter()` and `exit()` are **single opaque writes to
+thread-local slots** — no contended atomics, no cache-line bouncing between
+threads, no full memory fences.
+
+**Safe epoch (`computeSafeEpoch`):**
+
+The safe epoch is the largest epoch value `S` such that **no thread is currently
+in a critical section that started at or before `S`**. Any retired entry with
+`retireEpoch <= S` is guaranteed to be unreachable by all threads and can be
+physically reclaimed.
+
+Computation: scan all slots and find the minimum active (non-`INACTIVE`) value.
+The safe epoch is `minActiveSlot - 1`. If all slots are `INACTIVE` (no threads
+in critical sections), the safe epoch equals the current global epoch.
+
+```java
+long computeSafeEpoch() {
+  long min = GLOBAL_EPOCH_HANDLE.getOpaque(this);
+  for (int i = 0; i < slotCount; i++) {
+    long slotValue = (long) SLOTS_HANDLE.getOpaque(slots, i);
+    if (slotValue < min) {
+      min = slotValue;
+    }
+  }
+  // min is either globalEpoch (all slots INACTIVE, since INACTIVE = Long.MAX_VALUE)
+  // or the oldest active epoch. Entries retired strictly before min are safe.
+  return min - 1;
+}
+```
+
+Example: global epoch is 10, three threads have slots `[7, INACTIVE, 9]`.
+`min = 7`, so `safeEpoch = 6`. Entries retired at epoch 6 or earlier can be
+reclaimed. The thread in slot 0 entered at epoch 7 and may still hold
+references to entries that were in the CHM at that time, so epoch 7+ entries
+must wait.
 
 ### Slot Assignment
 
-Threads obtain slot indices via `ThreadLocal<Integer>` backed by an atomic counter.
-Slot count is bounded by `availableProcessors() * 4` (configurable). If more threads
-arrive than slots, they fall back to a slow path (acquire a slot from a reuse pool).
+Each thread is assigned a dedicated slot index the first time it enters a critical
+section. The index is cached in a `ThreadLocal<SlotHandle>` for subsequent accesses.
 
-To avoid unbounded slot growth, we use a **slot reuse** strategy: when a thread exits
-permanently (detected via `ThreadLocal.remove()` or `Thread.onSpinWait()` polling),
-its slot is returned to a free list.
+**Allocation:** A `ConcurrentLinkedQueue<Integer>` free list holds available slot
+indices. A thread first tries `freeList.poll()`; if empty, it allocates a new index
+via `AtomicInteger.getAndIncrement()` (up to the array capacity).
+
+**Slot count:** The array is sized to `availableProcessors() * 4` (configurable).
+This is generous for typical workloads. If all slots are exhausted, the thread
+falls back to a **shared overflow slot** that uses a traditional `AtomicLong`
+counter (increment on enter, decrement on exit). This is slower but correct, and
+only activates under extreme thread counts.
+
+**Slot reuse:** When a thread dies, its slot must be returned to the free list.
+We use `SlotHandle` — a small helper object held by the `ThreadLocal` — combined
+with `java.lang.ref.Cleaner`:
+
+```java
+private static final Cleaner CLEANER = Cleaner.create();
+
+class SlotHandle {
+  final int slotIndex;
+  // registered with CLEANER on allocation
+}
+
+// On thread-local init:
+var handle = new SlotHandle(slotIndex);
+CLEANER.register(handle, () -> {
+  SLOTS_HANDLE.setOpaque(slots, slotIndex, INACTIVE);
+  freeList.offer(slotIndex);
+});
+threadLocal.set(handle);
+```
+
+When the thread dies, its `ThreadLocal` value becomes unreachable, the `Cleaner`
+action fires, the slot is marked `INACTIVE`, and its index is returned to the free
+list. This is reliable on JDK 21+ (no finalization dependency) and requires no
+polling or manual cleanup.
 
 ### Integration Points
 
 #### 1. Critical Section Boundaries
 
 The critical section for EBR is the scope during which a thread holds references to
-cache entries. We add two methods to `LockFreeReadCache` (or a wrapper):
+cache entries. We add `enterCriticalSection()` / `exitCriticalSection()` directly
+to `LockFreeReadCache`:
 
 ```java
+// In LockFreeReadCache:
 public long enterCriticalSection() {
-  return epochTable.enter();  // returns slot index or epoch stamp
+  return epochTable.enter();  // returns slot index
 }
 
 public void exitCriticalSection(long stamp) {
   epochTable.exit(stamp);
 }
 ```
+
+These methods are also exposed on the `ReadCache` interface so that
+`DurableComponent` and `AtomicOperationsManager` can call them without
+coupling to the concrete implementation.
 
 **Where to call them:**
 
@@ -161,25 +259,27 @@ Transactions can be long-lived (spanning many component operations, I/O waits, u
 logic), so holding an epoch slot for the entire transaction would prevent reclamation
 and lead to OOM as the retired list grows unboundedly.
 
-Add `componentOperationStart()` / `componentOperationStop()` methods to
-`DurableComponent` that call `readCache.enterCriticalSection()` /
-`readCache.exitCriticalSection()`:
+`AtomicOperationsManager.calculateInsideComponentOperation` /
+`executeInsideComponentOperation` wrap the lambda with enter/exit:
 
 ```java
-// In DurableComponent:
-protected long componentOperationStart() {
-  return readCache.enterCriticalSection();
-}
-
-protected void componentOperationStop(long stamp) {
-  readCache.exitCriticalSection(stamp);
+// In AtomicOperationsManager:
+public void executeInsideComponentOperation(
+    final AtomicOperation atomicOperation,
+    final DurableComponent component,
+    final TxConsumer consumer) {
+  Objects.requireNonNull(atomicOperation);
+  acquireExclusiveLockTillOperationComplete(atomicOperation, component);
+  final long stamp = readCache.enterCriticalSection();
+  try {
+    consumer.accept(atomicOperation);
+  } finally {
+    readCache.exitCriticalSection(stamp);
+  }
 }
 ```
 
-Integration points:
-- `AtomicOperationsManager.calculateInsideComponentOperation` /
-  `executeInsideComponentOperation`: enter epoch before the lambda, exit after.
-  The epoch protects all page accesses within the lambda.
+The epoch protects all page accesses within the lambda.
 
 #### 2. Entry Eviction (Deferred Reclamation)
 
@@ -191,20 +291,43 @@ reclaims the pointer if freeze succeeds (`state == 0`). With EBR:
    Add the entry to a **retired list**.
 2. **No freeze/state check needed** — the entry is already unreachable from the CHM,
    so no new thread can obtain it.
-3. **Physical reclamation**: Periodically (during drain cycles or a background thread),
-   scan the retired list. For each retired entry whose `retireEpoch` is safe to reclaim
-   (all threads have advanced past it), release the `CachePointer`'s direct memory.
+3. **Physical reclamation**: Performed eagerly during every drain cycle. Since drain
+   cycles already run under `evictionLock` and are triggered frequently (on every
+   cache miss, on write buffer activity, and forced when cache exceeds 107% capacity),
+   this is the most aggressive reclamation strategy without adding a dedicated thread.
+
+**Drain cycle integration** — every `drainBuffers()` / `emptyBuffers()` call
+performs three steps in order:
+
+```
+1. Advance the global epoch (single opaque write).
+2. Reclaim: scan the retired list, free all entries with retireEpoch <= safeEpoch.
+3. Drain read/write buffers and run eviction policy (existing logic).
+```
+
+Advancing the epoch **before** reclamation ensures that entries retired in the
+previous drain cycle become reclaimable as soon as all threads that were active
+during that cycle have exited their critical sections. Reclaiming **before**
+eviction ensures maximum free memory is available for the eviction decisions
+that follow.
 
 ```java
-// In WTinyLFUPolicy or a new EpochReclaimManager:
-class RetiredEntry {
-  final CacheEntry entry;
-  final long retireEpoch;
+// In LockFreeReadCache, called under evictionLock:
+private void drainBuffers() {
+  epochTable.advanceEpoch();
+  reclaimRetired();
+  drainWriteBuffer();
+  drainReadBuffers();
 }
 
-private final Queue<RetiredEntry> retiredList = new ConcurrentLinkedQueue<>();
+private void emptyBuffers() {
+  epochTable.advanceEpoch();
+  reclaimRetired();
+  emptyWriteBuffer();
+  drainReadBuffers();
+}
 
-void reclaimRetired() {
+private void reclaimRetired() {
   long safeEpoch = epochTable.computeSafeEpoch();
   RetiredEntry re;
   while ((re = retiredList.peek()) != null && re.retireEpoch <= safeEpoch) {
@@ -215,16 +338,9 @@ void reclaimRetired() {
 }
 ```
 
-#### 3. Epoch Advancement
-
-The global epoch should be incremented regularly to allow reclamation to make
-progress. Natural trigger points:
-
-- **Each eviction drain cycle** (`drainBuffers()` / `emptyBuffers()` under
-  `evictionLock`): increment epoch at the start.
-- **Each reclamation scan**: after incrementing, scan for entries that can be freed.
-- Optionally, a **background reclamation thread** if the retired list grows beyond
-  a threshold (amortized, low overhead).
+The retired list is an `ArrayDeque<RetiredEntry>` (not concurrent — accessed
+only under `evictionLock`). Entries are appended during eviction and drained
+from the head during reclamation, so ordering is naturally FIFO by epoch.
 
 #### 4. CacheEntry Simplification
 
@@ -334,9 +450,9 @@ since it is not contended (single owner).
 - Slot count: `Runtime.getRuntime().availableProcessors() * 4` (default), configurable
 - Padding: 128 bytes per slot (2 cache lines, covers Intel + ARM)
 - Epoch type: `long` (effectively unbounded at 1 increment per drain cycle)
-- `enter()` / `exit()` use `VarHandle` opaque-mode writes (ordered within the thread,
-  no cross-thread happens-before — sufficient because we only need eventual visibility
-  during reclamation scans, which are infrequent)
+- All access via `VarHandle` with opaque mode (`setOpaque` / `getOpaque`):
+  `MethodHandles.arrayElementVarHandle(long[].class)` for per-slot access,
+  field `VarHandle` for global epoch. No `AtomicLong` / `AtomicLongArray` wrappers.
 
 **Tests:**
 - Unit tests for EpochTable: concurrent enter/exit, safeEpoch computation correctness
@@ -371,11 +487,12 @@ since it is not contended (single owner).
 2. `WritersListener` tracking — only triggered from write path (exclusive lock held).
 3. `referrersCount` — structural only (1 from read cache, 1 from write cache per dirty copy).
 
-### Phase 4: DurableComponent Integration
+### Phase 4: AtomicOperationsManager Integration
 
 **Files to modify:**
-- `DurableComponent.java` — add `componentOperationStart()` / `componentOperationStop()`
+- `ReadCache.java` — add `enterCriticalSection()` / `exitCriticalSection()` to interface
 - `AtomicOperationsManager.java` — enter/exit epoch around component operation lambdas
+
 **Changes:**
 1. `calculateInsideComponentOperation` / `executeInsideComponentOperation`: wrap the
    lambda invocation with `readCache.enterCriticalSection()` / `exitCriticalSection()`.
