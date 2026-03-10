@@ -307,6 +307,57 @@ public class CheckpointFlushTest {
     return storage;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Checkpoint flush concurrent with simulated rebalance
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Verifies that flushIfDirty() succeeds even when a rebalance is in
+   * progress. The checkpoint path does not interact with the
+   * rebalanceInProgress flag — it writes the current CHM snapshot
+   * independently. Both paths write complete snapshots (not partial
+   * updates), so concurrent writes are safe (last writer wins, both
+   * are WAL-protected).
+   */
+  @Test
+  public void flushIfDirty_duringSimulatedRebalance_succeedsIndependently()
+      throws Exception {
+    var fixture = new ManagerFixture();
+    var stats = new IndexStatistics(500, 500, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, null, 0, 500, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+
+    // Accumulate dirty mutations
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 10;
+    delta.mutationCount = 50;
+    fixture.manager.applyDelta(delta);
+    assertTrue("Should have dirty mutations",
+        fixture.manager.getDirtyMutations() > 0);
+
+    // Simulate rebalance in progress via reflection
+    var rebalanceField =
+        IndexHistogramManager.class.getDeclaredField("rebalanceInProgress");
+    rebalanceField.setAccessible(true);
+    var rebalanceFlag =
+        (java.util.concurrent.atomic.AtomicBoolean) rebalanceField.get(
+            fixture.manager);
+    rebalanceFlag.set(true);
+
+    try {
+      // Checkpoint flush should still succeed — it's independent of
+      // rebalance state
+      fixture.manager.flushIfDirty();
+
+      // Dirty mutations should be zeroed (flush succeeded on mock storage)
+      assertEquals("Dirty mutations should be zeroed after checkpoint flush",
+          0, fixture.manager.getDirtyMutations());
+    } finally {
+      rebalanceFlag.set(false);
+    }
+  }
+
   private static void setDirtyMutations(
       IndexHistogramManager manager, long value) {
     manager.setDirtyMutationsForTest(value);

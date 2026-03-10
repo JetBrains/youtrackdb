@@ -302,6 +302,56 @@ public class CompositeIndexHistogramTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // Partially-null composite key: null leading field, non-null trailing
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void onPut_compositeKey_nullLeadingField_tracksAsNull() {
+    // Given a composite index with a histogram
+    var fixture = new Fixture(2);
+    installTwoFieldHistogram(fixture);
+
+    // When inserting a CompositeKey where the leading field is null
+    // but trailing fields are non-null — e.g., (null, "Smith")
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+    fixture.manager.onPut(
+        op, new CompositeKey(null, "Smith"), true, true);
+
+    // Then it should be treated as a null key: nullCountDelta +1,
+    // totalCountDelta +1, no frequency update (null keys don't have
+    // histogram buckets).
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertNotNull(delta);
+    assertEquals(1, delta.totalCountDelta);
+    assertEquals(1, delta.nullCountDelta);
+    // No frequency deltas should be initialized (null key path)
+    assertNull("No frequency deltas for null leading field",
+        delta.frequencyDeltas);
+  }
+
+  @Test
+  public void onRemove_compositeKey_nullLeadingField_tracksAsNull() {
+    // Given a composite index with a histogram
+    var fixture = new Fixture(2);
+    installTwoFieldHistogram(fixture);
+
+    // When removing a CompositeKey where the leading field is null
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+    fixture.manager.onRemove(
+        op, new CompositeKey(null, "Smith"), true);
+
+    // Then it should be treated as a null key: nullCountDelta -1
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertNotNull(delta);
+    assertEquals(-1, delta.totalCountDelta);
+    assertEquals(-1, delta.nullCountDelta);
+    assertNull("No frequency deltas for null leading field",
+        delta.frequencyDeltas);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Three-field composite: onPut extracts first field
   // ═══════════════════════════════════════════════════════════════════════
 

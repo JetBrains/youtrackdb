@@ -39,8 +39,7 @@ public class EstimateRootEntriesTest {
 
   @Before
   public void setUp() throws Exception {
-    estimateRootEntries = MatchExecutionPlanner.class.getDeclaredMethod(
-        "estimateRootEntries", Map.class, Map.class, Map.class, CommandContext.class);
+    estimateRootEntries = findEstimateRootEntries();
     estimateRootEntries.setAccessible(true);
 
     db = mock(DatabaseSessionEmbedded.class);
@@ -51,6 +50,24 @@ public class EstimateRootEntriesTest {
 
     ctx = mock(CommandContext.class);
     when(ctx.getDatabaseSession()).thenReturn(db);
+  }
+
+  /**
+   * Locates {@code MatchExecutionPlanner.estimateRootEntries} via
+   * reflection. Produces a clear error message if the method signature
+   * changes, instead of a generic {@code NoSuchMethodException}.
+   */
+  private static Method findEstimateRootEntries() throws NoSuchMethodException {
+    try {
+      return MatchExecutionPlanner.class.getDeclaredMethod(
+          "estimateRootEntries",
+          Map.class, Map.class, Map.class, CommandContext.class);
+    } catch (NoSuchMethodException e) {
+      throw new NoSuchMethodException(
+          "MatchExecutionPlanner.estimateRootEntries(Map, Map, Map,"
+              + " CommandContext) not found — the method signature may"
+              + " have changed. Update this test to match.");
+    }
   }
 
   @SuppressWarnings("unchecked")
