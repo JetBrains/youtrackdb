@@ -1125,14 +1125,26 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   /**
+   * Per-blob overhead in {@link EquiDepthHistogram#serialize}: bucketCount(4) +
+   * nonNullCount(8) + mcvFrequency(8) + mcvKeyLength(4).
+   */
+  static final int HISTOGRAM_BLOB_HEADER_SIZE =
+      IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE
+          + LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
+
+  /**
    * Computes available page space for boundaries given the current
-   * bucket count, HLL size, and MCV key size.
+   * bucket count, HLL size, and MCV key size.  The result is the number
+   * of bytes that may be occupied by serialized boundary keys (each
+   * prefixed with a 4-byte length) within the histogram data blob on
+   * page 0.
    */
   static int computeMaxBoundarySpace(
       int bucketCount, int hllSize, int mcvKeySize) {
     int pagePayload =
         DurablePage.MAX_PAGE_SIZE_BYTES - DurablePage.NEXT_FREE_POSITION;
     return pagePayload - FIXED_HEADER_SIZE
+        - HISTOGRAM_BLOB_HEADER_SIZE                // blob header inside EquiDepthHistogram.serialize()
         - bucketCount * LongSerializer.LONG_SIZE    // frequencies
         - bucketCount * LongSerializer.LONG_SIZE    // distinctCounts
         - hllSize

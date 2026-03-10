@@ -152,10 +152,12 @@ final class HistogramStatsPage extends DurablePage {
       byte[] histData = snapshot.histogram().serialize(
           keySerializer, serializerFactory);
       histogramDataLength = histData.length;
-      assert VARIABLE_DATA_OFFSET + histogramDataLength <= MAX_PAGE_SIZE_BYTES
-          : "Histogram data exceeds page 0 capacity: "
-          + (VARIABLE_DATA_OFFSET + histogramDataLength)
-          + " > " + MAX_PAGE_SIZE_BYTES;
+      if (VARIABLE_DATA_OFFSET + histogramDataLength > MAX_PAGE_SIZE_BYTES) {
+        throw new StorageException(
+            "Histogram data exceeds page 0 capacity: "
+                + (VARIABLE_DATA_OFFSET + histogramDataLength)
+                + " > " + MAX_PAGE_SIZE_BYTES);
+      }
       setIntValue(HISTOGRAM_DATA_LENGTH_OFFSET, histogramDataLength);
       setBinaryValue(VARIABLE_DATA_OFFSET, histData);
     } else {
@@ -165,9 +167,12 @@ final class HistogramStatsPage extends DurablePage {
     // Write HLL registers inline on page 0 only when NOT spilled to page 1
     if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
-      assert hllOffset + hllRegisterCount <= MAX_PAGE_SIZE_BYTES
-          : "Histogram + inline HLL exceeds page 0 capacity: "
-          + (hllOffset + hllRegisterCount) + " > " + MAX_PAGE_SIZE_BYTES;
+      if (hllOffset + hllRegisterCount > MAX_PAGE_SIZE_BYTES) {
+        throw new StorageException(
+            "Histogram + inline HLL exceeds page 0 capacity: "
+                + (hllOffset + hllRegisterCount) + " > "
+                + MAX_PAGE_SIZE_BYTES);
+      }
       byte[] hllData = new byte[hllRegisterCount];
       snapshot.hllSketch().writeTo(hllData, 0);
       setBinaryValue(hllOffset, hllData);
