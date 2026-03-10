@@ -318,10 +318,49 @@ final class StaleTransactionMonitor implements Runnable {
     return sb.toString();
   }
 
+  // --- Package-private accessors for testing ---
+
   /**
-   * Per-holder mutable state for rate-limiting warnings.
+   * Returns the current consecutive growth cycle count. Package-private for testing.
    */
-  private static final class WarnState {
+  int getConsecutiveGrowthCycles() {
+    return consecutiveGrowthCycles;
+  }
+
+  /**
+   * Returns the warn state for the given holder, or null if none. Package-private for testing.
+   */
+  @Nullable WarnState getWarnState(TsMinHolder holder) {
+    return warnStates.get(holder);
+  }
+
+  /**
+   * Returns the number of tracked warn states. Package-private for testing.
+   */
+  int getWarnStateCount() {
+    return warnStates.size();
+  }
+
+  /**
+   * Returns the previous snapshot index size tracked for growth trend detection.
+   * Package-private for testing.
+   */
+  long getPreviousSnapshotIndexSize() {
+    return previousSnapshotIndexSize;
+  }
+
+  /**
+   * Returns the previous LWM tracked for growth trend detection.
+   * Package-private for testing.
+   */
+  long getPreviousLwm() {
+    return previousLwm;
+  }
+
+  /**
+   * Per-holder mutable state for rate-limiting warnings. Package-private for testing.
+   */
+  static final class WarnState {
     boolean warnEmitted;
     boolean criticalEmitted;
     long lastWarnTimeNanos;

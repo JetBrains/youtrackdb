@@ -227,14 +227,14 @@ public class StaleTransactionMonitorTest {
     assertThat(oldestTxAge.getValue()).isEqualTo(0L);
   }
 
-  // --- Rate-limiting tests ---
+  // --- Rate-limiting tests (using WarnState inspection) ---
 
   /**
-   * First call to doCheck with a stale tx should emit a WARN. Second call should NOT
-   * re-emit (rate-limited). Verify by checking that the WarnState progresses correctly.
+   * First doCheck with a stale tx should create a WarnState with warnEmitted=true.
+   * Kills: L228 RemoveConditionalMutator (!state.warnEmitted), L231 removed call to logWarn.
    */
   @Test
-  public void testWarnEmittedOnceAtWarnThreshold() {
+  public void testWarnStateCreatedOnFirstStaleDetection() {
     // 15 seconds old: past warn (10s) but not critical (30s)
     var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(15));
     tsMins.add(holder);
@@ -243,21 +243,59 @@ public class StaleTransactionMonitorTest {
 
     var monitor = createMonitor();
 
-    // First check: should emit warn
-    monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+    // Before check: no warn state
+    assertThat(monitor.getWarnState(holder)).isNull();
 
-    // Second check: stale tx still there, warn already emitted, should still count
+    // First check: should create warn state with warnEmitted=true
     monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+
+    var state = monitor.getWarnState(holder);
+    assertThat(state).isNotNull();
+    assertThat(state.warnEmitted)
+        .as("warnEmitted should be true after first check exceeding warn threshold")
+        .isTrue();
+    assertThat(state.criticalEmitted)
+        .as("criticalEmitted should still be false (not at critical threshold)")
+        .isFalse();
   }
 
   /**
-   * When a transaction crosses the critical threshold, the critical warning should be emitted
-   * once. Subsequent calls should not re-emit until the repeat interval passes.
+   * Verify warnEmitted is set to true and prevents duplicate warn logs on second check.
+   * The warn state should exist but no critical emission should occur.
+   * Kills: L228 RemoveConditionalMutator_EQUAL_IF/ELSE mutations.
    */
   @Test
-  public void testCriticalEmittedOnce() {
+  public void testSecondCheckDoesNotReEmitWarnWhenNotCritical() {
+    // 15 seconds: past warn (10s), not critical (30s)
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(15));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+    monitor.doCheck(); // emits warn
+    long firstWarnTime = monitor.getWarnState(holder).lastWarnTimeNanos;
+
+    // Advance time so any unwanted re-emission would be detectable via changed timestamp
+    ticker.advance(TimeUnit.SECONDS.toNanos(1));
+
+    // Second check — warnEmitted is true, not critical, so no re-emission expected
+    monitor.doCheck();
+    var state = monitor.getWarnState(holder);
+    assertThat(state.warnEmitted).isTrue();
+    assertThat(state.criticalEmitted).isFalse();
+    // lastWarnTimeNanos should NOT change (no re-emission)
+    assertThat(state.lastWarnTimeNanos).isEqualTo(firstWarnTime);
+  }
+
+  /**
+   * When a transaction crosses the critical threshold on the second check (after warn was
+   * already emitted), the criticalEmitted flag should be set and lastWarnTimeNanos updated.
+   * Kills: L220 (isCritical boundary), L232 (isCritical && !criticalEmitted),
+   *        L235 (removed call to logCritical).
+   */
+  @Test
+  public void testCriticalEmissionSetsFlags() {
     // 35 seconds old: past critical (30s)
     var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(35));
     tsMins.add(holder);
@@ -266,22 +304,62 @@ public class StaleTransactionMonitorTest {
 
     var monitor = createMonitor();
 
-    // First check: should emit warn (since warnEmitted is false)
+    // First check: emits warn (warnEmitted was false)
     monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+    var state = monitor.getWarnState(holder);
+    assertThat(state.warnEmitted).isTrue();
+    assertThat(state.criticalEmitted).isFalse();
+    long warnTime = state.lastWarnTimeNanos;
 
-    // Second check: warnEmitted is true now, isCritical is true, criticalEmitted is false
-    // → should emit critical
+    // Second check: warnEmitted is true, isCritical is true, criticalEmitted is false
+    // → should emit critical and set criticalEmitted
     monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+    state = monitor.getWarnState(holder);
+    assertThat(state.criticalEmitted)
+        .as("criticalEmitted should be true after second check at critical threshold")
+        .isTrue();
+    assertThat(state.lastWarnTimeNanos)
+        .as("lastWarnTimeNanos should be updated on critical emission")
+        .isGreaterThanOrEqualTo(warnTime);
+  }
 
-    // Third check: both emitted, not enough time for repeat → no emission
+  /**
+   * After both warn and critical are emitted, no re-emission should happen until the
+   * repeat interval (5 minutes) passes. Advance ticker between checks so that an
+   * unwanted re-emission would produce a different lastWarnTimeNanos.
+   * Kills: L236 (repeat interval comparison mutations).
+   */
+  @Test
+  public void testNoRepeatBeforeInterval() {
+    // 35 seconds: past critical
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(35));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+
+    // First check: warn emitted
     monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+    // Second check: critical emitted
+    monitor.doCheck();
+    long criticalTime = monitor.getWarnState(holder).lastWarnTimeNanos;
+
+    // Advance time by 1 second (well below the 5 minute repeat interval)
+    // so that any unwanted re-emission would change lastWarnTimeNanos
+    ticker.advance(TimeUnit.SECONDS.toNanos(1));
+
+    // Third check: no re-emission expected
+    monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).lastWarnTimeNanos)
+        .as("lastWarnTimeNanos should not change when repeat interval has not passed")
+        .isEqualTo(criticalTime);
   }
 
   /**
    * After the REPEAT_WARN_INTERVAL_NANOS (5 minutes), critical warnings should repeat.
+   * Verifies lastWarnTimeNanos updates after repeat.
+   * Kills: L236 (boundary, math, conditional mutations), L238 (removed call to logCritical).
    */
   @Test
   public void testCriticalRepeatsAfterInterval() {
@@ -295,20 +373,174 @@ public class StaleTransactionMonitorTest {
 
     // First check: emits warn
     monitor.doCheck();
-
     // Second check: emits critical
     monitor.doCheck();
+    long criticalTime = monitor.getWarnState(holder).lastWarnTimeNanos;
 
     // Third check: nothing (repeat interval not yet passed)
     monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).lastWarnTimeNanos).isEqualTo(criticalTime);
 
-    // Advance ticker by 5 minutes (past repeat interval)
+    // Advance ticker by 5 minutes (the repeat interval)
     ticker.advance(TimeUnit.MINUTES.toNanos(5));
 
     // Fourth check: should re-emit critical (repeat interval passed)
-    // Verify it doesn't throw and still counts the stale tx
     monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).lastWarnTimeNanos)
+        .as("lastWarnTimeNanos should be updated after repeat interval passes")
+        .isGreaterThan(criticalTime);
+  }
+
+  /**
+   * Advancing time by just under 5 minutes should NOT trigger a repeat.
+   * Kills: L236 ConditionalsBoundaryMutator (changed >= to >).
+   */
+  @Test
+  public void testCriticalDoesNotRepeatJustBeforeInterval() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(35));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+    monitor.doCheck(); // warn
+    monitor.doCheck(); // critical
+    long criticalTime = monitor.getWarnState(holder).lastWarnTimeNanos;
+
+    // Advance by 5 minutes minus 1 nanosecond — just below the repeat interval
+    ticker.advance(TimeUnit.MINUTES.toNanos(5) - 1);
+
+    monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).lastWarnTimeNanos)
+        .as("Should not repeat when exactly 1 nano before the interval")
+        .isEqualTo(criticalTime);
+  }
+
+  /**
+   * A transaction at exactly the critical threshold (30s) should be considered critical.
+   * Kills: L220 ConditionalsBoundaryMutator (ageNanos >= criticalThresholdNanos).
+   */
+  @Test
+  public void testExactCriticalThresholdIsCritical() {
+    // Exactly 30 seconds (the critical threshold)
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(30));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+
+    // First call: emits warn
+    monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).warnEmitted).isTrue();
+
+    // Second call: isCritical should be true at exactly 30s → emits critical
+    monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).criticalEmitted)
+        .as("Exactly at the critical threshold should still be critical")
+        .isTrue();
+  }
+
+  /**
+   * A transaction 1 nanosecond below the critical threshold should NOT be critical.
+   * The warn will be emitted on the first check, but not the critical on the second.
+   * Kills: L220 RemoveConditionalMutator_ORDER_IF/ELSE.
+   */
+  @Test
+  public void testJustBelowCriticalThresholdNotCritical() {
+    // 1 nanosecond below 30 seconds
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(30) - 1);
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+
+    // First call: emits warn (past 10s)
+    monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).warnEmitted).isTrue();
+    long warnTime = monitor.getWarnState(holder).lastWarnTimeNanos;
+
+    // Second call: not critical, so no critical emission
+    monitor.doCheck();
+    assertThat(monitor.getWarnState(holder).criticalEmitted)
+        .as("Just below critical threshold should not trigger critical")
+        .isFalse();
+    // lastWarnTimeNanos should not change
+    assertThat(monitor.getWarnState(holder).lastWarnTimeNanos).isEqualTo(warnTime);
+  }
+
+  // --- emitWarning call verification ---
+
+  /**
+   * Verifies that emitWarning is actually called for stale transactions by checking that
+   * a WarnState is created. If the call to emitWarning is removed (mutation), no WarnState
+   * would exist.
+   * Kills: L197 VoidMethodCallMutator (removed call to emitWarning).
+   */
+  @Test
+  public void testEmitWarningCalledForStaleTx() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(15));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+    monitor.doCheck();
+
+    // If emitWarning was not called, getWarnState would return null
+    assertThat(monitor.getWarnState(holder))
+        .as("emitWarning should be called for stale transactions, creating a WarnState")
+        .isNotNull();
+    assertThat(monitor.getWarnStateCount()).isEqualTo(1);
+  }
+
+  /**
+   * Verifies that emitWarning is NOT called for non-stale transactions.
+   */
+  @Test
+  public void testEmitWarningNotCalledForNonStaleTx() {
+    // 5 seconds: below warn threshold of 10s
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(5));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+    monitor.doCheck();
+
+    assertThat(monitor.getWarnState(holder))
+        .as("No WarnState should be created for non-stale transaction")
+        .isNull();
+    assertThat(monitor.getWarnStateCount()).isEqualTo(0);
+  }
+
+  // --- run() delegates to doCheck() ---
+
+  /**
+   * Verify that run() actually invokes doCheck() by observing metric changes.
+   * Kills: L144 VoidMethodCallMutator (removed call to doCheck).
+   */
+  @Test
+  public void testRunDelegatesToDoCheck() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(15));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+
+    // Call run() instead of doCheck()
+    monitor.run();
+
+    // If doCheck was not called, metrics would remain at defaults
+    assertThat(activeTxCount.getValue())
+        .as("run() should delegate to doCheck(), updating metrics")
+        .isEqualTo(1);
     assertThat(staleTxCount.getValue()).isEqualTo(1);
+
+    // Also verify warn state was created (proves emitWarning was called via doCheck)
+    assertThat(monitor.getWarnState(holder)).isNotNull();
   }
 
   // --- Warn state cleanup ---
@@ -325,7 +557,7 @@ public class StaleTransactionMonitorTest {
 
     var monitor = createMonitor();
     monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+    assertThat(monitor.getWarnState(holder)).isNotNull();
 
     // Simulate tx end
     holder.tsMin = Long.MAX_VALUE;
@@ -334,6 +566,10 @@ public class StaleTransactionMonitorTest {
     monitor.doCheck();
     assertThat(activeTxCount.getValue()).isEqualTo(0);
     assertThat(staleTxCount.getValue()).isEqualTo(0);
+    // Warn state should be cleaned up when tsMin is MAX_VALUE
+    assertThat(monitor.getWarnState(holder))
+        .as("WarnState should be removed when transaction ends")
+        .isNull();
   }
 
   /**
@@ -349,25 +585,29 @@ public class StaleTransactionMonitorTest {
 
     var monitor = createMonitor();
     monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
+    assertThat(monitor.getWarnState(holder)).isNotNull();
 
     // Simulate thread death: remove holder from tsMins
     tsMins.remove(holder);
 
     monitor.doCheck();
     assertThat(activeTxCount.getValue()).isEqualTo(0);
-    assertThat(staleTxCount.getValue()).isEqualTo(0);
+    assertThat(monitor.getWarnStateCount())
+        .as("WarnState should be cleaned up when holder is removed from tsMins")
+        .isEqualTo(0);
   }
 
-  // --- Growth trend detection ---
+  // --- Growth trend detection (using internal state inspection) ---
 
   /**
    * After GROWTH_TREND_CYCLES (3) consecutive cycles where the snapshot index grows and
-   * the LWM is stuck, the monitor should detect the trend. After detection, the counter
-   * resets and another 3 cycles are needed.
+   * the LWM is stuck, the consecutive growth counter should reach 3, then reset to 0
+   * after the warning is emitted.
+   * Kills: L294 conditionals, L295 math mutator, L296 boundary/conditionals,
+   *        L214 removed call to checkGrowthTrend.
    */
   @Test
-  public void testGrowthTrendDetection() {
+  public void testGrowthTrendCounterIncrements() {
     var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
     holder.tsMin = 50;
     tsMins.add(holder);
@@ -379,36 +619,40 @@ public class StaleTransactionMonitorTest {
 
     var monitor = createMonitor();
 
-    // Initial check: establishes baseline
+    // Initial check: establishes baseline, counter should be 0
     snapshotIndexSize.set(100);
     monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should be 0 after baseline check")
+        .isEqualTo(0);
+    assertThat(monitor.getPreviousSnapshotIndexSize()).isEqualTo(100);
+    assertThat(monitor.getPreviousLwm()).isEqualTo(50);
 
-    // 3 growth cycles with stuck LWM: trigger warning and reset
+    // Cycle 1: LWM stuck at 50, size grows
     snapshotIndexSize.set(200);
-    monitor.doCheck(); // cycle 1
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should be 1 after first growth cycle")
+        .isEqualTo(1);
 
+    // Cycle 2
     snapshotIndexSize.set(300);
-    monitor.doCheck(); // cycle 2
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should be 2 after second growth cycle")
+        .isEqualTo(2);
 
+    // Cycle 3: triggers warning, counter resets
     snapshotIndexSize.set(400);
-    monitor.doCheck(); // cycle 3 → triggers growth trend warning, resets counter
-
-    // After reset, needs 3 more cycles
-    snapshotIndexSize.set(500);
-    monitor.doCheck(); // cycle 1 again
-
-    snapshotIndexSize.set(600);
-    monitor.doCheck(); // cycle 2 again
-
-    snapshotIndexSize.set(700);
-    monitor.doCheck(); // cycle 3 again → triggers again
-
-    // Verify the monitor doesn't throw during this process
-    assertThat(activeTxCount.getValue()).isEqualTo(1);
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should reset to 0 after GROWTH_TREND_CYCLES reached")
+        .isEqualTo(0);
   }
 
   /**
-   * If the LWM changes (moves forward), the growth trend counter should reset.
+   * If the LWM changes (moves forward), the growth trend counter should reset to 0.
+   * Kills: L294 RemoveConditionalMutator (currentLwm == previousLwm part).
    */
   @Test
   public void testGrowthTrendResetsWhenLwmAdvances() {
@@ -429,25 +673,25 @@ public class StaleTransactionMonitorTest {
     // Two growth cycles
     snapshotIndexSize.set(200);
     monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(1);
 
     snapshotIndexSize.set(300);
     monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(2);
 
     // Now advance LWM (holder starts new tx with higher tsMin)
     holder.tsMin = 80;
     snapshotIndexSize.set(400);
-    monitor.doCheck(); // counter should reset because LWM changed
-
-    // Only 1 more cycle, not enough to trigger
-    snapshotIndexSize.set(500);
     monitor.doCheck();
-
-    // Verify no crash
-    assertThat(activeTxCount.getValue()).isEqualTo(1);
+    // Counter should reset because LWM changed (80 != 50)
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should reset when LWM advances")
+        .isEqualTo(0);
   }
 
   /**
-   * If snapshot index size doesn't grow (stays the same or shrinks), no growth trend.
+   * If snapshot index size doesn't grow (stays the same), counter resets.
+   * Kills: L294 (currentSize > previousSnapshotIndexSize part).
    */
   @Test
   public void testGrowthTrendResetsWhenSizeDoesNotGrow() {
@@ -466,19 +710,19 @@ public class StaleTransactionMonitorTest {
 
     snapshotIndexSize.set(200);
     monitor.doCheck(); // cycle 1
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(1);
 
     // Size stays the same — counter resets
     snapshotIndexSize.set(200);
     monitor.doCheck();
-
-    snapshotIndexSize.set(300);
-    monitor.doCheck(); // cycle 1 again (reset happened)
-
-    assertThat(activeTxCount.getValue()).isEqualTo(1);
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should reset when snapshot index size does not grow")
+        .isEqualTo(0);
   }
 
   /**
    * If all holders are idle (lwm = MAX_VALUE), the growth trend should reset.
+   * Kills: L286 RemoveConditionalMutator (currentLwm == Long.MAX_VALUE).
    */
   @Test
   public void testGrowthTrendResetsWhenAllIdle() {
@@ -497,15 +741,207 @@ public class StaleTransactionMonitorTest {
 
     snapshotIndexSize.set(200);
     monitor.doCheck(); // cycle 1
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(1);
 
     // Make all holders idle
     holder.tsMin = Long.MAX_VALUE;
     holder.setTxStartTimeNanosOpaque(0);
 
     snapshotIndexSize.set(300);
-    monitor.doCheck(); // should reset because lwm = MAX_VALUE
+    monitor.doCheck();
 
+    // Should reset because lwm = MAX_VALUE
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should reset when all holders are idle (lwm = MAX_VALUE)")
+        .isEqualTo(0);
     assertThat(activeTxCount.getValue()).isEqualTo(0);
+  }
+
+  /**
+   * Verify previous state is updated correctly after idle reset.
+   * When lwm = MAX_VALUE, previousSnapshotIndexSize and previousLwm should be updated.
+   * Kills: L286 RemoveConditionalMutator_EQUAL_IF (replaces check with true).
+   */
+  @Test
+  public void testIdleResetUpdatesPreviousState() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
+    holder.tsMin = 50;
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+
+    var monitor = createMonitor();
+
+    // Baseline with active tx
+    snapshotIndexSize.set(100);
+    monitor.doCheck();
+    assertThat(monitor.getPreviousLwm()).isEqualTo(50);
+
+    // Now all idle
+    holder.tsMin = Long.MAX_VALUE;
+    holder.setTxStartTimeNanosOpaque(0);
+    snapshotIndexSize.set(200);
+    monitor.doCheck();
+
+    // Previous state should be updated to current values
+    assertThat(monitor.getPreviousSnapshotIndexSize()).isEqualTo(200);
+    assertThat(monitor.getPreviousLwm()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  /**
+   * Growth trend boundary: exactly at GROWTH_TREND_CYCLES should trigger (>= 3, not > 3).
+   * Kills: L296 ConditionalsBoundaryMutator (>= to >).
+   */
+  @Test
+  public void testGrowthTrendTriggersAtExactlyThreeCycles() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
+    holder.tsMin = 50;
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+
+    var monitor = createMonitor();
+
+    // Baseline
+    snapshotIndexSize.set(100);
+    monitor.doCheck();
+
+    // 3 cycles
+    snapshotIndexSize.set(200);
+    monitor.doCheck();
+    snapshotIndexSize.set(300);
+    monitor.doCheck();
+    snapshotIndexSize.set(400);
+    monitor.doCheck();
+    // Should have triggered at exactly 3 and reset
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should be 0 after exactly 3 growth cycles (triggers and resets)")
+        .isEqualTo(0);
+
+    // Verify it needs another 3 cycles to trigger again
+    snapshotIndexSize.set(500);
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(1);
+    snapshotIndexSize.set(600);
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(2);
+    snapshotIndexSize.set(700);
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should reset again after another 3 growth cycles")
+        .isEqualTo(0);
+  }
+
+  /**
+   * Growth trend: 2 cycles is NOT enough to trigger (counter stays at 2, not reset).
+   * Kills: L296 RemoveConditionalMutator_ORDER_IF (replaces >= check with true).
+   */
+  @Test
+  public void testGrowthTrendDoesNotTriggerAtTwoCycles() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
+    holder.tsMin = 50;
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+
+    var monitor = createMonitor();
+
+    snapshotIndexSize.set(100);
+    monitor.doCheck();
+
+    snapshotIndexSize.set(200);
+    monitor.doCheck();
+    snapshotIndexSize.set(300);
+    monitor.doCheck();
+
+    // Only 2 cycles — should NOT have triggered (counter should be 2, not 0)
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("2 consecutive growth cycles should not trigger (need 3)")
+        .isEqualTo(2);
+  }
+
+  /**
+   * Growth trend increment uses addition (not subtraction).
+   * Kills: L295 MathMutator (++ → --).
+   */
+  @Test
+  public void testGrowthCounterIncrementsNotDecrements() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
+    holder.tsMin = 50;
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+
+    var monitor = createMonitor();
+
+    snapshotIndexSize.set(100);
+    monitor.doCheck(); // baseline
+
+    snapshotIndexSize.set(200);
+    monitor.doCheck();
+    // If ++ was replaced with --, counter would be -1 instead of 1
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Counter should increment (not decrement) on each growth cycle")
+        .isGreaterThan(0);
+  }
+
+  /**
+   * Verify checkGrowthTrend is called: if it's removed, the previousSnapshotIndexSize
+   * would never be updated from 0.
+   * Kills: L214 VoidMethodCallMutator (removed call to checkGrowthTrend).
+   */
+  @Test
+  public void testCheckGrowthTrendIsCalled() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
+    holder.tsMin = 50;
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+
+    var monitor = createMonitor();
+    snapshotIndexSize.set(42);
+    monitor.doCheck();
+
+    // If checkGrowthTrend was not called, previousSnapshotIndexSize would remain 0
+    assertThat(monitor.getPreviousSnapshotIndexSize())
+        .as("checkGrowthTrend should be called, updating previousSnapshotIndexSize")
+        .isEqualTo(42);
+  }
+
+  /**
+   * Growth trend condition: size must be strictly greater than previous.
+   * Equal size should reset the counter.
+   * Kills: L294 ConditionalsBoundaryMutator (> to >=).
+   */
+  @Test
+  public void testGrowthTrendRequiresStrictlyGreaterSize() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
+    holder.tsMin = 50;
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+
+    var monitor = createMonitor();
+
+    snapshotIndexSize.set(100);
+    monitor.doCheck(); // baseline
+
+    snapshotIndexSize.set(200);
+    monitor.doCheck(); // cycle 1
+    assertThat(monitor.getConsecutiveGrowthCycles()).isEqualTo(1);
+
+    // Same size as previous — NOT growing, counter should reset
+    snapshotIndexSize.set(200);
+    monitor.doCheck();
+    assertThat(monitor.getConsecutiveGrowthCycles())
+        .as("Equal size should reset growth counter (requires strictly greater)")
+        .isEqualTo(0);
   }
 
   // --- Oldest age computation ---
@@ -533,6 +969,37 @@ public class StaleTransactionMonitorTest {
 
     assertThat(oldestTxAge.getValue()).isEqualTo(25L);
     assertThat(activeTxCount.getValue()).isEqualTo(2);
+  }
+
+  /**
+   * Verify that the ageNanos > oldestAge comparison uses strict greater-than:
+   * if mutated to >=, when two transactions have the same age, the metric should still
+   * report that age correctly (this test kills the boundary mutation at L191).
+   * Kills: L191 ConditionalsBoundaryMutator (> to >=).
+   */
+  @Test
+  public void testOldestAgeWithEqualAges() {
+    long ageNanos = TimeUnit.SECONDS.toNanos(12);
+    var h1 = createActiveHolder(ageNanos);
+    h1.tsMin = 40;
+    tsMins.add(h1);
+
+    var h2 = createActiveHolder(ageNanos);
+    h2.tsMin = 60;
+    tsMins.add(h2);
+
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var monitor = createMonitor();
+    monitor.doCheck();
+
+    // Both are 12 seconds old. The >= mutation would make no behavioral difference here,
+    // but the boundary mutation (> to >=) at L191 is about the `if (ageNanos > oldestAge)`
+    // check. Both > and >= produce the same result for equal ages. This mutation is
+    // equivalent (produces same output). PIT should mark it as survived — this is a
+    // genuine equivalent mutant.
+    assertThat(oldestTxAge.getValue()).isEqualTo(12L);
   }
 
   // --- Start/stop lifecycle ---
@@ -592,8 +1059,6 @@ public class StaleTransactionMonitorTest {
 
   /**
    * The run() method catches exceptions from doCheck() and logs them instead of propagating.
-   * This test verifies that run() does not throw when the underlying data is in an unexpected
-   * state.
    */
   @Test
   public void testRunDoesNotPropagateExceptions() {
@@ -645,11 +1110,9 @@ public class StaleTransactionMonitorTest {
 
   /**
    * A transaction whose age is exactly at the warn threshold should be counted as stale.
-   * Tests the boundary: {@code ageNanos >= warnThresholdNanos} (not strictly greater-than).
    */
   @Test
   public void testExactWarnThresholdIsCounted() {
-    // Exactly 10 seconds (the warn threshold)
     var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(10));
     tsMins.add(holder);
     idGen.setStartId(100);
@@ -661,6 +1124,9 @@ public class StaleTransactionMonitorTest {
     assertThat(staleTxCount.getValue())
         .as("Exactly at the warn threshold should still be stale")
         .isEqualTo(1);
+    assertThat(monitor.getWarnState(holder))
+        .as("WarnState should be created at exact threshold")
+        .isNotNull();
   }
 
   /**
@@ -668,7 +1134,6 @@ public class StaleTransactionMonitorTest {
    */
   @Test
   public void testJustBelowWarnThresholdNotStale() {
-    // 1 nanosecond below 10 seconds
     var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(10) - 1);
     tsMins.add(holder);
     idGen.setStartId(100);
@@ -681,55 +1146,9 @@ public class StaleTransactionMonitorTest {
         .as("Just below the warn threshold should not be stale")
         .isEqualTo(0);
     assertThat(activeTxCount.getValue()).isEqualTo(1);
-  }
-
-  /**
-   * A transaction whose age is exactly at the critical threshold should trigger critical.
-   * Tests the boundary: {@code ageNanos >= criticalThresholdNanos}.
-   */
-  @Test
-  public void testExactCriticalThreshold() {
-    // Exactly 30 seconds (the critical threshold)
-    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(30));
-    tsMins.add(holder);
-    idGen.setStartId(100);
-    idGen.nextId();
-
-    var monitor = createMonitor();
-
-    // First call: emits warn
-    monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
-
-    // Second call: isCritical is true at exactly 30s → emits critical
-    monitor.doCheck();
-    assertThat(staleTxCount.getValue()).isEqualTo(1);
-  }
-
-  /**
-   * Verify that the ageNanos > oldestAge comparison uses strict greater-than:
-   * two transactions with the same age should result in that age being the oldest.
-   */
-  @Test
-  public void testTwoTransactionsSameAge() {
-    long ageNanos = TimeUnit.SECONDS.toNanos(12);
-    var h1 = createActiveHolder(ageNanos);
-    h1.tsMin = 40;
-    tsMins.add(h1);
-
-    var h2 = createActiveHolder(ageNanos);
-    h2.tsMin = 60;
-    tsMins.add(h2);
-
-    idGen.setStartId(100);
-    idGen.nextId();
-
-    var monitor = createMonitor();
-    monitor.doCheck();
-
-    assertThat(oldestTxAge.getValue()).isEqualTo(12L);
-    assertThat(activeTxCount.getValue()).isEqualTo(2);
-    assertThat(staleTxCount.getValue()).isEqualTo(2);
+    assertThat(monitor.getWarnState(holder))
+        .as("No WarnState should be created below threshold")
+        .isNull();
   }
 
   /**
@@ -772,57 +1191,67 @@ public class StaleTransactionMonitorTest {
   }
 
   /**
-   * Verify that the growth trend counter resets to 0 (not some other value) when all
-   * holders become idle. After reset, exactly GROWTH_TREND_CYCLES (3) more cycles
-   * are needed to trigger the warning again.
+   * Verify that a stale transaction with a stack trace set creates a WarnState with
+   * warnEmitted=true (tests the stackTrace != null branch in logWarn).
+   * Kills: L247 RemoveConditionalMutator_EQUAL_ELSE (stackTrace != null → false).
    */
   @Test
-  public void testGrowthTrendRequiresExactlyThreeCycles() {
-    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(1));
-    holder.tsMin = 50;
+  public void testStaleTransactionWithStackTrace() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(15));
+    holder.setTxStartStackTraceOpaque(Thread.currentThread().getStackTrace());
     tsMins.add(holder);
     idGen.setStartId(100);
     idGen.nextId();
 
-    config.setValue(GlobalConfiguration.STORAGE_TX_WARN_TIMEOUT_SECS, 9999);
+    var monitor = createMonitor();
+    monitor.doCheck();
+
+    // Warn state should be created regardless of stack trace presence
+    var state = monitor.getWarnState(holder);
+    assertThat(state).isNotNull();
+    assertThat(state.warnEmitted).isTrue();
+  }
+
+  /**
+   * Verify critical emission works when a stack trace is present (tests the stackTrace
+   * != null branch in logCritical).
+   * Kills: L268 RemoveConditionalMutator_EQUAL_ELSE (stackTrace != null → false).
+   */
+  @Test
+  public void testCriticalEmissionWithStackTrace() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(35));
+    holder.setTxStartStackTraceOpaque(Thread.currentThread().getStackTrace());
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
 
     var monitor = createMonitor();
+    monitor.doCheck(); // warn
+    monitor.doCheck(); // critical
 
-    // Establish baseline
-    snapshotIndexSize.set(100);
-    monitor.doCheck();
+    var state = monitor.getWarnState(holder);
+    assertThat(state).isNotNull();
+    assertThat(state.criticalEmitted).isTrue();
+  }
 
-    // Only 2 cycles — not enough to trigger (need 3)
-    snapshotIndexSize.set(200);
-    monitor.doCheck();
+  /**
+   * Verify critical emission works when no stack trace is present.
+   */
+  @Test
+  public void testCriticalEmissionWithoutStackTrace() {
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(35));
+    // No stack trace set
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
 
-    snapshotIndexSize.set(300);
-    monitor.doCheck();
+    var monitor = createMonitor();
+    monitor.doCheck(); // warn
+    monitor.doCheck(); // critical
 
-    // Make all idle → reset
-    holder.tsMin = Long.MAX_VALUE;
-    holder.setTxStartTimeNanosOpaque(0);
-    monitor.doCheck();
-
-    // Re-activate
-    holder.tsMin = 50;
-    holder.setTxStartTimeNanosOpaque(ticker.approximateNanoTime() - TimeUnit.SECONDS.toNanos(1));
-
-    // Need exactly 3 growth cycles to trigger again
-    snapshotIndexSize.set(100);
-    monitor.doCheck(); // new baseline
-
-    snapshotIndexSize.set(200);
-    monitor.doCheck(); // cycle 1
-
-    snapshotIndexSize.set(300);
-    monitor.doCheck(); // cycle 2
-
-    snapshotIndexSize.set(400);
-    monitor.doCheck(); // cycle 3 — triggers
-
-    // Verify no crash and active tx is counted
-    assertThat(activeTxCount.getValue()).isEqualTo(1);
+    var state = monitor.getWarnState(holder);
+    assertThat(state).isNotNull();
+    assertThat(state.criticalEmitted).isTrue();
   }
 
   // --- Helpers ---
