@@ -50,10 +50,25 @@ public class LetQueryStep extends AbstractExecutionStep {
 
   private ResultInternal calculate(ResultInternal result, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
+
+    // Create an intermediate context that holds $current = result.
+    // This sits between the subquery context (subCtx) and the outer context (ctx),
+    // so that $parent.$current in the subquery resolves to the current LET row
+    // without corrupting ctx's own $current (which may be used by a lazy upstream
+    // MATCH pipeline still producing results).
+    //
+    // IMPORTANT: setSystemVariable must be called BEFORE setParentWithoutOverridingChild.
+    // BasicCommandContext.setSystemVariable delegates to the parent when the parent
+    // already owns the variable, so setting the parent first would cause VAR_CURRENT
+    // to be written to ctx (the outer context) instead of stored locally.
+    var currentRowCtx = new BasicCommandContext();
+    currentRowCtx.setSystemVariable(CommandContext.VAR_CURRENT, result);
+    currentRowCtx.setParentWithoutOverridingChild(ctx);
+
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);
-    // Set outer context as parent so $parent.$current resolves to the current outer record.
-    subCtx.setParentWithoutOverridingChild(ctx);
+    subCtx.setParentWithoutOverridingChild(currentRowCtx);
+
     InternalExecutionPlan subExecutionPlan;
     if (query.toString().contains("?")) {
       // with positional parameters, you cannot know if a parameter has the same ordinal as the

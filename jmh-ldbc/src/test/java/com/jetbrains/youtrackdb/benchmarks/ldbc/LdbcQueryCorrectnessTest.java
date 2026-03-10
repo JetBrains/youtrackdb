@@ -41,9 +41,11 @@ import org.junit.Test;
  * From Alice: friends={Bob,Carol}, FoF={Dave}, FoFoF={Eve}.
  *
  * <p><b>Known limitation:</b> YouTrackDB's {@code $parent.$current} references in LET subqueries
- * do not resolve correctly. This affects correlated LET subqueries in IC1 (universities/companies),
- * IC3 (xCount/yCount), IC5 (postCount), and IC10 (commonInterestScore). Tests for these queries
- * verify the main MATCH structure but skip LET-computed field assertions.
+ * do not resolve correctly when the outer SELECT wraps a MATCH subquery — the query planner
+ * produces a broken execution plan that returns 0 rows. This affects correlated LET subqueries
+ * in IC1 (universities/companies), IC3 (xCount/yCount), IC5 (postCount), and IC10
+ * (commonInterestScore). Tests for these queries verify the main MATCH structure but skip
+ * LET-computed field assertions.
  */
 public class LdbcQueryCorrectnessTest {
 
@@ -408,12 +410,18 @@ public class LdbcQueryCorrectnessTest {
   /**
    * IC5: Forums joined by FoF after a date with post counts.
    *
-   * <p>Uses LET with $parent.$current for counting posts. Due to the known limitation,
-   * this test verifies the inner MATCH (forum membership filter) independently.
+   * <p>Verifies the inner MATCH structure (forum membership filter) independently.
+   * The full IC5 query uses a correlated LET subquery with {@code $parent.$current}
+   * which is blocked by a known query planner bug: adding any LET clause to a SELECT
+   * wrapping a MATCH subquery causes the MATCH results to vanish (returns 0 rows).
+   * See LetQueryStep for the {@code $parent.$current} resolution fix that will become
+   * effective once the planner bug is resolved.
+   *
+   * <p>Bob joined Forum1 on 2012-01-01 ({@code >= minDate}).
+   * Carol joined 2011-01-01 (excluded).
    */
   @Test
   public void testIC5_innerMatchMembership() {
-    // Bob joined Forum1 on 2012-01-01 (>= minDate). Carol joined 2011-01-01 (excluded).
     var results = sql(
         "SELECT DISTINCT person.id as personId, forum.id as forumId,"
             + " forum.title as forumTitle FROM ("

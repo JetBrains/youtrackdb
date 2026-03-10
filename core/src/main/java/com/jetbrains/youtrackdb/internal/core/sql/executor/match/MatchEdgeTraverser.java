@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
 
-
 /**
  * Base class for all MATCH edge traversers; default behavior is **forward** traversal.
  * <p>
@@ -196,8 +195,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * Subclasses (e.g. {@link OptionalMatchEdgeTraverser}) override this method to
    * implement different merging semantics.
    */
-  @Nullable
-  protected Result computeNext(CommandContext ctx) {
+  @Nullable protected Result computeNext(CommandContext ctx) {
     var endPointAlias = getEndpointAlias();
     var nextR = downstream.next(ctx);
     var session = ctx.getDatabaseSession();
@@ -275,7 +273,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
       downstream = executeTraversal(ctx, this.item, (Result) startingElem, 0, null);
     }
   }
-
 
   /**
    * Core traversal logic shared by all edge traverser subclasses.
@@ -365,10 +362,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
       final var theClassName = className;
       final var theTargetRid = targetRid;
       return queryResult.filter(
-          (next, ctx) ->
-              filter(
-                  iCommandContext, theFilter, theClassName, theTargetRid, next,
-                  ctx));
+          (next, ctx) -> filter(
+              iCommandContext, theFilter, theClassName, theTargetRid, next,
+              ctx));
     } else {
       // ---- Recursive (WHILE / maxDepth) mode ----
       // The starting point IS included (depth 0) if it passes the filters. Expansion
@@ -379,7 +375,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
       iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
 
       // Evaluate the starting point against all filters
-      if (matchesFilters(iCommandContext, filter, startingPoint)
+      if (startingPoint != null
+          && matchesFilters(iCommandContext, filter, startingPoint)
           && matchesClass(iCommandContext, className, startingPoint)
           && matchesRid(iCommandContext, targetRid, startingPoint)) {
         ResultInternal rs;
@@ -388,22 +385,28 @@ public class MatchEdgeTraverser implements ExecutionStream {
         } else {
           rs = ResultInternal.toResultInternal(startingPoint, session, null);
         }
-        // Store traversal metadata so the user can access it via depthAlias/pathAlias
-        rs.setMetadata("$depth", depth);
-        rs.setMetadata("$matchPath",
-            pathToHere == null ? Collections.EMPTY_LIST : pathToHere);
-        result.add(rs);
+        if (rs != null) {
+          // Store traversal metadata so the user can access it via depthAlias/pathAlias
+          rs.setMetadata("$depth", depth);
+          rs.setMetadata("$matchPath",
+              pathToHere == null ? Collections.EMPTY_LIST : pathToHere);
+          result.add(rs);
+        }
       }
 
       // Recurse into neighbors if depth allows and WHILE condition holds
-      if ((maxDepth == null || depth < maxDepth)
+      if (startingPoint != null
+          && (maxDepth == null || depth < maxDepth)
           && (whileCondition == null
-          || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
+              || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
 
         var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
         while (queryResult.hasNext(iCommandContext)) {
           var origin = ResultInternal.toResult(queryResult.next(iCommandContext), session);
+          if (origin == null) {
+            continue;
+          }
           // Known limitation: the recursive expansion does not track already-visited
           // nodes; if the graph contains cycles, the same record may be traversed
           // multiple times at different depths. A break strategy (e.g. a visited set)
@@ -437,8 +440,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * reference the current candidate via `$currentMatch`. Returns the result if it
    * passes, or `null` to signal rejection to the stream's filter operator.
    */
-  @Nullable
-  private Result filter(
+  @Nullable private Result filter(
       CommandContext iCommandContext,
       final SQLWhereClause theFilter,
       final String theClassName,
@@ -472,7 +474,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
   protected String targetClassName(SQLMatchPathItem item, CommandContext iCommandContext) {
     return item.getFilter().getClassName(iCommandContext);
   }
-
 
   /** Returns the RID constraint for the **target** node. Overridden by reverse traversers. */
   protected SQLRid targetRid(SQLMatchPathItem item, CommandContext iCommandContext) {
