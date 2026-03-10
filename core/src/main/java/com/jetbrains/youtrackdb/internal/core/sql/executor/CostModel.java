@@ -48,6 +48,10 @@ public final class CostModel {
    */
   private static final int ESTIMATED_ROW_SIZE_BYTES = 200;
 
+  /** Pre-computed rows per page (constant — both inputs are compile-time constants). */
+  private static final int ROWS_PER_PAGE =
+      Math.max(1, PAGE_SIZE_BYTES / ESTIMATED_ROW_SIZE_BYTES);
+
   private CostModel() {
   }
 
@@ -77,8 +81,7 @@ public final class CostModel {
    * with 8 KB pages and typical key sizes).
    */
   public static double indexSeekCost() {
-    int depth = GlobalConfiguration
-        .QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH.getValueAsInteger();
+    int depth = GlobalConfiguration.QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH.getValueAsInteger();
     return randomPageReadCost() * depth;
   }
 
@@ -94,9 +97,8 @@ public final class CostModel {
    */
   public static double fullClassScanCost(long classCount) {
     double cpuCost = classCount * perRowCpuCost();
-    int rowsPerPage = Math.max(1, PAGE_SIZE_BYTES / ESTIMATED_ROW_SIZE_BYTES);
     double ioCost =
-        ((double) classCount / rowsPerPage) * seqPageReadCost();
+        ((double) classCount / ROWS_PER_PAGE) * seqPageReadCost();
     return cpuCost + ioCost;
   }
 
