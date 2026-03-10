@@ -14,14 +14,19 @@ related_docs:
 The disk cache (`LockFreeReadCache` + `WTinyLFUPolicy`) uses **per-entry reference counting**
 to protect cache entries from eviction while they are in use. Every `loadForRead`/`loadForWrite`
 call does `CacheEntry.acquireEntry()` (CAS increment on `state`), and every
-`releaseFromRead`/`releaseFromWrite` does `releaseEntry()` (CAS decrement). On the `CachePointer`
-side there is an additional pair of CAS operations on `readersWritersReferrer` plus a CAS on
-`referrersCount`.
+`releaseFromRead`/`releaseFromWrite` does `releaseEntry()` (CAS decrement).
+
+Note: `CachePointer.readersWritersReferrer` and `referrersCount` are **not** updated
+per-access on the in-cache read path. They are updated structurally — once when the entry
+is created (`incrementReadersReferrer()` in `WOWCache.load()`) and once during eviction
+(`decrementReadersReferrer()` in `purgeEden()`). The per-access CAS cost on the read hot
+path is **2 CAS operations per page access** (`acquireEntry` + `releaseEntry` on
+`CacheEntry.state`).
 
 These CAS operations are **write memory barriers on every page access**, which is the hottest
 path in the storage engine. The cost is:
-1. **Cache-line bouncing** — the `state` and `referrersCount` fields are written by every thread
-   that touches the page, invalidating the cache line across cores.
+1. **Cache-line bouncing** — the `state` field is written by every thread that touches the
+   page, invalidating the cache line across cores.
 2. **Pipeline stalls** — every CAS is a full `lock cmpxchg` which serializes the store buffer.
 3. **Failed-freeze retries** — during eviction, `freeze()` can only succeed when `state == 0`.
    Under load many entries have `state > 0`, so `WTinyLFUPolicy.purgeEden()` moves them back
@@ -65,7 +70,10 @@ state == -2 →  DEAD  (removed from CHM, pointer being freed)
 - `readersWritersReferrer` (packed readers + writers counts) — used by `WritersListener` to track
   dirty-page exclusivity for the write cache.
 
-Both are updated via CAS on every acquire/release.
+Both are updated via CAS, but only **structurally** for the in-cache read path
+(once on entry creation, once on eviction) — not per-access. Per-access CAS
+occurs on the write path (`incrementWritersReferrer` / `decrementWritersReferrer`)
+and on the `silentLoadForRead` outside-cache path.
 
 ### Eviction (WTinyLFUPolicy)
 
@@ -187,6 +195,95 @@ The critical property: `enter()` and `exit()` are **single writes to
 thread-local slots** — no contended atomics, no cache-line bouncing between
 threads.
 
+**JMM formal analysis — enter() / computeSafeEpoch() pairing:**
+
+The correctness of EBR depends on a critical visibility guarantee: if a
+thread T has entered its critical section (written epoch E to its slot) and
+subsequently reads an entry from the CHM, then the reclaimer must see T's
+slot as `<= E` (not stale `INACTIVE`). Otherwise, the reclaimer could compute
+a `safeEpoch >= E`, reclaim the entry, and cause a use-after-free.
+
+The `exit()` → `computeSafeEpoch()` pairing is straightforward:
+`setRelease` in `exit()` pairs with `getAcquire` in `computeSafeEpoch()`.
+When the reclaimer's acquire read sees `INACTIVE`, the JMM guarantees a
+happens-before edge: all of T's critical-section memory accesses completed
+before the `INACTIVE` write, and the reclaimer observes them. This pairing
+is formally correct under the JMM.
+
+The `enter()` → `computeSafeEpoch()` pairing is more subtle. The `enter()`
+path uses `setOpaque` (not `setRelease`) for the slot write, followed by
+`fullFence()`. The reclaimer reads slots with `getAcquire`. In the JMM:
+
+- **Opaque** provides per-variable coherence: for a single slot, reads and
+  writes maintain a total order consistent with each thread's program order.
+  The reclaimer will never see a value **older** than a value it has already
+  observed for the same slot. However, opaque provides **no cross-variable
+  ordering** — it does not form a happens-before edge with an acquire read.
+
+- **`fullFence()`** constrains thread-local reordering: no loads or stores
+  after the fence can be reordered before loads or stores preceding the fence,
+  within the same thread. This ensures T's slot write is ordered before T's
+  subsequent CHM read in T's program order. However, the JMM defines
+  `fullFence()` as a thread-local reordering constraint, not as a cross-thread
+  visibility guarantee.
+
+The gap: the JMM does **not** formally guarantee that `setOpaque` +
+`fullFence()` on thread T makes the slot value visible to another thread's
+`getAcquire` read by any specific point. In the pure JMM model, the reclaimer
+could, in theory, read the stale `INACTIVE` value even after T has executed
+the fence and proceeded to read from the CHM.
+
+**Why this is safe in practice (hardware-level argument):**
+
+On all real hardware (x86, ARM, RISC-V), the combination of opaque store +
+StoreLoad fence provides a stronger guarantee than the JMM requires:
+
+- **x86 (TSO):** The `fullFence()` compiles to `mfence` (or `lock addl $0,
+  (%rsp)`), which flushes the store buffer. After the fence completes, T's
+  slot write is in the cache coherence domain — visible to all cores. Any
+  subsequent `getAcquire` (which compiles to a plain load on x86, since TSO
+  provides LoadLoad + LoadStore for free) on another core will see the value.
+
+- **ARM (ARMv8):** The `fullFence()` compiles to `dmb ish` (full barrier).
+  After the barrier, T's store is ordered before any subsequent loads/stores
+  and is guaranteed to be visible to other cores' acquire loads (`ldar`).
+  The ARM memory model (which is formally defined) guarantees this visibility.
+
+- **RISC-V:** The `fullFence()` compiles to `fence rw,rw`. Combined with the
+  acquire load (`fence r,rw` + load), this provides the same guarantee.
+
+In all cases, the hardware cache coherence protocol ensures that once a store
+passes through the StoreLoad barrier, it is globally visible. An acquire load
+on any other core will observe it.
+
+**JMM-strict alternative — `setVolatile`:**
+
+For a purely JMM-provable implementation, `enter()` could use `setVolatile`
+instead of `setOpaque` + `fullFence()`. A volatile write establishes a
+happens-before edge with any subsequent volatile read (or acquire read) of the
+same variable that sees the written value. The cost comparison:
+
+- **x86:** `setVolatile` compiles to `mov` + `mfence` (or `lock xchg`).
+  `setOpaque` + `fullFence()` compiles to `mov` + `mfence`. Identical cost.
+  The only difference is that `setVolatile` includes a redundant release fence
+  (StoreStore + LoadStore) before the store, which x86 provides for free (TSO).
+
+- **ARM:** `setVolatile` may compile to `dmb ish` + `str` + `dmb ish` on
+  older ARMv8, or to `stlr` on ARMv8.3+ (which provides sequential
+  consistency). `setOpaque` + `fullFence()` compiles to `str` + `dmb ish`.
+  On older ARMv8, `setVolatile` adds an extra `dmb ish` before the store.
+  On ARMv8.3+, the cost is equivalent.
+
+**Decision: use `setOpaque` + `fullFence()`** for consistency with the
+crossbeam-epoch pattern and to avoid the redundant pre-store fence. The
+hardware-level correctness argument is sound on all target platforms (x86 and
+ARM). If a future JVM implementation were to run on hardware without cache
+coherence (no such hardware exists in practice), this would need revisiting.
+
+If desired, this can be changed to `setVolatile` at any time with no
+functional or meaningful performance impact — the difference is at most one
+redundant fence instruction on older ARM.
+
 **Safe epoch (`computeSafeEpoch`):**
 
 The safe epoch is the largest epoch value `S` such that **no thread is currently
@@ -198,9 +295,23 @@ Computation: scan all slots and find the minimum active (non-`INACTIVE`) value.
 The safe epoch is `minActiveSlot - 1`. If all slots are `INACTIVE` (no threads
 in critical sections), the safe epoch equals the current global epoch.
 
-Slot reads use **acquire** semantics to pair with the release write in `exit()`.
-This ensures that if the reclaimer sees `INACTIVE`, all the thread's prior
-critical section memory accesses are guaranteed to have completed.
+Slot reads use **acquire** semantics (`getAcquire`). This serves two purposes:
+
+1. **Pairing with `exit()` (`setRelease`):** When the reclaimer reads
+   `INACTIVE`, the release-acquire pair establishes a happens-before edge.
+   All of the thread's critical-section memory accesses (page data reads,
+   pointer dereferences) are guaranteed to have completed before the
+   `INACTIVE` write, and the reclaimer observes this ordering. This is
+   formally correct under the JMM.
+
+2. **Pairing with `enter()` (`setOpaque` + `fullFence()`):** When the
+   reclaimer reads an active epoch value `E`, it knows the thread is in a
+   critical section that started at epoch `E`. The reclaimer will not reclaim
+   entries with `retireEpoch >= E`. The visibility of this slot value is
+   guaranteed by the hardware-level argument above (the `fullFence()` in
+   `enter()` ensures the store is globally visible before the entering thread
+   reads shared data). See "JMM formal analysis" above for the detailed
+   argument.
 
 **Defensive guard against `INACTIVE` leak:** The `min` variable is initialized
 to `globalEpoch`, so it can only reach `Long.MAX_VALUE` (`INACTIVE`) if
@@ -436,15 +547,50 @@ The epoch protects all page accesses within the lambda.
 Currently, `WTinyLFUPolicy.purgeEden()` calls `entry.freeze()` and immediately
 reclaims the pointer if freeze succeeds (`state == 0`). With EBR:
 
-1. **Logical eviction** (under `evictionLock`): Remove the entry from the CHM and
-   from the LRU lists. Record the current `globalEpoch` as the entry's `retireEpoch`.
-   Add the entry to a **retired list**.
-2. **No freeze/state check needed** — the entry is already unreachable from the CHM,
-   so no new thread can obtain it.
-3. **Physical reclamation**: Performed eagerly during every drain cycle. Since drain
+1. **Retire the entry** (under `evictionLock`): Call `entry.retire()` — CAS from
+   `0` to `RETIRED`. This can **fail** if a writer holds the entry (`state > 0`),
+   in which case eviction moves the entry back to eden and tries another victim
+   (same as today's `freeze()` failure path).
+2. **Remove from CHM and LRU lists** (under `evictionLock`): `data.remove()` makes
+   the entry unreachable — no new thread can obtain it from the CHM.
+3. **Record `retireEpoch`** (under `evictionLock`): Set `entry.retireEpoch` to the
+   current `globalEpoch`. Add the entry to the **retired list**.
+4. **Physical reclamation**: Performed eagerly during every drain cycle. Since drain
    cycles already run under `evictionLock` and are triggered frequently (on every
    cache miss, on write buffer activity, and forced when cache exceeds 107% capacity),
    this is the most aggressive reclamation strategy without adding a dedicated thread.
+
+**Critical ordering invariant — retire before CHM removal:**
+
+`retire()` (step 1) **must** succeed before `data.remove()` (step 2). This
+order is essential for two reasons:
+
+- **CachePointer divergence prevention:** If the entry were removed from the
+  CHM first (while `state == 0`), another thread could immediately create a
+  new entry for the same page via `data.compute()`. A concurrent writer that
+  already obtained the old entry (but hasn't called `acquireEntry()` yet) could
+  then race with the new entry. By retiring first (setting `state = RETIRED`),
+  we ensure that any concurrent `acquireEntry()` on this entry fails, and the
+  writer's retry loop in `doLoadForWrite()` will pick up the new entry.
+
+- **Epoch safety:** `retireEpoch` (step 3) records the epoch at which the entry
+  became unreachable from the CHM. If `retireEpoch` were recorded **before**
+  CHM removal, a thread entering at that epoch could still find the entry in
+  the CHM via `data.get()`, obtain a reference, and then the reclaimer could
+  free it (since `retireEpoch <= safeEpoch`). Recording `retireEpoch` after
+  CHM removal ensures that any thread which entered at or after `retireEpoch`
+  will **not** find the entry in the CHM — it was already removed.
+
+**CHM removal before retireEpoch recording** is equally critical and must not
+be reversed. The required order within eviction is:
+
+```
+retire()  →  data.remove()  →  record retireEpoch  →  add to retired list
+   (1)           (2)                 (3)                     (3)
+```
+
+All steps run under `evictionLock`, so no additional synchronization is needed
+between them.
 
 **Drain cycle integration** — every `drainBuffers()` / `emptyBuffers()` call
 performs three steps in order:
@@ -495,67 +641,193 @@ only under `evictionLock`). No separate `RetiredEntry` wrapper is needed:
 wrapper allocation per eviction, reducing GC pressure under high eviction
 rates. Entries are appended during eviction and drained from the head during
 reclamation, so ordering is naturally FIFO by epoch.
-A `volatile int retiredListSize` is maintained alongside the deque (incremented
-on append, decremented on reclaim, both under `evictionLock`). This counter
-is read outside the lock by `enterCriticalSection()` for the backpressure
-check — a stale read is harmless (triggers reclamation one cycle early or late).
+A `volatile int retiredListSize` is maintained alongside the deque. All
+mutations (increment on append, decrement on reclaim) happen under
+`evictionLock`, so plain writes to the field are safe — mutual exclusion
+guarantees atomicity, and the lock's release fence publishes the new value.
+The field is declared `volatile` solely so that `enterCriticalSection()` can
+read it **outside the lock** for the backpressure check with guaranteed
+visibility. A stale read is harmless (triggers reclamation one cycle early or
+late).
 
 #### 4. CacheEntry Simplification
 
 With EBR, the `CacheEntry.state` field changes meaning:
 
-- **No more reference counting.** `acquireEntry()` / `releaseEntry()` are removed.
+- **No more reference counting on the read path.** The read-side `doLoad()`
+  path removes `acquireEntry()` / `releaseEntry()` entirely — these CAS
+  operations are unnecessary because the caller is already inside an EBR
+  critical section.
+- **`acquireEntry()` / `releaseEntry()` are retained on the write path**
+  (`loadForWrite` / `releaseFromWrite`) and on the `silentLoadForRead` path.
+  See "Write Path" and "Outside-Cache Entries" below for rationale.
 - **Simplified lifecycle:**
   ```
-  ALIVE  (state = 0)  →  entry is in the CHM, accessible
-  RETIRED (state = -1) →  entry removed from CHM, awaiting epoch-safe reclamation
-  DEAD   (state = -2)  →  memory freed
+  ALIVE    (state >= 0) →  entry is in the CHM, accessible
+                            value = number of active write holders
+  RETIRED  (state = -1) →  entry removed from CHM, awaiting epoch-safe reclamation
   ```
-- `acquireEntry()` becomes a simple check: `return state == ALIVE` (plain read, no CAS).
-- `freeze()` is replaced by `retire()`: `assert state == ALIVE; state = RETIRED;`
-  (plain write — always called under `evictionLock`, so no contention and no need
-  for CAS).
-- `retireEpoch` field (plain `long`) is added directly to `CacheEntry` to record the
-  epoch at which the entry was retired. This eliminates the need for a separate
-  `RetiredEntry` wrapper object (see retired list below).
+  The separate FROZEN / DEAD states are no longer needed. `retire()` replaces
+  both `freeze()` and `makeDead()` as a single transition.
+- `retire()` replaces `freeze()`: CAS from `0` to `-1` (same as the current
+  `freeze()`). This **must** be a CAS, not a plain write — it races with
+  `acquireEntry()` on the write path. If `state > 0` (a writer holds the
+  entry), `retire()` fails and eviction moves the entry back to eden, exactly
+  like today's `freeze()` failure path.
+- `retireEpoch` field (plain `long`) is added directly to `CacheEntry` to record
+  the epoch at which the entry was retired. This eliminates the need for a
+  separate `RetiredEntry` wrapper object (see retired list below).
 
-#### 5. CachePointer Simplification
+**Why `acquireEntry()` is not needed on the read path (`doLoad()`):**
 
-The `readersWritersReferrer` CAS pair on every load/release is eliminated.
+The current `doLoad()` has a `while(true)` retry loop that exists solely because
+`acquireEntry()` can fail — when eviction freezes an entry between `data.get()`
+and `acquireEntry()`. With EBR, this race is harmless for reads:
 
-- **Readers referrer**: No longer needed per-access. The read cache holds one
-  "structural" reader reference for the lifetime of the entry in the cache.
-  Decremented once during physical reclamation.
-- **Writers referrer**: Still needed for dirty-page tracking. Only modified on
-  `loadForWrite` / `releaseFromWrite` (write path), which is much less frequent
-  and already takes an exclusive lock.
-- **referrersCount**: Simplified. The read cache holds 1 ref. The write cache
-  holds 1 ref per dirty copy. No per-access increment/decrement.
+1. **Memory safety**: The thread is inside an EBR critical section before
+   `doLoad()` is called. Even if eviction removes the entry from the CHM and
+   retires it, the entry cannot be physically reclaimed until the thread exits
+   its critical section.
+2. **Data correctness**: A retired entry contains the same page data as a
+   freshly loaded one — it's the same disk page.
+3. **LRU tracking**: `afterRead()` posts the entry to the read buffer, which
+   eventually calls `WTinyLFUPolicy.onAccess()`. That method already checks
+   `!cacheEntry.isDead()` and skips dead/retired entries, so posting a stale
+   entry is harmless.
+4. **`data.compute()` path**: The compute lambda holds CHM's per-bucket lock,
+   so eviction cannot concurrently remove the same key. The returned entry is
+   guaranteed to be in the CHM when compute returns.
+
+Therefore the read-side `doLoad()` simplifies to a straight-line flow:
+`data.get()` or `data.compute()`, then `afterRead()` / `afterAdd()`, return.
+No CAS, no retry loop.
+
+**Why `acquireEntry()` IS still needed on the write path (`loadForWrite()`):**
+
+The write path must prevent eviction from retiring an entry while a thread
+holds it for modification. Without this, a dangerous CachePointer divergence
+can occur:
+
+1. Thread A: `loadForWrite()` → `doLoad()` → gets entry E with CachePointer P1
+2. Thread A: acquires exclusive lock on P1, begins modifying page data
+3. Eviction: `retire(E)` succeeds (no `acquireEntry` → `state == 0`),
+   removes E from CHM, adds to retired list
+4. Thread B: `doLoad()` → `data.get()` → null → `data.compute()` →
+   `writeCache.load()` → P1 is not yet in `writeCachePages` (Thread A
+   hasn't called `releaseFromWrite` yet) → `loadFileContent()` reads from
+   disk → creates NEW CachePointer P2 → creates entry E' with P2 →
+   E' inserted into CHM
+5. Thread A: `releaseFromWrite()` → `data.compute()` → finds E' in CHM →
+   `writeCache.store(P1)` → `writeCachePages` now has P1 → returns E'
+
+Result: CHM has E' pointing to P2 (stale disk data), while `writeCachePages`
+has P1 (Thread A's modified data). **Thread A's writes are invisible to
+readers** who access the page through the CHM.
+
+This divergence also causes a cascading failure: when a future Thread C
+does `loadForWrite()` → gets E' (P2) → modifies P2 → `releaseFromWrite()`
+→ `writeCache.store(P2)` → inside `store()`, `writeCachePages.get(pageKey)`
+returns P1 ≠ P2 → `assert pagePointer.equals(dataPointer)` fails. In
+production (assertions disabled), Thread C's writes are silently lost.
+
+**Fix:** `loadForWrite()` retains `acquireEntry()` (CAS from `n` to `n+1`),
+and `releaseFromWrite()` retains `releaseEntry()` (CAS from `n` to `n-1`).
+Eviction's `retire()` (CAS from `0` to `-1`) fails when `state > 0`,
+preventing the entry from being evicted while a writer holds it. The
+`doLoad()` retry loop is retained for the write path to handle the race
+where `retire()` succeeds between `data.get()` and `acquireEntry()`.
+
+This reuses the existing mechanism without change — only the **read path**
+drops `acquireEntry()` / `releaseEntry()`. The write path cost (one CAS
+on enter, one CAS on exit) is negligible compared to the exclusive lock it
+already acquires.
+
+#### 5. CachePointer — No Changes Needed
+
+The `readersWritersReferrer` and `referrersCount` fields on `CachePointer`
+are **already structural-only** for the read path in the current code:
+
+- **Readers referrer**: Incremented once in `WOWCache.load()` when the entry is
+  created (structural). Decremented once during eviction / reclamation
+  (structural). **Not** called per-access for in-cache reads. With EBR, the
+  only change is that the structural `decrementReadersReferrer()` moves from
+  immediate eviction (in `purgeEden()`) to deferred reclamation (in
+  `reclaimRetired()`). The `WritersListener` callbacks (`addOnlyWriters` /
+  `removeOnlyWriters`) still fire correctly because the readers and writers
+  counts track structural ownership, not per-access usage.
+
+- **Writers referrer**: Unchanged. Incremented by `WOWCache.doPutInCache()` when
+  a dirty page enters the write cache, decremented by `WOWCache` flush when the
+  page is written to disk and removed from `writeCachePages`. Only modified under
+  the `lockManager` exclusive page lock.
+
+- **referrersCount**: Unchanged. Tracks total structural references (1 from read
+  cache via readers referrer, 1 from write cache via writers referrer per dirty
+  copy). Buffer is freed when `referrersCount` reaches 0.
+
+- **`silentLoadForRead` / outside-cache path**: Unchanged. These paths call
+  `incrementReadersReferrer()` on load and `decrementReadersReferrer()` on
+  release, same as today.
+
+No `CachePointer` code changes are required for EBR. The existing structural
+reference counting is correct and works as-is with deferred reclamation.
 
 ### What Changes on the Hot Path
 
+**Clarification — pointer ref counting is already structural:**
+
+The current `loadForRead` / `releaseFromRead` for **in-cache** entries does
+**not** call `incrementReadersReferrer()` / `decrementReadersReferrer()` per
+access. CachePointer's readers referrer is incremented once when the entry is
+created (structural, inside `WOWCache.load()` on cache miss) and decremented
+once during eviction (structural, inside `purgeEden()`). The per-access CAS
+cost on the read hot path is only the 2 CAS operations on `CacheEntry.state`
+(`acquireEntry` + `releaseEntry`). With EBR, these are removed.
+
+The `readersWritersReferrer` CAS does occur on the **write path** (via
+`incrementWritersReferrer()` / `decrementWritersReferrer()`) and on the
+**`silentLoadForRead`** outside-cache path (via `incrementReadersReferrer()` /
+`decrementReadersReferrer()`). These paths are unchanged by EBR.
+
 | Operation | Before (per access) | After (per access) |
 |---|---|---|
-| `loadForRead` enter | CAS on `state` (acquireEntry) | Opaque write to thread-local slot + StoreLoad fence |
-| `loadForRead` exit | CAS on `state` (releaseEntry) | Release write to thread-local slot |
-| `loadForRead` pointer | CAS on `readersWritersReferrer` + CAS on `referrersCount` | Nothing |
-| `releaseFromRead` pointer | CAS on `readersWritersReferrer` + CAS on `referrersCount` | Nothing |
-| Eviction freeze check | CAS on `state` (may fail, retry) | Plain read (always succeeds — no holders to check) |
-| Eviction reclamation | Immediate | Deferred (amortized in drain cycles) |
+| Component operation enter | Nothing | Opaque write to thread-local slot + StoreLoad fence (once per component op) |
+| Component operation exit | Nothing | Release write to thread-local slot (once per component op) |
+| `loadForRead` (cache hit) | CAS on `state` (acquireEntry) | Nothing (return entry directly) |
+| `loadForRead` (cache miss) | CAS on `state` (acquireEntry) + structural pointer CAS in `WOWCache.load()` | Structural pointer CAS in `WOWCache.load()` only (no entry CAS) |
+| `releaseFromRead` (in-cache) | CAS on `state` (releaseEntry) | Nothing |
+| `loadForWrite` | CAS on `state` (acquireEntry) | CAS on `state` (acquireEntry) — **unchanged** |
+| `releaseFromWrite` | CAS on `state` (releaseEntry) | CAS on `state` (releaseEntry) — **unchanged** |
+| Eviction | CAS on `state` (freeze, may fail) | CAS on `state` (retire, may fail if writers hold entry) |
+| Eviction reclamation | Immediate (`decrementReadersReferrer`) | Deferred (`decrementReadersReferrer` in `reclaimRetired()`) |
 
-**Net result**: The read path goes from **4 CAS operations** (2 on state, 2 on pointer)
-to **1 opaque write + 1 StoreLoad fence** (enter) and **1 release write** (exit) on a
-thread-local epoch slot. The fence on enter is cheaper than the CAS it replaces (one
-barrier vs. a serializing read-modify-write that bounces cache lines), and the exit
-is a plain store on x86. This eliminates all cross-core cache-line invalidation on the
-read path.
+**Net result for reads**: Each `loadForRead` / `releaseFromRead` on the cache
+hit path goes from **2 CAS operations** (on `CacheEntry.state`) to **nothing**.
+The only new per-access cost is the epoch enter/exit — **1 opaque write +
+1 StoreLoad fence** (enter) and **1 release write** (exit) — but this cost is
+paid **once per component operation**, which may include multiple page accesses.
+The fence on enter is cheaper than the CAS it replaces (one barrier vs. a
+serializing read-modify-write that bounces cache lines), and the exit is a
+plain store on x86. This eliminates all cross-core cache-line invalidation on
+the read path.
+
+A component operation that reads N pages (cache hits) previously paid 2N CAS
+operations; with EBR it pays 1 opaque write + 1 fence + 1 release write,
+regardless of N.
+
+**Write path**: unchanged — retains 1 CAS on `acquireEntry()` and 1 CAS on
+`releaseEntry()`. This is necessary to prevent CachePointer divergence (see
+"Write Path" section below). The cost is negligible relative to the exclusive
+lock the write path already acquires.
 
 ### Handling Edge Cases
 
 #### File Deletion / Truncation / Close
 
 `clearFile()` currently iterates pages and calls `freeze()` on each, failing if any
-entry has `state > 0`. With EBR:
+entry has `state > 0`. With EBR, the `state` field still tracks write holders
+(see "Write Path" above), so `retire()` can still fail if `state > 0`.
+The approach:
 
 1. Remove entries from CHM (making them unreachable).
 2. Record the current `globalEpoch` as `retireEpoch` for these entries.
@@ -583,6 +855,7 @@ void clearFile(long fileId) {
   evictionLock.lock();
   try {
     removed = removeEntriesForFile(fileId);  // remove from CHM + LRU
+    removeRetiredEntriesForFile(fileId, removed);  // also drain from retired list
     retireEpoch = epochTable.currentEpoch();
     epochTable.advanceEpoch();
   } finally {
@@ -598,7 +871,44 @@ void clearFile(long fileId) {
     entry.clearCachePointer();
   }
 }
+
+private void removeRetiredEntriesForFile(long fileId, List<CacheEntry> sink) {
+  // Scan the retired list (ArrayDeque) and remove entries matching fileId.
+  // Called under evictionLock, so no concurrent modification.
+  var it = retiredList.iterator();
+  while (it.hasNext()) {
+    var entry = it.next();
+    if (entry.getFileId() == fileId) {
+      it.remove();
+      retiredListSize--;
+      sink.add(entry);
+    }
+  }
+}
 ```
+
+**Why the retired list must be drained for the file:**
+
+Entries that were evicted (retired) before `clearFile()` are in the retired
+list but no longer in the CHM. Without `removeRetiredEntriesForFile()`,
+`removeEntriesForFile()` would miss them (it scans the CHM, where they are
+already absent). These orphaned entries would:
+
+1. **Delay buffer release:** Their direct memory buffers stay allocated until
+   the next `reclaimRetired()` pass, even though the file is being
+   closed/deleted and the caller expects all resources to be freed.
+2. **Hold stale pointers:** The retired list would contain entries for a file
+   that no longer exists, complicating resource lifetime reasoning.
+
+Draining the retired list under `evictionLock` is safe — the retired list is
+an `ArrayDeque` accessed only under `evictionLock`. The drained entries are
+added to the same `removed` list and reclaimed after `waitForSafeEpoch()`,
+ensuring no thread can still hold references to them.
+
+Note: This scan is O(retired list size), not O(file pages). For the typical
+case where the retired list is small (bounded by the 1% backpressure
+threshold), this is negligible. If needed, the retired list could be indexed
+by file ID, but this optimization is unlikely to be necessary.
 
 `waitForSafeEpoch` polls `computeSafeEpoch()` in a spin loop with
 progressive backoff (`Thread.onSpinWait()` → `Thread.yield()` →
@@ -606,17 +916,161 @@ progressive backoff (`Thread.onSpinWait()` → `Thread.yield()` →
 an `IllegalStateException` — a thread stuck in a critical section that long
 indicates a bug, not a legitimate workload.
 
+**Progress guarantee:** `waitForSafeEpoch(retireEpoch)` does **not** require
+the global epoch to advance further. It only requires that all threads which
+were in a critical section at or before `retireEpoch` exit. Specifically:
+
+- A thread that entered at epoch `<= retireEpoch` and is still active blocks
+  progress — `computeSafeEpoch()` returns `<= retireEpoch - 1 < retireEpoch`.
+  Once that thread calls `exit()` (release write of `INACTIVE`), its slot no
+  longer contributes to the minimum.
+- A thread that enters **after** `advanceEpoch()` (step 3) records epoch
+  `> retireEpoch`, so it does not block `waitForSafeEpoch`.
+- When all pre-existing threads have exited, all slots are either `INACTIVE`
+  or hold an epoch `> retireEpoch`. `computeSafeEpoch()` returns
+  `>= retireEpoch`, and `waitForSafeEpoch` completes.
+
+No drain cycle, no epoch advancement, and no `evictionLock` acquisition is
+needed during the wait — only the natural completion of in-flight critical
+sections. This is why releasing `evictionLock` before the wait is essential:
+it allows threads inside critical sections to finish their component
+operations normally (which may involve `tryToDrainBuffers()` under
+`evictionLock`), rather than blocking on the lock.
+
 #### Write Path (loadForWrite / releaseFromWrite)
 
-The write path is less frequent and already acquires an exclusive lock on the
-`CachePointer`. The EBR critical section still protects the entry from
-reclamation. The only additional invariant: `releaseFromWrite` must call
-`writeCache.store()` **before** exiting the critical section, which is
-already the case.
+The write path **retains `acquireEntry()` / `releaseEntry()`** (one CAS
+each). This is required to prevent eviction from retiring an entry while
+a writer holds it — see "Why `acquireEntry()` IS still needed on the write
+path" in the CacheEntry Simplification section above for the detailed race
+analysis.
+
+The write path flow with EBR:
+
+1. `loadForWrite()` calls `doLoadForWrite()`, which includes the `while(true)`
+   retry loop and `acquireEntry()` CAS — same as today's `doLoad()`.
+2. `loadForWrite()` acquires exclusive lock on the CachePointer.
+3. Caller modifies page data.
+4. `releaseFromWrite()`:
+   a. `data.compute()` → `writeCache.store()` (stores CachePointer in write cache)
+   b. Releases exclusive lock on CachePointer
+   c. `releaseEntry()` (CAS decrement on state)
+
+The EBR critical section (entered at the component operation level) protects
+the entry from physical reclamation. The `acquireEntry()` / `releaseEntry()`
+CAS prevents eviction from removing the entry from the CHM (and thus
+prevents CachePointer divergence).
+
+The additional per-write CAS cost is negligible: the write path already
+acquires an exclusive lock (ReentrantReadWriteLock write lock on the
+CachePointer), which involves the same kind of CAS. One more CAS on top
+of that is not measurable.
 
 For dirty-page tracking (`WritersListener`), we keep the writers count
 on `CachePointer` since it is only modified under the exclusive lock
 (no contention).
+
+#### Page Reload After Retirement (CachePointer Sharing)
+
+When an entry E is retired (removed from CHM, added to the retired list) and
+another thread subsequently loads the same page, the new entry E' may share
+the same `CachePointer` as the retired entry E. This section explains why this
+is safe in all cases.
+
+**Dirty page (P1 is in `writeCachePages`):**
+
+When a page has been modified, `releaseFromWrite()` calls `writeCache.store()`,
+which puts the `CachePointer` P1 into `writeCachePages` and calls
+`incrementWritersReferrer()` on P1. This writer referrer is the key safety
+mechanism: it keeps P1's direct memory buffer alive regardless of what happens
+to reader referrers.
+
+```
+Eviction                    Thread B (reloads same page)
+────────                    ────────────────────────────
+retire(E), remove from CHM
+add E to retired list
+                            doLoadForRead() → data.get() → null
+                            data.compute() → writeCache.load():
+                              writeCachePages.get(pageKey) → P1
+                              P1.incrementReadersReferrer()  // readers: 1→2
+                            create E' with P1, insert in CHM
+```
+
+E (retired list) and E' (CHM) now both point to the **same P1**. The reference
+counts on P1 are:
+
+| Event | Readers | Writers | referrersCount |
+|---|---|---|---|
+| E created (entry enters cache) | 1 | 0 | 1 |
+| Page modified, stored in write cache | 1 | 1 | 2 |
+| E retired, E' created via writeCache.load() | 2 | 1 | 3 |
+| E reclaimed (`decrementReadersReferrer`) | 1 | 1 | 2 |
+| Write cache flushes P1, removes from writeCachePages | 1 | 0 | 1 |
+| E' eventually retired and reclaimed | 0 | 0 | 0 → buffer freed |
+
+At no point does `referrersCount` drop to 0 prematurely. The writer referrer
+from `writeCachePages` acts as a safety net: even if all reader referrers are
+removed, the buffer stays alive until the write cache flushes and releases it.
+
+Thread B's `writeCache.load()` returns P1 (the modified data), so Thread B
+sees all prior writes. **No data loss.**
+
+**Reclamation before reload (dirty page):**
+
+If E is reclaimed before any thread reloads the page:
+
+```
+Eviction                    Reclamation              Thread B (later)
+────────                    ───────────              ────────────────
+retire(E), remove from CHM
+add E to retired list
+                            safeEpoch >= retireEpoch
+                            P1.decrementReadersReferrer()
+                              → readers: 1→0
+                              → writers: 1 (from write cache)
+                              → referrersCount: 2→1
+                              → buffer NOT freed
+                            E.clearCachePointer()
+                                                     data.get() → null
+                                                     writeCache.load() → P1
+                                                     P1.incrementReadersReferrer()
+                                                       → readers: 0→1
+                                                       → referrersCount: 1→2
+                                                     create E' with P1
+```
+
+P1's writer referrer (from `writeCachePages`) keeps `referrersCount > 0` after
+reclamation removes E's reader referrer. Thread B still gets P1 with all
+modifications intact. **No data loss.**
+
+**Clean page (P1 is NOT in `writeCachePages`):**
+
+If the page was never modified, there is no entry in `writeCachePages`. When
+Thread B loads the same page, `writeCache.load()` finds nothing and calls
+`loadFileContent()`, which reads the page from disk into a **new** CachePointer
+P2. E (retired list) has P1, E' (CHM) has P2. These are independent pointers
+with identical disk data.
+
+When E is reclaimed, `decrementReadersReferrer()` on P1 drops readers to 0.
+With no writer referrer, `referrersCount` reaches 0 and P1's buffer is freed.
+This is correct — P1 is no longer needed, and P2 holds the same data. **No
+data loss.**
+
+**`clearCachePointer()` does not affect the CachePointer object:**
+
+`clearCachePointer()` simply sets the entry's `dataPointer` field to `null`.
+It does not modify the `CachePointer` object itself, so other references to
+the same `CachePointer` (from E' or from `writeCachePages`) remain valid.
+
+**Summary of safety guarantees:**
+
+| Scenario | Pointer sharing | Buffer freed? | Data loss? |
+|---|---|---|---|
+| Dirty page, reload before reclamation | E and E' share P1 | No (readers=1, writers=1) | No |
+| Dirty page, reclamation before reload | P1 alive via writer ref | No (referrersCount>0) | No |
+| Clean page, reload before reclamation | E has P1, E' has P2 | P1 freed on reclamation | No (P2 = same disk data) |
+| Clean page, reclamation before reload | P1 freed, P2 loaded from disk | P1 freed correctly | No (P2 = same disk data) |
 
 #### Thread Starvation / Long Critical Sections
 
@@ -633,26 +1087,41 @@ the standard EBR trade-off. Mitigations:
 - Worst case: memory is held longer but never leaked. When the thread exits
   its critical section, all deferred entries become reclaimable.
 
-#### Outside-Cache Entries (insideCache = false)
+#### Outside-Cache Entries and `silentLoadForRead`
 
-Entries created with `insideCache = false` (e.g., `silentLoadForRead`) are not
-part of the CHM and not managed by the eviction policy. These entries **retain
-the existing reference-counting mechanism**: `incrementReadersReferrer()` on
-load, `decrementReadersReferrer()` on release. When the reference count drops
-to zero, the pointer's direct memory buffer is returned to the `ByteBufferPool`
-immediately — no deferred reclamation.
+`silentLoadForRead` is used by `DiskStorage.backupPagesWithChanges()` for
+backup operations. It runs **outside** any component operation, so no EBR
+critical section is active. The method has **two paths**:
 
-**Rationale**: Outside-cache entries have a clear single-owner lifecycle (the
-caller that requested the load owns the entry until it calls release). Requiring
-callers to be inside an EBR critical section would be fragile — these entries
-can be accessed outside `calculateInsideComponentOperation` /
-`executeInsideComponentOperation` boundaries (e.g., during recovery, schema
-reads, or direct buffer access patterns), where no epoch is active. Forgetting
-to enter the epoch before using an outside-cache entry would silently produce
-a correctness bug with no compile-time or runtime warning. Reference counting
+1. **Page already in cache** (`data.get()` returns non-null): The returned
+   entry is an in-cache entry (`insideCache = true`). Since no epoch protects
+   the caller, `acquireEntry()` is still needed to prevent eviction from
+   reclaiming the entry's pointer while the caller reads it.
+
+2. **Page not in cache**: `data.compute()` loads the page from disk, creates
+   a new `CacheEntryImpl` with `insideCache = false`, and returns `null` from
+   the compute lambda — so the entry is **not inserted into the CHM**. It's
+   captured via a side channel (`updatedEntry[0]`). This outside-cache entry
+   has a clear single-owner lifecycle.
+
+Both paths call `acquireEntry()` and the corresponding `releaseFromRead()`
+(which calls `releaseEntry()`). For outside-cache entries, `releaseFromRead()`
+additionally calls `decrementReadersReferrer()` to release the pointer's direct
+memory buffer back to `ByteBufferPool` immediately — no deferred reclamation.
+
+**These paths retain the existing reference-counting mechanism** (`acquireEntry()`
+/ `releaseEntry()` CAS on `state`, `incrementReadersReferrer()` /
+`decrementReadersReferrer()` on the pointer).
+
+**Rationale**: Requiring callers to be inside an EBR critical section would be
+fragile — `silentLoadForRead` is called from backup/recovery code paths that
+run outside `calculateInsideComponentOperation` /
+`executeInsideComponentOperation` boundaries, where no epoch is active. Forgetting
+to enter the epoch before using such an entry would silently produce a
+correctness bug with no compile-time or runtime warning. Reference counting
 is simple, self-contained, and already correct for this use case. The per-entry
-CAS cost is acceptable because outside-cache loads are infrequent compared to
-the hot read path that EBR optimizes.
+CAS cost is acceptable because `silentLoadForRead` is infrequent compared to
+the hot `doLoad` read path that EBR optimizes.
 
 ## Implementation Phases
 
@@ -710,44 +1179,67 @@ knowing that EBR is already protecting all entries.
 ### Phase 3: Remove Reference Counting from Read Path
 
 **Files to modify:**
-- `LockFreeReadCache.java` — integrate retired list scanning into `drainBuffers()`
+- `LockFreeReadCache.java` — split `doLoad()` into read/write variants, integrate
+  retired list scanning into `drainBuffers()`
 - `WTinyLFUPolicy.java` — change eviction from freeze-based to retire-based
-- `CacheEntryImpl.java` — simplify state machine (remove reference counting)
+- `CacheEntryImpl.java` — simplify state machine (collapse FROZEN + DEAD into RETIRED)
 
 **Changes:**
-1. `doLoad()`: Remove `acquireEntry()` CAS. After finding/creating the entry in the CHM,
-   return it directly (the caller is already in a critical section).
-2. `releaseFromRead()`: Remove `releaseEntry()` CAS. The entry stays alive; epoch
-   protects it from reclamation.
-3. `purgeEden()`: Replace `freeze()` with `retire()` — remove from CHM, add to retired
-   list with current epoch. No need to check state.
-4. `drainBuffers()`: Add epoch increment + `reclaimRetired()` call.
+1. **Split `doLoad()` into two variants:**
+   - `doLoadForRead()`: No `acquireEntry()` CAS, no retry loop. After finding/creating
+     the entry in the CHM, return it directly (the caller is already in an EBR critical
+     section — see "Why `acquireEntry()` is not needed on the read path" above).
+   - `doLoadForWrite()`: Retains `acquireEntry()` CAS and the `while(true)` retry loop.
+     This is required to prevent CachePointer divergence — see "Why `acquireEntry()` IS
+     still needed on the write path" above.
+2. `releaseFromRead()`: For in-cache entries, remove `releaseEntry()` CAS. The entry
+   stays alive; epoch protects it from reclamation. For outside-cache entries
+   (`!insideCache()`), `releaseEntry()` and `decrementReadersReferrer()` are retained.
+3. `releaseFromWrite()`: **No changes.** Retains `releaseEntry()` CAS.
+4. `silentLoadForRead()`: **No changes.** Retains `acquireEntry()` / `releaseEntry()`
+   because it is called from backup/recovery code outside any EBR critical section
+   (see "Outside-Cache Entries and `silentLoadForRead`" above).
+5. `purgeEden()`: Replace `freeze()` with `retire()` — CAS from `0` to `RETIRED`.
+   If `state > 0` (a writer holds the entry), `retire()` fails and eviction moves the
+   entry back to eden, same as today's `freeze()` failure path. On success, remove
+   from CHM, add to retired list with current epoch. **Do not** call
+   `decrementReadersReferrer()` here — it moves to `reclaimRetired()`.
+6. `drainBuffers()`: Add epoch increment + `reclaimRetired()` call.
+7. `reclaimRetired()`: For each reclaimable entry (retireEpoch <= safeEpoch), call
+   `decrementReadersReferrer()` and `clearCachePointer()`. This is the structural
+   pointer decrement that was previously done immediately in `purgeEden()` — it is
+   now deferred until all threads that could have observed the entry have exited
+   their critical sections.
 
-### Phase 4: Simplify CachePointer
+### Phase 4: Cleanup and Validation
 
-**Depends on Phase 3:** This phase removes per-access pointer reference counting,
-which is only safe after Phase 3 has replaced per-entry reference counting with
-EBR-based retired list reclamation. Specifically, `decrementReadersReferrer()` is
-now called during physical reclamation (in `reclaimRetired()`), not on every
-`releaseFromRead()`.
+**Note:** The original plan had a separate "Phase 4: Simplify CachePointer" that
+proposed removing per-access pointer reference counting from the read path.
+Investigation of the current code revealed that `incrementReadersReferrer()` /
+`decrementReadersReferrer()` are **already structural-only** for in-cache reads
+(called once on entry creation in `WOWCache.load()` and once on eviction in
+`purgeEden()`). There are no per-access pointer CAS operations to remove. Phase 3
+moves the structural `decrementReadersReferrer()` from immediate eviction to
+deferred reclamation (`reclaimRetired()`), which is the only change needed. See
+"CachePointer — No Changes Needed" above. The former Phase 4 is therefore merged
+into Phase 3, and this phase is renumbered.
 
-**Files to modify:**
-- `CachePointer.java` — remove per-access `readersWritersReferrer` updates from read path
-- `CacheEntryImpl.java` — remove `readCache.releaseFromRead()` CAS delegation
-
-**Changes:**
-1. `incrementReadersReferrer()` / `decrementReadersReferrer()` — called only during
-   structural add (entry enters cache) and reclamation (entry leaves cache), not per access.
-2. `WritersListener` tracking — only triggered from write path (exclusive lock held).
-3. `referrersCount` — structural only (1 from read cache, 1 from write cache per dirty copy).
-
-### Phase 5: Cleanup and Validation
-
-1. Remove `acquireEntry()` / `releaseEntry()` from `CacheEntry` interface.
-2. Remove `FROZEN` state — replace with `RETIRED`.
-3. Remove `freeze()` / `makeDead()` from `CacheEntry` interface — replace with `retire()`.
-4. Verify `silentLoadForRead` path (outside-cache entries) still works correctly
-   with the existing reference-counting mechanism — no EBR changes needed.
+1. **`acquireEntry()` / `releaseEntry()`**: Retain on `CacheEntry` interface — still
+   needed by `loadForWrite` / `releaseFromWrite` (prevents CachePointer divergence)
+   and by `silentLoadForRead` (called from backup/recovery code outside EBR critical
+   sections). Verify that `doLoadForRead()` and `releaseFromRead()` (in-cache path)
+   no longer call them.
+2. Remove `FROZEN` and `DEAD` states — replace with single `RETIRED` state.
+   `retire()` replaces both `freeze()` and `makeDead()`: CAS from `0` to `-1`.
+3. Remove `freeze()` / `makeDead()` from `CacheEntry` interface — replace with
+   `retire()`.
+4. Verify all three paths that retain `acquireEntry()`:
+   - **`loadForWrite` / `releaseFromWrite`**: entry stays in CHM while writer holds
+     it; `retire()` fails when `state > 0`.
+   - **`silentLoadForRead` (in-cache path)**: entry found in CHM, protected by ref
+     count; `retire()` fails when `state > 0`.
+   - **`silentLoadForRead` (outside-cache path)**: entry not in CHM, protected by
+     `acquireEntry()` + `decrementReadersReferrer()` on release.
 5. Run full test suite, integration tests, and benchmarks.
 
 ## Risk Assessment
@@ -758,7 +1250,7 @@ now called during physical reclamation (in `reclaimRetired()`), not on every
 | Stalled thread holds back reclamation | Critical sections are very short; monitor max retired list depth |
 | Complexity of slot management | Reuse existing `AtomicOperationsTable` pattern already proven in this codebase |
 | Correctness of epoch ordering | Formal argument: a thread that read an entry must have entered before the entry was retired; reclamation waits for all such threads to exit. Verified by stress tests. |
-| Write path correctness | Write path still uses exclusive locks; EBR only removes read-path CAS. Low risk. |
+| Write path correctness | Write path retains `acquireEntry()` / `releaseEntry()` CAS to prevent CachePointer divergence. `retire()` (CAS from 0 to -1) fails when writers hold the entry, same as today's `freeze()`. EBR only removes read-path CAS. Low risk. |
 
 ## Open Questions
 
