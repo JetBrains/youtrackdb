@@ -1264,9 +1264,13 @@ public class IndexHistogramManager extends DurableComponent {
 
   private void scheduleRebalance(
       ExecutorService executor) {
-    // Check cooldown
-    if (System.nanoTime() - lastRebalanceFailureNanos
-        < rebalanceFailureCooldownNs) {
+    // Check cooldown — only enforce when a failure has actually occurred
+    // (lastRebalanceFailureNanos != 0). Without this guard, on JVM startup
+    // System.nanoTime() - 0 could theoretically be negative (nanoTime spec
+    // allows negative values), which would bypass the cooldown.
+    if (lastRebalanceFailureNanos != 0
+        && System.nanoTime() - lastRebalanceFailureNanos
+            < rebalanceFailureCooldownNs) {
       return;
     }
     // At-most-one guard
@@ -1404,13 +1408,20 @@ public class IndexHistogramManager extends DurableComponent {
         if (old == null) {
           return null; // engine deleted during rebalance
         }
+        // Use CHM's totalCount/nullCount (most up-to-date — includes concurrent
+        // commits after the scan) rather than the scanned values. For distinctCount,
+        // use the scan's exact NDV (replaces the approximate HLL estimate).
+        // Note: this means distinctCount may briefly exceed totalCount - nullCount
+        // if concurrent inserts added entries during the scan. This is benign —
+        // subsequent delta applications will correct it, and the planner tolerates
+        // approximate stats.
         var newStats = new IndexStatistics(
             old.stats().totalCount(), finalNDV, old.stats().nullCount());
         return new HistogramSnapshot(
             newStats,
             finalHistogram,
             0, // reset mutationsSinceRebalance
-            old.stats().totalCount(), // totalCountAtLastBuild
+            old.stats().totalCount(), // totalCountAtLastBuild (latest committed, not scanned)
             old.version() + 1, // increment version
             false, // reset hasDriftedBuckets
             finalHll,

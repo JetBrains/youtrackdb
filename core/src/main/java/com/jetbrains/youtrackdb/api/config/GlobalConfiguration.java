@@ -1075,22 +1075,19 @@ public enum GlobalConfiguration {
       "youtrackdb.executor.debug.traceSource",
       "Enable tracing of the source that submit a task in database executor in case of exception",
       Boolean.class,
-      false),
-  EXECUTOR_POOL_MAX_SIZE(
-      "youtrackdb.executor.pool.maxSize",
-      "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-      Integer.class,
-      -1),
-  EXECUTOR_POOL_IO_MAX_SIZE(
-      "youtrackdb.executor.pool.io.maxSize",
-      "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-      Integer.class,
-      -1),
-  EXECUTOR_POOL_IO_ENABLED(
-      "youtrackdb.executor.pool.io.enabled",
-      "Flag to use the executor pool for IO, default enabled",
-      Boolean.class,
-      true),
+      false), EXECUTOR_POOL_MAX_SIZE(
+          "youtrackdb.executor.pool.maxSize",
+          "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
+          Integer.class,
+          -1), EXECUTOR_POOL_IO_MAX_SIZE(
+              "youtrackdb.executor.pool.io.maxSize",
+              "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
+              Integer.class,
+              -1), EXECUTOR_POOL_IO_ENABLED(
+                  "youtrackdb.executor.pool.io.enabled",
+                  "Flag to use the executor pool for IO, default enabled",
+                  Boolean.class,
+                  true),
 
   // ---- Histogram / query statistics configuration ----
 
@@ -1176,32 +1173,40 @@ public enum GlobalConfiguration {
 
   QUERY_STATS_COST_SEQ_PAGE_READ(
       "youtrackdb.query.stats.costSeqPageRead",
-      "Cost of a sequential page read (baseline unit for cost model)",
+      "Cost of a sequential page read (baseline unit for cost model). "
+          + "Internal tuning knob — not intended for end-user configuration.",
       Double.class,
       1.0,
+      true,
       true),
 
   QUERY_STATS_COST_RANDOM_PAGE_READ(
       "youtrackdb.query.stats.costRandomPageRead",
-      "Cost of a random page read relative to sequential",
+      "Cost of a random page read relative to sequential. "
+          + "Internal tuning knob — not intended for end-user configuration.",
       Double.class,
       4.0,
+      true,
       true),
 
   QUERY_STATS_COST_PER_ROW_CPU(
       "youtrackdb.query.stats.costPerRowCpu",
-      "Per-row CPU cost for filtering and comparison",
+      "Per-row CPU cost for filtering and comparison. "
+          + "Internal tuning knob — not intended for end-user configuration.",
       Double.class,
       0.01,
+      true,
       true),
 
   QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH(
       "youtrackdb.query.stats.defaultIndexTreeDepth",
-      "Assumed B-tree depth for index seek cost estimation",
+      "Assumed B-tree depth for index seek cost estimation. "
+          + "Internal tuning knob — not intended for end-user configuration.",
       Integer.class,
       4,
+      true,
       true),
-  ;
+      ;
 
   static {
     readConfiguration();
