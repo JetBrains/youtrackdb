@@ -50,6 +50,9 @@ public final class HyperLogLogSketch {
   // ALPHA_M ≈ 0.7213 / (1 + 1.079 / 1024) ≈ 0.72054
   private static final double ALPHA_M = 0.7213 / (1.0 + 1.079 / M);
 
+  // Maximum valid rho value: 64 - P = 54 (all remaining bits are zero)
+  static final int MAX_REGISTER_VALUE = 64 - P;
+
   // Precomputed 2^64 for large-range correction
   private static final double TWO_POW_64 = Math.pow(2, 64);
 
@@ -204,6 +207,17 @@ public final class HyperLogLogSketch {
     }
     var sketch = new HyperLogLogSketch();
     System.arraycopy(src, offset, sketch.registers, 0, M);
+    // Validate register values: each must be in [0, MAX_REGISTER_VALUE].
+    // A corrupted page could contain values > 54, causing 1L << register[i]
+    // to overflow in estimate() and silently bias the result toward zero.
+    // Clamp to MAX_REGISTER_VALUE rather than rejecting the entire sketch —
+    // a partially-corrupt HLL still provides a useful (if noisy) estimate,
+    // and the next rebalance will rebuild it from scratch.
+    for (int i = 0; i < M; i++) {
+      if (sketch.registers[i] < 0 || sketch.registers[i] > MAX_REGISTER_VALUE) {
+        sketch.registers[i] = (byte) MAX_REGISTER_VALUE;
+      }
+    }
     return sketch;
   }
 
