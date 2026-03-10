@@ -1045,19 +1045,27 @@ public enum GlobalConfiguration {
       "youtrackdb.executor.debug.traceSource",
       "Enable tracing of the source that submit a task in database executor in case of exception",
       Boolean.class,
-      false), EXECUTOR_POOL_MAX_SIZE(
-          "youtrackdb.executor.pool.maxSize",
-          "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-          Integer.class,
-          -1), EXECUTOR_POOL_IO_MAX_SIZE(
-              "youtrackdb.executor.pool.io.maxSize",
-              "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-              Integer.class,
-              -1), EXECUTOR_POOL_IO_ENABLED(
-                  "youtrackdb.executor.pool.io.enabled",
-                  "Flag to use the executor pool for IO, default enabled",
-                  Boolean.class,
-                  true),
+      false),
+
+  EXECUTOR_POOL_MAX_SIZE(
+      "youtrackdb.executor.pool.maxSize",
+      "Maximum number of threads in the executor pool"
+          + " (-1 will base the size on the number CPUs)",
+      Integer.class,
+      -1),
+
+  EXECUTOR_POOL_IO_MAX_SIZE(
+      "youtrackdb.executor.pool.io.maxSize",
+      "Maximum number of threads in the IO executor pool"
+          + " (-1 will base the size on the number CPUs)",
+      Integer.class,
+      -1),
+
+  EXECUTOR_POOL_IO_ENABLED(
+      "youtrackdb.executor.pool.io.enabled",
+      "Flag to use the executor pool for IO, default enabled",
+      Boolean.class,
+      true),
 
   // ---- Histogram / query statistics configuration ----
 
