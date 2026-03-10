@@ -414,6 +414,15 @@ public class IndexHistogramManager extends DurableComponent {
     long waitStartNanos = System.nanoTime();
     boolean warned = false;
     while (!rebalanceInProgress.compareAndSet(false, true)) {
+      if (Thread.interrupted()) {
+        Thread.currentThread().interrupt();
+        logger.warn("Interrupted while waiting for rebalance to"
+            + " complete during close/delete of {}", getName());
+        // Force-acquire the flag to prevent future schedules even
+        // though we were interrupted — the close/delete must proceed.
+        rebalanceInProgress.set(true);
+        return;
+      }
       LockSupport.parkNanos(1_000_000L); // 1 ms
       if (!warned
           && System.nanoTime() - waitStartNanos > 30_000_000_000L) {
