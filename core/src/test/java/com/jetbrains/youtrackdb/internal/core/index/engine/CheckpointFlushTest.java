@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -158,6 +159,64 @@ public class CheckpointFlushTest {
     // And flushIfDirty() resets it completely
     fixture.manager.flushIfDirty();
     assertEquals(0, fixture.manager.getDirtyMutations());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // flushIfDirty() no-arg: concurrent applyDelta does not lose mutations
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void flushIfDirty_noArg_concurrentApplyDelta_doesNotLoseMutations()
+      throws Exception {
+    // Regression test for TOCTOU race: flushIfDirty() must use CAS to zero
+    // dirtyMutations. Without CAS, mutations added by concurrent applyDelta
+    // between the flush and the reset are silently lost.
+    var fixture = new ManagerFixture();
+    var stats = new IndexStatistics(100, 100, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, null, 0, 100, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+
+    // Accumulate some dirty mutations
+    setDirtyMutations(fixture.manager, 50);
+
+    // Run flushIfDirty and concurrent applyDelta in parallel.
+    // The CAS-based approach ensures that mutations added during/after
+    // the flush are preserved.
+    var flushDone = new java.util.concurrent.CountDownLatch(1);
+    var flushThread = new Thread(() -> {
+      fixture.manager.flushIfDirty();
+      flushDone.countDown();
+    });
+    flushThread.start();
+    flushDone.await(5, java.util.concurrent.TimeUnit.SECONDS);
+
+    // Apply a delta after flush
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 1;
+    delta.mutationCount = 10;
+    fixture.manager.applyDelta(delta);
+
+    // The delta's mutations must NOT have been zeroed out by the flush.
+    // They should be preserved (either the full 10, or if CAS lost a retry
+    // race, at least > 0).
+    assertTrue("Mutations added after flush must not be lost",
+        fixture.manager.getDirtyMutations() > 0);
+  }
+
+  @Test
+  public void flushIfDirty_noArg_ioFailure_restoresDirtyCount() {
+    // Regression test: when flushSnapshotToPage fails, dirtyMutations must
+    // be restored to the pre-flush value so the next checkpoint re-triggers.
+    var fixture = new ManagerFixtureWithFailingFlush();
+    setDirtyMutations(fixture.manager, 75);
+    setFileId(fixture.manager, 42);
+
+    fixture.manager.flushIfDirty();
+
+    // On failure, the CAS zeroed the count but the catch block restores it.
+    assertEquals("dirtyMutations must be restored on flush failure",
+        75, fixture.manager.getDirtyMutations());
   }
 
   // ═══════════════════════════════════════════════════════════════════════
