@@ -114,6 +114,12 @@ public class IndexHistogramManager extends DurableComponent {
   private long fileId = -1;
 
   /**
+   * Cached persist batch size — read from GlobalConfiguration at construction
+   * time to avoid per-commit config lookup overhead on the hot path.
+   */
+  private final int persistBatchSize;
+
+  /**
    * Committed mutations not yet persisted to the .ixs page. Accessed via
    * {@link #DIRTY_MUTATIONS} VarHandle for atomic increments — prevents
    * lost updates when concurrent commits call {@link #applyDelta}.
@@ -133,17 +139,22 @@ public class IndexHistogramManager extends DurableComponent {
   /**
    * Supplier for the engine's sorted key stream. Set by the engine after
    * construction. Used by rebalance to scan keys. May be null before wiring.
+   * Volatile: written during setup, read by background rebalance thread.
    */
-  @Nullable private Supplier<Stream<Object>> keyStreamSupplier;
+  @Nullable private volatile Supplier<Stream<Object>> keyStreamSupplier;
 
   /**
    * Storage-level semaphore limiting concurrent rebalance tasks. Set by
    * the engine from DiskStorage. May be null before wiring.
+   * Volatile: written during setup, read by background rebalance thread.
    */
-  @Nullable private Semaphore rebalanceSemaphore;
+  @Nullable private volatile Semaphore rebalanceSemaphore;
 
-  /** Number of key fields in the index definition (1 for simple, >1 for composite). */
-  private int keyFieldCount = 1;
+  /**
+   * Number of key fields in the index definition (1 for simple, >1 for composite).
+   * Volatile: written during setup, read by onPut/onRemove and background rebalance.
+   */
+  private volatile int keyFieldCount = 1;
 
   /** When true, onPut/onRemove are no-ops (used during bulk load / fillIndex). */
   private volatile boolean bulkLoading;
@@ -189,6 +200,8 @@ public class IndexHistogramManager extends DurableComponent {
     this.keySerializer = (BinarySerializer<Object>) keySerializer;
     this.serializerFactory = serializerFactory;
     this.serializerId = serializerId;
+    this.persistBatchSize =
+        GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger();
   }
 
   // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
@@ -313,8 +326,8 @@ public class IndexHistogramManager extends DurableComponent {
         flushSnapshotToPage();
       }
     } catch (IOException e) {
-      logger.warn(
-          "Failed to flush histogram stats on close for " + getName(), e);
+      logger.warn("Failed to flush histogram stats on close for {}",
+          getName(), e);
     }
     cache.remove(engineId);
     fileId = -1;
@@ -434,16 +447,21 @@ public class IndexHistogramManager extends DurableComponent {
         (long) DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount)
             + delta.mutationCount;
 
-    int persistBatchSize =
-        GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger();
+    // Use CAS gate so only one thread flushes: avoids the race where two
+    // concurrent threads both flush and then both setRelease(0), zeroing out
+    // mutations added between the two flushes.
     if (newDirty >= persistBatchSize) {
-      try {
-        flushSnapshotToPage();
-        DIRTY_MUTATIONS.setRelease(this, 0L);
-      } catch (IOException e) {
-        // I/O flush failure is non-fatal — checkpoint will catch it
-        logger.warn(
-            "Failed to flush histogram stats for " + getName(), e);
+      long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
+      if (observed >= persistBatchSize
+          && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
+        try {
+          flushSnapshotToPage();
+        } catch (IOException e) {
+          // Restore the count so the next applyDelta re-triggers the flush.
+          DIRTY_MUTATIONS.getAndAdd(this, observed);
+          logger.warn("Failed to flush histogram stats for {}",
+              getName(), e);
+        }
       }
     }
   }
@@ -465,7 +483,7 @@ public class IndexHistogramManager extends DurableComponent {
     HyperLogLogSketch newHll = current.hllSketch();
     if (newHll != null && delta.hllSketch != null) {
       // Multi-value: clone and merge HLL, update distinctCount from estimate
-      newHll = newHll.clone();
+      newHll = newHll.copy();
       newHll.merge(delta.hllSketch);
       newDistinct = newHll.estimate();
     } else if (newHll != null) {
@@ -787,9 +805,8 @@ public class IndexHistogramManager extends DurableComponent {
         flushSnapshotToPage();   // creates its own AtomicOperation
         DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
-        logger.warn(
-            "Failed to flush histogram stats for " + getName()
-                + " during checkpoint", e);
+        logger.warn("Failed to flush histogram stats for {}"
+            + " during checkpoint", getName(), e);
       }
     }
   }
@@ -1183,7 +1200,7 @@ public class IndexHistogramManager extends DurableComponent {
           lastRebalanceFailureTime = 0;
         } catch (Exception e) {
           lastRebalanceFailureTime = System.currentTimeMillis();
-          logger.warn("Histogram rebalance failed for " + getName(), e);
+          logger.warn("Histogram rebalance failed for {}", getName(), e);
         } finally {
           rebalanceInProgress.set(false);
         }
@@ -1324,8 +1341,8 @@ public class IndexHistogramManager extends DurableComponent {
         flushSnapshotToPage();
         DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
-        logger.warn("Failed to persist rebalanced histogram for "
-            + getName(), e);
+        logger.warn("Failed to persist rebalanced histogram for {}",
+            getName(), e);
       }
     } finally {
       if (sem != null) {
@@ -1507,8 +1524,22 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Hashes a key value to a 64-bit long for HLL register update.
+   * Uses type-specific hashing for common fixed-size key types to avoid
+   * byte[] allocation via serialization on the hot rebalance path.
    */
   long hashKey(Object key) {
+    if (key instanceof Long v) {
+      return MurmurHash3.murmurHash3_x64_64(v, MURMUR_SEED);
+    } else if (key instanceof Integer v) {
+      return MurmurHash3.murmurHash3_x64_64(v, MURMUR_SEED);
+    } else if (key instanceof Double v) {
+      return MurmurHash3.murmurHash3_x64_64(
+          Double.doubleToLongBits(v), MURMUR_SEED);
+    } else if (key instanceof java.util.Date v) {
+      return MurmurHash3.murmurHash3_x64_64(v.getTime(), MURMUR_SEED);
+    }
+    // Variable-length types (String, byte[], Decimal, CompositeKey):
+    // fall back to serialization.
     byte[] bytes = keySerializer.serializeNativeAsWhole(
         serializerFactory, key);
     return MurmurHash3.murmurHash3_x64_64(bytes, MURMUR_SEED);

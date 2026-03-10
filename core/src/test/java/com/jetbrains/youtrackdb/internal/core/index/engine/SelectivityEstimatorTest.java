@@ -738,8 +738,10 @@ public class SelectivityEstimatorTest {
     double lt = SelectivityEstimator.estimateLessThan(stats, h, 200);
     double eq = SelectivityEstimator.estimateEquality(stats, h, 200);
 
-    // These should approximately sum to 1.0
-    Assert.assertEquals(1.0, gt + lt + eq, 0.05);
+    // These should approximately sum to 1.0. For a uniform histogram with
+    // known bucket sizes, the sum is very close to 1.0 — the only source of
+    // deviation is the equality fraction (1/distinctCount per bucket).
+    Assert.assertEquals(1.0, gt + lt + eq, 0.01);
   }
 
   // ── Uniform mode for range estimators with histogram ──────────────

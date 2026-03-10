@@ -157,11 +157,10 @@ public final class HyperLogLogSketch {
    *
    * @return a new independent sketch with the same register values
    */
-  @Override
-  public HyperLogLogSketch clone() {
-    byte[] copy = new byte[M];
-    System.arraycopy(this.registers, 0, copy, 0, M);
-    return new HyperLogLogSketch(copy);
+  public HyperLogLogSketch copy() {
+    byte[] copied = new byte[M];
+    System.arraycopy(this.registers, 0, copied, 0, M);
+    return new HyperLogLogSketch(copied);
   }
 
   /**

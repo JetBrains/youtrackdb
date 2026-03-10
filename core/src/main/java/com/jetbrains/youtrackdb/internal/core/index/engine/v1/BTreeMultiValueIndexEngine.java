@@ -317,9 +317,11 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public boolean put(AtomicOperation atomicOperation, Object key, RID value) {
+    boolean wasInsert;
     if (key != null) {
       try {
-        svTree.put(atomicOperation, createCompositeKey(key, value), value);
+        wasInsert =
+            svTree.put(atomicOperation, createCompositeKey(key, value), value);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new IndexException(storage.getName(),
@@ -328,7 +330,7 @@ public final class BTreeMultiValueIndexEngine
       }
     } else {
       try {
-        nullTree.put(atomicOperation, value, value);
+        wasInsert = nullTree.put(atomicOperation, value, value);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new IndexException(storage.getName(),
@@ -336,12 +338,11 @@ public final class BTreeMultiValueIndexEngine
             e, storage.getName());
       }
     }
-    // wasInsert is always true for multi-value: each (key, RID) composite is unique.
     var mgr = histogramManager;
     if (mgr != null) {
-      mgr.onPut(atomicOperation, key, false, true);
+      mgr.onPut(atomicOperation, key, false, wasInsert);
     }
-    return true;
+    return wasInsert;
   }
 
   @Override
@@ -491,6 +492,7 @@ public final class BTreeMultiValueIndexEngine
    * Sets the histogram manager for this engine. Called during engine
    * lifecycle (create/load) once the manager is initialized.
    */
+  @Override
   public void setHistogramManager(@Nullable IndexHistogramManager histogramManager) {
     this.histogramManager = histogramManager;
   }

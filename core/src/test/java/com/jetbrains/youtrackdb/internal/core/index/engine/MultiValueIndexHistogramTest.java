@@ -494,6 +494,58 @@ public class MultiValueIndexHistogramTest {
   }
 
   @Test
+  public void lazyHllInit_transitionFromNoHllToHll_afterBuild() {
+    // Simulates the full lifecycle: multi-value index starts below
+    // HISTOGRAM_MIN_SIZE (no HLL), then crosses the threshold, triggering
+    // a build that populates both histogram and HLL. After this, incremental
+    // onPut calls should produce HLL deltas that merge correctly.
+    var fixture = new MultiValueFixture();
+
+    // Phase 1: below threshold — no HLL, no histogram
+    var belowStats = new IndexStatistics(5, 5, 0);
+    var belowSnapshot = new HistogramSnapshot(
+        belowStats, null, 0, 5, 0, false, null, false);
+    fixture.cache.put(fixture.engineId, belowSnapshot);
+
+    // onPut below threshold: no HLL delta generated
+    var holder1 = new HistogramDeltaHolder();
+    var op1 = mockOp(holder1);
+    fixture.manager.onPut(op1, 42, false, true);
+    var delta1 = holder1.getDeltas().get(fixture.engineId);
+    assertNull("No HLL delta below threshold", delta1.hllSketch);
+
+    // Phase 2: simulate crossing threshold — install snapshot with HLL
+    // (as buildHistogram would produce after scanning keys)
+    var hll = new HyperLogLogSketch();
+    for (int i = 0; i < 50; i++) {
+      hll.add(fixture.manager.hashKey(i));
+    }
+    long baseDistinct = hll.estimate();
+    assertTrue("Baseline HLL should estimate ~50", baseDistinct > 30);
+
+    var aboveStats = new IndexStatistics(50, baseDistinct, 0);
+    var aboveSnapshot = new HistogramSnapshot(
+        aboveStats, create3BucketHistogram(), 0, 50, 1, false,
+        hll, false);
+    fixture.cache.put(fixture.engineId, aboveSnapshot);
+
+    // Phase 3: onPut after threshold — HLL delta should now be generated
+    var holder2 = new HistogramDeltaHolder();
+    var op2 = mockOp(holder2);
+    fixture.manager.onPut(op2, 999, false, true);
+    var delta2 = holder2.getDeltas().get(fixture.engineId);
+    assertNotNull("HLL delta should be created after threshold crossing",
+        delta2.hllSketch);
+
+    // Apply the delta and verify distinctCount is updated from HLL merge
+    var result = IndexHistogramManager.computeNewSnapshot(
+        aboveSnapshot, delta2);
+    assertNotNull("Resulting HLL should be non-null", result.hllSketch());
+    assertTrue("distinctCount should reflect new key",
+        result.stats().distinctCount() >= baseDistinct);
+  }
+
+  @Test
   public void lazyHllInit_afterThresholdCrossing_hllMergeWorks() {
     // Given a multi-value snapshot that has crossed the threshold and now
     // has a histogram and HLL (simulating post-buildHistogram state)

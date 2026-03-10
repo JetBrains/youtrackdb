@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -314,21 +315,25 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void multiValue_put_nonNullKey_callsOnPutWithWasInsertTrue() throws IOException {
-    // Given a multi-value engine with a histogram manager
+    // Given a multi-value engine with a histogram manager where B-tree reports insert
     var fixture = new MultiValueFixture();
+    when(fixture.svTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When put is called with a non-null key
     boolean result = fixture.engine.put(fixture.op, "key1", new RecordId(1, 1));
 
-    // Then wasInsert is always true for multi-value and isSingleValue=false
+    // Then wasInsert propagates from B-tree and isSingleValue=false
     assertTrue(result);
     verify(fixture.manager).onPut(fixture.op, "key1", false, true);
   }
 
   @Test
   public void multiValue_put_nullKey_callsOnPutWithNullKey() throws IOException {
-    // Given a multi-value engine with a histogram manager
+    // Given a multi-value engine with a histogram manager where null-tree reports insert
     var fixture = new MultiValueFixture();
+    when(fixture.nullTree.put(any(), any(), any(RID.class)))
+        .thenReturn(true);
 
     // When put is called with a null key
     boolean result = fixture.engine.put(fixture.op, null, new RecordId(1, 1));
@@ -340,9 +345,11 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void multiValue_put_noManager_worksNormally() throws IOException {
-    // Given no histogram manager
+    // Given no histogram manager, B-tree reports insert
     var fixture = new MultiValueFixture();
     fixture.engine.setHistogramManager(null);
+    when(fixture.svTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When put is called
     boolean result = fixture.engine.put(fixture.op, "key1", new RecordId(1, 1));
