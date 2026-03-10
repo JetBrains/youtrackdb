@@ -181,6 +181,14 @@ depending on the ordering requirements**:
 
 **`enter()` — opaque write + full fence + grow-safety retry:**
 ```java
+// The epoch is read once, BEFORE the retry loop. This is intentional:
+// if grow() causes a retry while the global epoch concurrently advances,
+// the retry writes the original (now stale-by-one) epoch value. This is
+// conservative — the thread appears to have entered one epoch earlier,
+// which can only delay reclamation (never cause use-after-free). Re-reading
+// the epoch on each retry would add an unnecessary opaque read per iteration
+// for a negligible improvement in reclamation latency during the rare
+// grow() + epoch-advance race.
 long epoch = (long) GLOBAL_EPOCH_HANDLE.getOpaque(this);
 int paddedIndex = slotIndex * SLOT_STRIDE;
 long[] s;
@@ -259,8 +267,20 @@ array. No retry loop is needed here.
 
 **`advanceEpoch()` — opaque write:**
 `GLOBAL_EPOCH_HANDLE.setOpaque(this, epoch + 1)` — called under `evictionLock`
-so no contention. Opaque is sufficient because the eviction lock's
-unlock provides the necessary release fence.
+so no contention. Opaque is sufficient for two reasons:
+
+1. **Under `evictionLock`** (the common case — `reclaimRetired()` in
+   `drainBuffers()` / `assistReclamation()`): the lock's unlock provides the
+   necessary release fence, and `computeSafeEpoch()` is called within the
+   same lock section — same-thread opaque coherence guarantees visibility.
+
+2. **Outside `evictionLock`** (the `waitForSafeEpoch()` path in `clearFile()`
+   / `close()` / `clear()`): the calling thread is the same thread that wrote
+   the epoch under the lock. Opaque provides per-variable coherence: a
+   thread's own opaque writes are always visible to its subsequent opaque
+   reads of the same variable. So `computeSafeEpoch()`'s `getOpaque` read
+   of `globalEpoch` sees the value written by the same thread's
+   `advanceEpoch()`, regardless of whether the lock is still held.
 
 **Slot lifecycle summary:**
 - `enter()`: opaque write + `fullFence()` in a retry loop (StoreLoad barrier
@@ -270,7 +290,9 @@ unlock provides the necessary release fence.
 - `exit()`: release write (ensures critical section completes before exit)
 - `releaseSlot()`: release write (consistency with `exit()` — same logical
   operation; see "Slot reuse" in Slot Assignment for rationale)
-- `advanceEpoch()`: opaque write (evictionLock provides ordering)
+- `advanceEpoch()`: opaque write (evictionLock provides ordering under-lock;
+  same-thread coherence provides ordering for outside-lock callers like
+  `waitForSafeEpoch()`)
 
 The critical property: `enter()` and `exit()` are **writes to
 thread-local slots** — no contended atomics, no cache-line bouncing between
@@ -627,6 +649,23 @@ private void grow(int requiredIndex) {
     }
     slotReleased = newReleased;  // volatile write
 
+    // IMPORTANT: `slots` must be published LAST, after all auxiliary arrays.
+    // This guarantees that a reader (computeSafeEpoch) that sees the new
+    // `slots` array also sees the new `slotOwners`, `slotCleanables`, and
+    // `slotReleased`. The JMM provides this via transitivity: slotOwners
+    // volatile write hb→ slots volatile write (program order within grow()),
+    // and if the reader's slots volatile read sees the new array, it forms
+    // a hb chain: slotOwners-write hb→ slots-write hb→ reader's slots-read
+    // hb→ reader's slotOwners-read (program order). By transitivity, the
+    // reader's slotOwners-read sees the new array (or a later value).
+    //
+    // The converse case (reader sees old `slots` but new `slotOwners`) is
+    // also safe: the reader iterates only the old (smaller) `slots` array,
+    // so new-but-larger `slotOwners` entries beyond the old array's range
+    // are never accessed. For indices within the old array, the new
+    // `slotOwners` was populated by System.arraycopy from the old one,
+    // so existing values are preserved.
+    //
     // Volatile write publishes the new array. Readers (computeSafeEpoch)
     // read the volatile `slots` reference once and scan that snapshot.
     // A reader that sees the old array may miss newly added slots. Those
@@ -1177,6 +1216,7 @@ private void reclaimRetired() {
   while ((entry = retiredList.peek()) != null && entry.retireEpoch() <= safeEpoch) {
     retiredList.poll();
     retiredListSize--;       // volatile write; visible to outside-lock backpressure check
+    assert retiredListSize >= 0 : "retiredListSize underflow: " + retiredListSize;
     entry.getCachePointer().decrementReadersReferrer();
     entry.clearCachePointer();
   }
@@ -1516,21 +1556,34 @@ The approach:
    to move the entry in the LRU lists — but the entry is no longer in any list,
    causing data structure corruption.
 5. Remove entries from CHM (making them unreachable) and from LRU lists.
-6. Record the current `globalEpoch` as `retireEpoch` for these entries.
-7. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
+6. Also drain the retired list for entries belonging to this file (previously
+   evicted entries that are no longer in the CHM — see "Why the retired list
+   must be drained for the file" below).
+7. Record the current `globalEpoch` as a **local** `retireEpoch` variable.
+   This single value is used for `waitForSafeEpoch()` — it is guaranteed to
+   be `>=` the per-entry `retireEpoch` of all previously retired entries
+   (which were retired at earlier epochs), so waiting for this value is
+   sufficient to cover all collected entries. The per-entry `retireEpoch`
+   fields on `liveEntries` are **not** set because these entries bypass the
+   retired list and `reclaimRetired()` entirely — they are reclaimed directly
+   after `waitForSafeEpoch()`. (Their default value of `Long.MAX_VALUE` acts
+   as a safety net: if a code change accidentally routes them through
+   `reclaimRetired()`, they would never satisfy `retireEpoch <= safeEpoch`,
+   preventing premature reclamation.)
+8. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
    holds `evictionLock`.
-8. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
+9. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
    **spins/parks outside the lock** until `computeSafeEpoch() >= retireEpoch`.
    Releasing the lock is essential: threads that are currently inside critical
    sections need to finish and call `exit()`, and threads that enter new
-   critical sections after step 7 will record an epoch > `retireEpoch` (so
+   critical sections after step 8 will record an epoch > `retireEpoch` (so
    they don't block reclamation). If `waitForSafeEpoch` were called under
    `evictionLock`, it would deadlock — no drain cycle could advance the epoch
    or make progress while the lock is held.
-9. Once `waitForSafeEpoch` returns, all threads that could have observed the
-   removed entries have exited their critical sections. Physically reclaim
-   the entries (release pointers back to `ByteBufferPool`).
-10. Proceed with file close/delete.
+10. Once `waitForSafeEpoch` returns, all threads that could have observed the
+    removed entries have exited their critical sections. Physically reclaim
+    the entries (release pointers back to `ByteBufferPool`).
+11. Proceed with file close/delete.
 
 ```java
 // In LockFreeReadCache:
@@ -1580,6 +1633,36 @@ void clearFile(long fileId) {
   }
 }
 
+private List<CacheEntry> retireAndRemoveEntriesForFile(long fileId) {
+  // Scan the CHM for entries belonging to fileId. For each entry:
+  // 1. retire() — CAS from 0 to RETIRED. Precondition guarantees state == 0,
+  //    so this always succeeds. If the CAS fails, throw IllegalStateException
+  //    immediately — do NOT remove the entry from the CHM (see "Error handling
+  //    on retire() failure" above).
+  // 2. data.remove(pageKey, entry) — two-arg form, removes from CHM.
+  // 3. policy.onRemove(entry) — removes from LRU lists.
+  // 4. cacheSize.decrementAndGet().
+  // Called under evictionLock, so no concurrent eviction can interleave.
+  var result = new ArrayList<CacheEntry>();
+  for (var it = data.entrySet().iterator(); it.hasNext(); ) {
+    var mapEntry = it.next();
+    var entry = mapEntry.getValue();
+    if (entry.getFileId() != fileId) {
+      continue;
+    }
+    if (!entry.retire()) {
+      throw new IllegalStateException(
+          "Failed to retire entry " + mapEntry.getKey()
+              + ": state != 0 (precondition violated — writers still active)");
+    }
+    it.remove();                       // remove from CHM
+    policy.onRemove(entry);            // remove from LRU lists
+    cacheSize.decrementAndGet();
+    result.add(entry);
+  }
+  return result;
+}
+
 private List<CacheEntry> removeRetiredEntriesForFile(long fileId) {
   // Scan the retired list and remove entries matching fileId.
   // Called under evictionLock, so no concurrent modification.
@@ -1597,6 +1680,7 @@ private List<CacheEntry> removeRetiredEntriesForFile(long fileId) {
     if (entry.getFileId() == fileId) {
       it.remove();
       retiredListSize--;
+      assert retiredListSize >= 0 : "retiredListSize underflow: " + retiredListSize;
       result.add(entry);
     }
   }
@@ -1647,7 +1731,7 @@ calling thread's `ThreadLocal<SlotHandle>`. If the `SlotHandle` is `null`
 slot was allocated, so the thread cannot be blocking itself. If the
 `SlotHandle` exists and its `active` flag is `true`, the method throws
 `IllegalStateException` immediately rather than spinning to timeout.
-All callers (`clearFile()`, `close()`) satisfy this naturally:
+All callers (`clearFile()`, `close()`, `clear()`) satisfy this naturally:
 they run after the component's exclusive lock has drained all in-flight
 operations, so no epoch is active on the calling thread. **Maintainer
 rule:** never call `waitForSafeEpoch` from within a component operation or
@@ -1661,7 +1745,7 @@ were in a critical section at or before `retireEpoch` exit. Specifically:
   progress — `computeSafeEpoch()` returns `<= retireEpoch - 1 < retireEpoch`.
   Once that thread calls `exit()` (release write of `INACTIVE`), its slot no
   longer contributes to the minimum.
-- A thread that enters **after** `advanceEpoch()` (step 4) records epoch
+- A thread that enters **after** `advanceEpoch()` (step 8) records epoch
   `> retireEpoch`, so it does not block `waitForSafeEpoch`.
 - When all pre-existing threads have exited, all slots are either `INACTIVE`
   or hold an epoch `> retireEpoch`. `computeSafeEpoch()` returns
@@ -1852,6 +1936,16 @@ dead thread's `SlotHandle` becomes GC-eligible, the Cleaner fires
 free list. Until GC collects the `SlotHandle`, the stale epoch blocks
 reclamation — a bounded liveness issue, not a safety violation.
 
+**Interaction with `waitForSafeEpoch()` timeout:** If a thread dies
+mid-critical-section via `Thread.stop()` and GC does not collect the
+`SlotHandle` within the 30-second `waitForSafeEpoch` timeout, `clearFile()`
+/ `close()` / `clear()` will throw `IllegalStateException`. This is
+acceptable: `Thread.stop()` has been deprecated since JDK 1.2 and removed
+in JDK 21 (the minimum JDK for this project). JVM-level crashes are
+unrecoverable regardless. In both cases, the alternative — waiting
+indefinitely for a slot that can never be cleared — is worse than failing
+fast with a clear error message.
+
 #### Outside-Cache Entries and `silentLoadForRead`
 
 `silentLoadForRead` is used by `DiskStorage.backupPagesWithChanges()` for
@@ -1941,50 +2035,15 @@ The approach:
 10. **Physically reclaim all collected entries:** call
     `decrementReadersReferrer()` and `clearCachePointer()` on each.
 
+Both `close()` and `clear()` share the same retire-wait-reclaim logic via
+a private `retireAndReclaimAll(boolean resetCacheSize)` helper. The only
+difference is that `clear()` resets `cacheSize` to 0 (the cache remains
+operational), while `close()` does not (the cache is going away).
+
 ```java
 // In LockFreeReadCache:
 void close() {
-  flushCurrentThreadReadBatch();
-  long retireEpoch;
-
-  // Two populations of entries to reclaim:
-  // 1. liveEntries — currently in the CHM, retired + removed here.
-  // 2. previouslyRetired — already in the retired list from prior eviction
-  //    cycles (no longer in CHM). These have retireEpoch values from earlier
-  //    epochs, but waiting for the retireEpoch recorded below (current epoch)
-  //    is sufficient since it is >= all of their individual retireEpochs.
-  List<CacheEntry> liveEntries;
-  List<CacheEntry> previouslyRetired;
-
-  evictionLock.lock();
-  try {
-    // Drain read/write buffers so that all pending entries are processed
-    // into the LRU lists before we retire and remove all entries.
-    emptyBuffers();
-    // Retire + remove all entries from CHM and LRU lists.
-    // Throws IllegalStateException if any retire() CAS fails (precondition violation).
-    liveEntries = retireAndRemoveAllEntries();
-    // Drain the entire retired list.
-    previouslyRetired = drainRetiredList();
-    retireEpoch = epochTable.currentEpoch();
-    epochTable.advanceEpoch();
-  } finally {
-    evictionLock.unlock();
-  }
-
-  // Defense in depth: wait for any (unexpected) in-flight critical sections.
-  // Under normal shutdown, all slots are INACTIVE and this returns immediately.
-  epochTable.waitForSafeEpoch(retireEpoch);
-
-  // Physically reclaim all entries.
-  for (var entry : liveEntries) {
-    entry.getCachePointer().decrementReadersReferrer();
-    entry.clearCachePointer();
-  }
-  for (var entry : previouslyRetired) {
-    entry.getCachePointer().decrementReadersReferrer();
-    entry.clearCachePointer();
-  }
+  retireAndReclaimAll(false);
 }
 
 private List<CacheEntry> drainRetiredList() {
@@ -1993,6 +2052,7 @@ private List<CacheEntry> drainRetiredList() {
   CacheEntry entry;
   while ((entry = retiredList.poll()) != null) {
     retiredListSize--;
+    assert retiredListSize >= 0 : "retiredListSize underflow: " + retiredListSize;
     result.add(entry);
   }
   return result;
@@ -2018,58 +2078,63 @@ test cleanup and other non-shutdown scenarios.
 all in-flight component operations have completed. This guarantees `state == 0`
 for all entries (no writers) and no thread is inside an EBR critical section.
 
-The approach is identical to `close()`:
-
-1. **Flush the current thread's read batch** (`flushCurrentThreadReadBatch()`)
-   before acquiring `evictionLock` — ensures this thread's pending read-buffer
-   entries are visible to the drain in step 3.
-2. **Acquire `evictionLock`.**
-3. **Drain read and write buffers** (`emptyBuffers()`). Same rationale as
-   `clearFile()` and `close()`: ensures all pending entries are processed
-   into the LRU lists before retirement.
-4. **Retire and remove all entries from the CHM and LRU lists.** For each
-   entry, call `retire()` (CAS from `0` to `RETIRED`) before removal —
-   same as `clearFile()` / `close()` — to protect against any straggling
-   read-buffer drain (see `clearFile()` discussion above for rationale). The
-   precondition guarantees `state == 0` for all entries, so every `retire()`
-   CAS succeeds. If any `retire()` CAS fails, throw `IllegalStateException`
-   without removing that entry from the CHM (precondition violation).
-5. **Drain the retired list completely.** Collect previously retired entries.
-6. **Record `retireEpoch`** as the current global epoch.
-7. **Advance the epoch.**
-8. **Reset `cacheSize` to 0.**
-9. **Release `evictionLock`.**
-10. **Call `waitForSafeEpoch(retireEpoch)`.** Same defense-in-depth rationale
-    as `close()` — under normal conditions all slots are `INACTIVE` and this
-    returns immediately.
-11. **Physically reclaim all collected entries:** call
-    `decrementReadersReferrer()` and `clearCachePointer()` on each.
+The approach is identical to `close()` (both delegate to
+`retireAndReclaimAll()`), with one addition: `clear()` passes
+`resetCacheSize = true`.
 
 ```java
 // In LockFreeReadCache:
 void clear() {
+  retireAndReclaimAll(true);
+}
+```
+
+**Shared helper — `retireAndReclaimAll()`:**
+
+```java
+/**
+ * Retires all entries, waits for safe epoch, and physically reclaims.
+ * Used by both close() and clear().
+ *
+ * @param resetCacheSize if true, reset cacheSize to 0 (clear() — cache
+ *                       remains operational); if false, skip (close()).
+ */
+private void retireAndReclaimAll(boolean resetCacheSize) {
   flushCurrentThreadReadBatch();
   long retireEpoch;
 
+  // Two populations of entries to reclaim:
+  // 1. liveEntries — currently in the CHM, retired + removed here.
+  // 2. previouslyRetired — already in the retired list from prior eviction
+  //    cycles (no longer in CHM). These have retireEpoch values from earlier
+  //    epochs, but waiting for the retireEpoch recorded below (current epoch)
+  //    is sufficient since it is >= all of their individual retireEpochs.
   List<CacheEntry> liveEntries;
   List<CacheEntry> previouslyRetired;
 
   evictionLock.lock();
   try {
+    // Drain read/write buffers so that all pending entries are processed
+    // into the LRU lists before we retire and remove all entries.
     emptyBuffers();
     // Retire + remove all entries from CHM and LRU lists.
-    // Throws IllegalStateException if any retire() CAS fails (precondition violation).
+    // Throws IllegalStateException if any retire() CAS fails
+    // (precondition violation).
     liveEntries = retireAndRemoveAllEntries();
     // Drain the entire retired list.
     previouslyRetired = drainRetiredList();
     retireEpoch = epochTable.currentEpoch();
     epochTable.advanceEpoch();
-    cacheSize.set(0);
+    if (resetCacheSize) {
+      cacheSize.set(0);
+    }
   } finally {
     evictionLock.unlock();
   }
 
   // Defense in depth: wait for any (unexpected) in-flight critical sections.
+  // Under normal shutdown / clear, all slots are INACTIVE and this returns
+  // immediately.
   epochTable.waitForSafeEpoch(retireEpoch);
 
   // Physically reclaim all entries.
@@ -2084,18 +2149,12 @@ void clear() {
 }
 ```
 
-**Difference from `close()`:** `clear()` resets `cacheSize` to 0 (the cache
-remains operational). Both `clear()` and `close()` call
-`flushCurrentThreadReadBatch()` + `emptyBuffers()` before retirement to
-ensure all pending read/write buffer entries are processed into the LRU
-lists first — for `clear()` this matches the current implementation's
-behavior; for `close()` it is largely cosmetic (the cache is going away)
-but prevents stale buffer entries from interacting with the retirement
-path in unexpected ways.
-
-**Reuse of `retireAndRemoveAllEntries()` and `drainRetiredList()`:** Both
-`clear()` and `close()` share the same helper methods. The only difference
-is the `cacheSize` reset in `clear()`.
+Both `close()` and `clear()` call `flushCurrentThreadReadBatch()` +
+`emptyBuffers()` before retirement to ensure all pending read/write buffer
+entries are processed into the LRU lists first — for `clear()` this matches
+the current implementation's behavior; for `close()` it is largely cosmetic
+(the cache is going away) but prevents stale buffer entries from interacting
+with the retirement path in unexpected ways.
 
 ## Implementation Phases
 
