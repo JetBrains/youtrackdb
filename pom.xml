@@ -1203,6 +1203,8 @@
                 <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
                 <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
                 <param>com.jetbrains.youtrackdb.api.gremlin.*</param>
+                <!-- JMH benchmark infrastructure: not unit-testable -->
+                <param>com.jetbrains.youtrackdb.benchmarks.ldbc.*</param>
               </excludedClasses>
               <excludedTestClasses>
                 <param>*IT</param>
