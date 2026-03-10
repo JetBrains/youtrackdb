@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - server/src/main/java/com/jetbrains/youtrackdb/internal/server/**
@@ -10,6 +11,7 @@ related_docs:
   - README.md
   - driver/README.md
 ---
+-->
 
 **YouTrackDB server** is an implementation of the Gremlin Server API.
 YTDB server is distributed exclusively as a Docker image.

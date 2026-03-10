@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - .github/workflows/maven-pipeline.yml
@@ -12,6 +13,7 @@ related_docs:
   - docs/dev/testflows-runner-setup.md
   - .github/workflows/maven-mirror/maven-mirror-setup.md
 ---
+-->
 
 # CI/CD Pipeline Diagram
 

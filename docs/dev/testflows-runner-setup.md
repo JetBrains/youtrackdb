@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - .github/workflows/testflows-orchestrator.pkr.hcl
@@ -6,6 +7,7 @@ source_files:
 related_docs:
   - docs/dev/ci-cd-diagram.md
 ---
+-->
 
 # TestFlows Runner Setup Guide
 

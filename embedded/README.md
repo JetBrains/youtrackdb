@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - embedded/pom.xml
@@ -5,6 +6,7 @@ source_files:
 related_docs:
   - README.md
 ---
+-->
 
 ### YouTrackDB Embedded
 

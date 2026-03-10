@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java
@@ -12,6 +13,7 @@ related_docs:
   - server/README.md
   - driver/README.md
 ---
+-->
 
 ## YouTrackDB
 

@@ -340,9 +340,10 @@ When the coverage gate fails on a PR, **always check the Ekstazi exclude files f
 
 ### Cross-Reference Conventions
 
-Each documentation file (except CLAUDE.md itself) includes YAML frontmatter that declares which source files it depends on:
+Each documentation file (except CLAUDE.md itself) includes YAML frontmatter wrapped in an HTML comment so that Markdown renderers hide it:
 
-```yaml
+```markdown
+<!--
 ---
 source_files:
   - path/to/source/File.java
@@ -350,6 +351,7 @@ source_files:
 related_docs:
   - docs/other-doc.md
 ---
+-->
 ```
 
 - **`source_files`**: Glob patterns of source files whose changes may require this doc to be updated.
