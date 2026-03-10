@@ -713,4 +713,55 @@ public class EquiDepthHistogramTest {
         data, 0, serializer, serializerFactory);
     Assert.assertNull("Negative mcvKeyLen should return null", result);
   }
+
+  @Test
+  public void testDeserializeOverflowMcvKeyLenReturnsNull() {
+    // Craft a byte array where mcvKeyLen is so large that
+    // pos + mcvKeyLen would overflow int (wrapping to negative).
+    // The overflow-safe guard (mcvKeyLen > data.length - pos) must
+    // catch this without relying on pos + mcvKeyLen being positive.
+    byte[] data = new byte[28];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos); // bucketCount = 1
+    pos += 4;
+    LongSerializer.serializeNative(100L, data, pos); // nonNullCount
+    pos += 8;
+    LongSerializer.serializeNative(50L, data, pos); // mcvFrequency
+    pos += 8;
+    // mcvKeyLen = Integer.MAX_VALUE - 5: pos(24) + mcvKeyLen overflows
+    // to a negative int, which would pass a naive "pos + len > data.length"
+    // check because negative < data.length.
+    IntegerSerializer.serializeNative(Integer.MAX_VALUE - 5, data, pos);
+
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    var result = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+    Assert.assertNull(
+        "Overflowing mcvKeyLen should return null", result);
+  }
+
+  @Test
+  public void testDeserializeOverflowBoundaryKeyLenReturnsNull() {
+    // Craft a byte array where a boundary key length is so large that
+    // pos + keyLen would overflow int.  The MCV section is valid (len=0)
+    // so deserialization reaches the boundary loop.
+    byte[] data = new byte[32];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos); // bucketCount = 1
+    pos += 4;
+    LongSerializer.serializeNative(100L, data, pos); // nonNullCount
+    pos += 8;
+    LongSerializer.serializeNative(50L, data, pos); // mcvFrequency
+    pos += 8;
+    IntegerSerializer.serializeNative(0, data, pos); // mcvKeyLen = 0
+    pos += 4;
+    // First boundary key length: Integer.MAX_VALUE - 5
+    IntegerSerializer.serializeNative(Integer.MAX_VALUE - 5, data, pos);
+
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    var result = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+    Assert.assertNull(
+        "Overflowing boundary keyLen should return null", result);
+  }
 }
