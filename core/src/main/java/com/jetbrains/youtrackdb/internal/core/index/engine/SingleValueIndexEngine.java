@@ -6,6 +6,13 @@ import java.io.IOException;
 
 public interface SingleValueIndexEngine extends V1IndexEngine {
 
+  /**
+   * {@inheritDoc}
+   *
+   * @return {@code true} if a new key was inserted, {@code false} if an
+   *     existing key was updated in-place or the validator rejected the
+   *     operation (IGNORE).
+   */
   boolean validatedPut(
       AtomicOperation atomicOperation,
       Object key,
