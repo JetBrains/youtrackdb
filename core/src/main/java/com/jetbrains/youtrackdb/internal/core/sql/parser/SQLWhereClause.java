@@ -483,10 +483,13 @@ public class SQLWhereClause extends SimpleNode {
 
   /**
    * Returns true if the expression is a simple field reference matching
-   * the given index field name.
+   * the given index field name. Uses {@code getDefaultAlias().getStringValue()}
+   * to compare the unquoted identifier, avoiding mismatches when the query
+   * uses backtick-quoted field names (e.g., {@code `myField`}).
    */
   private static boolean matchesField(SQLExpression expr, String indexField) {
-    return expr.isBaseIdentifier() && indexField.equals(expr.toString());
+    return expr.isBaseIdentifier()
+        && indexField.equals(expr.getDefaultAlias().getStringValue());
   }
 
   public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
