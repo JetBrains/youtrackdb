@@ -40,7 +40,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 
 ## Project Documentation
 
-The `docs/` folder contains project documentation including CI/CD pipeline architecture, test quality requirements, and infrastructure setup guides. See `docs/README.md` for the full index.
+The `docs/` folder contains project documentation. See `docs/README.md` for the index.
 
 ## Module Structure
 
@@ -340,36 +340,7 @@ When the coverage gate fails on a PR, **always check the Ekstazi exclude files f
 
 ## Documentation Sync
 
-### Cross-Reference Conventions
-
-Each documentation file (except CLAUDE.md itself) includes YAML frontmatter wrapped in an HTML comment so that Markdown renderers hide it:
-
-```markdown
-<!--
----
-source_files:
-  - path/to/source/File.java
-  - path/to/other/**
-related_docs:
-  - docs/other-doc.md
----
--->
-```
-
-- **`source_files`**: Glob patterns of source files whose changes may require this doc to be updated.
-- **`related_docs`**: Other documentation files that cover related topics. Useful for cross-referencing when making changes.
-
-The central mapping of all source-to-doc relationships is in `docs/docs-sync.yml`. When adding a new doc or changing which source files a doc depends on, update both the frontmatter and the central mapping.
-
 ### When to Update Documentation
 
-1. **When modifying source code**: Check `docs/docs-sync.yml` to see if any docs reference the files you changed. If so, review those docs and update them if needed.
+1. **When modifying source code**: Review docs in `docs/` and module `README.md` files to see if any cover the area you changed. Update them if needed.
 2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
-
-### Automated Sync
-
-The `.github/workflows/docs-sync.yml` GitHub Action runs on pushes to `develop` that modify source code (not markdown). It:
-
-1. Detects which docs are affected by comparing changed files against `docs/docs-sync.yml` mappings.
-2. Uses Claude Code to read the affected docs and their source files, then proposes updates via a PR.
-3. Has anti-loop safeguards: `paths-ignore` for `docs/adr/**` (ADRs are immutable), actor check for bot pushes, and commit-message check to skip pushes from merged docs-sync PRs.
