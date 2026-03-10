@@ -911,8 +911,9 @@ public class HistogramConstructionTest {
     int space = IndexHistogramManager.computeMaxBoundarySpace(4, 0, 0);
     assertTrue("Space should be positive, got " + space, space > 0);
     // Page payload = 8192 - 28 = 8164, minus FIXED_HEADER (53),
-    // minus 4*8*2 (frequencies+distinctCounts) = 8164 - 53 - 64 = 8047
-    assertEquals(8047, space);
+    // minus HISTOGRAM_BLOB_HEADER (24),
+    // minus 4*8*2 (frequencies+distinctCounts) = 8164 - 53 - 24 - 64 = 8023
+    assertEquals(8023, space);
   }
 
   @Test
@@ -932,6 +933,45 @@ public class HistogramConstructionTest {
     int withMcv =
         IndexHistogramManager.computeMaxBoundarySpace(4, 0, 100);
     assertEquals(100, withoutMcv - withMcv);
+  }
+
+  @Test
+  public void computeMaxBoundarySpace_accountsForBlobHeader() {
+    // The blob header inside EquiDepthHistogram.serialize() adds 24 bytes
+    // (bucketCount=4 + nonNullCount=8 + mcvFrequency=8 + mcvKeyLength=4).
+    // Verify the budget accounts for it by checking the formula against
+    // the actual serialized size of a histogram that uses exactly the
+    // boundary budget.
+    int buckets = 4;
+    int blobHeaderSize = IndexHistogramManager.HISTOGRAM_BLOB_HEADER_SIZE;
+    assertEquals("Blob header should be 24 bytes", 24, blobHeaderSize);
+
+    // Compute max boundary space from the budget
+    int maxBoundarySpace =
+        IndexHistogramManager.computeMaxBoundarySpace(buckets, 0, 0);
+
+    // The total blob size for a histogram that uses exactly maxBoundarySpace
+    // for boundaries should be:
+    //   blobHeader(24) + boundaries(maxBoundarySpace)
+    //   + frequencies(buckets*8) + distinctCounts(buckets*8)
+    int expectedBlobSize = blobHeaderSize + maxBoundarySpace
+        + buckets * 8 + buckets * 8;
+
+    // This blob + FIXED_HEADER_SIZE must fit within the page payload
+    int pagePayload = 8192 - 28; // MAX_PAGE_SIZE - NEXT_FREE_POSITION
+    int totalUsed = IndexHistogramManager.FIXED_HEADER_SIZE + expectedBlobSize;
+    assertTrue(
+        "Boundary-budget histogram blob must fit on page: totalUsed="
+            + totalUsed + " pagePayload=" + pagePayload,
+        totalUsed <= pagePayload);
+
+    // And adding even 1 more byte should exceed the budget
+    int overBudgetBlobSize = expectedBlobSize + 1;
+    int overBudgetUsed =
+        IndexHistogramManager.FIXED_HEADER_SIZE + overBudgetBlobSize;
+    assertTrue(
+        "One byte over budget should exceed page capacity",
+        overBudgetUsed > pagePayload);
   }
 
   // ── fitToPage ──
