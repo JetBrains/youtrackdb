@@ -317,6 +317,14 @@ public enum GlobalConfiguration {
       Float.class,
       0.1f),
 
+  STORAGE_COLLECTION_GC_PAUSE_INTERVAL(
+      "youtrackdb.storage.collection.gc.pauseInterval",
+      "Interval in seconds between periodic records GC cycles."
+          + " The GC task runs with fixed delay: the next cycle starts this many seconds"
+          + " after the previous one completes.",
+      Integer.class,
+      60),
+
   WAL_CACHE_SIZE(
       "youtrackdb.storage.wal.cacheSize",
       "Maximum size of WAL cache (in amount of WAL pages, each page is 4k) If set to 0, caching"

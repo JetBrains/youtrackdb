@@ -5478,6 +5478,57 @@ public abstract class AbstractStorage
   }
 
   /**
+   * Periodic records GC task entry point. Performs two duties:
+   * <ol>
+   *   <li>Opportunistically cleans the snapshot/visibility indexes (same work as
+   *       {@link #cleanupSnapshotIndex()}, using {@code tryLock()} — if another thread is
+   *       already cleaning, this step is skipped).</li>
+   *   <li>Iterates over all collections in the storage and reclaims dead records from those
+   *       that exceed the GC trigger threshold.</li>
+   * </ol>
+   *
+   * <p>Called by the periodic scheduled task ({@code PeriodicRecordsGc}) on the
+   * {@code fuzzyCheckpointExecutor}. The method is safe to call concurrently — snapshot
+   * cleanup uses {@code tryLock()}, and the per-collection GC is serialized by the
+   * collection's component lock inside {@code collectDeadRecords()}.
+   */
+  public void periodicRecordsGc() {
+    if (status != STATUS.OPEN) {
+      return;
+    }
+
+    // Step 1: Opportunistically clean snapshot/visibility indexes.
+    try {
+      cleanupSnapshotIndex();
+    } catch (Exception e) {
+      LogManager.instance().error(this, "Error during snapshot index cleanup"
+          + " in periodic records GC for storage '%s'", e, name);
+    }
+
+    // Step 2: Reclaim dead records from collections that exceed the threshold.
+    var contextConfig = configuration.getContextConfiguration();
+    int minThreshold = contextConfig
+        .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_GC_MIN_THRESHOLD);
+    float scaleFactor = contextConfig
+        .getValueAsFloat(GlobalConfiguration.STORAGE_COLLECTION_GC_SCALE_FACTOR);
+
+    for (var collection : collections) {
+      if (status != STATUS.OPEN) {
+        return;
+      }
+      if (collection instanceof PaginatedCollectionV2 pc
+          && pc.isGcTriggered(minThreshold, scaleFactor)) {
+        try {
+          pc.collectDeadRecords(sharedSnapshotIndex);
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error during records GC"
+              + " for collection '%s' in storage '%s'", e, pc.getName(), name);
+        }
+      }
+    }
+  }
+
+  /**
    * Core eviction logic: removes all visibility/snapshot entries with {@code recordTs} strictly
    * below the given low-water-mark. Extracted as a static method for direct unit testing (same
    * pattern as {@link #computeGlobalLowWaterMark(Set, long)}).
