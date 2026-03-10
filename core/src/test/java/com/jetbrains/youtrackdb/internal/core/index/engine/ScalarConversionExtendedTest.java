@@ -263,18 +263,16 @@ public class ScalarConversionExtendedTest {
         1, boundaries, frequencies, distinctCounts, 100, null, 0);
     IndexStatistics stats = new IndexStatistics(100, 1, 0);
 
-    // The bucket has distinctCounts[0]==1, so single-value optimization
-    // applies: for RANGE mode, fraction = 0.5.
-    // Range [5, 5]: both endpoints in bucket 0, fracY - fracX = 0.5 - 0.5 = 0
-    // so matchingRows = 0 * 100 = 0, selectivity = 0.0.
-    // This is correct: a point range on a single-value bucket with the
-    // same value yields 0 from the range formula (equality is handled
-    // separately by estimateEquality, not estimateRange).
+    // BETWEEN 5 AND 5 is a degenerate range where lo == hi.  The
+    // estimateRange implementation delegates this to estimateEquality
+    // (commit 691f342b8b), which returns 1.0 for a single-value bucket
+    // where the key matches (frequencies[0]/nonNull = 100/100 = 1.0
+    // with distinctCounts[0]=1).
     double sel = SelectivityEstimator.estimateRange(
         stats, histogram, 5, 5, true, true);
     Assert.assertEquals(
-        "point range on single-value bucket: fracY - fracX = 0",
-        0.0, sel, DELTA);
+        "BETWEEN X AND X delegates to equality: full selectivity",
+        1.0, sel, DELTA);
   }
 
   @Test

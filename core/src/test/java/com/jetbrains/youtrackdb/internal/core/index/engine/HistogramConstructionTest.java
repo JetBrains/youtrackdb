@@ -819,6 +819,236 @@ public class HistogramConstructionTest {
     assertEquals(8, histogram.findBucket(100));
   }
 
+  // ── Zipf-distributed build ──
+
+  @Test
+  public void scanAndBuild_zipfDistribution_capturesSkewedShape() {
+    // Build a histogram from a Zipf-like distribution where the most frequent
+    // value (0) has the highest count and frequency decreases with rank.
+    // Zipf approximation: value i appears floor(N / (i+1)) times (harmonic).
+    int ndv = 50;
+    int n = 0;
+    int[] counts = new int[ndv];
+    for (int i = 0; i < ndv; i++) {
+      counts[i] = Math.max(1, 5000 / (i + 1));
+      n += counts[i];
+    }
+    // Generate sorted stream: counts[0] copies of 0, counts[1] copies of 1, ...
+    final int totalN = n;
+    final int[] finalCounts = counts;
+    var keys = IntStream.range(0, totalN).mapToObj(idx -> {
+      int cumulative = 0;
+      for (int v = 0; v < ndv; v++) {
+        cumulative += finalCounts[v];
+        if (idx < cumulative) {
+          return (Object) v;
+        }
+      }
+      return (Object) (ndv - 1);
+    });
+
+    var result = IndexHistogramManager.scanAndBuild(keys, totalN, 32);
+    assertNotNull(result);
+
+    // The most frequent value (0) should be in a bucket with high frequency.
+    // The first bucket should contain more entries than the last bucket
+    // (Zipf skew: low-rank values are dense, high-rank values are sparse).
+    assertTrue("First bucket should have more entries than last bucket "
+            + "(Zipf skew): first=" + result.frequencies[0]
+            + " last=" + result.frequencies[result.actualBucketCount - 1],
+        result.frequencies[0] >= result.frequencies[result.actualBucketCount - 1]);
+
+    // Verify total entries match
+    long totalFreq = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      totalFreq += result.frequencies[i];
+    }
+    assertEquals(totalN, totalFreq);
+
+    // Verify equi-depth property: the majority of buckets should be
+    // within 3x of the target. Zipf's most frequent values (rank 0-2)
+    // can dominate a single bucket because all duplicates stay together,
+    // so we check that at least 75% of buckets are within bound.
+    long target = totalN / result.actualBucketCount;
+    int withinBound = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      if (result.frequencies[i] <= target * 3) {
+        withinBound++;
+      }
+    }
+    assertTrue("At least 75% of buckets should be within 3x of target, "
+            + "but only " + withinBound + "/" + result.actualBucketCount + " are",
+        withinBound >= result.actualBucketCount * 3 / 4);
+  }
+
+  // ── Variable-length key truncation and bucket merging ──
+
+  @Test
+  public void fitToPage_longStringKeys_reducesBucketCount() {
+    // Given: histogram with 16 buckets where each boundary is a very long
+    // string (500 bytes serialized) that exceeds the per-boundary budget.
+    // fitToPage should reduce bucket count to fit within a single page.
+    int buckets = 16;
+    var boundaries = new Comparable<?>[buckets + 1];
+    var frequencies = new long[buckets];
+    var distinctCounts = new long[buckets];
+    for (int i = 0; i <= buckets; i++) {
+      // Each boundary is a long string
+      boundaries[i] = "key_" + String.format("%0500d", i);
+    }
+    for (int i = 0; i < buckets; i++) {
+      frequencies[i] = 100;
+      distinctCounts[i] = 10;
+    }
+
+    var buildResult = new IndexHistogramManager.BuildResult(
+        boundaries, frequencies, distinctCounts, buckets, 160,
+        null, 0);
+
+    // Large boundary calculator: each boundary = 510 bytes
+    // (4-byte prefix + 506-byte string). Total = 17 * 510 = 8670 bytes,
+    // which exceeds the page budget (~8023 bytes for 16 buckets).
+    var fitResult = IndexHistogramManager.fitToPage(
+        buildResult, 1600, true, 0,
+        (bounds, count) -> (count + 1) * 510);
+
+    assertNotNull("fitToPage should produce a result (not fall to uniform)",
+        fitResult);
+    assertTrue("Bucket count should be reduced from " + buckets
+            + ", got " + fitResult.histogram().bucketCount(),
+        fitResult.histogram().bucketCount() < buckets);
+    // Frequencies should sum to the original total
+    long totalFreq = 0;
+    for (int i = 0; i < fitResult.histogram().bucketCount(); i++) {
+      totalFreq += fitResult.histogram().frequencies()[i];
+    }
+    assertEquals(1600, totalFreq);
+  }
+
+  @Test
+  public void fitToPage_truncationPreservesBoundarySortOrder() {
+    // After bucket reduction via fitToPage, boundaries must still be sorted
+    int buckets = 8;
+    var scanResult = IndexHistogramManager.scanAndBuild(
+        IntStream.range(0, 800).mapToObj(i -> (Object) (i / 100)),
+        800, buckets);
+    assertNotNull(scanResult);
+
+    // Use a boundary calculator that reports large sizes, forcing reduction
+    var fitResult = IndexHistogramManager.fitToPage(
+        scanResult, 800, true, 0,
+        (bounds, count) -> (count + 1) * 2000);
+
+    assertNotNull(fitResult);
+    // Verify boundaries are monotonically non-decreasing
+    var h = fitResult.histogram();
+    for (int i = 0; i < h.bucketCount(); i++) {
+      assertTrue("Boundary " + i + " should be <= boundary " + (i + 1),
+          DefaultComparator.INSTANCE.compare(
+              h.boundaries()[i], h.boundaries()[i + 1]) <= 0);
+    }
+  }
+
+  // ── Adaptive bucket count: sqrt(N) cap ──
+
+  @Test
+  public void scanAndBuild_smallIndex_bucketCountCappedBySqrt() {
+    // buildHistogram applies sqrt cap BEFORE calling scanAndBuild:
+    //   targetBuckets = min(128, floor(sqrt(1000))) = min(128, 31) = 31
+    // Verify that scanAndBuild with the pre-capped value produces <= 31 buckets.
+    int n = 1000;
+    int sqrtCap = (int) Math.floor(Math.sqrt(n));
+    assertEquals("sqrt(1000) should be 31", 31, sqrtCap);
+
+    int targetBuckets = Math.min(128, sqrtCap);
+    var keys = IntStream.range(0, n).mapToObj(i -> (Object) i);
+
+    var result = IndexHistogramManager.scanAndBuild(keys, n, targetBuckets);
+    assertNotNull(result);
+
+    assertTrue("Bucket count " + result.actualBucketCount
+            + " should be <= sqrt-capped target " + targetBuckets,
+        result.actualBucketCount <= targetBuckets);
+
+    // Verify total entries preserved
+    long totalFreq = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      totalFreq += result.frequencies[i];
+    }
+    assertEquals(n, totalFreq);
+
+    // Each bucket should have at least sqrt(n) entries on average
+    long avgPerBucket = n / result.actualBucketCount;
+    assertTrue("Average entries per bucket (" + avgPerBucket
+            + ") should be >= sqrt(n) (" + sqrtCap + ")",
+        avgPerBucket >= sqrtCap);
+  }
+
+  @Test
+  public void scanAndBuild_largeIndex_fullBucketCount() {
+    // Given: 20000 entries with 128 target buckets.
+    // sqrt(20000) = 141 > 128, so the sqrt cap does NOT fire.
+    // buildHistogram would pass targetBuckets = min(128, 141) = 128.
+    int n = 20000;
+    int targetBuckets = Math.min(128,
+        (int) Math.floor(Math.sqrt(n)));
+    assertEquals("sqrt cap should not reduce 128", 128, targetBuckets);
+
+    var keys = IntStream.range(0, n).mapToObj(i -> (Object) (i / 157));
+    // 157 distinct values, each appearing ~127 times
+
+    var result = IndexHistogramManager.scanAndBuild(keys, n, targetBuckets);
+    assertNotNull(result);
+
+    assertEquals("Large index should use full target bucket count",
+        128, result.actualBucketCount);
+  }
+
+  // ── NDV-based bucket pre-computation ──
+
+  @Test
+  public void scanAndBuild_lowNDV_bucketCountEqualsNDV() {
+    // Given: 5000 entries with only 5 distinct values.
+    // Target 128 buckets, but NDV=5 means at most 5 buckets are useful.
+    int n = 5000;
+    var keys = IntStream.range(0, n).mapToObj(i -> (Object) (i / 1000));
+    // Values: 0,0,...,0 (1000x), 1,1,...,1 (1000x), ..., 4,4,...,4 (1000x)
+
+    var result = IndexHistogramManager.scanAndBuild(keys, n, 128);
+    assertNotNull(result);
+
+    // The scan naturally produces at most NDV=5 buckets (split condition
+    // never fires more than NDV-1=4 times for 5 distinct values).
+    assertEquals("Bucket count should equal NDV for low-NDV index",
+        5, result.actualBucketCount);
+
+    // Each bucket should have exactly 1000 entries (perfect for 5 equal groups)
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      assertEquals("Bucket " + i + " frequency", 1000,
+          result.frequencies[i]);
+      assertEquals("Bucket " + i + " distinctCount", 1,
+          result.distinctCounts[i]);
+    }
+  }
+
+  @Test
+  public void scanAndBuild_booleanIndex_twoDistinctValues_twoBuckets() {
+    // Given: boolean-like index with 10000 entries, 2 distinct values
+    int n = 10000;
+    var keys = IntStream.range(0, n).mapToObj(i -> (Object) (i < 3000 ? 0 : 1));
+    // 3000 zeros, 7000 ones (sorted)
+
+    var result = IndexHistogramManager.scanAndBuild(keys, n, 128);
+    assertNotNull(result);
+
+    assertEquals("Boolean index should produce 2 buckets",
+        2, result.actualBucketCount);
+    assertEquals(3000, result.frequencies[0]);
+    assertEquals(7000, result.frequencies[1]);
+    assertEquals(1, result.distinctCounts[0]);
+    assertEquals(1, result.distinctCounts[1]);
+  }
+
   // ── mergeBuckets ──
 
   @Test
