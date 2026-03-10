@@ -41,6 +41,31 @@ import javax.annotation.Nullable;
  *
  * <p>All formulas clamp their result to [0.0, 1.0] before returning.
  *
+ * <h3>Selectivity semantics and null fraction bias</h3>
+ *
+ * <p>For non-null predicates (equality, range, IN), the histogram formulas
+ * express selectivity as a <b>fraction of non-null entries</b>
+ * ({@code matchingRows / nonNullCount}).  Callers in
+ * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor}
+ * multiply selectivity by {@code indexStats.totalCount()} (which includes
+ * nulls), and callers in
+ * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause}
+ * multiply by {@code classCount}.  When null entries exist, this produces a
+ * systematic overestimate by a factor of
+ * {@code totalCount / nonNullCount}.
+ *
+ * <p>This is an <b>intentional conservative bias</b>:
+ * <ul>
+ *   <li>Overestimating matching rows makes index seeks appear slightly more
+ *       expensive, biasing the optimizer toward full scans in borderline
+ *       cases — a safer direction than underestimating (which could pick
+ *       a catastrophically bad index).</li>
+ *   <li>The error is bounded by the null fraction
+ *       ({@code nullCount / totalCount}), which is typically small.</li>
+ *   <li>IS NULL / IS NOT NULL formulas use their own denominator
+ *       ({@code nonNullCount + nullCount}) and are not affected.</li>
+ * </ul>
+ *
  * <p>This class provides per-predicate-type estimation methods. The top-level
  * dispatcher that interprets {@code SQLBooleanExpression} predicates is wired
  * in Steps 7-8 (SQLWhereClause and IndexSearchDescriptor integration).
@@ -97,6 +122,9 @@ public final class SelectivityEstimator {
     if (nonNull <= 0) {
       return 0.0;
     }
+    // 1/distinctCount expresses selectivity as a fraction of non-null entries.
+    // Callers multiply by totalCount (including nulls), producing a mild
+    // overestimate bounded by the null fraction — see class-level Javadoc.
     return clamp(1.0 / stats.distinctCount());
   }
 

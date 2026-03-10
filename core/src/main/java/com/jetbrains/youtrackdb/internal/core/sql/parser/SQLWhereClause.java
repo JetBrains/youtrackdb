@@ -271,6 +271,10 @@ public class SQLWhereClause extends SimpleNode {
     if (!anyEstimated) {
       return -1;
     }
+    // Note: selectivity is a fraction of non-null index entries (see
+    // SelectivityEstimator Javadoc), but classCount includes all rows.
+    // This produces a mild overestimate bounded by the null fraction —
+    // an intentional conservative bias (see SelectivityEstimator class doc).
     return Math.max(1, (long) (classCount * selectivity));
   }
 
