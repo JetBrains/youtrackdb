@@ -277,11 +277,18 @@ public class AnalyzeIndexStatementExecutionTest extends DbTestBase {
       });
       analyzeThread.start();
 
-      // Best-effort wait for the analyze thread to enter the poll loop
-      // inside waitForRebalanceAndReturn(). Under heavy CI load the
-      // thread may not reach the loop before the flag is cleared, but
-      // the test still validates the no-deadlock / correct-return path.
-      Thread.sleep(300);
+      // Wait for the analyze thread to enter the poll loop inside
+      // waitForRebalanceAndReturn(), where it calls Thread.sleep(100).
+      // Poll the thread state instead of using a fixed sleep — this is
+      // deterministic regardless of CI load.
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+      while (System.nanoTime() < deadline) {
+        var state = analyzeThread.getState();
+        if (state == Thread.State.TIMED_WAITING) {
+          break; // thread is in Thread.sleep(100) inside the poll loop
+        }
+        Thread.onSpinWait();
+      }
 
       // Clear the rebalance flag — the analyze call detects this and returns
       rebalanceFlag.set(false);
