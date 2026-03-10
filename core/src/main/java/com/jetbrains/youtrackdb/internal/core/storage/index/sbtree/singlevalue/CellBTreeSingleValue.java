@@ -20,8 +20,7 @@ public interface CellBTreeSingleValue<K> {
       int keySize)
       throws IOException;
 
-  @Nullable
-  RID get(K key, @Nonnull AtomicOperation atomicOperation);
+  @Nullable RID get(K key, @Nonnull AtomicOperation atomicOperation);
 
   boolean put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
@@ -48,8 +47,7 @@ public interface CellBTreeSingleValue<K> {
 
   long size(AtomicOperation atomicOperation);
 
-  @Nullable
-  RID remove(AtomicOperation atomicOperation, K key) throws IOException;
+  @Nullable RID remove(AtomicOperation atomicOperation, K key) throws IOException;
 
   Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder,
       AtomicOperation atomicOperation);
@@ -57,11 +55,9 @@ public interface CellBTreeSingleValue<K> {
   Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder,
       AtomicOperation atomicOperation);
 
-  @Nullable
-  K firstKey(AtomicOperation atomicOperation);
+  @Nullable K firstKey(AtomicOperation atomicOperation);
 
-  @Nullable
-  K lastKey(AtomicOperation atomicOperation);
+  @Nullable K lastKey(AtomicOperation atomicOperation);
 
   Stream<K> keyStream(AtomicOperation atomicOperation);
 
