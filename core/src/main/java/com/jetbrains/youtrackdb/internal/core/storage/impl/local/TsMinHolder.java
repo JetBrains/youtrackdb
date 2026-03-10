@@ -155,4 +155,35 @@ final class TsMinHolder {
   @Nullable StackTraceElement[] getTxStartStackTraceOpaque() {
     return (StackTraceElement[]) TX_START_STACK_TRACE.getOpaque(this);
   }
+
+  /**
+   * Captures diagnostic metadata for the stale transaction monitor. Called at the first tx
+   * begin on this thread (activeTxCount transitions 0→1). Must be called <b>before</b> the
+   * volatile tsMin write to ensure the monitor never sees an active tsMin without valid
+   * diagnostic fields.
+   *
+   * @param startTimeNanos approximate nano time when the transaction started (from Ticker)
+   * @param thread the owning thread (for name and id)
+   * @param captureStackTrace whether to capture the stack trace at tx begin
+   */
+  void captureDiagnostics(long startTimeNanos, Thread thread, boolean captureStackTrace) {
+    setTxStartTimeNanosOpaque(startTimeNanos);
+    setOwnerThreadNameOpaque(thread.getName());
+    setOwnerThreadIdOpaque(thread.threadId());
+    if (captureStackTrace) {
+      setTxStartStackTraceOpaque(thread.getStackTrace());
+    }
+  }
+
+  /**
+   * Clears diagnostic metadata when the last transaction on this thread ends (activeTxCount
+   * transitions 1→0). Must be called <b>before</b> the opaque tsMin reset to ensure the
+   * monitor never sees an active tsMin with cleared diagnostic fields.
+   */
+  void clearDiagnostics() {
+    setTxStartTimeNanosOpaque(0);
+    setTxStartStackTraceOpaque(null);
+    setOwnerThreadNameOpaque(null);
+    setOwnerThreadIdOpaque(0);
+  }
 }

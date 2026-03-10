@@ -603,6 +603,125 @@ public class TsMinHolderTest {
     }
   }
 
+  // --- Diagnostic field capture/clear lifecycle ---
+
+  /**
+   * captureDiagnostics sets all diagnostic fields: txStartTimeNanos, ownerThreadName,
+   * ownerThreadId. When captureStackTrace is false, txStartStackTrace remains null.
+   */
+  @Test
+  public void testCaptureDiagnosticsWithoutStackTrace() {
+    var holder = new TsMinHolder();
+    var thread = Thread.currentThread();
+
+    holder.captureDiagnostics(12345L, thread, false);
+
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(12345L);
+    assertThat(holder.getOwnerThreadNameOpaque()).isEqualTo(thread.getName());
+    assertThat(holder.getOwnerThreadIdOpaque()).isEqualTo(thread.threadId());
+    assertThat(holder.getTxStartStackTraceOpaque()).isNull();
+  }
+
+  /**
+   * captureDiagnostics with captureStackTrace=true also captures the stack trace.
+   */
+  @Test
+  public void testCaptureDiagnosticsWithStackTrace() {
+    var holder = new TsMinHolder();
+    var thread = Thread.currentThread();
+
+    holder.captureDiagnostics(99999L, thread, true);
+
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(99999L);
+    assertThat(holder.getOwnerThreadNameOpaque()).isEqualTo(thread.getName());
+    assertThat(holder.getOwnerThreadIdOpaque()).isEqualTo(thread.threadId());
+    assertThat(holder.getTxStartStackTraceOpaque()).isNotNull();
+    assertThat(holder.getTxStartStackTraceOpaque().length).isGreaterThan(0);
+  }
+
+  /**
+   * clearDiagnostics resets all diagnostic fields to their default values:
+   * txStartTimeNanos=0, ownerThreadName=null, ownerThreadId=0, txStartStackTrace=null.
+   */
+  @Test
+  public void testClearDiagnosticsResetsAllFields() {
+    var holder = new TsMinHolder();
+    var thread = Thread.currentThread();
+
+    // First populate all fields
+    holder.captureDiagnostics(12345L, thread, true);
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(12345L);
+    assertThat(holder.getOwnerThreadNameOpaque()).isNotNull();
+    assertThat(holder.getOwnerThreadIdOpaque()).isNotEqualTo(0);
+    assertThat(holder.getTxStartStackTraceOpaque()).isNotNull();
+
+    // Clear and verify all are reset
+    holder.clearDiagnostics();
+
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(0);
+    assertThat(holder.getOwnerThreadNameOpaque()).isNull();
+    assertThat(holder.getOwnerThreadIdOpaque()).isEqualTo(0);
+    assertThat(holder.getTxStartStackTraceOpaque()).isNull();
+  }
+
+  /**
+   * Calling clearDiagnostics on a fresh holder (no diagnostics captured) should be a no-op.
+   */
+  @Test
+  public void testClearDiagnosticsOnFreshHolder() {
+    var holder = new TsMinHolder();
+    holder.clearDiagnostics();
+
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(0);
+    assertThat(holder.getOwnerThreadNameOpaque()).isNull();
+    assertThat(holder.getOwnerThreadIdOpaque()).isEqualTo(0);
+    assertThat(holder.getTxStartStackTraceOpaque()).isNull();
+  }
+
+  /**
+   * Full lifecycle: capture → verify → clear → verify. Simulates the tx begin/end pattern.
+   */
+  @Test
+  public void testDiagnosticsCaptureAndClearLifecycle() {
+    var holder = new TsMinHolder();
+    var thread = Thread.currentThread();
+
+    // Simulate tx begin
+    holder.captureDiagnostics(50000L, thread, false);
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(50000L);
+    assertThat(holder.getOwnerThreadNameOpaque()).isEqualTo(thread.getName());
+    assertThat(holder.getOwnerThreadIdOpaque()).isEqualTo(thread.threadId());
+
+    // Simulate tx end
+    holder.clearDiagnostics();
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(0);
+    assertThat(holder.getOwnerThreadNameOpaque()).isNull();
+    assertThat(holder.getOwnerThreadIdOpaque()).isEqualTo(0);
+
+    // Simulate second tx begin with different start time
+    holder.captureDiagnostics(70000L, thread, false);
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(70000L);
+
+    // Simulate second tx end
+    holder.clearDiagnostics();
+    assertThat(holder.getTxStartTimeNanosOpaque()).isEqualTo(0);
+  }
+
+  /**
+   * setTsMinOpaque writes the value and it becomes visible to a volatile read.
+   */
+  @Test
+  public void testSetTsMinOpaque() {
+    var holder = new TsMinHolder();
+    assertThat(holder.tsMin).isEqualTo(Long.MAX_VALUE);
+
+    holder.setTsMinOpaque(42L);
+    assertThat(holder.tsMin).isEqualTo(42L);
+
+    holder.setTsMinOpaque(Long.MAX_VALUE);
+    assertThat(holder.tsMin).isEqualTo(Long.MAX_VALUE);
+  }
+
   private static Set<TsMinHolder> newTsMinsSet() {
     return AbstractStorage.newTsMinsSet();
   }

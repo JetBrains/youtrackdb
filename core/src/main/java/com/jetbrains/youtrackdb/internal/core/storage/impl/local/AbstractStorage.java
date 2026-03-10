@@ -3846,16 +3846,13 @@ public abstract class AbstractStorage
     // sees an active tsMin without valid diagnostic fields. Symmetric with resetTsMin(),
     // which clears diagnostic fields before the opaque tsMin reset.
     if (holder.activeTxCount == 0) {
-      holder.setTxStartTimeNanosOpaque(
-          YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime());
-      var currentThread = Thread.currentThread();
-      holder.setOwnerThreadNameOpaque(currentThread.getName());
-      holder.setOwnerThreadIdOpaque(currentThread.threadId());
-      if (configuration != null
+      boolean captureStackTrace = configuration != null
           && configuration.getContextConfiguration().getValueAsBoolean(
-              GlobalConfiguration.STORAGE_TX_CAPTURE_STACK_TRACE)) {
-        holder.setTxStartStackTraceOpaque(currentThread.getStackTrace());
-      }
+              GlobalConfiguration.STORAGE_TX_CAPTURE_STACK_TRACE);
+      holder.captureDiagnostics(
+          YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime(),
+          Thread.currentThread(),
+          captureStackTrace);
     }
 
     long snapshotMin = atomicOperation.getAtomicOperationsSnapshot().minActiveOperationTs();
@@ -3897,10 +3894,7 @@ public abstract class AbstractStorage
       // the diagnostic fields are still valid (not yet cleared). The opaque write of tsMin
       // below does not provide a StoreStore barrier, so without this ordering the monitor
       // could see stale tsMin but cleared txStartTimeNanos.
-      holder.setTxStartTimeNanosOpaque(0);
-      holder.setTxStartStackTraceOpaque(null);
-      holder.setOwnerThreadNameOpaque(null);
-      holder.setOwnerThreadIdOpaque(0);
+      holder.clearDiagnostics();
       holder.setTsMinOpaque(Long.MAX_VALUE);
     }
   }
