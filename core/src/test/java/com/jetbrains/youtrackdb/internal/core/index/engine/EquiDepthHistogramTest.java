@@ -73,10 +73,10 @@ public class EquiDepthHistogramTest {
     // 4 buckets: [0,10), [10,20), [20,30), [30,40]
     var hist = createIntHistogram(4, 10, 100, 10);
 
-    Assert.assertEquals(0, hist.findBucket(5));    // in first bucket
-    Assert.assertEquals(1, hist.findBucket(15));   // in second bucket
-    Assert.assertEquals(2, hist.findBucket(25));   // in third bucket
-    Assert.assertEquals(3, hist.findBucket(35));   // in last bucket
+    Assert.assertEquals(0, hist.findBucket(5)); // in first bucket
+    Assert.assertEquals(1, hist.findBucket(15)); // in second bucket
+    Assert.assertEquals(2, hist.findBucket(25)); // in third bucket
+    Assert.assertEquals(3, hist.findBucket(35)); // in last bucket
   }
 
   @Test
@@ -86,10 +86,10 @@ public class EquiDepthHistogramTest {
 
     // Key exactly on a boundary → belongs to the bucket starting at that
     // boundary (lower bound is inclusive)
-    Assert.assertEquals(0, hist.findBucket(0));   // boundary[0] → bucket 0
-    Assert.assertEquals(1, hist.findBucket(10));  // boundary[1] → bucket 1
-    Assert.assertEquals(2, hist.findBucket(20));  // boundary[2] → bucket 2
-    Assert.assertEquals(3, hist.findBucket(30));  // boundary[3] → bucket 3
+    Assert.assertEquals(0, hist.findBucket(0)); // boundary[0] → bucket 0
+    Assert.assertEquals(1, hist.findBucket(10)); // boundary[1] → bucket 1
+    Assert.assertEquals(2, hist.findBucket(20)); // boundary[2] → bucket 2
+    Assert.assertEquals(3, hist.findBucket(30)); // boundary[3] → bucket 3
   }
 
   @Test
@@ -118,16 +118,16 @@ public class EquiDepthHistogramTest {
     // Single bucket: [0, 100]
     var hist = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{0, 100},
-        new long[]{500},
-        new long[]{100},
+        new Comparable<?>[] {0, 100},
+        new long[] {500},
+        new long[] {100},
         500, null, 0);
 
-    Assert.assertEquals(0, hist.findBucket(-1));   // below min
-    Assert.assertEquals(0, hist.findBucket(0));    // at min
-    Assert.assertEquals(0, hist.findBucket(50));   // in middle
-    Assert.assertEquals(0, hist.findBucket(100));  // at max
-    Assert.assertEquals(0, hist.findBucket(200));  // above max
+    Assert.assertEquals(0, hist.findBucket(-1)); // below min
+    Assert.assertEquals(0, hist.findBucket(0)); // at min
+    Assert.assertEquals(0, hist.findBucket(50)); // in middle
+    Assert.assertEquals(0, hist.findBucket(100)); // at max
+    Assert.assertEquals(0, hist.findBucket(200)); // above max
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -253,16 +253,16 @@ public class EquiDepthHistogramTest {
     // String boundaries use DefaultComparator → String.compareTo()
     var hist = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{"apple", "cherry", "mango", "zebra"},
-        new long[]{100, 200, 150},
-        new long[]{10, 20, 15},
+        new Comparable<?>[] {"apple", "cherry", "mango", "zebra"},
+        new long[] {100, 200, 150},
+        new long[] {10, 20, 15},
         450, null, 0);
 
-    Assert.assertEquals(0, hist.findBucket("banana"));  // "apple" <= "banana" < "cherry"
-    Assert.assertEquals(1, hist.findBucket("dog"));      // "cherry" <= "dog" < "mango"
-    Assert.assertEquals(2, hist.findBucket("peach"));    // "mango" <= "peach" <= "zebra"
-    Assert.assertEquals(2, hist.findBucket("zebra"));    // max key → last bucket
-    Assert.assertEquals(2, hist.findBucket("zzz"));      // above max → last bucket
+    Assert.assertEquals(0, hist.findBucket("banana")); // "apple" <= "banana" < "cherry"
+    Assert.assertEquals(1, hist.findBucket("dog")); // "cherry" <= "dog" < "mango"
+    Assert.assertEquals(2, hist.findBucket("peach")); // "mango" <= "peach" <= "zebra"
+    Assert.assertEquals(2, hist.findBucket("zebra")); // max key → last bucket
+    Assert.assertEquals(2, hist.findBucket("zzz")); // above max → last bucket
     Assert.assertEquals(0, hist.findBucket("aardvark")); // below min → bucket 0
   }
 
@@ -275,14 +275,14 @@ public class EquiDepthHistogramTest {
     // All-identical keys: one bucket spanning [42, 42]
     var hist = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{42, 42},
-        new long[]{1000},
-        new long[]{1},
+        new Comparable<?>[] {42, 42},
+        new long[] {1000},
+        new long[] {1},
         1000, 42, 1000);
 
-    Assert.assertEquals(0, hist.findBucket(42));   // exact match
-    Assert.assertEquals(0, hist.findBucket(0));    // below
-    Assert.assertEquals(0, hist.findBucket(100));  // above
+    Assert.assertEquals(0, hist.findBucket(42)); // exact match
+    Assert.assertEquals(0, hist.findBucket(0)); // below
+    Assert.assertEquals(0, hist.findBucket(100)); // above
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -326,7 +326,7 @@ public class EquiDepthHistogramTest {
 
   @Test
   public void testSerializeDeserializeLongHistogram() {
-    Comparable<?>[] boundaries = new Comparable<?>[]{
+    Comparable<?>[] boundaries = new Comparable<?>[] {
         0L, 1000L, 2000L, 3000L, Long.MAX_VALUE};
     long[] frequencies = {100, 200, 300, 400};
     long[] distinctCounts = {10, 20, 30, 40};
@@ -360,7 +360,7 @@ public class EquiDepthHistogramTest {
   @Test
   public void testSerializeDeserializeStringHistogram() {
     // Boundaries must be sorted lexicographically (String.compareTo order)
-    Comparable<?>[] boundaries = new Comparable<?>[]{
+    Comparable<?>[] boundaries = new Comparable<?>[] {
         "alpha", "beta", "delta", "gamma"};
     long[] frequencies = {100, 200, 300};
     long[] distinctCounts = {10, 20, 30};
@@ -396,11 +396,11 @@ public class EquiDepthHistogramTest {
     // Histogram with an MCV (most common value)
     var original = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 10, 20, 30, 40},
-        new long[]{100, 250, 100, 50},
-        new long[]{10, 25, 10, 5},
+        new Comparable<?>[] {0, 10, 20, 30, 40},
+        new long[] {100, 250, 100, 50},
+        new long[] {10, 25, 10, 5},
         500,
-        20,   // mcvValue
+        20, // mcvValue
         250); // mcvFrequency
 
     var serializer = objectSerializer(IntegerSerializer.INSTANCE);
@@ -421,9 +421,9 @@ public class EquiDepthHistogramTest {
     // Histogram with string MCV
     var original = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{"a", "m", "t", "z"},
-        new long[]{100, 500, 100},
-        new long[]{10, 50, 10},
+        new Comparable<?>[] {"a", "m", "t", "z"},
+        new long[] {100, 500, 100},
+        new long[] {10, 50, 10},
         700,
         "popular",
         500);
@@ -517,8 +517,8 @@ public class EquiDepthHistogramTest {
     var hist = createIntHistogram(4, 10, 100, 10);
 
     Assert.assertEquals(5, hist.boundaries().length); // 4 + 1
-    Assert.assertEquals(0, hist.boundaries()[0]);     // min
-    Assert.assertEquals(40, hist.boundaries()[4]);    // max
+    Assert.assertEquals(0, hist.boundaries()[0]); // min
+    Assert.assertEquals(40, hist.boundaries()[4]); // max
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -587,9 +587,9 @@ public class EquiDepthHistogramTest {
   public void testFindBucketWithLongBoundaries() {
     var hist = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0L, 1000L, 2000L, 3000L, Long.MAX_VALUE},
-        new long[]{100, 200, 300, 400},
-        new long[]{10, 20, 30, 40},
+        new Comparable<?>[] {0L, 1000L, 2000L, 3000L, Long.MAX_VALUE},
+        new long[] {100, 200, 300, 400},
+        new long[] {10, 20, 30, 40},
         1000, null, 0);
 
     Assert.assertEquals(0, hist.findBucket(500L));
@@ -608,9 +608,9 @@ public class EquiDepthHistogramTest {
   public void testSerializeDeserializeSingleBucketHistogram() {
     var original = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{0, 100},
-        new long[]{500},
-        new long[]{100},
+        new Comparable<?>[] {0, 100},
+        new long[] {500},
+        new long[] {100},
         500, null, 0);
     var serializer = objectSerializer(IntegerSerializer.INSTANCE);
 

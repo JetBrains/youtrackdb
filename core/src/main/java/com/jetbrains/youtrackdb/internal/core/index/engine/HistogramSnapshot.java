@@ -79,6 +79,5 @@ public record HistogramSnapshot(
     long version,
     boolean hasDriftedBuckets,
     @Nullable HyperLogLogSketch hllSketch,
-    boolean hllOnPage1
-) {
+    boolean hllOnPage1) {
 }

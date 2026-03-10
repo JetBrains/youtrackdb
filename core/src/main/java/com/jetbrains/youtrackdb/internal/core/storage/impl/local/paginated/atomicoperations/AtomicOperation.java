@@ -6,9 +6,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Map;
@@ -117,8 +117,7 @@ public interface AtomicOperation {
    * Returns the histogram delta holder for this transaction, or {@code null}
    * if no histogram operations have occurred in this transaction yet.
    */
-  @javax.annotation.Nullable
-  HistogramDeltaHolder getHistogramDeltas();
+  @javax.annotation.Nullable HistogramDeltaHolder getHistogramDeltas();
 
   /**
    * Returns the histogram delta holder for this transaction, creating it

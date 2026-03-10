@@ -1,17 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Unit tests for {@link IndexHistogramManager} — focuses on the pure
@@ -186,7 +184,7 @@ public class IndexHistogramManagerTest {
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = -200; // would go negative
-    delta.nullCountDelta = -50;   // would go negative
+    delta.nullCountDelta = -50; // would go negative
     delta.mutationCount = 5;
 
     var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
@@ -203,13 +201,12 @@ public class IndexHistogramManagerTest {
   public void computeNewSnapshotAppliesFrequencyDeltasWhenVersionMatches() {
     var histogram = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{0, 10, 20, 30},
-        new long[]{100, 200, 300},
-        new long[]{10, 20, 30},
+        new Comparable<?>[] {0, 10, 20, 30},
+        new long[] {100, 200, 300},
+        new long[] {10, 20, 30},
         600,
         null,
-        0
-    );
+        0);
     var stats = new IndexStatistics(600, 600, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, 600, 5, false, null, false);
@@ -237,13 +234,12 @@ public class IndexHistogramManagerTest {
   public void computeNewSnapshotDiscardsFrequencyDeltasOnVersionMismatch() {
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{300, 300},
-        new long[]{50, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {300, 300},
+        new long[] {50, 50},
         600,
         null,
-        0
-    );
+        0);
     var stats = new IndexStatistics(600, 600, 0);
     // Version is 5
     var snapshot = new HistogramSnapshot(
@@ -271,13 +267,12 @@ public class IndexHistogramManagerTest {
   public void computeNewSnapshotClampsNegativeFrequenciesToZeroAndSetsDriftFlag() {
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{10, 200},
-        new long[]{5, 20},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {10, 200},
+        new long[] {5, 20},
         210,
         null,
-        0
-    );
+        0);
     var stats = new IndexStatistics(210, 210, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, 210, 1, false, null, false);
@@ -369,13 +364,12 @@ public class IndexHistogramManagerTest {
     // and distinctCounts (only frequencies change)
     var histogram = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{1, 10, 20, 30},
-        new long[]{100, 200, 300},
-        new long[]{10, 20, 30},
+        new Comparable<?>[] {1, 10, 20, 30},
+        new long[] {100, 200, 300},
+        new long[] {10, 20, 30},
         600,
         (Comparable<?>) 15,
-        250L
-    );
+        250L);
     var stats = new IndexStatistics(600, 600, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, 600, 2, false, null, false);
@@ -423,13 +417,12 @@ public class IndexHistogramManagerTest {
     // but snapshot has a histogram
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{300, 300},
-        new long[]{50, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {300, 300},
+        new long[] {50, 50},
         600,
         null,
-        0
-    );
+        0);
     var stats = new IndexStatistics(600, 600, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, 600, 0, false, null, false);
@@ -536,7 +529,7 @@ public class IndexHistogramManagerTest {
 
     assertNotNull(result);
     assertTrue("Expected <= " + IndexHistogramManager.MINIMUM_BUCKET_COUNT
-            + " buckets, got " + result.actualBucketCount,
+        + " buckets, got " + result.actualBucketCount,
         result.actualBucketCount <= IndexHistogramManager.MINIMUM_BUCKET_COUNT);
     assertEquals(10, result.totalDistinct);
     long totalFreq = 0;

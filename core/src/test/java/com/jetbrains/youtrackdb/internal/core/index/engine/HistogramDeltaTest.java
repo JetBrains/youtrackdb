@@ -1,12 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import org.junit.Test;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+
+import org.junit.Test;
 
 /**
  * Tests for {@link HistogramDelta} — transaction-local accumulator for
@@ -114,11 +114,11 @@ public class HistogramDeltaTest {
     delta.frequencyDeltas[0]--;
 
     // Verify net effect
-    assertEquals(3, delta.totalCountDelta);  // 4 inserts - 1 remove
+    assertEquals(3, delta.totalCountDelta); // 4 inserts - 1 remove
     assertEquals(1, delta.nullCountDelta);
     assertEquals(5, delta.mutationCount);
-    assertEquals(0, delta.frequencyDeltas[0]);  // +1 then -1
-    assertEquals(2, delta.frequencyDeltas[1]);  // +2
+    assertEquals(0, delta.frequencyDeltas[0]); // +1 then -1
+    assertEquals(2, delta.frequencyDeltas[1]); // +2
     assertEquals(0, delta.frequencyDeltas[2]);
     assertEquals(0, delta.frequencyDeltas[3]);
   }

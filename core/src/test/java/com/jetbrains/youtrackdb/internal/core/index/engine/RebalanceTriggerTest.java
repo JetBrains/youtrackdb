@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
@@ -413,7 +412,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     var executor = Executors.newSingleThreadExecutor();
-    executor.shutdown();  // shut down before setting on manager
+    executor.shutdown(); // shut down before setting on manager
     fixture.manager.setBackgroundExecutor(executor);
 
     // When getHistogram() is called (executor is shut down, submit()
@@ -502,13 +501,12 @@ public class RebalanceTriggerTest {
   private static EquiDepthHistogram createTestHistogram() {
     return new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000,
         null,
-        0
-    );
+        0);
   }
 
   /**

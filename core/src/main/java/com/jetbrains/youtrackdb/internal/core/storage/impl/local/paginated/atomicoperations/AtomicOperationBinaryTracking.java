@@ -21,8 +21,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
@@ -39,7 +40,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -104,15 +104,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // Local overlay buffers — lazily allocated to avoid overhead for read-only transactions.
   // Snapshot buffer uses TreeMap to support efficient subMap range queries in
   // snapshotSubMapDescending without intermediate collection/sort.
-  @Nullable
-  private TreeMap<SnapshotKey, PositionEntry> localSnapshotBuffer;
-  @Nullable
-  private HashMap<VisibilityKey, SnapshotKey> localVisibilityBuffer;
+  @Nullable private TreeMap<SnapshotKey, PositionEntry> localSnapshotBuffer;
+  @Nullable private HashMap<VisibilityKey, SnapshotKey> localVisibilityBuffer;
 
   // Histogram delta accumulator — lazily allocated to avoid overhead for
   // transactions that do not modify indexed data.
-  @Nullable
-  private HistogramDeltaHolder histogramDeltas;
+  @Nullable private HistogramDeltaHolder histogramDeltas;
 
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -134,7 +131,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.snapshotIndexSize = snapshotIndexSize;
     this.active = true;
   }
-
 
   @Override
   public @Nonnull AtomicOperationsSnapshot getAtomicOperationsSnapshot() {
@@ -166,8 +162,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return operationCommitTs;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CacheEntry loadPageForWrite(
       long fileId, final long pageIndex, final int pageCount, final boolean verifyChecksum)
       throws IOException {
@@ -216,8 +211,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CacheEntry loadPageForRead(long fileId, final long pageIndex) throws IOException {
     checkIfActive();
 
@@ -530,8 +524,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
 
-      for (final var fileChangesEntry :
-          fileChanges.long2ObjectEntrySet()) {
+      for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
 
@@ -588,8 +581,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         readCache.deleteFile(deletedFileId, writeCache);
       }
 
-      for (final var fileChangesEntry :
-          fileChanges.long2ObjectEntrySet()) {
+      for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
 
@@ -660,8 +652,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  @Nullable
-  public HistogramDeltaHolder getHistogramDeltas() {
+  @Nullable public HistogramDeltaHolder getHistogramDeltas() {
     return histogramDeltas;
   }
 

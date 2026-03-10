@@ -260,11 +260,10 @@ final class HistogramStatsPage extends DurablePage {
     return new HistogramSnapshot(
         stats, histogram, mutationsSinceRebalance,
         totalCountAtLastBuild,
-        0,     // version resets to 0 on restart
+        0, // version resets to 0 on restart
         false, // hasDriftedBuckets resets to false on restart
         hll,
-        hllOnPage1
-    );
+        hllOnPage1);
   }
 
   // ---- Page-1 HLL I/O ----

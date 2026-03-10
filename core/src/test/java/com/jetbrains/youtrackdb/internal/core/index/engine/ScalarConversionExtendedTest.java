@@ -168,14 +168,14 @@ public class ScalarConversionExtendedTest {
     // Test a range of non-ASCII characters to verify that scalarize
     // preserves the same ordering as String.compareTo()
     String[] strs = {
-        "A",     // 65
-        "Z",     // 90
-        "a",     // 97
-        "z",     // 122
+        "A", // 65
+        "Z", // 90
+        "a", // 97
+        "z", // 122
         "\u00C0", // À (192)
         "\u00E4", // ä (228)
         "\u4E2D", // 中 (20013)
-        "\uFFFF"  // max BMP char (65535)
+        "\uFFFF" // max BMP char (65535)
     };
     String lo = strs[0];
     String hi = strs[strs.length - 1];

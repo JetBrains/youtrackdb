@@ -559,7 +559,7 @@ public final class SelectivityEstimator {
       return switch (mode) {
         case STRICT_ABOVE -> 1.0; // nothing strictly above
         case STRICT_BELOW -> 0.0; // nothing strictly below
-        case RANGE -> 0.5;        // discrete midpoint for interpolation
+        case RANGE -> 0.5; // discrete midpoint for interpolation
       };
     }
 

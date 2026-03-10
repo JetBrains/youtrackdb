@@ -73,7 +73,7 @@ public class CheckpointFlushTest {
     // executeInsideAtomicOperation is called.
     var fixture = new ManagerFixtureWithFailingFlush();
     setDirtyMutations(fixture.manager, 100);
-    setFileId(fixture.manager, 42);  // force non-(-1) so flush is attempted
+    setFileId(fixture.manager, 42); // force non-(-1) so flush is attempted
 
     // When flushIfDirty() is called
     fixture.manager.flushIfDirty();
@@ -239,13 +239,11 @@ public class CheckpointFlushTest {
       var serializerFactory = BinarySerializerFactory.create(
           BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
       var keySerializer =
-          com.jetbrains.youtrackdb.internal.common.serialization.types
-              .IntegerSerializer.INSTANCE;
+          com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer.INSTANCE;
       manager = new IndexHistogramManager(
           storage, "test-idx", engineId, true, cache,
           keySerializer, serializerFactory,
-          com.jetbrains.youtrackdb.internal.common.serialization.types
-              .IntegerSerializer.ID);
+          com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer.ID);
     }
   }
 
@@ -266,13 +264,11 @@ public class CheckpointFlushTest {
       var serializerFactory = BinarySerializerFactory.create(
           BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
       var keySerializer =
-          com.jetbrains.youtrackdb.internal.common.serialization.types
-              .IntegerSerializer.INSTANCE;
+          com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer.INSTANCE;
       manager = new IndexHistogramManager(
           storage, "test-idx", engineId, true, cache,
           keySerializer, serializerFactory,
-          com.jetbrains.youtrackdb.internal.common.serialization.types
-              .IntegerSerializer.ID);
+          com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer.ID);
       // Populate cache so flushSnapshotToPage doesn't return early
       var stats = new IndexStatistics(100, 100, 0);
       cache.put(engineId, new HistogramSnapshot(

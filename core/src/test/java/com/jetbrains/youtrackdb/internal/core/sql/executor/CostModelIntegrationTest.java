@@ -146,7 +146,7 @@ public class CostModelIntegrationTest extends DbTestBase {
         SchemaClass.INDEX_TYPE.NOTUNIQUE, "userId");
 
     session.begin();
-    var statuses = new String[]{"active", "inactive", "pending"};
+    var statuses = new String[] {"active", "inactive", "pending"};
     for (int i = 0; i < 3000; i++) {
       var doc = session.newEntity("CompeteTest");
       doc.setProperty("status", statuses[i % 3]);
@@ -321,7 +321,7 @@ public class CostModelIntegrationTest extends DbTestBase {
         SchemaClass.INDEX_TYPE.NOTUNIQUE, "city", "age");
 
     session.begin();
-    var cities = new String[]{"NYC", "LA", "CHI", "HOU", "PHX"};
+    var cities = new String[] {"NYC", "LA", "CHI", "HOU", "PHX"};
     for (int i = 0; i < 1000; i++) {
       var doc = session.newEntity("CompositeTest");
       doc.setProperty("city", cities[i % 5]);

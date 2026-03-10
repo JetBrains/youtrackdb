@@ -257,7 +257,8 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
                   int targetVal = rng.nextInt(KEY_RANGE);
                   localSession.command(
                       "DELETE FROM " + className
-                          + " WHERE val = ? LIMIT 1", targetVal);
+                          + " WHERE val = ? LIMIT 1",
+                      targetVal);
                 }
               }
               localSession.commit();
@@ -382,9 +383,9 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
         // 0.15 of each other (generous, because inserts/deletes are
         // random and the distribution may drift from uniform).
         assertTrue("Quarter [" + rangeBounds[q] + ", "
-                + rangeBounds[q + 1] + "): actual="
-                + String.format("%.3f", actualFraction)
-                + " est=" + String.format("%.3f", estFraction),
+            + rangeBounds[q + 1] + "): actual="
+            + String.format("%.3f", actualFraction)
+            + " est=" + String.format("%.3f", estFraction),
             Math.abs(actualFraction - estFraction) < 0.15);
       }
     }
@@ -561,7 +562,8 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     long mcvActualCount;
     try (var result = session.query(
         "SELECT count(*) as cnt FROM " + className
-            + " WHERE name = ?", "key_0000")) {
+            + " WHERE name = ?",
+        "key_0000")) {
       mcvActualCount = ((Number) result.next().getProperty("cnt")).longValue();
     }
 
@@ -587,16 +589,17 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     double selBottom = SelectivityEstimator.estimateEquality(
         manager.getStatistics(), histogram, "key_0049");
     assertTrue("Zipf: top key selectivity (" + selTop
-            + ") should be > 3x bottom key (" + selBottom + ")",
+        + ") should be > 3x bottom key (" + selBottom + ")",
         selTop > selBottom * 3);
 
     // Verify a few actual counts match histogram estimates within 5%
-    for (String probeKey : new String[]{"key_0000", "key_0004",
+    for (String probeKey : new String[] {"key_0000", "key_0004",
         "key_0019"}) {
       long probeActual;
       try (var result = session.query(
           "SELECT count(*) as cnt FROM " + className
-              + " WHERE name = ?", probeKey)) {
+              + " WHERE name = ?",
+          probeKey)) {
         probeActual =
             ((Number) result.next().getProperty("cnt")).longValue();
       }
@@ -605,8 +608,8 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       double estFrac = SelectivityEstimator.estimateEquality(
           manager.getStatistics(), histogram, probeKey);
       assertTrue("Key " + probeKey + ": actual="
-              + String.format("%.4f", actualFrac)
-              + " est=" + String.format("%.4f", estFrac),
+          + String.format("%.4f", actualFrac)
+          + " est=" + String.format("%.4f", estFrac),
           Math.abs(actualFrac - estFrac) < 0.05);
     }
   }
@@ -759,7 +762,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     // "category_005" and "category_006" share a bucket), so the count may
     // be less than NUM_CATEGORIES.
     assertTrue("Bucket count (" + histogram.bucketCount()
-            + ") should be > 0 and <= " + NUM_CATEGORIES,
+        + ") should be > 0 and <= " + NUM_CATEGORIES,
         histogram.bucketCount() > 0
             && histogram.bucketCount() <= NUM_CATEGORIES);
 
@@ -776,7 +779,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     // All frequencies should be positive (uniform categories, all present)
     for (int i = 0; i < histogram.bucketCount(); i++) {
       assertTrue("Every bucket should have entries after uniform inserts,"
-              + " bucket " + i + " has " + histogram.frequencies()[i],
+          + " bucket " + i + " has " + histogram.frequencies()[i],
           histogram.frequencies()[i] > 0);
     }
 
@@ -785,12 +788,13 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     // total. Check a few specific categories.
     long total = stats.totalCount();
     double expectedFrac = 1.0 / NUM_CATEGORIES;
-    for (int probe : new int[]{0, 10, 25, 49}) {
+    for (int probe : new int[] {0, 10, 25, 49}) {
       String cat = categories[probe];
       long catActual;
       try (var result = session.query(
           "SELECT count(*) as cnt FROM " + className
-              + " WHERE cat = ?", cat)) {
+              + " WHERE cat = ?",
+          cat)) {
         catActual =
             ((Number) result.next().getProperty("cnt")).longValue();
       }
@@ -800,12 +804,12 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // Uniform distribution: actual and estimated fractions should
       // both be near 1/50 = 0.02. Allow 0.015 absolute tolerance.
       assertTrue("Category " + cat + ": actual="
-              + String.format("%.4f", actualFrac) + " expected~"
-              + String.format("%.4f", expectedFrac),
+          + String.format("%.4f", actualFrac) + " expected~"
+          + String.format("%.4f", expectedFrac),
           Math.abs(actualFrac - expectedFrac) < 0.015);
       assertTrue("Category " + cat + ": est="
-              + String.format("%.4f", estFrac) + " actual="
-              + String.format("%.4f", actualFrac),
+          + String.format("%.4f", estFrac) + " actual="
+          + String.format("%.4f", actualFrac),
           Math.abs(estFrac - actualFrac) < 0.015);
     }
   }
@@ -1127,8 +1131,8 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     System.out.println("[StressBimodal] Uniform error: " + uniformError);
 
     assertTrue("Histogram error (" + histogramError
-            + ") should be significantly less than uniform error ("
-            + uniformError + ")",
+        + ") should be significantly less than uniform error ("
+        + uniformError + ")",
         histogramError < uniformError * 0.5);
 
     // ── Distribution check: all three regions ───────────────────
@@ -1153,14 +1157,14 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
 
       // Actual fraction should be close to the expected probability
       assertTrue("Region [" + regions[r][0] + ", " + regions[r][1]
-              + "): actual=" + String.format("%.3f", actualFrac)
-              + " expected~" + String.format("%.3f", expectedFracs[r]),
+          + "): actual=" + String.format("%.3f", actualFrac)
+          + " expected~" + String.format("%.3f", expectedFracs[r]),
           Math.abs(actualFrac - expectedFracs[r]) < 0.10);
 
       // Histogram estimate should be close to the actual fraction
       assertTrue("Region [" + regions[r][0] + ", " + regions[r][1]
-              + "): est=" + String.format("%.3f", estFrac)
-              + " actual=" + String.format("%.3f", actualFrac),
+          + "): est=" + String.format("%.3f", estFrac)
+          + " actual=" + String.format("%.3f", actualFrac),
           Math.abs(estFrac - actualFrac) < 0.10);
     }
   }
@@ -1226,13 +1230,13 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
         + " (bucket " + worstBucket + ")");
 
     assertTrue("[" + label + "] Max per-bucket relative deviation "
-            + String.format("%.4f", worstRelDev) + " (bucket "
-            + worstBucket + ") exceeds threshold "
-            + maxRelDeviation,
+        + String.format("%.4f", worstRelDev) + " (bucket "
+        + worstBucket + ") exceeds threshold "
+        + maxRelDeviation,
         worstRelDev <= maxRelDeviation);
     assertTrue("[" + label + "] Mean relative deviation "
-            + String.format("%.4f", meanDev)
-            + " exceeds threshold " + meanRelDeviation,
+        + String.format("%.4f", meanDev)
+        + " exceeds threshold " + meanRelDeviation,
         meanDev <= meanRelDeviation);
   }
 
