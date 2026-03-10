@@ -2,7 +2,7 @@ name: PR Title Issue Prefix
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened, edited, synchronize, ready_for_review]
   merge_group:
     types: [ checks_requested ]
 
@@ -13,6 +13,7 @@ permissions:
 jobs:
   add-issue-prefix:
     name: Add issue prefix to PR title
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       # Merge queue does not have a PR title to update; the title was already

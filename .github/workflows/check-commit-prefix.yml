@@ -2,7 +2,7 @@ name: Check Commit Prefix
 
 on:
   pull_request:
-    types: [ opened, edited, synchronize, reopened ]
+    types: [ opened, edited, synchronize, reopened, ready_for_review ]
   merge_group:
     types: [ checks_requested ]
 
@@ -12,6 +12,7 @@ permissions:
 jobs:
   check-commit-prefix:
     name: Verify commits contain issue prefix from PR title
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

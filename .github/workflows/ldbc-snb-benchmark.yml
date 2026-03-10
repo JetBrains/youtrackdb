@@ -30,7 +30,7 @@ on:
 
   # PR validation: label-triggered
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled, synchronize, ready_for_review]
     branches: [develop]
 
 concurrency:
@@ -45,6 +45,7 @@ jobs:
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft != true &&
        contains(github.event.pull_request.labels.*.name, 'benchmark') &&
        github.event.pull_request.head.repo.full_name == github.repository)
 

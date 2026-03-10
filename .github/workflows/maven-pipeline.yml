@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "develop" ]
   pull_request:
-    types: [ opened, synchronize, reopened ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
   merge_group:
     types: [ checks_requested ]
 
@@ -21,6 +21,7 @@ permissions:
 jobs:
   detect-changes:
     name: Detect Build-Relevant Changes
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.filter.outputs.should_build }}
@@ -680,7 +681,7 @@ jobs:
   # ------------------------------------------------------------------
   ci-status:
     name: CI Status
-    if: always()
+    if: always() && github.event.pull_request.draft != true
     needs: [ detect-changes, test-linux, test-windows, coverage-gate, mutation-testing ]
     runs-on: ubuntu-latest
     steps:
