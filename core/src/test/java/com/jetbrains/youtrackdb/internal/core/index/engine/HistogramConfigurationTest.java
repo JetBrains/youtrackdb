@@ -21,7 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Test;
 
@@ -66,14 +65,16 @@ public class HistogramConfigurationTest {
   public void defaultSelectivity_hasExpectedDefault() {
     assertEquals(0.1,
         GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY
-            .getValueAsDouble(), 1e-9);
+            .getValueAsDouble(),
+        1e-9);
   }
 
   @Test
   public void defaultFanOut_hasExpectedDefault() {
     assertEquals(10.0,
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT
-            .getValueAsDouble(), 1e-9);
+            .getValueAsDouble(),
+        1e-9);
   }
 
   @Test
@@ -94,7 +95,8 @@ public class HistogramConfigurationTest {
   public void rebalanceMutationFraction_hasExpectedDefault() {
     assertEquals(0.3,
         GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
-            .getValueAsDouble(), 1e-9);
+            .getValueAsDouble(),
+        1e-9);
   }
 
   @Test
@@ -148,7 +150,8 @@ public class HistogramConfigurationTest {
     // The default for DEFAULT_SELECTIVITY is 0.1 (a Double)
     assertEquals(0.1,
         GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY
-            .getValueAsDouble(), 1e-15);
+            .getValueAsDouble(),
+        1e-15);
   }
 
   @Test
@@ -156,7 +159,8 @@ public class HistogramConfigurationTest {
     setConfig(GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY, "0.25");
     assertEquals(0.25,
         GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY
-            .getValueAsDouble(), 1e-15);
+            .getValueAsDouble(),
+        1e-15);
   }
 
   @Test
@@ -165,7 +169,8 @@ public class HistogramConfigurationTest {
     setConfig(GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT, 42.5);
     assertEquals(42.5,
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT
-            .getValueAsDouble(), 1e-15);
+            .getValueAsDouble(),
+        1e-15);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -190,7 +195,8 @@ public class HistogramConfigurationTest {
     // Given default fan-out is 10.0
     assertEquals(10.0,
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT
-            .getValueAsDouble(), 1e-9);
+            .getValueAsDouble(),
+        1e-9);
 
     // When we change the config at runtime
     setConfig(GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT, 5.0);
@@ -198,7 +204,8 @@ public class HistogramConfigurationTest {
     // Then the config returns the new value immediately (read at call time)
     assertEquals(5.0,
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT
-            .getValueAsDouble(), 1e-9);
+            .getValueAsDouble(),
+        1e-9);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -337,8 +344,8 @@ public class HistogramConfigurationTest {
     // Snapshot with histogram present, totalCountAtLastBuild=10000,
     // mutationsSinceRebalance=5001 (above threshold of 5000)
     var histogram = new EquiDepthHistogram(
-        2, new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50}, new long[] {50, 50}, 100, null, 0);
     var stats = new IndexStatistics(10_000, 10_000, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 5001, 10_000, 0, false, null, false);
@@ -369,8 +376,8 @@ public class HistogramConfigurationTest {
 
     var fixture = createManagerFixture();
     var histogram = new EquiDepthHistogram(
-        2, new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50}, new long[] {50, 50}, 100, null, 0);
     var stats = new IndexStatistics(100_000, 100_000, 0);
     // mutationsSinceRebalance=500, threshold=1000 → below
     var snapshot = new HistogramSnapshot(
@@ -404,8 +411,8 @@ public class HistogramConfigurationTest {
 
     var fixture = createManagerFixture();
     var histogram = new EquiDepthHistogram(
-        2, new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50}, new long[] {50, 50}, 100, null, 0);
     var stats = new IndexStatistics(5_000, 5_000, 0);
     // 1500 mutations — above raw fraction (500) but below clamped min (2000)
     var snapshot = new HistogramSnapshot(
@@ -437,8 +444,8 @@ public class HistogramConfigurationTest {
 
     var fixture = createManagerFixture();
     var histogram = new EquiDepthHistogram(
-        2, new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50}, new long[]{50, 50}, 100, null, 0);
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50}, new long[] {50, 50}, 100, null, 0);
     var stats = new IndexStatistics(100_000, 100_000, 0);
     // 1001 mutations — above clamped max threshold (1000)
     var snapshot = new HistogramSnapshot(

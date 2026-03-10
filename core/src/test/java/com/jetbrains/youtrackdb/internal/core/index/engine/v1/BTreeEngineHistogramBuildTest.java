@@ -1,10 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -277,8 +274,7 @@ public class BTreeEngineHistogramBuildTest {
     var mgr = new IndexHistogramManager(
         storage, "test-idx", 0, true,
         new java.util.concurrent.ConcurrentHashMap<>(),
-        mock(com.jetbrains.youtrackdb.internal.common.serialization
-            .types.BinarySerializer.class),
+        mock(com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer.class),
         BinarySerializerFactory.create(
             BinarySerializerFactory.currentBinaryFormatVersion()),
         (byte) 0);
@@ -306,8 +302,7 @@ public class BTreeEngineHistogramBuildTest {
     return new IndexHistogramManager(
         storage, "test-idx", 0, true,
         new java.util.concurrent.ConcurrentHashMap<>(),
-        mock(com.jetbrains.youtrackdb.internal.common.serialization
-            .types.BinarySerializer.class),
+        mock(com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer.class),
         BinarySerializerFactory.create(
             BinarySerializerFactory.currentBinaryFormatVersion()),
         (byte) 0);

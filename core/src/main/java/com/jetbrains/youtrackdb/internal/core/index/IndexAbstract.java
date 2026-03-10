@@ -87,11 +87,9 @@ public abstract class IndexAbstract implements Index {
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
-  @Nullable
-  protected IndexMetadata im;
+  @Nullable protected IndexMetadata im;
 
-  @Nullable
-  protected RID identity;
+  @Nullable protected RID identity;
 
   public IndexAbstract(@Nullable RID identity,
       @Nonnull FrontendTransactionImpl transaction, @Nonnull final Storage storage) {
@@ -133,7 +131,8 @@ public abstract class IndexAbstract implements Index {
       final String algorithm) {
     final var indexName = (String) config.get(CONFIG_NAME);
 
-    @SuppressWarnings("unchecked") final var indexDefinitionEntity = (Map<String, Object>) config.get(
+    @SuppressWarnings("unchecked")
+    final var indexDefinitionEntity = (Map<String, Object>) config.get(
         INDEX_DEFINITION);
     IndexDefinition loadedIndexDefinition = null;
     if (indexDefinitionEntity != null) {
@@ -145,13 +144,14 @@ public abstract class IndexAbstract implements Index {
         loadedIndexDefinition.fromMap(indexDefinitionEntity);
 
       } catch (final ClassNotFoundException
-                     | IllegalAccessException
-                     | InstantiationException
-                     | InvocationTargetException
-                     | NoSuchMethodException e) {
+          | IllegalAccessException
+          | InstantiationException
+          | InvocationTargetException
+          | NoSuchMethodException e) {
         throw BaseException.wrapException(
             new IndexException(transaction.getDatabaseSession(),
-                "Error during deserialization of index definition"), e,
+                "Error during deserialization of index definition"),
+            e,
             transaction.getDatabaseSession());
       }
     }
@@ -173,7 +173,6 @@ public abstract class IndexAbstract implements Index {
         algorithm,
         indexVersion, metadataEntity);
   }
-
 
   /**
    * Creates the index.
@@ -890,8 +889,7 @@ public abstract class IndexAbstract implements Index {
     return engine.acquireAtomicExclusiveLock(atomicOperation);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public IndexStatistics getStatistics(DatabaseSessionEmbedded session) {
     while (true) {
       try {
@@ -903,8 +901,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public EquiDepthHistogram getHistogram(DatabaseSessionEmbedded session) {
     while (true) {
       try {
@@ -916,8 +913,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
     while (true) {
       try {
@@ -944,13 +940,13 @@ public abstract class IndexAbstract implements Index {
     if (im.getIndexDefinition() == null) {
       throw new ConfigurationException(
           session, "Index '"
-          + im.getName()
-          + "' cannot be rebuilt because has no a valid definition ("
-          + im.getIndexDefinition()
-          + ")");
+              + im.getName()
+              + "' cannot be rebuilt because has no a valid definition ("
+              + im.getIndexDefinition()
+              + ")");
     }
 
-    var stat = new long[]{documentNum, documentIndexed};
+    var stat = new long[] {documentNum, documentIndexed};
 
     FrontendTransaction currentTransaction = null;
     if (session.isTxActive()) {
@@ -1025,7 +1021,6 @@ public abstract class IndexAbstract implements Index {
       }
     }
   }
-
 
   /**
    * Indicates search behavior in case of {@link CompositeKey} keys that have less amount of
@@ -1127,8 +1122,7 @@ public abstract class IndexAbstract implements Index {
     return keyFrom;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getIdentity() {
     return identity;
   }

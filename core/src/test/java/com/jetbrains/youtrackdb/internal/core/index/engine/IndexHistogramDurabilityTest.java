@@ -287,7 +287,7 @@ public class IndexHistogramDurabilityTest {
     // flushed the latest snapshot. The post-crash totalCount can be
     // anywhere from 0 (if no flush at all) to 2300 (fully flushed).
     assertTrue("Post-crash totalCount should be >= 0 and <= 2300,"
-            + " got " + statsAfterCrash.totalCount(),
+        + " got " + statsAfterCrash.totalCount(),
         statsAfterCrash.totalCount() >= 0
             && statsAfterCrash.totalCount() <= 2300);
 

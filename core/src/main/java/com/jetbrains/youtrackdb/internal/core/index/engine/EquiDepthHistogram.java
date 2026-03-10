@@ -79,8 +79,7 @@ public record EquiDepthHistogram(
     long[] distinctCounts,
     long nonNullCount,
     @Nullable Comparable<?> mcvValue,
-    long mcvFrequency
-) {
+    long mcvFrequency) {
 
   private static final Logger logger =
       LoggerFactory.getLogger(EquiDepthHistogram.class);
@@ -281,8 +280,7 @@ public record EquiDepthHistogram(
    * @param serializerFactory the serializer factory for key deserialization
    * @return the deserialized histogram, or null if bucketCount is 0
    */
-  @Nullable
-  public static EquiDepthHistogram deserialize(
+  @Nullable public static EquiDepthHistogram deserialize(
       byte[] data, int offset,
       BinarySerializer<Object> serializer,
       BinarySerializerFactory serializerFactory) {
@@ -378,7 +376,6 @@ public record EquiDepthHistogram(
         readDistinctCounts,
         readNonNullCount,
         readMcvValue,
-        readMcvFrequency
-    );
+        readMcvFrequency);
   }
 }

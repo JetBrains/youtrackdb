@@ -44,8 +44,7 @@ public final class BTreeMultiValueIndexEngine
   private final int id;
   private final String nullTreeName;
   private final AbstractStorage storage;
-  @Nullable
-  private volatile IndexHistogramManager histogramManager;
+  @Nullable private volatile IndexHistogramManager histogramManager;
 
   public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractStorage storage, final int version) {
@@ -94,11 +93,10 @@ public final class BTreeMultiValueIndexEngine
           atomicOperation,
           new IndexMultiValuKeySerializer(),
           sbTypes,
-          data.getKeySize() + 1
-      );
+          data.getKeySize() + 1);
       nullTree.create(
           atomicOperation, CompactedLinkSerializer.INSTANCE,
-          new PropertyTypeInternal[]{PropertyTypeInternal.LINK}, 1);
+          new PropertyTypeInternal[] {PropertyTypeInternal.LINK}, 1);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during creation of index " + name), e,
@@ -122,7 +120,6 @@ public final class BTreeMultiValueIndexEngine
           storage.getName());
     }
   }
-
 
   private void doClearSVTree(final AtomicOperation atomicOperation) {
     {
@@ -177,7 +174,7 @@ public final class BTreeMultiValueIndexEngine
 
     svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
     nullTree.load(
-        nullTreeName, 1, new PropertyTypeInternal[]{PropertyTypeInternal.LINK},
+        nullTreeName, 1, new PropertyTypeInternal[] {PropertyTypeInternal.LINK},
         CompactedLinkSerializer.INSTANCE, atomicOperation);
   }
 
@@ -441,8 +438,7 @@ public final class BTreeMultiValueIndexEngine
     return compositeKey;
   }
 
-  @Nullable
-  private static Object extractKey(final CompositeKey compositeKey) {
+  @Nullable private static Object extractKey(final CompositeKey compositeKey) {
     if (compositeKey == null) {
       return null;
     }
@@ -496,8 +492,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  @Nullable
-  public IndexHistogramManager getHistogramManager() {
+  @Nullable public IndexHistogramManager getHistogramManager() {
     return histogramManager;
   }
 }

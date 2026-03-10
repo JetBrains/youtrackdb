@@ -13,21 +13,18 @@ public interface BTreeIndexEngine extends V1IndexEngine {
   int VERSION = 4;
 
   /** Returns the histogram manager, or null if not yet initialized. */
-  @Nullable
-  IndexHistogramManager getHistogramManager();
+  @Nullable IndexHistogramManager getHistogramManager();
 
   /** Sets (or clears) the histogram manager for this engine. */
   void setHistogramManager(@Nullable IndexHistogramManager histogramManager);
 
-  @Nullable
-  @Override
+  @Nullable @Override
   default IndexStatistics getStatistics() {
     var mgr = getHistogramManager();
     return mgr != null ? mgr.getStatistics() : null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   default EquiDepthHistogram getHistogram() {
     var mgr = getHistogramManager();
     return mgr != null ? mgr.getHistogram() : null;

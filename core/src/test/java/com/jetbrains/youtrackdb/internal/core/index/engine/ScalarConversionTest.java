@@ -76,7 +76,7 @@ public class ScalarConversionTest {
     // Given a non-numeric, non-string, non-date value (e.g., byte array)
     // When scalarized, it returns 0.5 (midpoint assumption)
     double result = ScalarConversion.scalarize(
-        new byte[]{1, 2, 3}, new byte[]{0}, new byte[]{4, 5});
+        new byte[] {1, 2, 3}, new byte[] {0}, new byte[] {4, 5});
     Assert.assertEquals(0.5, result, DELTA);
   }
 

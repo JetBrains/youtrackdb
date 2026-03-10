@@ -141,12 +141,11 @@ public class IncrementalMaintenanceTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{10, 30, 50, 70, 90},
-        new long[]{100, 100, 100, 100},
-        new long[]{20, 20, 20, 20},
+        new Comparable<?>[] {10, 30, 50, 70, 90},
+        new long[] {100, 100, 100, 100},
+        new long[] {20, 20, 20, 20},
         400,
-        null, 0
-    );
+        null, 0);
     installSnapshot(fixture, 400, 400, 0, histogram, 0, 400, 0);
 
     // When inserting key=5 (below boundaries[0]=10)
@@ -166,12 +165,11 @@ public class IncrementalMaintenanceTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{10, 30, 50, 70, 90},
-        new long[]{100, 100, 100, 100},
-        new long[]{20, 20, 20, 20},
+        new Comparable<?>[] {10, 30, 50, 70, 90},
+        new long[] {100, 100, 100, 100},
+        new long[] {20, 20, 20, 20},
         400,
-        null, 0
-    );
+        null, 0);
     installSnapshot(fixture, 400, 400, 0, histogram, 0, 400, 0);
 
     // When inserting key=95 (above boundaries[4]=90)
@@ -255,12 +253,11 @@ public class IncrementalMaintenanceTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 10, 50, 75, 100},
-        new long[]{800, 100, 50, 50},
-        new long[]{10, 40, 25, 25},
+        new Comparable<?>[] {0, 10, 50, 75, 100},
+        new long[] {800, 100, 50, 50},
+        new long[] {10, 40, 25, 25},
         1000,
-        null, 0
-    );
+        null, 0);
     installSnapshot(fixture, 2000, 2000, 0, histogram, 5000, 2000, 0);
 
     // Key stream is uniform [0..2000) — rebalance should produce equi-depth
@@ -367,7 +364,7 @@ public class IncrementalMaintenanceTest {
     delta.nullCountDelta = 2;
     delta.mutationCount = 12;
     delta.snapshotVersion = 3; // doesn't match snapshot version=5
-    delta.frequencyDeltas = new int[]{5, 3, 2, 2};
+    delta.frequencyDeltas = new int[] {5, 3, 2, 2};
     fixture.manager.applyDelta(delta);
 
     // Then scalar counters are applied
@@ -396,7 +393,7 @@ public class IncrementalMaintenanceTest {
     delta.totalCountDelta = 4;
     delta.mutationCount = 4;
     delta.snapshotVersion = 5;
-    delta.frequencyDeltas = new int[]{1, 1, 1, 1};
+    delta.frequencyDeltas = new int[] {1, 1, 1, 1};
     fixture.manager.applyDelta(delta);
 
     // Then frequency deltas ARE applied
@@ -429,9 +426,9 @@ public class IncrementalMaintenanceTest {
     // (more buckets than the original → findBucket could return index >= 4)
     var histogram8 = new EquiDepthHistogram(
         8,
-        new Comparable<?>[]{0, 12, 25, 37, 50, 62, 75, 87, 100},
-        new long[]{125, 125, 125, 125, 125, 125, 125, 125},
-        new long[]{12, 13, 12, 13, 12, 13, 12, 13},
+        new Comparable<?>[] {0, 12, 25, 37, 50, 62, 75, 87, 100},
+        new long[] {125, 125, 125, 125, 125, 125, 125, 125},
+        new long[] {12, 13, 12, 13, 12, 13, 12, 13},
         1000,
         null, 0);
     installSnapshot(fixture, 1000, 1000, 0, histogram8, 0, 1000, 2);
@@ -470,9 +467,9 @@ public class IncrementalMaintenanceTest {
     // Rebalance replaces snapshot with an 8-bucket histogram at version 2
     var histogram8 = new EquiDepthHistogram(
         8,
-        new Comparable<?>[]{0, 12, 25, 37, 50, 62, 75, 87, 100},
-        new long[]{125, 125, 125, 125, 125, 125, 125, 125},
-        new long[]{12, 13, 12, 13, 12, 13, 12, 13},
+        new Comparable<?>[] {0, 12, 25, 37, 50, 62, 75, 87, 100},
+        new long[] {125, 125, 125, 125, 125, 125, 125, 125},
+        new long[] {12, 13, 12, 13, 12, 13, 12, 13},
         1000,
         null, 0);
     installSnapshot(fixture, 1000, 1000, 0, histogram8, 0, 1000, 2);
@@ -507,9 +504,9 @@ public class IncrementalMaintenanceTest {
     // Rebalance with same bucket count but new version
     var histogram2 = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 20, 40, 60, 100},
-        new long[]{200, 200, 300, 300},
-        new long[]{20, 20, 30, 30},
+        new Comparable<?>[] {0, 20, 40, 60, 100},
+        new long[] {200, 200, 300, 300},
+        new long[] {20, 20, 30, 30},
         1000,
         null, 0);
     installSnapshot(fixture, 1000, 1000, 0, histogram2, 0, 1000, 2);
@@ -816,12 +813,11 @@ public class IncrementalMaintenanceTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{5, 50},
-        new long[]{5, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {5, 50},
+        new long[] {5, 50},
         55,
-        null, 0
-    );
+        null, 0);
     // hasDriftedBuckets=false initially
     installSnapshot(fixture, 55, 55, 0, histogram, 0, 55, 0);
 
@@ -830,7 +826,7 @@ public class IncrementalMaintenanceTest {
     delta.totalCountDelta = -10;
     delta.mutationCount = 10;
     delta.snapshotVersion = 0;
-    delta.frequencyDeltas = new int[]{-10, 0}; // bucket 0 would go to -5
+    delta.frequencyDeltas = new int[] {-10, 0}; // bucket 0 would go to -5
     fixture.manager.applyDelta(delta);
 
     // Then frequency is clamped to 0 and hasDriftedBuckets is set
@@ -1104,13 +1100,12 @@ public class IncrementalMaintenanceTest {
   private static EquiDepthHistogram create4BucketHistogram() {
     return new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000,
         null,
-        0
-    );
+        0);
   }
 
   private static AtomicOperation mockOp(HistogramDeltaHolder holder) {

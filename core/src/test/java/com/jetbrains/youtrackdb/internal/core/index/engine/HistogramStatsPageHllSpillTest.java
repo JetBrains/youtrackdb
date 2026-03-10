@@ -1,5 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -11,12 +17,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Tests for the HLL page-1 spill mechanism in {@link HistogramStatsPage}.
@@ -67,9 +67,9 @@ public class HistogramStatsPageHllSpillTest {
   @SuppressWarnings("unchecked")
   private com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<Object>
       intKeySerializer() {
-    return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<Object>)
-        (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<?>)
-        IntegerSerializer.INSTANCE;
+    return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+        Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            ?>) IntegerSerializer.INSTANCE;
   }
 
   /**
@@ -78,13 +78,12 @@ public class HistogramStatsPageHllSpillTest {
   private EquiDepthHistogram createSimpleHistogram() {
     return new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{1, 50, 100},
-        new long[]{500, 500},
-        new long[]{25, 25},
+        new Comparable<?>[] {1, 50, 100},
+        new long[] {500, 500},
+        new long[] {25, 25},
         1000,
         50,
-        200L
-    );
+        200L);
   }
 
   /**

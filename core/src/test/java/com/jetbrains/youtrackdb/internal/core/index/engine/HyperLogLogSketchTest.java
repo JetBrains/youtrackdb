@@ -494,10 +494,10 @@ public class HyperLogLogSketchTest {
     // readFrom must clamp them to MAX_REGISTER_VALUE (54) to prevent
     // 1L << register[i] from overflowing in estimate().
     byte[] src = new byte[HyperLogLogSketch.serializedSize()];
-    src[0] = 127;  // way above MAX_REGISTER_VALUE (54)
-    src[1] = 55;   // just above
-    src[2] = 54;   // exactly at max — should be kept as-is
-    src[3] = 30;   // normal value
+    src[0] = 127; // way above MAX_REGISTER_VALUE (54)
+    src[1] = 55; // just above
+    src[2] = 54; // exactly at max — should be kept as-is
+    src[3] = 30; // normal value
 
     var sketch = HyperLogLogSketch.readFrom(src, 0);
 
@@ -520,7 +520,7 @@ public class HyperLogLogSketchTest {
     // Java bytes are signed: -1 = 0xFF = 255 unsigned.
     // This is well above MAX_REGISTER_VALUE and must be clamped.
     byte[] src = new byte[HyperLogLogSketch.serializedSize()];
-    src[0] = -1;   // 0xFF — negative as signed byte
+    src[0] = -1; // 0xFF — negative as signed byte
     src[1] = -128; // 0x80 — minimum signed byte
 
     var sketch = HyperLogLogSketch.readFrom(src, 0);

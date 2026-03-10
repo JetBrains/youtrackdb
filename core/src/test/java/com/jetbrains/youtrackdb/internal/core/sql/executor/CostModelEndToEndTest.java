@@ -134,9 +134,9 @@ public class CostModelEndToEndTest {
     stats = new IndexStatistics(TABLE_SIZE, NDV, 0);
     histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25000, 50000, 75000, 100000},
-        new long[]{25000, 25000, 25000, 25000},
-        new long[]{2500, 2500, 2500, 2500},
+        new Comparable<?>[] {0, 25000, 50000, 75000, 100000},
+        new long[] {25000, 25000, 25000, 25000},
+        new long[] {2500, 2500, 2500, 2500},
         TABLE_SIZE,
         null, 0);
 

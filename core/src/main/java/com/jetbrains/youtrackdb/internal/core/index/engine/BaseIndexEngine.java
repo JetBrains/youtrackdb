@@ -76,8 +76,7 @@ public interface BaseIndexEngine {
    * <p>Default returns {@code null} — safe for engines that do not support
    * histograms (e.g., hash indexes with no sorted key stream).
    */
-  @Nullable
-  default IndexStatistics getStatistics() {
+  @Nullable default IndexStatistics getStatistics() {
     return null;
   }
 
@@ -86,8 +85,7 @@ public interface BaseIndexEngine {
    * histogram is available (engine does not support histograms, or histogram
    * has not been built yet).
    */
-  @Nullable
-  default EquiDepthHistogram getHistogram() {
+  @Nullable default EquiDepthHistogram getHistogram() {
     return null;
   }
 }

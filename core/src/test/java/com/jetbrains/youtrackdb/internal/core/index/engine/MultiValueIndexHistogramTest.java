@@ -171,10 +171,10 @@ public class MultiValueIndexHistogramTest {
     // When multiple puts in the same transaction
     var holder = new HistogramDeltaHolder();
     var op = mockOp(holder);
-    fixture.manager.onPut(op, 5, false, true);   // bucket 0
-    fixture.manager.onPut(op, 15, false, true);  // bucket 1
-    fixture.manager.onPut(op, 15, false, true);  // bucket 1 again
-    fixture.manager.onPut(op, 25, false, true);  // bucket 2
+    fixture.manager.onPut(op, 5, false, true); // bucket 0
+    fixture.manager.onPut(op, 15, false, true); // bucket 1
+    fixture.manager.onPut(op, 15, false, true); // bucket 1 again
+    fixture.manager.onPut(op, 25, false, true); // bucket 2
 
     // Then deltas accumulate correctly
     var delta = holder.getDeltas().get(fixture.engineId);
@@ -743,12 +743,11 @@ public class MultiValueIndexHistogramTest {
   private static EquiDepthHistogram create3BucketHistogram() {
     return new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{0, 10, 20, 29},
-        new long[]{34, 33, 33},
-        new long[]{10, 10, 10},
+        new Comparable<?>[] {0, 10, 20, 29},
+        new long[] {34, 33, 33},
+        new long[] {10, 10, 10},
         100,
-        null, 0
-    );
+        null, 0);
   }
 
   // ═════════════════════════════════════════════════════════════════
@@ -838,11 +837,10 @@ public class MultiValueIndexHistogramTest {
     // Build a snapshot with this populated HLL (simulates post-build state)
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 500, 1000},
-        new long[]{500, 500},
-        new long[]{500, 500},
-        1000, null, 0
-    );
+        new Comparable<?>[] {0, 500, 1000},
+        new long[] {500, 500},
+        new long[] {500, 500},
+        1000, null, 0);
     var stats = new IndexStatistics(1000, baselineEstimate, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, 1000, 1, false, hll, false);
@@ -865,7 +863,7 @@ public class MultiValueIndexHistogramTest {
     // Then: distinctCount should be ~1005, NOT ~5
     long newDistinct = newSnapshot.stats().distinctCount();
     assertTrue("After merging 5 new keys into 1000-key HLL, "
-            + "distinctCount should be ~1005, was: " + newDistinct,
+        + "distinctCount should be ~1005, was: " + newDistinct,
         newDistinct >= 950 && newDistinct <= 1060);
   }
 
@@ -881,11 +879,10 @@ public class MultiValueIndexHistogramTest {
 
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 500, 1000},
-        new long[]{500, 500},
-        new long[]{500, 500},
-        1000, null, 0
-    );
+        new Comparable<?>[] {0, 500, 1000},
+        new long[] {500, 500},
+        new long[] {500, 500},
+        1000, null, 0);
     var stats = new IndexStatistics(1000, 1000, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, 1000, 1, false, emptyHll, false);
@@ -911,7 +908,7 @@ public class MultiValueIndexHistogramTest {
     // This is the WRONG behavior that the fix prevents.
     long newDistinct = newSnapshot.stats().distinctCount();
     assertTrue("Empty HLL + small delta should produce tiny distinctCount "
-            + "(demonstrating the bug), was: " + newDistinct,
+        + "(demonstrating the bug), was: " + newDistinct,
         newDistinct < 20);
   }
 

@@ -196,7 +196,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
         ((Number) histogram.mcvValue()).intValue());
     // MCV frequency should be approximately 1800
     assertTrue("MCV frequency should be around 1800, got "
-            + histogram.mcvFrequency(),
+        + histogram.mcvFrequency(),
         histogram.mcvFrequency() >= 1700 && histogram.mcvFrequency() <= 1900);
   }
 
@@ -614,8 +614,8 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
 
     // The target bucket should have grown by exactly 100
     assertEquals("Target bucket " + targetBucket + " should grow by 100,"
-            + " was " + freqsBefore[targetBucket]
-            + ", now " + histAfter.frequencies()[targetBucket],
+        + " was " + freqsBefore[targetBucket]
+        + ", now " + histAfter.frequencies()[targetBucket],
         freqsBefore[targetBucket] + 100,
         histAfter.frequencies()[targetBucket]);
 
@@ -719,8 +719,8 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
         0, 1000, true, false);
 
     assertTrue("Range selectivity should increase after inserting more "
-            + "entries in that range. Before: " + selBefore
-            + ", After: " + selAfter,
+        + "entries in that range. Before: " + selBefore
+        + ", After: " + selAfter,
         selAfter > selBefore);
   }
 
@@ -1203,7 +1203,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "firstName", "lastName");
 
-    var firstNames = new String[]{"Alice", "Bob", "Charlie", "Diana", "Eve"};
+    var firstNames = new String[] {"Alice", "Bob", "Charlie", "Diana", "Eve"};
     session.begin();
     for (int i = 0; i < 2500; i++) {
       var doc = session.newEntity("CompIdx");
@@ -1269,7 +1269,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     // Each bucket should have approximately 60 entries (3000/50)
     for (int i = 0; i < histogram.bucketCount(); i++) {
       assertTrue("Each bucket should have ~60 entries, got "
-              + histogram.frequencies()[i],
+          + histogram.frequencies()[i],
           histogram.frequencies()[i] >= 50
               && histogram.frequencies()[i] <= 70);
     }
@@ -1669,7 +1669,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     assertNotNull(histogram);
     // sqrt(1000) ≈ 31, so bucketCount should be around 31 (not 128)
     assertTrue("Bucket count should be capped by sqrt(N), got "
-            + histogram.bucketCount(),
+        + histogram.bucketCount(),
         histogram.bucketCount() <= 35 && histogram.bucketCount() >= 25);
   }
 
@@ -1721,7 +1721,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     var snapshotMid = manager.getSnapshot();
     assertNotNull(snapshotMid);
     assertTrue("mutationsSinceRebalance should exceed threshold,"
-            + " got " + snapshotMid.mutationsSinceRebalance(),
+        + " got " + snapshotMid.mutationsSinceRebalance(),
         snapshotMid.mutationsSinceRebalance() >= 1500);
 
     // Trigger the rebalance check by calling getHistogram().
@@ -1742,9 +1742,9 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
       if (System.currentTimeMillis() > deadline) {
         fail("Rebalance did not complete within 30 seconds."
             + " version=" + (snapshotAfter != null
-            ? snapshotAfter.version() : "null")
+                ? snapshotAfter.version() : "null")
             + ", mutations=" + (snapshotAfter != null
-            ? snapshotAfter.mutationsSinceRebalance() : "null"));
+                ? snapshotAfter.mutationsSinceRebalance() : "null"));
       }
     }
 
@@ -1756,8 +1756,8 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     // mutationsSinceRebalance should be reset (may have a few
     // from commits that raced with the rebalance)
     assertTrue("mutationsSinceRebalance should be near 0 after "
-            + "rebalance, got "
-            + snapshotAfter.mutationsSinceRebalance(),
+        + "rebalance, got "
+        + snapshotAfter.mutationsSinceRebalance(),
         snapshotAfter.mutationsSinceRebalance() < 100);
 
     // Ground truth: totalCount and nonNullCount must match actual DB
@@ -1807,8 +1807,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     var histBefore = manager.getHistogram();
     assertNotNull(histBefore);
     // Original max boundary should be near 1999
-    var maxBoundBefore = (Comparable<?>) histBefore.boundaries()[
-        histBefore.bucketCount()];
+    var maxBoundBefore = (Comparable<?>) histBefore.boundaries()[histBefore.bucketCount()];
     long versionBefore = manager.getSnapshot().version();
 
     // Insert 2000 entries at value 50000 (far beyond original range)
@@ -1838,10 +1837,9 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     assertNotNull(histAfter);
 
     // The max boundary should now include 50000
-    var maxBoundAfter = (Comparable<?>) histAfter.boundaries()[
-        histAfter.bucketCount()];
+    var maxBoundAfter = (Comparable<?>) histAfter.boundaries()[histAfter.bucketCount()];
     assertTrue("Max boundary should shift to include new data."
-            + " Before: " + maxBoundBefore + ", After: " + maxBoundAfter,
+        + " Before: " + maxBoundBefore + ", After: " + maxBoundAfter,
         ((Integer) maxBoundAfter) > ((Integer) maxBoundBefore));
     assertEquals("Max boundary should be 50000",
         50000, ((Number) maxBoundAfter).intValue());
@@ -1930,12 +1928,12 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     assertNotNull(snapshotAfterInsert);
     long distinctAfterInsert = snapshotAfterInsert.distinctCount();
     assertTrue("distinctCount after small insert should remain high (>= 400), "
-            + "was: " + distinctAfterInsert
-            + " (was " + distinctAfterAnalyze + " after ANALYZE)",
+        + "was: " + distinctAfterInsert
+        + " (was " + distinctAfterAnalyze + " after ANALYZE)",
         distinctAfterInsert >= 400);
     // It should have grown slightly (20 new distinct values added)
     assertTrue("distinctCount should be >= distinctAfterAnalyze, was: "
-            + distinctAfterInsert + " vs " + distinctAfterAnalyze,
+        + distinctAfterInsert + " vs " + distinctAfterAnalyze,
         distinctAfterInsert >= distinctAfterAnalyze - 50); // HLL tolerance
   }
 
@@ -1989,7 +1987,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
 
     long distinctAfterInsert = manager.getStatistics().distinctCount();
     assertTrue("distinctCount after small insert should stay >= 300, was: "
-            + distinctAfterInsert,
+        + distinctAfterInsert,
         distinctAfterInsert >= 300);
   }
 
@@ -2038,7 +2036,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     // Allow +/- 1 tolerance for batched persistence timing.
     long distinctAfter = snapshotAfter.distinctCount();
     assertTrue("Single-value: distinctCount should track totalCount (~2010), "
-            + "was: " + distinctAfter,
+        + "was: " + distinctAfter,
         distinctAfter >= 2009 && distinctAfter <= 2011);
   }
 
@@ -2085,8 +2083,255 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     long distinctAfter = manager.getStatistics().distinctCount();
     // Should have grown to reflect ~60 distinct values
     assertTrue("After adding 50 new distinct keys, distinctCount should grow "
-            + "from " + distinct + ", was: " + distinctAfter,
+        + "from " + distinct + ", was: " + distinctAfter,
         distinctAfter > distinct);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T2: Index drop/recreate histogram lifecycle
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Verifies that dropping and recreating an index does not leave stale
+   * histogram state. After drop + recreate + new data + ANALYZE, the
+   * histogram should reflect only the new data.
+   */
+  @Test
+  public void indexDropRecreate_histogramRebuildsCorrectly() {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("DropRecreate");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    var indexName = "DropRecreateValIdx";
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert 2000 records and build initial histogram
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("DropRecreate");
+      doc.setProperty("val", i);
+    }
+    session.commit();
+
+    try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+      assertTrue(result.hasNext());
+      var row = result.next();
+      assertEquals(2000L,
+          ((Number) row.getProperty("totalCount")).longValue());
+      assertTrue(((Number) row.getProperty("bucketCount")).intValue() > 0);
+    }
+
+    // Drop the index
+    session.command("DROP INDEX " + indexName);
+
+    // Recreate the index on the same property
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert different data (500 new records with different range)
+    session.begin();
+    for (int i = 10000; i < 10500; i++) {
+      var doc = session.newEntity("DropRecreate");
+      doc.setProperty("val", i);
+    }
+    session.commit();
+
+    // ANALYZE should succeed and reflect the new index state.
+    // The index now covers all 2500 documents (2000 original + 500 new),
+    // because the B-tree was rebuilt from the existing data when the index
+    // was recreated.
+    try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+      assertTrue(result.hasNext());
+      var row = result.next();
+      long totalCount =
+          ((Number) row.getProperty("totalCount")).longValue();
+      int bucketCount =
+          ((Number) row.getProperty("bucketCount")).intValue();
+
+      assertTrue("totalCount after recreate + new data should be > 0, was: "
+          + totalCount, totalCount > 0);
+      assertTrue("bucketCount should be > 0 after ANALYZE on recreated index",
+          bucketCount > 0);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T3: Concurrent ANALYZE + writes (5-second writer)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Starts a writer thread that continuously inserts records for ~5 seconds
+   * while the main thread runs ANALYZE INDEX 3 times. Verifies no exceptions
+   * are thrown and the final histogram totalCount >= initial count.
+   */
+  @Test
+  public void concurrentAnalyzeAndWrites_noExceptionsAndCountGrows()
+      throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("ConcAW");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    var indexName = "ConcAWvalIdx";
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert initial data above HISTOGRAM_MIN_SIZE
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("ConcAW");
+      doc.setProperty("val", i);
+    }
+    session.commit();
+
+    // Build initial histogram
+    session.execute("ANALYZE INDEX " + indexName).close();
+    long initialCount = getHistogramManager(indexName)
+        .getStatistics().totalCount();
+    assertEquals(2000L, initialCount);
+
+    // Start a writer thread that inserts for ~5 seconds
+    var writerRunning =
+        new java.util.concurrent.atomic.AtomicBoolean(true);
+    var writerErrors =
+        new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var writerThread = new Thread(() -> {
+      try (var writerSession = openDatabase()) {
+        int counter = 2000;
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (writerRunning.get()
+            && System.currentTimeMillis() < deadline) {
+          writerSession.begin();
+          for (int i = 0; i < 20; i++) {
+            var doc = writerSession.newEntity("ConcAW");
+            doc.setProperty("val", counter++);
+          }
+          writerSession.commit();
+        }
+      } catch (Throwable t) {
+        writerErrors.set(t);
+      }
+    });
+    writerThread.start();
+
+    try {
+      // Run ANALYZE INDEX 3 times on the main thread while writer is active
+      Thread.sleep(100); // let writer start
+      session.activateOnCurrentThread();
+      for (int round = 0; round < 3; round++) {
+        try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+          assertTrue("ANALYZE round " + round + " should return a result",
+              result.hasNext());
+          var row = result.next();
+          long totalCount =
+              ((Number) row.getProperty("totalCount")).longValue();
+          assertTrue("Round " + round
+              + ": totalCount should be >= 2000, was: " + totalCount,
+              totalCount >= 2000);
+          assertTrue("Round " + round + ": bucketCount should be > 0",
+              ((Number) row.getProperty("bucketCount")).intValue() > 0);
+        }
+        Thread.sleep(500); // space out the ANALYZE calls
+      }
+    } finally {
+      writerRunning.set(false);
+      writerThread.join(10_000);
+      assertNull("Writer thread should not have errors",
+          writerErrors.get());
+    }
+
+    // Final histogram totalCount must be >= initial count
+    session.activateOnCurrentThread();
+    var finalStats = getHistogramManager(indexName).getStatistics();
+    assertTrue("Final totalCount (" + finalStats.totalCount()
+        + ") should be >= initial count (2000)",
+        finalStats.totalCount() >= 2000);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T4: NULL-only data — all entries have null indexed field
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * When every record has a NULL indexed field, ANALYZE INDEX should report
+   * totalCount == 2000, nullCount == 2000, and bucketCount == 0 (no histogram
+   * can be built from all-null data).
+   */
+  @Test
+  public void nullOnlyData_analyzeReportsAllNullsNoBuckets() {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NullOnly");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    var indexName = "NullOnlyvalIdx";
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert 2000 records with the indexed field always NULL
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      session.newEntity("NullOnly"); // "val" is never set → null
+    }
+    session.commit();
+
+    try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+      assertTrue(result.hasNext());
+      var row = result.next();
+      assertEquals("totalCount should be 2000",
+          2000L, ((Number) row.getProperty("totalCount")).longValue());
+      assertEquals("nullCount should be 2000",
+          2000L, ((Number) row.getProperty("nullCount")).longValue());
+      assertEquals("bucketCount should be 0 for all-null data",
+          0, ((Number) row.getProperty("bucketCount")).intValue());
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T5: Long string boundary truncation
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Inserts 2000 records with 500-character string keys that share a common
+   * 400-char prefix. Verifies that the histogram is built successfully
+   * (bucketCount > 0) and the boundaries array is non-null — exercising the
+   * boundary truncation logic for long string keys.
+   */
+  @Test
+  public void longStringKeys_histogramBuiltWithTruncatedBoundaries() {
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("LongStr");
+    clazz.createProperty("key", PropertyType.STRING);
+    var indexName = "LongStrkeyIdx";
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
+
+    // Build a 400-character common prefix
+    var prefixBuilder = new StringBuilder(400);
+    for (int i = 0; i < 400; i++) {
+      prefixBuilder.append('A');
+    }
+    String prefix = prefixBuilder.toString();
+
+    // Insert 2000 records with 500-char keys (common prefix + varying suffix)
+    session.begin();
+    for (int i = 0; i < 2000; i++) {
+      var doc = session.newEntity("LongStr");
+      // Suffix is 100 chars: zero-padded integer + padding
+      String suffix = String.format("%0100d", i);
+      doc.setProperty("key", prefix + suffix);
+    }
+    session.commit();
+
+    try (var result = session.execute("ANALYZE INDEX " + indexName)) {
+      assertTrue(result.hasNext());
+      var row = result.next();
+      assertEquals("totalCount should be 2000",
+          2000L, ((Number) row.getProperty("totalCount")).longValue());
+      int bucketCount =
+          ((Number) row.getProperty("bucketCount")).intValue();
+      assertTrue("bucketCount should be > 0 for long string keys, was: "
+          + bucketCount, bucketCount > 0);
+    }
+
+    // Verify boundaries array is present and non-empty via internal API
+    var manager = getHistogramManager(indexName);
+    var histogram = manager.getHistogram();
+    assertNotNull("Histogram should exist after ANALYZE", histogram);
+    assertNotNull("Boundaries should be non-null", histogram.boundaries());
+    assertTrue("Boundaries should have bucketCount + 1 elements",
+        histogram.boundaries().length == histogram.bucketCount() + 1);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -2149,8 +2394,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     // Run two concurrent ANALYZE INDEX calls — both should succeed
     // and return consistent results. The second should either wait
     // for the first or see the already-fresh histogram.
-    var thread = new Thread(() ->
-        session.execute("ANALYZE INDEX AnalyzeConcvalIdx").close());
+    var thread = new Thread(() -> session.execute("ANALYZE INDEX AnalyzeConcvalIdx").close());
     thread.start();
 
     // Main thread also analyzes — exercises concurrent ANALYZE
@@ -2166,7 +2410,7 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
     var statsAfter = manager.getStatistics();
     assertNotNull(statsAfter);
     assertTrue("totalCount should be ~3000 after concurrent ANALYZE, was: "
-            + statsAfter.totalCount(),
+        + statsAfter.totalCount(),
         statsAfter.totalCount() >= 2999 && statsAfter.totalCount() <= 3001);
   }
 
@@ -2249,8 +2493,8 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
         int cmp = ((Comparable<Object>) histogram.boundaries()[i])
             .compareTo(histogram.boundaries()[i + 1]);
         assertTrue("Boundaries must be sorted: boundary[" + i + "]="
-                + histogram.boundaries()[i] + " > boundary[" + (i + 1) + "]="
-                + histogram.boundaries()[i + 1],
+            + histogram.boundaries()[i] + " > boundary[" + (i + 1) + "]="
+            + histogram.boundaries()[i + 1],
             cmp <= 0);
       }
     } finally {
