@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
@@ -16,6 +18,20 @@ public interface BTreeIndexEngine extends V1IndexEngine {
 
   /** Sets (or clears) the histogram manager for this engine. */
   void setHistogramManager(@Nullable IndexHistogramManager histogramManager);
+
+  @Nullable
+  @Override
+  default IndexStatistics getStatistics() {
+    var mgr = getHistogramManager();
+    return mgr != null ? mgr.getStatistics() : null;
+  }
+
+  @Nullable
+  @Override
+  default EquiDepthHistogram getHistogram() {
+    var mgr = getHistogramManager();
+    return mgr != null ? mgr.getHistogram() : null;
+  }
 
   /**
    * Builds the initial histogram from the current B-tree contents.

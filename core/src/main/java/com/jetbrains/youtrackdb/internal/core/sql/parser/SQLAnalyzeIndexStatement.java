@@ -34,6 +34,9 @@ public class SQLAnalyzeIndexStatement extends SQLSimpleExecStatement {
     final var session = ctx.getDatabaseSession();
 
     if (all) {
+      // Analyze ALL indexes (not just automatic ones, unlike REBUILD INDEX *).
+      // Histogram analysis is read-only and cheap, so there is no reason to
+      // restrict it to automatic indexes.
       var results = new ArrayList<ResultInternal>();
       for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
         results.add(buildResult(session, idx));

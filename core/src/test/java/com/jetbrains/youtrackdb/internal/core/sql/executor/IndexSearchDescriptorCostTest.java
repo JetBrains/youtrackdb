@@ -44,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
@@ -593,6 +594,11 @@ public class IndexSearchDescriptorCostTest {
     var expr = mock(SQLExpression.class);
     when(expr.isBaseIdentifier()).thenReturn(true);
     when(expr.toString()).thenReturn(name);
+    // Mock getDefaultAlias() for field matching via
+    // getDefaultAlias().getStringValue() (unquoted identifier comparison).
+    var alias = mock(SQLIdentifier.class);
+    when(alias.getStringValue()).thenReturn(name);
+    when(expr.getDefaultAlias()).thenReturn(alias);
     return expr;
   }
 

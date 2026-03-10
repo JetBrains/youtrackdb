@@ -8,11 +8,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -331,19 +329,5 @@ public final class BTreeSingleValueIndexEngine
   @Nullable
   public IndexHistogramManager getHistogramManager() {
     return histogramManager;
-  }
-
-  @Nullable
-  @Override
-  public IndexStatistics getStatistics() {
-    var mgr = histogramManager;
-    return mgr != null ? mgr.getStatistics() : null;
-  }
-
-  @Nullable
-  @Override
-  public EquiDepthHistogram getHistogram() {
-    var mgr = histogramManager;
-    return mgr != null ? mgr.getHistogram() : null;
   }
 }
