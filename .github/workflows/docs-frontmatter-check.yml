@@ -2,6 +2,7 @@ name: Documentation Frontmatter Check
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - '**/*.md'
       - 'docs/docs-sync.yml'
@@ -9,6 +10,7 @@ on:
 jobs:
   check-frontmatter:
     name: Validate Doc Frontmatter
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
