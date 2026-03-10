@@ -686,11 +686,10 @@ public class IndexHistogramManager extends DurableComponent {
     long nonNullCount = totalCount - nullCount;
     if (nonNullCount < histogramMinSize) {
       // Too few non-null keys for histogram; install counters-only snapshot.
-      // Single-value: distinctCount = non-null count (each key is unique).
-      // Multi-value: distinctCount = non-null count (overestimates — corrected
-      // on first rebalance when exact NDV is computed from the key scan).
-      var stats = new IndexStatistics(totalCount,
-          isSingleValue ? totalCount - nullCount : nonNullCount, nullCount);
+      // distinctCount = nonNullCount for both single-value (each key unique)
+      // and multi-value (overestimates — corrected on first rebalance when
+      // exact NDV is computed from the key scan).
+      var stats = new IndexStatistics(totalCount, nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);

@@ -946,6 +946,11 @@ public class SQLWhereClauseHistogramEstimateTest {
     var expr = mock(SQLExpression.class);
     when(expr.isBaseIdentifier()).thenReturn(true);
     when(expr.toString()).thenReturn(name);
+    // Mock getDefaultAlias() for matchesField() which uses
+    // getDefaultAlias().getStringValue() to compare unquoted identifiers.
+    var alias = mock(SQLIdentifier.class);
+    when(alias.getStringValue()).thenReturn(name);
+    when(expr.getDefaultAlias()).thenReturn(alias);
     // Not an indexed function
     when(expr.isIndexedFunctionCal(any())).thenReturn(false);
     return expr;

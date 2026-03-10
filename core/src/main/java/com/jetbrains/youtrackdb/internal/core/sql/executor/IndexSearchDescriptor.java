@@ -15,11 +15,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -228,28 +226,8 @@ public class IndexSearchDescriptor {
     if (value == null) {
       return -1;
     }
-    var op = bc.getOperator();
-    if (op instanceof SQLEqualsOperator) {
-      return SelectivityEstimator.estimateEquality(stats, histogram, value);
-    }
-    if (op instanceof SQLGtOperator) {
-      return SelectivityEstimator.estimateGreaterThan(stats, histogram, value);
-    }
-    if (op instanceof SQLLtOperator) {
-      return SelectivityEstimator.estimateLessThan(stats, histogram, value);
-    }
-    if (op instanceof SQLGeOperator) {
-      return SelectivityEstimator.estimateGreaterOrEqual(
-          stats, histogram, value);
-    }
-    if (op instanceof SQLLeOperator) {
-      return SelectivityEstimator.estimateLessOrEqual(
-          stats, histogram, value);
-    }
-    if (op instanceof SQLInOperator && value instanceof Collection<?> coll) {
-      return SelectivityEstimator.estimateIn(stats, histogram, coll);
-    }
-    return -1;
+    return SelectivityEstimator.estimateForOperator(
+        bc.getOperator(), stats, histogram, value);
   }
 
   /**

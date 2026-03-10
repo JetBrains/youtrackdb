@@ -22,6 +22,15 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import java.util.Collection;
 import javax.annotation.Nullable;
 
@@ -616,6 +625,49 @@ public final class SelectivityEstimator {
    * incremental maintenance producing out-of-range values, and against
    * NaN from unexpected division-by-zero in upstream formulas.
    */
+  /**
+   * Dispatches a binary comparison operator to the appropriate selectivity
+   * estimation method. Returns {@code -1} if the operator is not supported.
+   *
+   * <p>This is the shared operator-dispatch logic used by both
+   * {@code SQLWhereClause} and {@code IndexSearchDescriptor} to avoid
+   * duplicating the operator→estimator mapping.
+   *
+   * @param op        the SQL comparison operator
+   * @param stats     index statistics
+   * @param histogram equi-depth histogram (may be null)
+   * @param value     the right-hand-side value (already evaluated)
+   * @return selectivity in [0.0, 1.0], or -1 if the operator is unsupported
+   */
+  public static double estimateForOperator(
+      SQLBinaryCompareOperator op,
+      IndexStatistics stats,
+      @Nullable EquiDepthHistogram histogram,
+      Object value) {
+    if (op instanceof SQLEqualsOperator) {
+      return estimateEquality(stats, histogram, value);
+    }
+    if (op instanceof SQLGtOperator) {
+      return estimateGreaterThan(stats, histogram, value);
+    }
+    if (op instanceof SQLLtOperator) {
+      return estimateLessThan(stats, histogram, value);
+    }
+    if (op instanceof SQLGeOperator) {
+      return estimateGreaterOrEqual(stats, histogram, value);
+    }
+    if (op instanceof SQLLeOperator) {
+      return estimateLessOrEqual(stats, histogram, value);
+    }
+    if (op instanceof SQLNeOperator || op instanceof SQLNeqOperator) {
+      return 1.0 - estimateEquality(stats, histogram, value);
+    }
+    if (op instanceof SQLInOperator && value instanceof Collection<?> coll) {
+      return estimateIn(stats, histogram, coll);
+    }
+    return -1;
+  }
+
   static double clamp(double v) {
     if (Double.isNaN(v)) {
       return 0.0;

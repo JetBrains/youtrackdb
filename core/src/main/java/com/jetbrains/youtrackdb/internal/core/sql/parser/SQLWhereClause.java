@@ -394,36 +394,8 @@ public class SQLWhereClause extends SimpleNode {
     if (value == null) {
       return -1;
     }
-
-    var op = bc.operator;
-    if (op instanceof SQLEqualsOperator) {
-      return SelectivityEstimator.estimateEquality(stats, histogram, value);
-    }
-    if (op instanceof SQLGtOperator) {
-      return SelectivityEstimator.estimateGreaterThan(
-          stats, histogram, value);
-    }
-    if (op instanceof SQLLtOperator) {
-      return SelectivityEstimator.estimateLessThan(
-          stats, histogram, value);
-    }
-    if (op instanceof SQLGeOperator) {
-      return SelectivityEstimator.estimateGreaterOrEqual(
-          stats, histogram, value);
-    }
-    if (op instanceof SQLLeOperator) {
-      return SelectivityEstimator.estimateLessOrEqual(
-          stats, histogram, value);
-    }
-    if (op instanceof SQLNeOperator || op instanceof SQLNeqOperator) {
-      var eqSel =
-          SelectivityEstimator.estimateEquality(stats, histogram, value);
-      return 1.0 - eqSel;
-    }
-    if (op instanceof SQLInOperator && value instanceof Collection<?> coll) {
-      return SelectivityEstimator.estimateIn(stats, histogram, coll);
-    }
-    return -1;
+    return SelectivityEstimator.estimateForOperator(
+        bc.operator, stats, histogram, value);
   }
 
   /**
