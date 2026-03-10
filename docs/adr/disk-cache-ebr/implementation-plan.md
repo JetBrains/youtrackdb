@@ -2357,7 +2357,7 @@ plain JUnit otherwise.
 - `ebr/EpochTableStressTest.java` — Group A stress tests
 - `chm/CacheEntryStateTest.java` — Group B
 - `chm/LockFreeReadCacheEBRTest.java` — Group C
-- `chm/LockFreeReadCacheEBRStressTest.java` — Group D
+- `chm/LockFreeReadCacheEBRStressIntegrationTest.java` — Group D
 
 ---
 
@@ -2791,7 +2791,7 @@ size is small (64–256 entries) to force frequent eviction.
 
 #### Group D — Concurrency Stress Tests
 
-**File: `chm/LockFreeReadCacheEBRStressTest.java`**
+**File: `chm/LockFreeReadCacheEBRStressIntegrationTest.java`**
 
 All stress tests run for a configurable duration (default 10 seconds,
 overridable via system property for CI). They use `ConcurrentTestHelper`
