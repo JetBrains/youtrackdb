@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -130,6 +132,15 @@ public class IndexHistogramManager extends DurableComponent {
   private final long rebalanceFailureCooldownNs;
 
   /**
+   * Maximum serialized size in bytes for a single histogram boundary key.
+   * Boundaries exceeding this limit are truncated at character boundaries
+   * (for strings) or prefix-truncated (for byte arrays) before the page
+   * budget check. This is Strategy 1 from the implementation plan (Section
+   * 5.3); bucket count reduction (Strategy 2) is the fallback.
+   */
+  private final int maxBoundaryBytes;
+
+  /**
    * Committed mutations not yet persisted to the .ixs page. Accessed via
    * {@link #DIRTY_MUTATIONS} VarHandle for atomic increments — prevents
    * lost updates when concurrent commits call {@link #applyDelta}.
@@ -226,6 +237,9 @@ public class IndexHistogramManager extends DurableComponent {
         java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
             GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
                 .getValueAsLong());
+    this.maxBoundaryBytes =
+        GlobalConfiguration.QUERY_STATS_MAX_BOUNDARY_BYTES
+            .getValueAsInteger();
   }
 
   // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
@@ -664,8 +678,9 @@ public class IndexHistogramManager extends DurableComponent {
    * <ul>
    *   <li>MCV tracking (one extra comparison per key transition)</li>
    *   <li>Adaptive bucket count (sqrt cap + NDV cap)</li>
-   *   <li>Boundary truncation for variable-length keys</li>
-   *   <li>Dynamic bucket count reduction if boundaries exceed page space</li>
+   *   <li>Boundary truncation for variable-length keys (Strategy 1)</li>
+   *   <li>Dynamic bucket count reduction if boundaries still exceed page
+   *       space after truncation (Strategy 2)</li>
    *   <li>HLL sketch population for multi-value indexes</li>
    * </ul>
    *
@@ -1081,17 +1096,40 @@ public class IndexHistogramManager extends DurableComponent {
    * BoundarySizeCalculator)}.
    */
   @Nullable private FitResult fitToPage(BuildResult result, long nonNullCount) {
-    int mcvKeySize = result.mcvValue != null
-        ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
+    // Strategy 1: truncate oversized variable-length boundary keys before
+    // checking page budget. This preserves the full bucket count when
+    // individual keys are long but truncation makes them fit. Only applies
+    // to variable-length serializers (strings, byte arrays); fixed-length
+    // keys (int, long, double, date) are never truncated.
+    BuildResult truncated = result;
+    if (!keySerializer.isFixedLength()) {
+      truncated = truncateBoundaries(
+          result, maxBoundaryBytes, keySerializer, serializerFactory);
+    }
+
+    // Also truncate the MCV key if needed (same budget constraint)
+    Comparable<?> mcvForSize = truncated.mcvValue;
+    if (mcvForSize != null && !keySerializer.isFixedLength()) {
+      var truncatedMcv = truncateBoundary(
+          mcvForSize, maxBoundaryBytes, keySerializer, serializerFactory);
+      if (truncatedMcv != mcvForSize) {
+        mcvForSize = truncatedMcv;
+      }
+    }
+    int mcvKeySize = mcvForSize != null
+        ? keySerializer.getObjectSize(serializerFactory, mcvForSize)
         : 0;
-    return fitToPage(result, nonNullCount, isSingleValue, mcvKeySize,
+
+    // Strategy 2: reduce bucket count if boundaries still exceed page space
+    return fitToPage(truncated, nonNullCount, isSingleValue, mcvKeySize,
         this::computeBoundaryBytes);
   }
 
   /**
-   * Applies boundary truncation and checks page budget. Reduces bucket
-   * count if boundaries don't fit. When the HLL is spilled to page 1,
-   * the returned {@link FitResult#hllOnPage1} is {@code true}.
+   * Checks page budget and reduces bucket count if boundaries don't fit
+   * (Strategy 2). Boundary truncation (Strategy 1) is applied by the
+   * instance wrapper before calling this method. When the HLL is spilled
+   * to page 1, the returned {@link FitResult#hllOnPage1} is {@code true}.
    *
    * <p>Package-private and static for testability — all serializer-dependent
    * logic is injected via the {@code boundarySizeCalc} function.
@@ -1174,6 +1212,225 @@ public class IndexHistogramManager extends DurableComponent {
   @FunctionalInterface
   interface BoundarySizeCalculator {
     int computeSize(Comparable<?>[] boundaries, int bucketCount);
+  }
+
+  // ---- Strategy 1: Boundary truncation for variable-length keys ----
+
+  /**
+   * Truncates a single boundary key if its serialized size exceeds
+   * {@code maxBytes}. For String keys, truncation happens at character
+   * boundaries to produce a valid, shorter string that preserves sort
+   * order (a prefix is always &le; the full string in lexicographic
+   * order). For byte[] keys, a simple prefix is taken. For other
+   * variable-length types (e.g., Decimal), no truncation is applied
+   * (their serialized sizes are typically well within budget).
+   *
+   * @return the original key if no truncation needed, or a truncated copy
+   */
+  @SuppressWarnings("unchecked")
+  static <T> Comparable<T> truncateBoundary(
+      Comparable<?> key, int maxBytes,
+      BinarySerializer<Object> serializer,
+      BinarySerializerFactory factory) {
+    int serializedSize = serializer.getObjectSize(factory, key);
+    if (serializedSize <= maxBytes) {
+      return (Comparable<T>) key;
+    }
+
+    if (key instanceof String s) {
+      // Truncate the String so its serialized form fits within maxBytes.
+      // The serializer uses either UTF8Serializer (2-byte header + UTF-8)
+      // or StringSerializer (4-byte header + UTF-16). We compute the
+      // maximum payload bytes and truncate the string at character
+      // boundaries.
+      return (Comparable<T>) truncateString(
+          s, maxBytes, serializer);
+    }
+
+    // Other variable-length types (byte[], Decimal): no truncation.
+    // byte[] does not implement Comparable and is not used as B-tree keys;
+    // Decimal is typically small enough (10-20 bytes).
+    // The bucket count reduction fallback (Strategy 2) handles edge cases.
+    return (Comparable<T>) key;
+  }
+
+  /**
+   * Truncates a String so its serialized form fits within {@code maxBytes}.
+   * Operates at character boundaries: for UTF-8 serialization, finds the
+   * last complete character whose UTF-8 encoding fits; for UTF-16
+   * serialization, truncates at char boundaries avoiding surrogate pair
+   * splits. The truncated string preserves sort order (a prefix is always
+   * &le; the full string in {@code String.compareTo()} order).
+   */
+  private static String truncateString(
+      String s, int maxBytes,
+      BinarySerializer<Object> serializer) {
+    // Determine the header overhead for this serializer:
+    // UTF8Serializer: 2-byte short header
+    // StringSerializer: 4-byte int header (length in chars × 2)
+    boolean isUtf8 = serializer.getId() == UTF8Serializer.ID;
+    int headerSize = isUtf8
+        ? ShortSerializer.SHORT_SIZE
+        : IntegerSerializer.INT_SIZE;
+    int maxPayload = maxBytes - headerSize;
+    if (maxPayload <= 0) {
+      return s; // can't truncate below header size
+    }
+
+    if (isUtf8) {
+      // UTF-8 encoding: each char may be 1–4 bytes. Walk forward
+      // counting encoded bytes, stop before exceeding maxPayload.
+      return truncateStringUtf8(s, maxPayload);
+    } else {
+      // UTF-16 encoding: each char is exactly 2 bytes, except surrogate
+      // pairs which are 4 bytes (2 chars × 2 bytes each). Truncate at
+      // the last complete character/surrogate-pair boundary.
+      int maxChars = maxPayload / 2;
+      if (maxChars >= s.length()) {
+        return s;
+      }
+      // Don't split a surrogate pair: if the last char would be a high
+      // surrogate (leading surrogate), back up one position.
+      if (maxChars > 0
+          && Character.isHighSurrogate(s.charAt(maxChars - 1))) {
+        maxChars--;
+      }
+      return maxChars > 0 ? s.substring(0, maxChars) : s;
+    }
+  }
+
+  /**
+   * Truncates a String so its UTF-8 encoded form fits within
+   * {@code maxUtf8Bytes}. Respects character boundaries: never splits
+   * a multi-byte UTF-8 sequence.
+   */
+  private static String truncateStringUtf8(String s, int maxUtf8Bytes) {
+    int byteCount = 0;
+    int charIndex = 0;
+    while (charIndex < s.length()) {
+      int codePoint = s.codePointAt(charIndex);
+      int cpBytes;
+      if (codePoint <= 0x7F) {
+        cpBytes = 1;
+      } else if (codePoint <= 0x7FF) {
+        cpBytes = 2;
+      } else if (codePoint <= 0xFFFF) {
+        cpBytes = 3;
+      } else {
+        cpBytes = 4;
+      }
+      if (byteCount + cpBytes > maxUtf8Bytes) {
+        break;
+      }
+      byteCount += cpBytes;
+      charIndex += Character.charCount(codePoint);
+    }
+    return charIndex > 0 ? s.substring(0, charIndex) : s;
+  }
+
+  /**
+   * Applies boundary truncation (Strategy 1) to all boundaries in a
+   * {@link BuildResult}. After truncation, adjacent boundaries that have
+   * become equal are merged (their buckets' frequencies and NDVs are
+   * summed). This handles the rare case where two adjacent boundaries
+   * share a prefix longer than {@code maxBoundaryBytes}.
+   *
+   * @return a new BuildResult with truncated boundaries and merged
+   *         buckets, or the original result if no truncation was needed
+   */
+  static BuildResult truncateBoundaries(
+      BuildResult result, int maxBoundaryBytes,
+      BinarySerializer<Object> serializer,
+      BinarySerializerFactory factory) {
+    // Check if any boundary needs truncation (fast path: skip if all fit)
+    boolean needsTruncation = false;
+    for (int i = 0; i <= result.actualBucketCount; i++) {
+      int size = serializer.getObjectSize(factory, result.boundaries[i]);
+      if (size > maxBoundaryBytes) {
+        needsTruncation = true;
+        break;
+      }
+    }
+    if (!needsTruncation) {
+      return result;
+    }
+
+    // Truncate all boundaries
+    var truncated = new Comparable<?>[result.actualBucketCount + 1];
+    for (int i = 0; i <= result.actualBucketCount; i++) {
+      truncated[i] = truncateBoundary(
+          result.boundaries[i], maxBoundaryBytes, serializer, factory);
+    }
+
+    // Check for adjacent equal boundaries after truncation and merge
+    var comparator = DefaultComparator.INSTANCE;
+    // Count how many unique boundaries remain
+    int uniqueCount = 1; // boundaries[0] is always kept
+    for (int i = 1; i <= result.actualBucketCount; i++) {
+      if (comparator.compare(truncated[i], truncated[i - 1]) != 0) {
+        uniqueCount++;
+      }
+    }
+
+    // If no adjacent duplicates, return with truncated boundaries
+    if (uniqueCount == result.actualBucketCount + 1) {
+      return new BuildResult(truncated, result.frequencies,
+          result.distinctCounts, result.actualBucketCount,
+          result.totalDistinct, result.mcvValue, result.mcvFrequency);
+    }
+
+    // Merge adjacent buckets whose boundaries became equal.
+    // newBucketCount = uniqueCount - 1 (each unique pair of boundaries
+    // defines one bucket).
+    int newBucketCount = uniqueCount - 1;
+    if (newBucketCount < 1) {
+      // All boundaries collapsed to the same value — degenerate case.
+      // Return a single-bucket histogram.
+      long totalFreq = 0;
+      long totalNdv = 0;
+      for (int i = 0; i < result.actualBucketCount; i++) {
+        totalFreq += result.frequencies[i];
+        totalNdv += result.distinctCounts[i];
+      }
+      var bounds = new Comparable<?>[] {truncated[0], truncated[0]};
+      return new BuildResult(bounds, new long[] {totalFreq},
+          new long[] {totalNdv}, 1, result.totalDistinct,
+          result.mcvValue, result.mcvFrequency);
+    }
+
+    var newBounds = new Comparable<?>[newBucketCount + 1];
+    var newFreqs = new long[newBucketCount];
+    var newNdvs = new long[newBucketCount];
+
+    newBounds[0] = truncated[0];
+    int newIdx = 0;
+    long accFreq = 0;
+    long accNdv = 0;
+
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      accFreq += result.frequencies[i];
+      accNdv += result.distinctCounts[i];
+
+      // Check if the next boundary is different from the current one
+      // (i.e., we've reached the end of a group of merged buckets).
+      // The next boundary is truncated[i + 1].
+      boolean isLast = (i == result.actualBucketCount - 1);
+      boolean nextIsDifferent = !isLast
+          && comparator.compare(
+              truncated[i + 1], truncated[i]) != 0;
+
+      if (isLast || nextIsDifferent) {
+        newFreqs[newIdx] = accFreq;
+        newNdvs[newIdx] = accNdv;
+        newBounds[newIdx + 1] = truncated[i + 1];
+        newIdx++;
+        accFreq = 0;
+        accNdv = 0;
+      }
+    }
+
+    return new BuildResult(newBounds, newFreqs, newNdvs, newBucketCount,
+        result.totalDistinct, result.mcvValue, result.mcvFrequency);
   }
 
   /**
