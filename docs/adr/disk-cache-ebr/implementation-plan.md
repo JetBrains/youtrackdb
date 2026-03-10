@@ -133,15 +133,32 @@ public final class EpochTable {
 Slot and global epoch access uses `VarHandle` with **different access modes
 depending on the ordering requirements**:
 
-**`enter()` — opaque write:**
-`SLOTS_HANDLE.setOpaque(slots, slotIndex, GLOBAL_EPOCH_HANDLE.getOpaque(this))`
-— **no CAS**, single opaque write to a thread-owned cache line. Opaque is
-sufficient because the subsequent `ConcurrentHashMap.get()` (page lookup)
-contains an internal volatile read that provides the necessary acquire fence.
-This ensures the slot write is visible to other threads before the thread
-can observe any entry in the CHM. If the reclaimer misses a stale opaque
-write, it conservatively treats the slot as active (delays reclamation rather
-than causing a safety violation).
+**`enter()` — opaque write + full fence:**
+```java
+SLOTS_HANDLE.setOpaque(slots, slotIndex, GLOBAL_EPOCH_HANDLE.getOpaque(this));
+VarHandle.fullFence();
+```
+— **no CAS**, opaque write to a thread-owned cache line followed by a
+**StoreLoad fence** (`VarHandle.fullFence()`). The fence is required to
+guarantee that the slot write is visible to other threads (specifically the
+reclaimer) **before** the entering thread can read any shared data structure
+(e.g., `ConcurrentHashMap.get()`). Without the fence, the slot write could
+remain in the store buffer (x86) or be reordered past subsequent loads
+(ARM) while the thread proceeds to access entries in the CHM. The reclaimer
+could then read the stale `INACTIVE` value, compute a safeEpoch that is too
+high, and free an entry the thread is about to access — a use-after-free.
+
+Opaque (rather than volatile) is used for the store itself because the
+fence already provides the required StoreLoad barrier; a volatile store
+would add a redundant release fence before the store. On x86, the fence
+compiles to `mfence` (or `lock addl $0, (%rsp)`); on ARM, it compiles to
+`dmb ish`. This is still **significantly cheaper** than the two CAS
+operations (`lock cmpxchg`) it replaces: one fence vs. two serializing
+read-modify-write instructions that also bounce cache lines across cores.
+
+This approach matches the established pattern in **crossbeam-epoch** (Rust),
+which uses `Relaxed` store + `SeqCst` fence in its `pin()` operation for
+the same reason.
 
 **`exit()` — release write:**
 `SLOTS_HANDLE.setRelease(slots, slotIndex, INACTIVE)`
@@ -159,7 +176,8 @@ so no contention. Opaque is sufficient because the eviction lock's
 unlock provides the necessary release fence.
 
 **Slot lifecycle summary:**
-- `enter()`: opaque write (cheap, CHM volatile read provides ordering)
+- `enter()`: opaque write + `fullFence()` (StoreLoad barrier ensures slot
+  is visible to reclaimer before thread reads shared data)
 - `exit()`: release write (ensures critical section completes before exit)
 - `advanceEpoch()`: opaque write (evictionLock provides ordering)
 
@@ -394,16 +412,19 @@ The `readersWritersReferrer` CAS pair on every load/release is eliminated.
 
 | Operation | Before (per access) | After (per access) |
 |---|---|---|
-| `loadForRead` enter | CAS on `state` (acquireEntry) | Plain write to thread-local slot |
-| `loadForRead` exit | CAS on `state` (releaseEntry) | Plain write to thread-local slot |
+| `loadForRead` enter | CAS on `state` (acquireEntry) | Opaque write to thread-local slot + StoreLoad fence |
+| `loadForRead` exit | CAS on `state` (releaseEntry) | Release write to thread-local slot |
 | `loadForRead` pointer | CAS on `readersWritersReferrer` + CAS on `referrersCount` | Nothing |
 | `releaseFromRead` pointer | CAS on `readersWritersReferrer` + CAS on `referrersCount` | Nothing |
 | Eviction freeze check | CAS on `state` (may fail, retry) | Plain read (always succeeds — no holders to check) |
 | Eviction reclamation | Immediate | Deferred (amortized in drain cycles) |
 
 **Net result**: The read path goes from **4 CAS operations** (2 on state, 2 on pointer)
-to **2 plain writes** to a thread-local epoch slot. This eliminates all write memory
-barriers and cross-core cache-line invalidation on the read path.
+to **1 opaque write + 1 StoreLoad fence** (enter) and **1 release write** (exit) on a
+thread-local epoch slot. The fence on enter is cheaper than the CAS it replaces (one
+barrier vs. a serializing read-modify-write that bounces cache lines), and the exit
+is a plain store on x86. This eliminates all cross-core cache-line invalidation on the
+read path.
 
 ### Handling Edge Cases
 
@@ -475,8 +496,9 @@ of correctness bugs from inconsistent handling.
 - Epoch type: `long` (effectively unbounded at 1 increment per drain cycle)
 - All access via `VarHandle` (`MethodHandles.arrayElementVarHandle(long[].class)`
   for per-slot access, field `VarHandle` for global epoch). Access modes:
-  `setOpaque` for enter/advanceEpoch, `setRelease` for exit, `getAcquire` for
-  reclaimer slot reads. No `AtomicLong` / `AtomicLongArray` wrappers.
+  `setOpaque` + `VarHandle.fullFence()` for enter, `setOpaque` for advanceEpoch,
+  `setRelease` for exit, `getAcquire` for reclaimer slot reads.
+  No `AtomicLong` / `AtomicLongArray` wrappers.
 
 **Tests:**
 - Unit tests for EpochTable: concurrent enter/exit, safeEpoch computation correctness
