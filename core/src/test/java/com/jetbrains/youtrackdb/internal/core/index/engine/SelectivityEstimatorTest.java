@@ -480,6 +480,66 @@ public class SelectivityEstimatorTest {
     Assert.assertEquals(inclusiveBoth, exclusiveTo, DELTA);
   }
 
+  // ── Degenerate range: BETWEEN X AND X → equality ────────────────
+
+  @Test
+  public void rangeWithIdenticalBounds_delegatesToEquality() {
+    // BETWEEN 150 AND 150 should produce the same estimate as f = 150.
+    // Without the degenerate-range guard, the continuous interpolation
+    // model computes fracY - fracX = 0, yielding a zero estimate.
+    var h = uniform(4, 100, 250, 50);
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double rangeEst = SelectivityEstimator.estimateRange(
+        stats, h, 150, 150, true, true);
+    double eqEst = SelectivityEstimator.estimateEquality(stats, h, 150);
+
+    Assert.assertEquals(
+        "BETWEEN X AND X should equal equality selectivity",
+        eqEst, rangeEst, DELTA);
+    Assert.assertTrue(
+        "Estimate should be non-zero for a value within the histogram",
+        rangeEst > 0);
+  }
+
+  @Test
+  public void rangeWithIdenticalBounds_atBoundary() {
+    // BETWEEN 100 AND 100 where 100 is a bucket boundary.
+    var h = uniform(4, 100, 250, 50);
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double rangeEst = SelectivityEstimator.estimateRange(
+        stats, h, 100, 100, true, true);
+    double eqEst = SelectivityEstimator.estimateEquality(stats, h, 100);
+
+    Assert.assertEquals(
+        "BETWEEN X AND X at boundary should equal equality",
+        eqEst, rangeEst, DELTA);
+  }
+
+  @Test
+  public void rangeWithIdenticalBounds_singleValueBucket() {
+    // Bucket 1 is a single-value bucket: all 500 entries have key = 42.
+    // boundaries: [0, 42, 100] → bucket 0 = [0, 42), bucket 1 = [42, 100]
+    // distinctCounts[1] = 1, so bucket 1 uses single-value optimization.
+    // BETWEEN 42 AND 42 delegates to equality: (1/1) * (500/1000) = 0.5.
+    var h = new EquiDepthHistogram(
+        2,
+        new Comparable<?>[]{0, 42, 100},
+        new long[]{500, 500},
+        new long[]{50, 1},
+        1000, null, 0);
+    var stats = new IndexStatistics(1000, 51, 0);
+
+    double rangeEst = SelectivityEstimator.estimateRange(
+        stats, h, 42, 42, true, true);
+    double eqEst = SelectivityEstimator.estimateEquality(stats, h, 42);
+
+    Assert.assertEquals(eqEst, rangeEst, DELTA);
+    // (1/1) * (500/1000) = 0.5
+    Assert.assertEquals(0.5, rangeEst, DELTA);
+  }
+
   // ── IS NULL / IS NOT NULL with histogram ──────────────────────────
 
   @Test
