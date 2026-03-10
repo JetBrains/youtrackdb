@@ -124,7 +124,7 @@ jobs:
           If no docs need changes, do not modify any files."
       - name: Create PR if docs were updated
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GH_TOKEN: ${{ secrets.CLAUDE_PAT }}
         run: |
           if git diff --quiet; then
             echo "No documentation changes needed."
