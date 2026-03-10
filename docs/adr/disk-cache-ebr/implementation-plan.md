@@ -130,26 +130,42 @@ public final class EpochTable {
 }
 ```
 
-All slot and global epoch access uses `VarHandle` with **opaque** access mode:
+Slot and global epoch access uses `VarHandle` with **different access modes
+depending on the ordering requirements**:
 
-- `VarHandle.setOpaque` — guarantees the write is visible to other threads
-  eventually (no reordering with other opaque/volatile accesses on the same
-  variable), but does **not** impose a full StoreLoad fence. This is sufficient
-  because we only need eventual visibility during reclamation scans.
-- `VarHandle.getOpaque` — guarantees a fresh read (no caching/hoisting), but
-  no cross-variable ordering.
+**`enter()` — opaque write:**
+`SLOTS_HANDLE.setOpaque(slots, slotIndex, GLOBAL_EPOCH_HANDLE.getOpaque(this))`
+— **no CAS**, single opaque write to a thread-owned cache line. Opaque is
+sufficient because the subsequent `ConcurrentHashMap.get()` (page lookup)
+contains an internal volatile read that provides the necessary acquire fence.
+This ensures the slot write is visible to other threads before the thread
+can observe any entry in the CHM. If the reclaimer misses a stale opaque
+write, it conservatively treats the slot as active (delays reclamation rather
+than causing a safety violation).
 
-**Slot lifecycle:**
-- `enter()`: `SLOTS_HANDLE.setOpaque(slots, slotIndex, GLOBAL_EPOCH_HANDLE.getOpaque(this))`
-  — **no CAS**, single opaque write to a thread-owned cache line.
-- `exit()`: `SLOTS_HANDLE.setOpaque(slots, slotIndex, INACTIVE)`
-  — **no CAS**, single opaque write.
-- `advanceEpoch()`: `GLOBAL_EPOCH_HANDLE.setOpaque(this, epoch + 1)`
-  — single opaque write, called under `evictionLock` so no contention.
+**`exit()` — release write:**
+`SLOTS_HANDLE.setRelease(slots, slotIndex, INACTIVE)`
+— **no CAS**, single release write. Release semantics are required here:
+all memory accesses within the critical section (page data reads, pointer
+dereferences) must be ordered **before** the slot is marked `INACTIVE`.
+Without release, a weakly-ordered CPU (e.g., ARM) could reorder page data
+reads past the `INACTIVE` store, allowing the reclaimer to free memory that
+the thread is still reading. On x86 (TSO), release compiles to a plain store
+(no extra cost); on ARM, it compiles to `stlr` (store-release, lightweight).
 
-The critical property: `enter()` and `exit()` are **single opaque writes to
+**`advanceEpoch()` — opaque write:**
+`GLOBAL_EPOCH_HANDLE.setOpaque(this, epoch + 1)` — called under `evictionLock`
+so no contention. Opaque is sufficient because the eviction lock's
+unlock provides the necessary release fence.
+
+**Slot lifecycle summary:**
+- `enter()`: opaque write (cheap, CHM volatile read provides ordering)
+- `exit()`: release write (ensures critical section completes before exit)
+- `advanceEpoch()`: opaque write (evictionLock provides ordering)
+
+The critical property: `enter()` and `exit()` are **single writes to
 thread-local slots** — no contended atomics, no cache-line bouncing between
-threads, no full memory fences.
+threads.
 
 **Safe epoch (`computeSafeEpoch`):**
 
@@ -162,11 +178,15 @@ Computation: scan all slots and find the minimum active (non-`INACTIVE`) value.
 The safe epoch is `minActiveSlot - 1`. If all slots are `INACTIVE` (no threads
 in critical sections), the safe epoch equals the current global epoch.
 
+Slot reads use **acquire** semantics to pair with the release write in `exit()`.
+This ensures that if the reclaimer sees `INACTIVE`, all the thread's prior
+critical section memory accesses are guaranteed to have completed.
+
 ```java
 long computeSafeEpoch() {
   long min = GLOBAL_EPOCH_HANDLE.getOpaque(this);
   for (int i = 0; i < slotCount; i++) {
-    long slotValue = (long) SLOTS_HANDLE.getOpaque(slots, i);
+    long slotValue = (long) SLOTS_HANDLE.getAcquire(slots, i);
     if (slotValue < min) {
       min = slotValue;
     }
@@ -450,9 +470,10 @@ since it is not contended (single owner).
 - Slot count: `Runtime.getRuntime().availableProcessors() * 4` (default), configurable
 - Padding: 128 bytes per slot (2 cache lines, covers Intel + ARM)
 - Epoch type: `long` (effectively unbounded at 1 increment per drain cycle)
-- All access via `VarHandle` with opaque mode (`setOpaque` / `getOpaque`):
-  `MethodHandles.arrayElementVarHandle(long[].class)` for per-slot access,
-  field `VarHandle` for global epoch. No `AtomicLong` / `AtomicLongArray` wrappers.
+- All access via `VarHandle` (`MethodHandles.arrayElementVarHandle(long[].class)`
+  for per-slot access, field `VarHandle` for global epoch). Access modes:
+  `setOpaque` for enter/advanceEpoch, `setRelease` for exit, `getAcquire` for
+  reclaimer slot reads. No `AtomicLong` / `AtomicLongArray` wrappers.
 
 **Tests:**
 - Unit tests for EpochTable: concurrent enter/exit, safeEpoch computation correctness
