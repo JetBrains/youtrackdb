@@ -299,7 +299,8 @@ public record EquiDepthHistogram(
       return null;
     }
 
-    long readNonNullCount = LongSerializer.deserializeNative(data, pos);
+    long readNonNullCount = Math.max(0,
+        LongSerializer.deserializeNative(data, pos));
     pos += LongSerializer.LONG_SIZE;
 
     long readMcvFrequency = LongSerializer.deserializeNative(data, pos);
