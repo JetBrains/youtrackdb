@@ -466,18 +466,22 @@ private void emptyBuffers() {
 
 private void reclaimRetired() {
   long safeEpoch = epochTable.computeSafeEpoch();
-  RetiredEntry re;
-  while ((re = retiredList.peek()) != null && re.retireEpoch <= safeEpoch) {
+  CacheEntry entry;
+  while ((entry = retiredList.peek()) != null && entry.retireEpoch() <= safeEpoch) {
     retiredList.poll();
-    re.entry.getCachePointer().decrementReadersReferrer();
-    re.entry.clearCachePointer();
+    entry.getCachePointer().decrementReadersReferrer();
+    entry.clearCachePointer();
   }
 }
 ```
 
-The retired list is an `ArrayDeque<RetiredEntry>` (not concurrent — accessed
-only under `evictionLock`). Entries are appended during eviction and drained
-from the head during reclamation, so ordering is naturally FIFO by epoch.
+The retired list is an `ArrayDeque<CacheEntry>` (not concurrent — accessed
+only under `evictionLock`). No separate `RetiredEntry` wrapper is needed:
+`CacheEntry` itself carries a `retireEpoch` field (plain `long`, set during
+`retire()` under `evictionLock`). This intrusive approach eliminates one
+wrapper allocation per eviction, reducing GC pressure under high eviction
+rates. Entries are appended during eviction and drained from the head during
+reclamation, so ordering is naturally FIFO by epoch.
 A `volatile int retiredListSize` is maintained alongside the deque (incremented
 on append, decremented on reclaim, both under `evictionLock`). This counter
 is read outside the lock by `enterCriticalSection()` for the backpressure
@@ -495,8 +499,12 @@ With EBR, the `CacheEntry.state` field changes meaning:
   DEAD   (state = -2)  →  memory freed
   ```
 - `acquireEntry()` becomes a simple check: `return state == ALIVE` (plain read, no CAS).
-- `freeze()` is replaced by a single CAS `ALIVE → RETIRED` (only under evictionLock,
-  so effectively uncontended).
+- `freeze()` is replaced by `retire()`: `assert state == ALIVE; state = RETIRED;`
+  (plain write — always called under `evictionLock`, so no contention and no need
+  for CAS).
+- `retireEpoch` field (plain `long`) is added directly to `CacheEntry` to record the
+  epoch at which the entry was retired. This eliminates the need for a separate
+  `RetiredEntry` wrapper object (see retired list below).
 
 #### 5. CachePointer Simplification
 
@@ -703,6 +711,12 @@ knowing that EBR is already protecting all entries.
 4. `drainBuffers()`: Add epoch increment + `reclaimRetired()` call.
 
 ### Phase 4: Simplify CachePointer
+
+**Depends on Phase 3:** This phase removes per-access pointer reference counting,
+which is only safe after Phase 3 has replaced per-entry reference counting with
+EBR-based retired list reclamation. Specifically, `decrementReadersReferrer()` is
+now called during physical reclamation (in `reclaimRetired()`), not on every
+`releaseFromRead()`.
 
 **Files to modify:**
 - `CachePointer.java` — remove per-access `readersWritersReferrer` updates from read path
