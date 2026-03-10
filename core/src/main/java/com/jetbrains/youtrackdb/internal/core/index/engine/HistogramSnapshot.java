@@ -29,6 +29,19 @@ import javax.annotation.Nullable;
  * (delta application) and on histogram rebalance. Stored in a shared
  * {@code ConcurrentHashMap<Integer, HistogramSnapshot>} keyed by engine ID.
  *
+ * <p><b>Immutability contract:</b> This record is treated as deeply immutable.
+ * The {@link EquiDepthHistogram} and {@link HyperLogLogSketch} instances
+ * referenced by this record must <b>NOT</b> be mutated after construction.
+ * In particular, callers must never call {@link HyperLogLogSketch#add},
+ * {@link HyperLogLogSketch#merge}, or {@link HyperLogLogSketch#rebuildFrom}
+ * on a sketch obtained from a snapshot — doing so would corrupt shared state
+ * visible to concurrent planner threads.  When a new snapshot is needed (e.g.,
+ * during delta application), the sketch must be {@linkplain
+ * HyperLogLogSketch#copy() copied} first, then mutated on the copy.
+ * {@link IndexHistogramManager#computeNewSnapshot} enforces this pattern.
+ * The contract is enforced by convention, not by the type system — no
+ * defensive copies are made on the read path to avoid allocation overhead.
+ *
  * @param stats                    current index statistics (never null)
  * @param histogram                equi-depth histogram; null before first build
  *                                 or for indexes below HISTOGRAM_MIN_SIZE
@@ -50,7 +63,9 @@ import javax.annotation.Nullable;
  * @param hllSketch                multi-value NDV tracking sketch; null for
  *                                 single-value indexes and for multi-value
  *                                 indexes below HISTOGRAM_MIN_SIZE (lazy init);
- *                                 persisted to .ixs page
+ *                                 persisted to .ixs page.
+ *                                 <b>Do not mutate</b> — see immutability
+ *                                 contract above
  * @param hllOnPage1               true if the HLL register array is stored on
  *                                 page 1 of the .ixs file instead of inline on
  *                                 page 0; occurs when histogram boundaries
