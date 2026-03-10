@@ -485,4 +485,76 @@ public class HyperLogLogSketchTest {
     var buf = new byte[HyperLogLogSketch.serializedSize()];
     HyperLogLogSketch.readFrom(buf, 100);
   }
+
+  // ── readFrom register validation ──────────────────────────────
+
+  @Test
+  public void testReadFromClampsCorruptRegisterAboveMax() {
+    // A corrupted page could contain register values > 54.
+    // readFrom must clamp them to MAX_REGISTER_VALUE (54) to prevent
+    // 1L << register[i] from overflowing in estimate().
+    byte[] src = new byte[HyperLogLogSketch.serializedSize()];
+    src[0] = 127;  // way above MAX_REGISTER_VALUE (54)
+    src[1] = 55;   // just above
+    src[2] = 54;   // exactly at max — should be kept as-is
+    src[3] = 30;   // normal value
+
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+
+    // Serialize back and inspect clamped values
+    byte[] out = new byte[HyperLogLogSketch.serializedSize()];
+    sketch.writeTo(out, 0);
+
+    Assert.assertEquals("Register 0 should be clamped to 54",
+        54, out[0]);
+    Assert.assertEquals("Register 1 should be clamped to 54",
+        55 > HyperLogLogSketch.MAX_REGISTER_VALUE ? 54 : 55, out[1]);
+    Assert.assertEquals("Register 2 should stay at 54",
+        54, out[2]);
+    Assert.assertEquals("Register 3 should stay at 30",
+        30, out[3]);
+  }
+
+  @Test
+  public void testReadFromClampsNegativeRegister() {
+    // Java bytes are signed: -1 = 0xFF = 255 unsigned.
+    // This is well above MAX_REGISTER_VALUE and must be clamped.
+    byte[] src = new byte[HyperLogLogSketch.serializedSize()];
+    src[0] = -1;   // 0xFF — negative as signed byte
+    src[1] = -128; // 0x80 — minimum signed byte
+
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+
+    byte[] out = new byte[HyperLogLogSketch.serializedSize()];
+    sketch.writeTo(out, 0);
+
+    Assert.assertEquals("Negative register (0xFF) should be clamped to 54",
+        54, out[0]);
+    Assert.assertEquals("Negative register (0x80) should be clamped to 54",
+        54, out[1]);
+  }
+
+  @Test
+  public void testReadFromCorruptRegistersStillProducesUsableEstimate() {
+    // Even with several corrupt registers clamped to MAX_REGISTER_VALUE,
+    // the sketch should still produce a finite, non-negative estimate
+    // rather than crashing or returning nonsense.
+    byte[] src = new byte[HyperLogLogSketch.serializedSize()];
+    // Set 10 registers to corrupt values, rest stay at 0
+    for (int i = 0; i < 10; i++) {
+      src[i] = (byte) (100 + i); // all above 54
+    }
+    // Set some normal registers so estimate is non-trivial
+    for (int i = 10; i < 100; i++) {
+      src[i] = 3;
+    }
+
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+    long est = sketch.estimate();
+
+    Assert.assertTrue("Estimate should be non-negative, got " + est,
+        est >= 0);
+    Assert.assertTrue("Estimate should be finite (not Long.MAX_VALUE)",
+        est < Long.MAX_VALUE);
+  }
 }
