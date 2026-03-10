@@ -409,6 +409,124 @@ public class IncrementalMaintenanceTest {
   }
 
   // ═════════════════════════════════════════════════════════════════
+  // Mid-transaction rebalance: version mismatch during onPut/onRemove
+  // ═════════════════════════════════════════════════════════════════
+
+  @Test
+  public void onPut_midTransactionRebalanceChangingBucketCount_noAIOOBE() {
+    // Given a 4-bucket histogram at version 1
+    var fixture = new Fixture();
+    var histogram4 = create4BucketHistogram(); // 4 buckets, [0..100]
+    installSnapshot(fixture, 1000, 1000, 0, histogram4, 0, 1000, 1);
+
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+
+    // When a first onPut initializes frequencyDeltas for the 4-bucket layout
+    fixture.manager.onPut(op, 10, true, true);
+
+    // And then a rebalance replaces the snapshot with an 8-bucket histogram
+    // (more buckets than the original → findBucket could return index >= 4)
+    var histogram8 = new EquiDepthHistogram(
+        8,
+        new Comparable<?>[]{0, 12, 25, 37, 50, 62, 75, 87, 100},
+        new long[]{125, 125, 125, 125, 125, 125, 125, 125},
+        new long[]{12, 13, 12, 13, 12, 13, 12, 13},
+        1000,
+        null, 0);
+    installSnapshot(fixture, 1000, 1000, 0, histogram8, 0, 1000, 2);
+
+    // Then a second onPut with key=90 (bucket 7 in the new 8-bucket layout)
+    // must NOT throw ArrayIndexOutOfBoundsException — it should silently
+    // skip the frequency delta because the version no longer matches.
+    fixture.manager.onPut(op, 90, true, true);
+
+    // Verify: delta still has the 4-element array from the first call,
+    // and only the first onPut's frequency increment is recorded.
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertEquals(2, delta.totalCountDelta); // both inserts counted
+    assertEquals(4, delta.frequencyDeltas.length); // old layout preserved
+    // Bucket 0 got +1 from the first onPut (key=10 → bucket 0 in 4-bucket)
+    assertEquals(1, delta.frequencyDeltas[0]);
+    // No other bucket was touched — the second onPut was skipped
+    assertEquals(0, delta.frequencyDeltas[1]);
+    assertEquals(0, delta.frequencyDeltas[2]);
+    assertEquals(0, delta.frequencyDeltas[3]);
+  }
+
+  @Test
+  public void onRemove_midTransactionRebalanceChangingBucketCount_noAIOOBE() {
+    // Given a 4-bucket histogram at version 1
+    var fixture = new Fixture();
+    var histogram4 = create4BucketHistogram();
+    installSnapshot(fixture, 1000, 1000, 0, histogram4, 0, 1000, 1);
+
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+
+    // First onRemove initializes frequencyDeltas for the 4-bucket layout
+    fixture.manager.onRemove(op, 10, true);
+
+    // Rebalance replaces snapshot with an 8-bucket histogram at version 2
+    var histogram8 = new EquiDepthHistogram(
+        8,
+        new Comparable<?>[]{0, 12, 25, 37, 50, 62, 75, 87, 100},
+        new long[]{125, 125, 125, 125, 125, 125, 125, 125},
+        new long[]{12, 13, 12, 13, 12, 13, 12, 13},
+        1000,
+        null, 0);
+    installSnapshot(fixture, 1000, 1000, 0, histogram8, 0, 1000, 2);
+
+    // Second onRemove with key=90 (bucket 7 in new layout) must not throw
+    fixture.manager.onRemove(op, 90, true);
+
+    // Verify: delta has 4-element array, only first remove is recorded
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertEquals(-2, delta.totalCountDelta);
+    assertEquals(4, delta.frequencyDeltas.length);
+    assertEquals(-1, delta.frequencyDeltas[0]);
+    assertEquals(0, delta.frequencyDeltas[1]);
+    assertEquals(0, delta.frequencyDeltas[2]);
+    assertEquals(0, delta.frequencyDeltas[3]);
+  }
+
+  @Test
+  public void onPut_sameBucketCountDifferentVersion_skipsFrequencyDelta() {
+    // Even when bucket count stays the same, a version change means
+    // boundaries may have shifted — frequency deltas should be skipped.
+    var fixture = new Fixture();
+    var histogram = create4BucketHistogram();
+    installSnapshot(fixture, 1000, 1000, 0, histogram, 0, 1000, 1);
+
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+
+    // First onPut at version 1
+    fixture.manager.onPut(op, 30, true, true);
+
+    // Rebalance with same bucket count but new version
+    var histogram2 = new EquiDepthHistogram(
+        4,
+        new Comparable<?>[]{0, 20, 40, 60, 100},
+        new long[]{200, 200, 300, 300},
+        new long[]{20, 20, 30, 30},
+        1000,
+        null, 0);
+    installSnapshot(fixture, 1000, 1000, 0, histogram2, 0, 1000, 2);
+
+    // Second onPut — version mismatch, frequency skipped
+    fixture.manager.onPut(op, 30, true, true);
+
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertEquals(2, delta.totalCountDelta); // both counted
+    // Only the first onPut's frequency is recorded (key=30 → bucket 1)
+    assertEquals(0, delta.frequencyDeltas[0]);
+    assertEquals(1, delta.frequencyDeltas[1]);
+    assertEquals(0, delta.frequencyDeltas[2]);
+    assertEquals(0, delta.frequencyDeltas[3]);
+  }
+
+  // ═════════════════════════════════════════════════════════════════
   // At-most-one rebalance guard (AtomicBoolean)
   // ═════════════════════════════════════════════════════════════════
 
