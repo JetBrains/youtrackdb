@@ -3,8 +3,10 @@ package com.jetbrains.youtrackdb.internal.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 import java.lang.reflect.Field;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -70,9 +72,51 @@ public class YouTrackDBEnginesManagerStartUpTest {
   }
 
   /**
-   * When startup() throws during startUp(), the static instance must be set back to null
-   * and all constructor-allocated thread pools must be shut down to prevent resource leaks.
-   * The original exception must be re-thrown to the caller.
+   * When initInProgress is true but instance has not yet been assigned (null),
+   * re-entrant startUp() must return null (the current instance value) rather
+   * than falling through and creating a second YouTrackDBEnginesManager.
+   * This distinguishes the initInProgress guard from the instance != null guard.
+   */
+  @Test
+  public void reEntrantStartUpReturnsNullWhenInstanceNotYetAssigned()
+      throws Exception {
+    // Simulate the narrow window where startUp() has set initInProgress = true
+    // but has not yet assigned instance (it is still null).
+    initInProgressField.set(null, true);
+    instanceField.set(null, null);
+
+    var result = YouTrackDBEnginesManager.startUp(false);
+
+    // The re-entrant guard must short-circuit and return the current (null)
+    // instance, NOT fall through and create a new manager.
+    assertThat(result).isNull();
+  }
+
+  /**
+   * Calling startUp() when the singleton is already fully initialized (and
+   * initInProgress is false) must return the existing instance without creating
+   * a second one. This exercises the {@code if (instance != null)} early-return
+   * guard independently of the initInProgress guard.
+   */
+  @Test
+  public void startUpReturnsExistingInstanceWhenAlreadyInitialized()
+      throws Exception {
+    var currentInstance = YouTrackDBEnginesManager.instance();
+    assertThat(currentInstance).isNotNull();
+
+    // initInProgress is false (normal state after a successful startUp).
+    initInProgressField.set(null, false);
+
+    var result = YouTrackDBEnginesManager.startUp(false);
+
+    assertThat(result).isSameAs(currentInstance);
+  }
+
+  /**
+   * When startup() throws during startUp(), the static instance must be set back to null,
+   * shutdownPools() must be called to clean up thread pools, and the initLock must be
+   * released so that subsequent calls are not deadlocked. The original exception must be
+   * re-thrown to the caller.
    */
   @Test
   public void startUpCleansUpAndRethrowsWhenStartupFails() throws Exception {
@@ -101,6 +145,21 @@ public class YouTrackDBEnginesManagerStartUpTest {
 
       // Verify exactly one instance was created (and discarded).
       assertThat(mocked.constructed()).hasSize(1);
+
+      // shutdownPools() must have been called on the discarded instance to clean
+      // up constructor-allocated thread pools (WAL, checkpoint, cache, etc.).
+      verify(mocked.constructed().get(0)).shutdownPools();
+
+      // The initLock must NOT be held after the failure — otherwise subsequent
+      // startUp() calls from other threads would deadlock.
+      Field lockField =
+          YouTrackDBEnginesManager.class.getDeclaredField("initLock");
+      lockField.setAccessible(true);
+      var lock = (ReentrantLock) lockField.get(null);
+      assertThat(lock.isHeldByCurrentThread()).isFalse();
+
+      // initInProgress must be reset so that a retry can proceed.
+      assertThat(initInProgressField.get(null)).isEqualTo(false);
     }
   }
 
