@@ -621,39 +621,12 @@ the hot read path that EBR optimizes.
 - Unit test: assert that nested `enter()` throws `AssertionError`
 - Stress tests: many threads entering/exiting while reclamation scans run
 
-### Phase 2: Integrate EBR into LockFreeReadCache
-
-**Files to modify:**
-- `LockFreeReadCache.java` — add `enterCriticalSection()` / `exitCriticalSection()`,
-  integrate retired list scanning into `drainBuffers()`
-- `WTinyLFUPolicy.java` — change eviction from freeze-based to retire-based
-- `CacheEntryImpl.java` — simplify state machine (remove reference counting)
-
-**Changes:**
-1. `doLoad()`: Remove `acquireEntry()` CAS. After finding/creating the entry in the CHM,
-   return it directly (the caller is already in a critical section).
-2. `releaseFromRead()`: Remove `releaseEntry()` CAS. The entry stays alive; epoch
-   protects it from reclamation.
-3. `purgeEden()`: Replace `freeze()` with `retire()` — remove from CHM, add to retired
-   list with current epoch. No need to check state.
-4. `drainBuffers()`: Add epoch increment + `reclaimRetired()` call.
-
-### Phase 3: Simplify CachePointer
-
-**Files to modify:**
-- `CachePointer.java` — remove per-access `readersWritersReferrer` updates from read path
-- `CacheEntryImpl.java` — remove `readCache.releaseFromRead()` CAS delegation
-
-**Changes:**
-1. `incrementReadersReferrer()` / `decrementReadersReferrer()` — called only during
-   structural add (entry enters cache) and reclamation (entry leaves cache), not per access.
-2. `WritersListener` tracking — only triggered from write path (exclusive lock held).
-3. `referrersCount` — structural only (1 from read cache, 1 from write cache per dirty copy).
-
-### Phase 4: AtomicOperationsManager Integration
+### Phase 2: AtomicOperationsManager Integration
 
 **Files to modify:**
 - `ReadCache.java` — add `enterCriticalSection()` / `exitCriticalSection()` to interface
+- `LockFreeReadCache.java` — implement `enterCriticalSection()` / `exitCriticalSection()`
+  (delegates to `epochTable.enter()` / `epochTable.exit()` with backpressure check)
 - `AtomicOperationsManager.java` — enter/exit epoch around component operation lambdas
 
 **Changes:**
@@ -667,6 +640,40 @@ sections. Transactions can be arbitrarily long and holding an epoch slot for the
 duration would block reclamation and cause OOM. Instead, each component operation
 within a transaction gets its own short-lived critical section. Between component
 operations the thread is outside the epoch, allowing reclamation to proceed.
+
+**Why this must come before removing reference counting:** At the end of this phase,
+every component operation is wrapped in enter/exit, so all cache accesses are inside
+an EBR critical section. The existing reference counting still runs in parallel —
+this is redundant but safe. The next phases can then remove reference counting
+knowing that EBR is already protecting all entries.
+
+### Phase 3: Remove Reference Counting from Read Path
+
+**Files to modify:**
+- `LockFreeReadCache.java` — integrate retired list scanning into `drainBuffers()`
+- `WTinyLFUPolicy.java` — change eviction from freeze-based to retire-based
+- `CacheEntryImpl.java` — simplify state machine (remove reference counting)
+
+**Changes:**
+1. `doLoad()`: Remove `acquireEntry()` CAS. After finding/creating the entry in the CHM,
+   return it directly (the caller is already in a critical section).
+2. `releaseFromRead()`: Remove `releaseEntry()` CAS. The entry stays alive; epoch
+   protects it from reclamation.
+3. `purgeEden()`: Replace `freeze()` with `retire()` — remove from CHM, add to retired
+   list with current epoch. No need to check state.
+4. `drainBuffers()`: Add epoch increment + `reclaimRetired()` call.
+
+### Phase 4: Simplify CachePointer
+
+**Files to modify:**
+- `CachePointer.java` — remove per-access `readersWritersReferrer` updates from read path
+- `CacheEntryImpl.java` — remove `readCache.releaseFromRead()` CAS delegation
+
+**Changes:**
+1. `incrementReadersReferrer()` / `decrementReadersReferrer()` — called only during
+   structural add (entry enters cache) and reclamation (entry leaves cache), not per access.
+2. `WritersListener` tracking — only triggered from write path (exclusive lock held).
+3. `referrersCount` — structural only (1 from read cache, 1 from write cache per dirty copy).
 
 ### Phase 5: Cleanup and Validation
 
