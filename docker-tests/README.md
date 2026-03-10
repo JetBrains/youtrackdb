@@ -1,13 +1,3 @@
-<!--
----
-source_files:
-  - docker-tests/src/**
-  - docker-tests/pom.xml
-related_docs:
-  - CLAUDE.md
----
--->
-
 Unit tests for the Docker-based YouTrackDB server and REPL console.
 
 As those tests require Docker presence, they are not run by default.
