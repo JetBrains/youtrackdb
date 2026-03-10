@@ -502,8 +502,9 @@ public class IndexHistogramManager extends DurableComponent {
       // Multi-value but no HLL updates in this delta
       newDistinct = current.stats().distinctCount();
     } else {
-      // Single-value: distinctCount == totalCount
-      newDistinct = newTotal;
+      // Single-value: distinctCount == non-null count (each key is unique,
+      // and null is tracked separately via nullCount — not a "distinct key")
+      newDistinct = Math.max(0, newTotal - newNull);
     }
 
     var newStats = new IndexStatistics(newTotal, newDistinct, newNull);
@@ -618,9 +619,12 @@ public class IndexHistogramManager extends DurableComponent {
     int histogramMinSize =
         GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
     if (nonNullCount < histogramMinSize) {
-      // Too few non-null keys for histogram; install counters-only snapshot
+      // Too few non-null keys for histogram; install counters-only snapshot.
+      // Single-value: distinctCount = non-null count (each key is unique).
+      // Multi-value: distinctCount = non-null count (overestimates — corrected
+      // on first rebalance when exact NDV is computed from the key scan).
       var stats = new IndexStatistics(totalCount,
-          isSingleValue ? totalCount : nonNullCount, nullCount);
+          isSingleValue ? totalCount - nullCount : nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
@@ -659,9 +663,9 @@ public class IndexHistogramManager extends DurableComponent {
     var result = scanAndBuild(
         effectiveKeys, nonNullCount, targetBuckets, hll, hasher);
     if (result == null) {
-      // Empty key stream (all entries are null) — stay in uniform mode
-      var stats = new IndexStatistics(totalCount,
-          isSingleValue ? totalCount : 0, nullCount);
+      // Empty key stream (all entries are null) — stay in uniform mode.
+      // distinctCount = 0 because there are no non-null keys.
+      var stats = new IndexStatistics(totalCount, 0, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
@@ -1281,7 +1285,7 @@ public class IndexHistogramManager extends DurableComponent {
       // NDV cap: avoid over-allocation when distinct values are few.
       // Use the previous snapshot's distinctCount as an upper bound.
       // On the initial build this is 0 or unknown — skip (scan trims
-      // naturally). For single-value indexes distinctCount == totalCount,
+      // naturally). For single-value indexes distinctCount == nonNullCount,
       // so this cap never fires (the sqrt cap already governs).
       long prevDistinct = snapshot.stats().distinctCount();
       if (prevDistinct > 0 && prevDistinct < targetBuckets) {
