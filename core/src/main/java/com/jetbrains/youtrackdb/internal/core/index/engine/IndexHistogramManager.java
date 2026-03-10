@@ -381,10 +381,19 @@ public class IndexHistogramManager extends DurableComponent {
     var snapshot = cache.get(engineId);
 
     if (snapshot != null && snapshot.histogram() != null) {
-      int bucket = snapshot.histogram().findBucket(effectiveKey);
       delta.initFrequencyDeltas(
           snapshot.histogram().bucketCount(), snapshot.version());
-      delta.frequencyDeltas[bucket]++;
+      // If a rebalance changed the bucket layout after the delta was first
+      // initialized, the snapshot version will differ from the delta's recorded
+      // version.  The frequencyDeltas array was sized for the OLD layout, so
+      // indexing it with a bucket from the NEW histogram could cause an
+      // ArrayIndexOutOfBoundsException.  Skip the frequency update — the stale
+      // deltas will be discarded at commit time by the version check in
+      // computeNewSnapshot (Section 5.7).
+      if (delta.snapshotVersion == snapshot.version()) {
+        int bucket = snapshot.histogram().findBucket(effectiveKey);
+        delta.frequencyDeltas[bucket]++;
+      }
     }
 
     // Multi-value: update per-transaction HLL sketch for NDV tracking
@@ -420,10 +429,13 @@ public class IndexHistogramManager extends DurableComponent {
     var snapshot = cache.get(engineId);
 
     if (snapshot != null && snapshot.histogram() != null) {
-      int bucket = snapshot.histogram().findBucket(effectiveKey);
       delta.initFrequencyDeltas(
           snapshot.histogram().bucketCount(), snapshot.version());
-      delta.frequencyDeltas[bucket]--;
+      // Skip frequency update on version mismatch — same reasoning as onPut.
+      if (delta.snapshotVersion == snapshot.version()) {
+        int bucket = snapshot.histogram().findBucket(effectiveKey);
+        delta.frequencyDeltas[bucket]--;
+      }
     }
     // HLL is insert-only — not updated on remove (Section 6.2)
   }
