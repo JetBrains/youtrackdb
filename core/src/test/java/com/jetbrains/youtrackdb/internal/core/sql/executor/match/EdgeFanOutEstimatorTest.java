@@ -296,14 +296,18 @@ public class EdgeFanOutEstimatorTest {
   }
 
   @Test
-  public void bothDirection_bothVertexClassesNull_returnsZero() {
+  public void bothDirection_bothVertexClassesNull_returnsNaiveBothEstimate() {
+    // Regression: when neither vertex class is declared (schema-less edge),
+    // BOTH must NOT return 0.0. Instead it falls back to the naive estimate
+    // 2 × edgeCount / sourceCount, so the edge doesn't appear free.
     registerClass("Edge", 200);
     registerClass("Vertex", 50);
 
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, "Edge", "Vertex", Direction.BOTH, null, null);
 
-    assertEquals(0.0, fanOut, DELTA);
+    // 2 × 200 / 50 = 8.0
+    assertEquals(8.0, fanOut, DELTA);
   }
 
   // ── BOTH: vertex class passes isSubclassOrEqual but ────────
@@ -392,5 +396,63 @@ public class EdgeFanOutEstimatorTest {
         "Person", "Company");
 
     assertEquals(0.0, fanOut, DELTA);
+  }
+
+  // ── BOTH with null vertex classes: naive fallback ─────────
+
+  @Test
+  public void bothDirection_nullVertexClasses_notFree() {
+    // Regression: BOTH edges with no schema metadata must NOT appear
+    // free (0.0 cost). Verify the result is strictly positive.
+    registerClass("E", 1000);
+    registerClass("V", 100);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "E", "V", Direction.BOTH, null, null);
+
+    // Must be > 0 — planner must not treat schema-less BOTH edges as free
+    assertEquals(20.0, fanOut, DELTA); // 2 × 1000 / 100
+  }
+
+  @Test
+  public void bothDirection_nullVertexClasses_singleEdgeSingleVertex() {
+    // Edge case: 1 edge, 1 vertex, both vertex classes null
+    registerClass("E", 1);
+    registerClass("V", 1);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "E", "V", Direction.BOTH, null, null);
+
+    assertEquals(2.0, fanOut, DELTA); // 2 × 1 / 1
+  }
+
+  @Test
+  public void bothDirection_onlyOutVertexNull_inStillContributes() {
+    // When only outVertexClass is null but inVertexClass is declared,
+    // the IN side should contribute normally (not fall back to naive).
+    registerClass("Edge", 200);
+    registerClass("Vertex", 50);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Edge", "Vertex", Direction.BOTH,
+        null, "Vertex");
+
+    // OUT skipped (null), IN = 200/50 = 4.0
+    assertEquals(4.0, fanOut, DELTA);
+  }
+
+  @Test
+  public void bothDirection_onlyInVertexNull_outStillContributes() {
+    // When only inVertexClass is null but outVertexClass is declared,
+    // the OUT side should contribute normally (not fall back to naive).
+    registerClass("Edge", 200);
+    registerClass("Vertex", 50);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Edge", "Vertex", Direction.BOTH,
+        "Vertex", null);
+
+    // OUT = 200/50 = 4.0, IN skipped (null)
+    assertEquals(4.0, fanOut, DELTA);
   }
 }
