@@ -467,7 +467,15 @@ public class IndexHistogramManager extends DurableComponent {
       return;
     }
 
+    // For composite indexes, extract the leading field. If the leading
+    // field is null (e.g., CompositeKey(null, "Smith")), treat as null
+    // for histogram purposes — findBucket requires a non-null key.
     Object effectiveKey = extractLeadingField(key);
+    if (effectiveKey == null) {
+      delta.nullCountDelta++;
+      return;
+    }
+
     var snapshot = cache.get(engineId);
 
     if (snapshot != null && snapshot.histogram() != null) {
@@ -515,7 +523,14 @@ public class IndexHistogramManager extends DurableComponent {
       return;
     }
 
+    // For composite indexes, extract the leading field. If the leading
+    // field is null, treat as null — same as onPut.
     Object effectiveKey = extractLeadingField(key);
+    if (effectiveKey == null) {
+      delta.nullCountDelta--;
+      return;
+    }
+
     var snapshot = cache.get(engineId);
 
     if (snapshot != null && snapshot.histogram() != null) {
