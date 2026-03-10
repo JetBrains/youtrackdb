@@ -868,6 +868,22 @@ public class MatchExecutionPlanner {
     for (var inEdge : startNode.in) {
       if (inEdge.item.isBidirectional()) {
         sortedEdges.add(Map.entry(inEdge, false));
+      } else if (visitedNodes.contains(inEdge.out)) {
+        // Non-bidirectional incoming edge from an already-visited node.
+        // This happens when a node with $matched dependencies becomes a start
+        // node after its dependencies are resolved by a different branch of the
+        // DFS. The edge must still be scheduled (from the visited source toward
+        // this node), even though we cannot traverse it in reverse.
+        //
+        // isOutbound=false: from startNode's perspective, this edge is incoming.
+        // In the traversal direction logic below, for non-optional
+        // non-bidirectional edges this yields traversalDirection=false (reverse),
+        // which causes MatchReverseEdgeTraverser to start at edge.in (startNode)
+        // and call executeReverse() to reach edge.out (the visited node). Both
+        // endpoints are already visited, so this is a join/verification step.
+        // For optional nodes, the direction is flipped to !isOutbound=true
+        // (outbound from the visited source toward the optional start node).
+        sortedEdges.add(Map.entry(inEdge, false));
       }
     }
 
@@ -888,92 +904,117 @@ public class MatchExecutionPlanner {
               entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
       edgeCosts.put(entry.getKey(), cost);
     }
+    // TimSort is stable: equal-cost edges (including those with MAX_VALUE when
+    // cost cannot be estimated) retain their insertion order, preserving the
+    // original out-first-then-bidirectional-in ordering as a tiebreaker.
     sortedEdges.sort(Comparator.comparingDouble(
         entry -> edgeCosts.getOrDefault(entry.getKey(), Double.MAX_VALUE)));
 
-    for (var edgeData : sortedEdges) {
-      var edge = edgeData.getKey();
-      boolean isOutbound = edgeData.getValue();
-      var neighboringNode = isOutbound ? edge.in : edge.out;
+    // Process edges in cost order, retrying any that were skipped due to unsatisfied
+    // $matched dependencies. Traversing cheaper edges first may resolve dependencies
+    // for more expensive edges (e.g., visiting 'author' before 'knowsCheck' which
+    // references $matched.author). We loop until no further progress is made.
+    var pending = new ArrayList<>(sortedEdges);
+    boolean progress = true;
+    while (progress && !pending.isEmpty()) {
+      progress = false;
+      var deferred = new ArrayList<Map.Entry<PatternEdge, Boolean>>();
 
-      if (!remainingDependencies.get(neighboringNode.alias).isEmpty()) {
-        // Unsatisfied dependencies, ignore this neighboring node.
-        continue;
-      }
+      for (var edgeData : pending) {
+        var edge = edgeData.getKey();
+        boolean isOutbound = edgeData.getValue();
+        var neighboringNode = isOutbound ? edge.in : edge.out;
 
-      if (visitedNodes.contains(neighboringNode)) {
-        if (!visitedEdges.contains(edge)) {
-          // If we are executing in this block, we are in the following situation:
-          // - the startNode has not been visited yet;
-          // - it has a neighboringNode that has already been visited;
-          // - the edge between the startNode and the neighboringNode has not been scheduled yet.
-          //
-          // The isOutbound value shows us whether the edge is outbound from the point
-          // of view of the startNode. However, if there are edges to the startNode, we
-          // must visit the startNode from an already-visited neighbor, to preserve the
-          // validity of the traversal. Therefore, we negate the value of isOutbound to
-          // ensure that the edge is always scheduled in the direction from the
-          // already-visited neighbor toward the startNode. Notably, this is also the
-          // case when evaluating "optional" nodes -- we always visit the optional node
-          // from its non-optional and already-visited neighbor.
-          //
-          // The only exception to the above is when we have edges with "while"
-          // conditions. We are not allowed to flip their directionality, so we leave
-          // them as-is.
-          //
-          // Example: bidirectional edge between visited node B and new node A
-          //
-          //   Pattern:    (A) ──both('Knows')──> (B)
-          //                        edge.out=A, edge.in=B
-          //
-          //   DFS state at this point:
-          //     - B is already in visitedNodes (it was reached earlier)
-          //     - A is the startNode being processed for the first time
-          //     - isOutbound = true (edge goes out from A's perspective)
-          //
-          //   Without flip:  schedule as EdgeTraversal(edge, fwd)  -> A is source
-          //     Problem: A hasn't been produced by any prior step yet, so
-          //     MatchStep cannot look up A in the upstream row.
-          //
-          //   With flip:     schedule as EdgeTraversal(edge, rev)  -> B is source
-          //     Correct: B was already matched in a previous step, so
-          //     MatchReverseEdgeTraverser starts from B and traverses to A.
-          //
-          // The flip is applied when:
-          //   - startNode is optional (must be reached FROM a visited node), or
-          //   - edge is bidirectional (direction is arbitrary; pick the valid one)
-          // The flip is NOT applied for WHILE edges because recursive traversal
-          // semantics depend on the original syntactic direction.
-          boolean traversalDirection;
-          if (startNode.optional || edge.item.isBidirectional()) {
-            traversalDirection = !isOutbound;
-          } else {
-            traversalDirection = isOutbound;
+        var deps = remainingDependencies.get(neighboringNode.alias);
+        if (!deps.isEmpty()) {
+          // Unsatisfied dependencies — defer to a later pass.
+          if (logger.isTraceEnabled()) {
+            logger.trace("Deferred edge {} to {} due to unsatisfied dependencies: {}",
+                edge, neighboringNode.alias, deps);
+          }
+          deferred.add(edgeData);
+          continue;
+        }
+
+        if (visitedNodes.contains(neighboringNode)) {
+          if (!visitedEdges.contains(edge)) {
+            // If we are executing in this block, we are in the following situation:
+            // - the startNode has not been visited yet;
+            // - it has a neighboringNode that has already been visited;
+            // - the edge between the startNode and the neighboringNode has not been
+            //   scheduled yet.
+            //
+            // The isOutbound value shows us whether the edge is outbound from the point
+            // of view of the startNode. However, if there are edges to the startNode, we
+            // must visit the startNode from an already-visited neighbor, to preserve the
+            // validity of the traversal. Therefore, we negate the value of isOutbound to
+            // ensure that the edge is always scheduled in the direction from the
+            // already-visited neighbor toward the startNode. Notably, this is also the
+            // case when evaluating "optional" nodes -- we always visit the optional node
+            // from its non-optional and already-visited neighbor.
+            //
+            // The only exception to the above is when we have edges with "while"
+            // conditions. We are not allowed to flip their directionality, so we leave
+            // them as-is.
+            //
+            // Example: bidirectional edge between visited node B and new node A
+            //
+            //   Pattern:    (A) ──both('Knows')──> (B)
+            //                        edge.out=A, edge.in=B
+            //
+            //   DFS state at this point:
+            //     - B is already in visitedNodes (it was reached earlier)
+            //     - A is the startNode being processed for the first time
+            //     - isOutbound = true (edge goes out from A's perspective)
+            //
+            //   Without flip:  schedule as EdgeTraversal(edge, fwd)  -> A is source
+            //     Problem: A hasn't been produced by any prior step yet, so
+            //     MatchStep cannot look up A in the upstream row.
+            //
+            //   With flip:     schedule as EdgeTraversal(edge, rev)  -> B is source
+            //     Correct: B was already matched in a previous step, so
+            //     MatchReverseEdgeTraverser starts from B and traverses to A.
+            //
+            // The flip is applied when:
+            //   - startNode is optional (must be reached FROM a visited node), or
+            //   - edge is bidirectional (direction is arbitrary; pick the valid one)
+            // The flip is NOT applied for WHILE edges because recursive traversal
+            // semantics depend on the original syntactic direction.
+            boolean traversalDirection;
+            if (startNode.optional || edge.item.isBidirectional()) {
+              traversalDirection = !isOutbound;
+            } else {
+              traversalDirection = isOutbound;
+            }
+
+            visitedEdges.add(edge);
+            resultingSchedule.add(new EdgeTraversal(edge, traversalDirection));
+            progress = true;
+          }
+        } else if (!startNode.optional
+            || isOptionalChain(startNode, edge, neighboringNode)) {
+          // If the neighboring node wasn't visited, we don't expand the optional node
+          // into it, hence the above check. Instead, we'll allow the neighboring node
+          // to add the edge we failed to visit, via the above block.
+          if (visitedEdges.contains(edge)) {
+            // Should never happen.
+            throw new AssertionError(
+                "The edge was visited, but the neighboring vertex was not: "
+                    + edge
+                    + " "
+                    + neighboringNode);
           }
 
           visitedEdges.add(edge);
-          resultingSchedule.add(new EdgeTraversal(edge, traversalDirection));
+          resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
+          updateScheduleStartingAt(
+              neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
+              resultingSchedule, estimatedRootEntries, aliasClasses, session);
+          progress = true;
         }
-      } else if (!startNode.optional || isOptionalChain(startNode, edge, neighboringNode)) {
-        // If the neighboring node wasn't visited, we don't expand the optional node into it, hence
-        // the above check.
-        // Instead, we'll allow the neighboring node to add the edge we failed to visit, via the
-        // above block.
-        if (visitedEdges.contains(edge)) {
-          // Should never happen.
-          throw new AssertionError(
-              "The edge was visited, but the neighboring vertex was not: "
-                  + edge
-                  + " "
-                  + neighboringNode);
-        }
-
-        visitedEdges.add(edge);
-        resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
-        updateScheduleStartingAt(
-            neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
-            resultingSchedule, estimatedRootEntries, aliasClasses, session);
       }
+
+      pending = deferred;
     }
   }
 
@@ -1512,7 +1553,7 @@ public class MatchExecutionPlanner {
    * @return a map from alias name to estimated record count
    * @throws CommandExecutionException if a referenced class does not exist in the schema
    */
-  private static Map<String, Long> estimateRootEntries(
+  static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
       Map<String, SQLRid> aliasRids,
       Map<String, SQLWhereClause> aliasFilters,
