@@ -5264,6 +5264,13 @@ public abstract class AbstractStorage
     for (final var collectionId : collections.keySet()) {
       var bTree = linkCollectionsBTreeManager.getComponentByCollectionId(
           collectionId, atomicOperation);
+      // The B-tree should always exist: it is created with the collection
+      // (doAddCollection) and repaired during storage open
+      // (checkRidBagsPresence). lockCollections() already serializes
+      // concurrent commits to the same collection, so a null here would
+      // not cause a race — but it would indicate a bug elsewhere.
+      assert bTree != null
+          : "Link bag B-tree missing for collection " + collectionId;
       if (bTree != null) {
         atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
             atomicOperation, bTree);
