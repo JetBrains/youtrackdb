@@ -97,8 +97,16 @@ mappings:
       - "perf/**"
       - ".github/workflows/ldbc-snb-benchmark.yml"
 
+  - doc: jmh-ldbc/README.md
+    source_patterns:
+      - "jmh-ldbc/src/main/java/**"
+      - "jmh-ldbc/src/main/resources/ldbc-schema.sql"
+      - "jmh-ldbc/src/main/resources/ldbc-queries/**"
+      - "jmh-ldbc/pom.xml"
+
   - doc: docs/README.md
     source_patterns:
       - "docs/*.md"
       - "docs/dev/*.md"
       - "docs/internals/*.md"
+      - "jmh-ldbc/README.md"
