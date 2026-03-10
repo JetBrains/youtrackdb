@@ -96,7 +96,7 @@ public record EquiDepthHistogram(
   // These are disabled in production but catch programming errors during
   // development and testing.
   public EquiDepthHistogram {
-    assert bucketCount >= 0 : "bucketCount must be non-negative";
+    assert bucketCount > 0 : "bucketCount must be positive";
     assert boundaries.length == bucketCount + 1
         : "boundaries must have bucketCount + 1 elements";
     assert frequencies.length == bucketCount
