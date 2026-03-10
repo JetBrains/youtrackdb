@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Equi-depth histogram for selectivity estimation.
@@ -79,6 +81,9 @@ public record EquiDepthHistogram(
     @Nullable Comparable<?> mcvValue,
     long mcvFrequency
 ) {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(EquiDepthHistogram.class);
 
   /**
    * Maximum bucket count accepted during deserialization. The production
@@ -289,6 +294,10 @@ public record EquiDepthHistogram(
     // Guard against corrupted data: zero means no histogram, negative or
     // absurdly large values indicate page corruption.
     if (readBucketCount <= 0 || readBucketCount > MAX_DESERIALIZE_BUCKET_COUNT) {
+      if (readBucketCount != 0) {
+        logger.warn("Histogram deserialization failed: invalid bucketCount {}"
+            + " at offset {} (data length {})", readBucketCount, offset, data.length);
+      }
       return null;
     }
 
@@ -305,6 +314,8 @@ public record EquiDepthHistogram(
     // Use overflow-safe form: mcvKeyLen > data.length - pos
     // (pos is always <= data.length here, so the subtraction is non-negative)
     if (mcvKeyLen < 0 || mcvKeyLen > data.length - pos) {
+      logger.warn("Histogram deserialization failed: invalid mcvKeyLen {}"
+          + " at pos {} (data length {})", mcvKeyLen, pos, data.length);
       return null;
     }
 
@@ -319,11 +330,16 @@ public record EquiDepthHistogram(
     Comparable<?>[] readBoundaries = new Comparable<?>[readBucketCount + 1];
     for (int i = 0; i <= readBucketCount; i++) {
       if (IntegerSerializer.INT_SIZE > data.length - pos) {
+        logger.warn("Histogram deserialization failed: truncated boundary"
+            + " length at index {} pos {} (data length {})", i, pos, data.length);
         return null;
       }
       int keyLen = IntegerSerializer.deserializeNative(data, pos);
       pos += IntegerSerializer.INT_SIZE;
       if (keyLen < 0 || keyLen > data.length - pos) {
+        logger.warn("Histogram deserialization failed: invalid boundary"
+            + " keyLen {} at index {} pos {} (data length {})",
+            keyLen, i, pos, data.length);
         return null;
       }
       readBoundaries[i] = (Comparable<?>) serializer.deserializeNativeObject(
@@ -335,6 +351,8 @@ public record EquiDepthHistogram(
     long[] readFrequencies = new long[readBucketCount];
     for (int i = 0; i < readBucketCount; i++) {
       if (LongSerializer.LONG_SIZE > data.length - pos) {
+        logger.warn("Histogram deserialization failed: truncated frequency"
+            + " at index {} pos {} (data length {})", i, pos, data.length);
         return null;
       }
       readFrequencies[i] = LongSerializer.deserializeNative(data, pos);
@@ -345,6 +363,8 @@ public record EquiDepthHistogram(
     long[] readDistinctCounts = new long[readBucketCount];
     for (int i = 0; i < readBucketCount; i++) {
       if (LongSerializer.LONG_SIZE > data.length - pos) {
+        logger.warn("Histogram deserialization failed: truncated distinctCount"
+            + " at index {} pos {} (data length {})", i, pos, data.length);
         return null;
       }
       readDistinctCounts[i] = LongSerializer.deserializeNative(data, pos);
