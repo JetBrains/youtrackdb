@@ -309,11 +309,26 @@ to `LockFreeReadCache`:
 ```java
 // In LockFreeReadCache:
 public void enterCriticalSection() {
+  if (retiredListSize.get() >= retiredListThreshold) {
+    assistReclamation();
+  }
   epochTable.enter();  // asserts not already active; writes epoch + fence
 }
 
 public void exitCriticalSection() {
   epochTable.exit();   // asserts active; writes INACTIVE (release)
+}
+
+private void assistReclamation() {
+  if (evictionLock.tryLock()) {
+    try {
+      epochTable.advanceEpoch();
+      reclaimRetired();
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+  // If tryLock fails, another thread is already draining — skip and proceed.
 }
 ```
 
@@ -321,6 +336,15 @@ These methods are also exposed on the `ReadCache` interface so that
 `DurableComponent` and `AtomicOperationsManager` can call them without
 coupling to the concrete implementation. The slot index is managed internally
 by the thread-local `SlotHandle`, so the caller does not need to pass a stamp.
+
+**Backpressure on enter:** Before entering the critical section, the thread
+checks a `volatile int retiredListSize` against a threshold (1% of
+`maxCacheSize`). If exceeded, the thread attempts `tryLock()` on
+`evictionLock` and runs a reclamation pass (advance epoch + reclaim). If
+the lock is already held (another thread is draining), it skips — no
+blocking, no deadlock. This is self-regulating: threads that generate cache
+pressure assist with cleanup. The fast path (below threshold) is a single
+volatile read — effectively free.
 
 **Where to call them:**
 
@@ -416,6 +440,10 @@ private void reclaimRetired() {
 The retired list is an `ArrayDeque<RetiredEntry>` (not concurrent — accessed
 only under `evictionLock`). Entries are appended during eviction and drained
 from the head during reclamation, so ordering is naturally FIFO by epoch.
+A `volatile int retiredListSize` is maintained alongside the deque (incremented
+on append, decremented on reclaim, both under `evictionLock`). This counter
+is read outside the lock by `enterCriticalSection()` for the backpressure
+check — a stale read is harmless (triggers reclamation one cycle early or late).
 
 #### 4. CacheEntry Simplification
 
@@ -653,7 +681,7 @@ operations the thread is outside the epoch, allowing reclamation to proceed.
 
 | Risk | Mitigation |
 |---|---|
-| Delayed reclamation increases memory pressure | Bound retired list size; trigger synchronous reclamation if threshold exceeded |
+| Delayed reclamation increases memory pressure | Backpressure on `enterCriticalSection()`: threads assist reclamation via `tryLock` when retired list exceeds 1% of maxCacheSize |
 | Stalled thread holds back reclamation | Critical sections are very short; monitor max retired list depth |
 | Complexity of slot management | Reuse existing `AtomicOperationsTable` pattern already proven in this codebase |
 | Correctness of epoch ordering | Formal argument: a thread that read an entry must have entered before the entry was retired; reclamation waits for all such threads to exit. Verified by stress tests. |
@@ -666,9 +694,13 @@ operations the thread is outside the epoch, allowing reclamation to proceed.
    already fires on every cache miss, write buffer activity, and forced drain at
    107% capacity. This is aggressive enough for eager reclamation without adding
    a dedicated timer or per-operation overhead.
-2. ~~**Retired list bound**~~: **Decided — 1% of maxCacheSize.** When the retired
-   list exceeds this threshold, the drain cycle blocks (synchronous reclamation)
-   until the list drains below the threshold or all active epochs advance.
+2. ~~**Retired list bound**~~: **Decided — 1% of maxCacheSize, backpressure on
+   enter.** When the retired list exceeds this threshold, threads entering a
+   critical section assist reclamation via `tryLock` on `evictionLock` +
+   `advanceEpoch()` + `reclaimRetired()`. If the lock is already held, the
+   thread skips and proceeds — no blocking, no deadlock risk. This is
+   self-regulating: threads that generate cache pressure share the cleanup work.
+   The fast-path cost (below threshold) is a single volatile read.
 3. ~~**`silentLoadForRead` outside-cache path**~~: **Decided — keep reference
    counting.** Outside-cache entries retain the existing `incrementReadersReferrer()`
    / `decrementReadersReferrer()` mechanism. Requiring callers to be inside an EBR
