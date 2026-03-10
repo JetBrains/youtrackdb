@@ -679,6 +679,84 @@ public class IncrementalMaintenanceTest {
   }
 
   // ═════════════════════════════════════════════════════════════════
+  // closeStatsFile waits for in-progress rebalance
+  // ═════════════════════════════════════════════════════════════════
+
+  @Test
+  public void closeStatsFile_waitsForInProgressRebalance() throws Exception {
+    // Regression test: closeStatsFile must wait for a background rebalance
+    // to finish before cleaning up. Without this, the rebalance could
+    // install a phantom entry in the CHM cache or write to a closed file.
+    var fixture = new Fixture();
+    var histogram = create4BucketHistogram();
+    installSnapshot(fixture, 2000, 2000, 0, histogram, 5000, 2000, 0);
+    setFileId(fixture.manager, 42);
+
+    // Set up a key stream that blocks until we release it
+    var rebalanceStarted = new CountDownLatch(1);
+    var allowRebalanceFinish = new CountDownLatch(1);
+    fixture.manager.setKeyStreamSupplier(() -> {
+      rebalanceStarted.countDown();
+      try {
+        allowRebalanceFinish.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      return IntStream.rangeClosed(1, 2000).mapToObj(i -> (Object) i);
+    });
+
+    var executor = Executors.newSingleThreadExecutor();
+    fixture.manager.setBackgroundExecutor(executor);
+    try {
+      // Trigger background rebalance
+      fixture.manager.getHistogram();
+      assertTrue("Rebalance should have started",
+          rebalanceStarted.await(10, TimeUnit.SECONDS));
+
+      // closeStatsFile on another thread — should block until rebalance finishes
+      var closeDone = new CountDownLatch(1);
+      var closeThread = new Thread(() -> {
+        fixture.manager.closeStatsFile();
+        closeDone.countDown();
+      });
+      closeThread.start();
+
+      // closeStatsFile should NOT have completed yet (rebalance still running)
+      assertFalse("close should block while rebalance is in progress",
+          closeDone.await(200, TimeUnit.MILLISECONDS));
+
+      // Let rebalance finish
+      allowRebalanceFinish.countDown();
+
+      // Now close should complete
+      assertTrue("close should complete after rebalance finishes",
+          closeDone.await(10, TimeUnit.SECONDS));
+
+      // After close: cache entry removed, rebalance permanently blocked
+      assertNull("Cache entry should be removed after close",
+          fixture.cache.get(fixture.engineId));
+      assertTrue("rebalanceInProgress should remain true after close",
+          fixture.manager.isRebalanceInProgress());
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void closeStatsFile_blocksSubsequentRebalance() {
+    // After closeStatsFile, rebalanceInProgress is permanently true,
+    // preventing any future rebalance from being scheduled.
+    var fixture = new Fixture();
+    installSnapshot(fixture, 100, 100, 0, null, 0, 100, 0);
+
+    fixture.manager.closeStatsFile();
+
+    // rebalanceInProgress should be permanently set
+    assertTrue("rebalanceInProgress should be permanently set after close",
+        fixture.manager.isRebalanceInProgress());
+  }
+
+  // ═════════════════════════════════════════════════════════════════
   // resetOnClear — zeroes counters, discards histogram
   // ═════════════════════════════════════════════════════════════════
 
