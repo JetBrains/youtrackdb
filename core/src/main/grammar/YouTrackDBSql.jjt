@@ -2095,7 +2095,6 @@ SQLExpression FunctionParam() #void:
         boolExp = OrBlock() {
             exp = new SQLExpression(-1);
             exp.booleanExpression = boolExp;
-            exp.value = boolExp;
         }
         |
         exp = Expression()
