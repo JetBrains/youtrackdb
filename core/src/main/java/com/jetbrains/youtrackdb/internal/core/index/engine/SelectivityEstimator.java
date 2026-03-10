@@ -325,8 +325,16 @@ public final class SelectivityEstimator {
     }
 
     // Empty range: fromKey > toKey → no matching rows.
-    if (COMPARATOR.compare(fromKey, toKey) > 0) {
+    int cmp = COMPARATOR.compare(fromKey, toKey);
+    if (cmp > 0) {
       return 0.0;
+    }
+
+    // Degenerate range: BETWEEN X AND X → equivalent to equality (f = X).
+    // The continuous interpolation model produces fracY - fracX = 0 for
+    // identical keys, yielding a wrong zero estimate. Delegate to equality.
+    if (cmp == 0) {
+      return estimateEqualityHistogram(h, fromKey);
     }
 
     int bx = h.findBucket(fromKey);
