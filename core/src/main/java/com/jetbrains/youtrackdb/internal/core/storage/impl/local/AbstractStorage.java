@@ -4006,13 +4006,18 @@ public abstract class AbstractStorage
    */
   public void setHistogramExecutor(ExecutorService executor) {
     this.histogramExecutor = executor;
-    for (var engine : indexEngines) {
-      if (engine instanceof BTreeIndexEngine btreeEngine) {
-        var mgr = btreeEngine.getHistogramManager();
-        if (mgr != null) {
-          mgr.setBackgroundExecutor(executor);
+    stateLock.readLock().lock();
+    try {
+      for (var engine : indexEngines) {
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var mgr = btreeEngine.getHistogramManager();
+          if (mgr != null) {
+            mgr.setBackgroundExecutor(executor);
+          }
         }
       }
+    } finally {
+      stateLock.readLock().unlock();
     }
   }
 
