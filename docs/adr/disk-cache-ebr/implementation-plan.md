@@ -471,14 +471,53 @@ read path.
 entry has `state > 0`. With EBR:
 
 1. Remove entries from CHM (making them unreachable).
-2. Add them to the retired list with the current epoch.
-3. Wait for epoch to advance past the safe point (synchronous barrier).
-4. Then proceed with file close/delete.
+2. Record the current `globalEpoch` as `retireEpoch` for these entries.
+3. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
+   holds `evictionLock`.
+4. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
+   **spins/parks outside the lock** until `computeSafeEpoch() >= retireEpoch`.
+   Releasing the lock is essential: threads that are currently inside critical
+   sections need to finish and call `exit()`, and threads that enter new
+   critical sections after step 3 will record an epoch > `retireEpoch` (so
+   they don't block reclamation). If `waitForSafeEpoch` were called under
+   `evictionLock`, it would deadlock — no drain cycle could advance the epoch
+   or make progress while the lock is held.
+5. Once `waitForSafeEpoch` returns, all threads that could have observed the
+   removed entries have exited their critical sections. Physically reclaim
+   the entries (release pointers back to `ByteBufferPool`).
+6. Proceed with file close/delete.
 
-This is safe because `clearFile` is called under `evictionLock` and during
-storage shutdown when no concurrent operations should be running. If needed,
-we can add a `waitForSafeEpoch(retireEpoch)` that busy-waits/parks until
-all active threads have exited their critical sections.
+```java
+// In LockFreeReadCache:
+void clearFile(long fileId) {
+  List<CacheEntry> removed;
+  long retireEpoch;
+
+  evictionLock.lock();
+  try {
+    removed = removeEntriesForFile(fileId);  // remove from CHM + LRU
+    retireEpoch = epochTable.currentEpoch();
+    epochTable.advanceEpoch();
+  } finally {
+    evictionLock.unlock();
+  }
+
+  // Spin/park outside the lock until all pre-existing critical sections exit.
+  epochTable.waitForSafeEpoch(retireEpoch);
+
+  // Now safe to reclaim — no thread can hold references to these entries.
+  for (var entry : removed) {
+    entry.getCachePointer().decrementReadersReferrer();
+    entry.clearCachePointer();
+  }
+}
+```
+
+`waitForSafeEpoch` polls `computeSafeEpoch()` in a spin loop with
+progressive backoff (`Thread.onSpinWait()` → `Thread.yield()` →
+`LockSupport.parkNanos()`). A bounded timeout (e.g., 30 seconds) triggers
+an `IllegalStateException` — a thread stuck in a critical section that long
+indicates a bug, not a legitimate workload.
 
 #### Write Path (loadForWrite / releaseFromWrite)
 
