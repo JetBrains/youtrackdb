@@ -453,10 +453,13 @@ the standard EBR trade-off. Mitigations:
 
 Entries created with `insideCache = false` (e.g., `silentLoadForRead`) are not
 part of the CHM and not managed by the eviction policy. These currently use
-`decrementReadersReferrer()` on release. With EBR, these entries bypass epoch
-tracking entirely — they are single-use and their pointer is released
-immediately on `releaseFromRead`. This path can keep direct pointer management
-since it is not contended (single owner).
+`decrementReadersReferrer()` on release. With EBR, these entries use the
+same epoch-based critical section as regular cache entries. The caller must
+be inside a critical section (enter/exit) when accessing the entry. On
+`releaseFromRead`, the entry is added to the retired list with the current
+epoch and reclaimed during the next drain cycle, just like in-cache entries.
+This uniform approach eliminates a separate code path and reduces the risk
+of correctness bugs from inconsistent handling.
 
 ## Implementation Phases
 
@@ -546,13 +549,32 @@ operations the thread is outside the epoch, allowing reclamation to proceed.
 
 ## Open Questions
 
-1. **Epoch advancement frequency**: Should we increment per drain cycle (current plan),
-   per N operations, or on a timer? Trade-off: more frequent = faster reclamation but
-   more scans; less frequent = more deferred memory but fewer scans.
-2. **Retired list bound**: What threshold triggers synchronous reclamation? Proportional
-   to cache size (e.g., 1% of maxCacheSize)?
-3. **`silentLoadForRead` outside-cache path**: Keep reference counting for this path
-   (single-owner, not contended) or also EBR-ify it?
-4. **Integration with `OperationsFreezer`**: The freezer already uses a count-based
-   barrier for write operations. Should the EBR epoch table subsume this, or remain
-   independent?
+1. ~~**Epoch advancement frequency**~~: **Decided — per drain cycle.** The epoch is
+   advanced at the start of every `drainBuffers()` / `emptyBuffers()` call, which
+   already fires on every cache miss, write buffer activity, and forced drain at
+   107% capacity. This is aggressive enough for eager reclamation without adding
+   a dedicated timer or per-operation overhead.
+2. ~~**Retired list bound**~~: **Decided — 1% of maxCacheSize.** When the retired
+   list exceeds this threshold, the drain cycle blocks (synchronous reclamation)
+   until the list drains below the threshold or all active epochs advance.
+3. ~~**`silentLoadForRead` outside-cache path**~~: **Decided — EBR-ify it.** Use
+   the same epoch-based critical section for outside-cache entries. This ensures
+   a single uniform approach across all cache paths, improving implementation
+   robustness and eliminating the risk of forgetting to handle the two paths
+   differently.
+4. ~~**Integration with `OperationsFreezer`**~~: **Decided — remain independent.**
+   The two mechanisms serve fundamentally different purposes:
+   - **OperationsFreezer**: a **blocking barrier** for write operations. It can
+     *prevent new operations from starting* (`freezeRequests > 0` causes
+     `startOperation()` to park the calling thread) and *waits for in-flight
+     operations to drain* (`operationsCount.sum() == 0`). Used during checkpoints
+     and storage shutdown to guarantee no concurrent writes.
+   - **EBR epoch table**: a **non-blocking reclamation guard** for the read cache.
+     It never blocks threads from entering critical sections — it only defers
+     memory reclamation until all readers have exited.
+
+   The freezer's ability to *block* new operations has no analogue in EBR and is
+   essential for checkpoint correctness. Conversely, EBR's per-slot epoch tracking
+   is irrelevant to the freezer's drain-and-block protocol. Merging them would
+   add complexity without benefit. They operate at different layers
+   (storage transaction lifecycle vs. cache memory lifecycle) and remain independent.
