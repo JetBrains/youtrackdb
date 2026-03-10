@@ -717,7 +717,6 @@ public class SQLExpression extends SimpleNode {
     }
     if (booleanExpression != null) {
       result.setProperty("booleanExpression", booleanExpression.serialize(session));
-      result.setProperty("booleanExpressionClass", booleanExpression.getClass().getName());
     }
     result.setProperty("booleanValue", booleanValue);
     return result;

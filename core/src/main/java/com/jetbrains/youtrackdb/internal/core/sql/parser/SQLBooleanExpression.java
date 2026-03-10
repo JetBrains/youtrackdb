@@ -316,10 +316,10 @@ public abstract class SQLBooleanExpression extends SimpleNode {
                   .getConstructor(Integer.class)
                   .newInstance(-1);
       result.deserialize(res);
+      return result;
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
     }
-    return null;
   }
 
   public Result serialize(DatabaseSessionEmbedded session) {
