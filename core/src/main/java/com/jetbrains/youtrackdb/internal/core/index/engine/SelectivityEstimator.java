@@ -92,6 +92,11 @@ public final class SelectivityEstimator {
     if (stats.distinctCount() <= 0) {
       return 0.0;
     }
+    // All entries are null: no non-null key can match.
+    long nonNull = stats.totalCount() - stats.nullCount();
+    if (nonNull <= 0) {
+      return 0.0;
+    }
     return clamp(1.0 / stats.distinctCount());
   }
 
@@ -311,10 +316,16 @@ public final class SelectivityEstimator {
     return UNIFORM_RANGE_SELECTIVITY;
   }
 
+  @SuppressWarnings("unchecked")
   private static double estimateRangeHistogram(
       EquiDepthHistogram h, Object fromKey, Object toKey) {
     long nonNull = h.nonNullCount();
     if (nonNull <= 0) {
+      return 0.0;
+    }
+
+    // Empty range: fromKey > toKey → no matching rows.
+    if (COMPARATOR.compare(fromKey, toKey) > 0) {
       return 0.0;
     }
 

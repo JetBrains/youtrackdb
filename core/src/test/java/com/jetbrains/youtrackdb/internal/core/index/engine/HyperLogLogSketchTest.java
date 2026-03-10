@@ -183,10 +183,10 @@ public class HyperLogLogSketchTest {
       b.add(hashInt(i));
     }
 
-    var ab = a.clone();
+    var ab = a.copy();
     ab.merge(b);
 
-    var ba = b.clone();
+    var ba = b.copy();
     ba.merge(a);
 
     Assert.assertEquals(
@@ -209,7 +209,7 @@ public class HyperLogLogSketchTest {
       b.add(hashInt(i));
     }
 
-    var merged = a.clone();
+    var merged = a.copy();
     merged.merge(b);
 
     long expected = 2 * n;
@@ -236,7 +236,7 @@ public class HyperLogLogSketchTest {
     }
 
     long estimateBefore = a.estimate();
-    var merged = a.clone();
+    var merged = a.copy();
     merged.merge(b);
     long estimateAfter = merged.estimate();
 
@@ -256,7 +256,7 @@ public class HyperLogLogSketchTest {
     }
     long estimateBefore = a.estimate();
 
-    var aClone = a.clone();
+    var aClone = a.copy();
     a.merge(aClone);
 
     Assert.assertEquals(
@@ -264,17 +264,17 @@ public class HyperLogLogSketchTest {
         estimateBefore, a.estimate());
   }
 
-  // ── Clone independence ───────────────────────────────────────
+  // ── Copy independence ────────────────────────────────────────
 
   @Test
-  public void testCloneIndependence() {
-    // Modify original after clone → clone's estimate unchanged
+  public void testCopyIndependence() {
+    // Modify original after copy → copy's estimate unchanged
     var original = new HyperLogLogSketch();
     for (int i = 0; i < 5000; i++) {
       original.add(hashInt(i));
     }
 
-    var cloned = original.clone();
+    var cloned = original.copy();
     long clonedEstimate = cloned.estimate();
 
     // Modify original by adding many more keys
@@ -283,7 +283,7 @@ public class HyperLogLogSketchTest {
     }
 
     Assert.assertEquals(
-        "Clone should be independent of original modifications",
+        "Copy should be independent of original modifications",
         clonedEstimate, cloned.estimate());
     Assert.assertNotEquals(
         "Original should have different estimate after adding more keys",

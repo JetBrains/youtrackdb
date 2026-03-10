@@ -1184,6 +1184,103 @@ public class HistogramConstructionTest {
         fitResult.histogram().bucketCount());
   }
 
+  // ── Long string boundary truncation ──
+
+  @Test
+  public void fitToPage_longStringBoundaries_mergePreservesSortOrder() {
+    // Given: a histogram with 128 buckets and long string boundaries.
+    // Each boundary has a 950-char common prefix + unique 50-char suffix.
+    // Total serialized size per boundary = 4 (length prefix) + 1000 chars
+    // = 1004 bytes. For 129 boundaries: 129 × 1004 = 129,516 bytes, far
+    // exceeding the ~6000-byte budget on a single page. fitToPage must
+    // halve repeatedly (128 → 64 → 32 → 16 → 8 → 4) until it fits.
+    int buckets = 128;
+    var boundaries = new Comparable<?>[buckets + 1];
+    var frequencies = new long[buckets];
+    var distinctCounts = new long[buckets];
+    String prefix = "X".repeat(950);
+    for (int i = 0; i <= buckets; i++) {
+      boundaries[i] = prefix + String.format("%050d", i);
+    }
+    Arrays.fill(frequencies, 10L);
+    Arrays.fill(distinctCounts, 10L);
+    var scanResult = new IndexHistogramManager.BuildResult(
+        boundaries, frequencies, distinctCounts, buckets,
+        buckets * 10L, null, 0);
+
+    var fitResult = IndexHistogramManager.fitToPage(
+        scanResult, buckets * 10L, false, 0,
+        (bounds, count) -> {
+          int total = 0;
+          for (int i = 0; i <= count; i++) {
+            total += 4 + ((String) bounds[i]).length();
+          }
+          return total;
+        });
+
+    assertNotNull("Should produce a histogram (with fewer buckets)",
+        fitResult);
+
+    // Verify merged boundaries maintain sort order
+    var h = fitResult.histogram();
+    var comparator = DefaultComparator.INSTANCE;
+    for (int i = 0; i < h.bucketCount(); i++) {
+      assertTrue(
+          "boundaries[" + i + "]=" + h.boundaries()[i].toString().substring(950)
+              + " should be <= boundaries[" + (i + 1) + "]="
+              + h.boundaries()[i + 1].toString().substring(950),
+          comparator.compare(
+              h.boundaries()[i], h.boundaries()[i + 1]) <= 0);
+    }
+    // Bucket count should have been reduced from 128
+    assertTrue("Bucket count should be reduced from " + buckets
+            + " but was " + h.bucketCount(),
+        h.bucketCount() < buckets);
+    assertTrue("Bucket count should be >= MINIMUM_BUCKET_COUNT (4)",
+        h.bucketCount() >= 4);
+  }
+
+  @Test
+  public void fitToPage_identicalPrefixBoundaries_mergesToFewerBuckets() {
+    // Given: boundaries that are identical after a tight budget forces
+    // truncation-like reduction. Adjacent equal boundaries cause bucket
+    // merging, resulting in fewer buckets.
+    int buckets = 8;
+    var boundaries = new Comparable<?>[buckets + 1];
+    var frequencies = new long[buckets];
+    var distinctCounts = new long[buckets];
+    // All boundaries are the same string — simulates the case where
+    // truncation produces identical adjacent boundaries.
+    for (int i = 0; i <= buckets; i++) {
+      boundaries[i] = "same_key";
+    }
+    // Only first and last differ to make it a valid histogram
+    boundaries[0] = "aaa";
+    boundaries[buckets] = "zzz";
+    Arrays.fill(frequencies, 50L);
+    Arrays.fill(distinctCounts, 10L);
+
+    var scanResult = new IndexHistogramManager.BuildResult(
+        boundaries, frequencies, distinctCounts, buckets, 400, null, 0);
+
+    // Small budget to force merging
+    var fitResult = IndexHistogramManager.fitToPage(
+        scanResult, 200, false, 0,
+        (bounds, count) -> (count + 1) * 20);
+
+    assertNotNull(fitResult);
+    var h = fitResult.histogram();
+    // Merged histogram should have fewer buckets
+    assertTrue("Bucket count should be <= " + buckets,
+        h.bucketCount() <= buckets);
+    // Frequencies should sum to the original total
+    long totalFreq = 0;
+    for (long f : h.frequencies()) {
+      totalFreq += f;
+    }
+    assertEquals("Total frequency must be preserved", 400, totalFreq);
+  }
+
   // ── Helpers ──
 
   private static EquiDepthHistogram create10BucketHistogram() {

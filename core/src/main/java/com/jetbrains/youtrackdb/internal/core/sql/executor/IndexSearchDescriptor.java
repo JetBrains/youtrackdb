@@ -195,7 +195,11 @@ public class IndexSearchDescriptor {
     double cost = isRange
         ? CostModel.indexRangeCost(estimatedRows)
         : CostModel.indexEqualityCost(estimatedRows);
-    return cost > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) cost;
+    // Ensure at least cost 1 so histogram-estimated indexes are always
+    // distinguishable from "no estimate" (Integer.MAX_VALUE) and from each
+    // other when costs are fractional.
+    return cost > Integer.MAX_VALUE
+        ? Integer.MAX_VALUE : Math.max(1, (int) cost);
   }
 
   /**

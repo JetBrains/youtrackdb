@@ -82,6 +82,38 @@ public class MurmurHash3 {
     return k;
   }
 
+  /**
+   * Hashes a single long value without allocating a byte array.
+   * Equivalent to hashing the 8-byte big-endian representation of {@code value}.
+   */
+  public static long murmurHash3_x64_64(final long value, final int seed) {
+    var state = new State();
+
+    state.h1 = 0x9368e53c2f6af274L ^ seed;
+    state.h2 = 0x586dcd208f7cd3fdL ^ seed;
+
+    state.c1 = 0x87c37b91114253d5L;
+    state.c2 = 0x4cf5ad432745937fL;
+
+    // 8 bytes: goes into k1, k2 stays 0
+    state.k1 = value;
+    state.k2 = 0;
+    bmix(state);
+
+    state.h2 ^= 8; // length = 8
+
+    state.h1 += state.h2;
+    state.h2 += state.h1;
+
+    state.h1 = fmix(state.h1);
+    state.h2 = fmix(state.h2);
+
+    state.h1 += state.h2;
+    state.h2 += state.h1;
+
+    return state.h1;
+  }
+
   public static long murmurHash3_x64_64(final byte[] key, final int seed) {
     var state = new State();
 
