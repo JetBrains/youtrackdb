@@ -190,6 +190,11 @@ public class IndexSearchDescriptor {
       selectivity *= SelectivityEstimator.defaultSelectivity();
     }
 
+    // Note: selectivity is expressed as a fraction of non-null entries (see
+    // SelectivityEstimator Javadoc), but we multiply by totalCount (which
+    // includes nulls).  This produces a mild overestimate bounded by the null
+    // fraction — an intentional conservative bias that favors full scans in
+    // borderline cases rather than picking a bad index.
     long estimatedRows = Math.max(1, (long) (indexStats.totalCount() * selectivity));
     boolean isRange = isRangeEstimate(subBlocks, additionalRangeCondition);
     double cost = isRange
