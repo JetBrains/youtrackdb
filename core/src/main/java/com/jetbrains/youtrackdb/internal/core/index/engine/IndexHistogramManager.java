@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
@@ -386,14 +387,26 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   /**
-   * Spins until the rebalance CAS guard can be acquired, then leaves it
+   * Waits until the rebalance CAS guard can be acquired, then leaves it
    * set to permanently prevent future background rebalances. Used by
    * {@link #closeStatsFile()} and {@link #deleteStatsFile} to ensure no
    * background task touches the file or cache after cleanup.
+   *
+   * <p>Parks the thread in 1 ms intervals to avoid burning CPU while
+   * waiting for a potentially long-running rebalance scan. Logs a warning
+   * if the wait exceeds 30 seconds.
    */
   private void waitForAndBlockRebalance() {
+    long waitStartNanos = System.nanoTime();
+    boolean warned = false;
     while (!rebalanceInProgress.compareAndSet(false, true)) {
-      Thread.onSpinWait();
+      LockSupport.parkNanos(1_000_000L); // 1 ms
+      if (!warned
+          && System.nanoTime() - waitStartNanos > 30_000_000_000L) {
+        logger.warn("Waiting >30s for background rebalance to finish"
+            + " during close/delete of {}", getName());
+        warned = true;
+      }
     }
     // Leave rebalanceInProgress == true to block future schedules.
   }
@@ -513,18 +526,19 @@ public class IndexHistogramManager extends DurableComponent {
         (long) DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount)
             + delta.mutationCount;
 
-    // Use CAS gate so only one thread flushes: avoids the race where two
-    // concurrent threads both flush and then both setRelease(0), zeroing out
-    // mutations added between the two flushes.
+    // Use getAndSet(0) so exactly one thread claims the dirty count and
+    // flushes. Any mutations added by concurrent threads between the
+    // getAndAdd above and the getAndSet here become part of the next batch
+    // (their count is already reflected in the VarHandle and will be
+    // re-accumulated by subsequent applyDelta calls).
     if (newDirty >= persistBatchSize) {
-      long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
-      if (observed >= persistBatchSize
-          && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
+      long claimed = (long) DIRTY_MUTATIONS.getAndSet(this, 0L);
+      if (claimed > 0) {
         try {
           flushSnapshotToPage();
         } catch (IOException e) {
           // Restore the count so the next applyDelta re-triggers the flush.
-          DIRTY_MUTATIONS.getAndAdd(this, observed);
+          DIRTY_MUTATIONS.getAndAdd(this, claimed);
           logger.warn("Failed to flush histogram stats for {}",
               getName(), e);
         }

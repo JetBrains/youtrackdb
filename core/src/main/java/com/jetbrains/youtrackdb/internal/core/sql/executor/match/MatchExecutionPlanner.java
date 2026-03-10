@@ -61,6 +61,8 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Converts a parsed `MATCH` statement into a physical execution plan.
@@ -218,6 +220,9 @@ import javax.annotation.Nullable;
  * @see EdgeTraversal
  */
 public class MatchExecutionPlanner {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(MatchExecutionPlanner.class);
 
   /**
    * Prefix prepended to auto-generated aliases for pattern nodes that the user did not
@@ -1107,8 +1112,12 @@ public class MatchExecutionPlanner {
       if (value instanceof String s) {
         return s;
       }
-    } catch (Exception ignored) {
-      // expression may require a full context — fall through to toString
+    } catch (CommandExecutionException e) {
+      // Expression may require a full context — fall through to toString fallback.
+      if (logger.isTraceEnabled()) {
+        logger.trace("Could not evaluate edge class parameter, "
+            + "falling back to toString", e);
+      }
     }
 
     // Fallback: strip surrounding quotes from the string representation
