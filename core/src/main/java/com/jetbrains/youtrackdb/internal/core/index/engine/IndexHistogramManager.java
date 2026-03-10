@@ -1409,11 +1409,15 @@ public class IndexHistogramManager extends DurableComponent {
         );
       });
 
-      // Persist the new snapshot
+      // Persist the new snapshot. On failure, mark dirty so the next
+      // checkpoint or commit-path batch flush retries the persistence.
+      // The CHM snapshot is already installed (correct in-memory state);
+      // only the on-disk page needs to catch up.
       try {
         flushSnapshotToPage();
         DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
+        DIRTY_MUTATIONS.getAndAdd(this, 1);
         logger.warn("Failed to persist rebalanced histogram for {}",
             getName(), e);
       }
