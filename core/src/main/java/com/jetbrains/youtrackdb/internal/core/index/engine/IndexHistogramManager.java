@@ -119,6 +119,15 @@ public class IndexHistogramManager extends DurableComponent {
    */
   private final int persistBatchSize;
 
+  // Cached rebalance-related configuration values — read from
+  // GlobalConfiguration at construction time to avoid repeated config
+  // lookups on every getHistogram() call (planner hot path).
+  private final int histogramMinSize;
+  private final double rebalanceMutationFraction;
+  private final long maxRebalanceMutations;
+  private final long minRebalanceMutations;
+  private final long rebalanceFailureCooldownMs;
+
   /**
    * Committed mutations not yet persisted to the .ixs page. Accessed via
    * {@link #DIRTY_MUTATIONS} VarHandle for atomic increments — prevents
@@ -202,6 +211,18 @@ public class IndexHistogramManager extends DurableComponent {
     this.serializerId = serializerId;
     this.persistBatchSize =
         GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger();
+    this.histogramMinSize =
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
+    this.rebalanceMutationFraction =
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
+            .getValueAsDouble();
+    this.maxRebalanceMutations =
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS.getValueAsLong();
+    this.minRebalanceMutations =
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS.getValueAsLong();
+    this.rebalanceFailureCooldownMs =
+        GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
+            .getValueAsLong();
   }
 
   // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
@@ -616,8 +637,6 @@ public class IndexHistogramManager extends DurableComponent {
   public void buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
     long nonNullCount = totalCount - nullCount;
-    int histogramMinSize =
-        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
     if (nonNullCount < histogramMinSize) {
       // Too few non-null keys for histogram; install counters-only snapshot.
       // Single-value: distinctCount = non-null count (each key is unique).
@@ -719,8 +738,6 @@ public class IndexHistogramManager extends DurableComponent {
 
     long nonNullCount =
         snapshot.stats().totalCount() - snapshot.stats().nullCount();
-    int histogramMinSize =
-        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
     if (nonNullCount < histogramMinSize) {
       return;
     }
@@ -1189,19 +1206,10 @@ public class IndexHistogramManager extends DurableComponent {
   // ---- Internal: rebalance ----
 
   private long computeRebalanceThreshold(HistogramSnapshot snapshot) {
-    double mutationFraction =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION
-            .getValueAsDouble();
-    long maxMutations =
-        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS
-            .getValueAsLong();
-    long minMutations =
-        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS
-            .getValueAsLong();
     long threshold =
-        (long) (snapshot.totalCountAtLastBuild() * mutationFraction);
-    threshold = Math.min(threshold, maxMutations);
-    threshold = Math.max(threshold, minMutations);
+        (long) (snapshot.totalCountAtLastBuild() * rebalanceMutationFraction);
+    threshold = Math.min(threshold, maxRebalanceMutations);
+    threshold = Math.max(threshold, minRebalanceMutations);
     if (snapshot.hasDriftedBuckets()) {
       threshold = Math.max(1, threshold / 2);
     }
@@ -1211,10 +1219,8 @@ public class IndexHistogramManager extends DurableComponent {
   private void scheduleRebalance(
       ExecutorService executor) {
     // Check cooldown
-    long cooldownMs =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
-            .getValueAsLong();
-    if (System.currentTimeMillis() - lastRebalanceFailureTime < cooldownMs) {
+    if (System.currentTimeMillis() - lastRebalanceFailureTime
+        < rebalanceFailureCooldownMs) {
       return;
     }
     // At-most-one guard
@@ -1267,9 +1273,6 @@ public class IndexHistogramManager extends DurableComponent {
       long nullCount = snapshot.stats().nullCount();
       long nonNullCount = totalCount - nullCount;
 
-      int histogramMinSize =
-          GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE
-              .getValueAsInteger();
       if (!bypassMinSize && nonNullCount < histogramMinSize) {
         return;
       }
