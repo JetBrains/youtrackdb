@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - .github/scripts/coverage-gate.py
@@ -7,6 +8,7 @@ related_docs:
   - docs/dev/ci-cd-diagram.md
   - CLAUDE.md
 ---
+-->
 
 # Test Quality Requirements
 

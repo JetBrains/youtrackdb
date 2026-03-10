@@ -45,7 +45,7 @@ def find_docs():
 def parse_frontmatter(path):
     """Return parsed YAML frontmatter dict, or None if no frontmatter."""
     text = (REPO_ROOT / path).read_text(encoding="utf-8")
-    match = re.match(r"^---\n(.*?\n)---\n", text, re.DOTALL)
+    match = re.match(r"^<!--\n---\n(.*?\n)---\n-->\n", text, re.DOTALL)
     if not match:
         return None
     try:
@@ -132,7 +132,7 @@ def main():
         fm = parse_frontmatter(doc)
 
         if fm is None:
-            errors.append(f"{doc}: missing YAML frontmatter (---)")
+            errors.append(f"{doc}: missing YAML frontmatter (<!-- --- ... --- -->)")
             continue
 
         if "source_files" not in fm or not fm["source_files"]:

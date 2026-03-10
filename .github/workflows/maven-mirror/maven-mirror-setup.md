@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - .github/workflows/maven-mirror/maven-mirror.pkr.hcl
@@ -6,6 +7,7 @@ source_files:
 related_docs:
   - docs/dev/ci-cd-diagram.md
 ---
+-->
 
 # Maven Mirror (Reposilite) Setup Guide
 

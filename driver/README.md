@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - driver/src/main/java/com/jetbrains/youtrackdb/internal/driver/**
@@ -8,6 +9,7 @@ related_docs:
   - README.md
   - server/README.md
 ---
+-->
 
 Implementation of the Gremlin driver for YouTrackDB.
 

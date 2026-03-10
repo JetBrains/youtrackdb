@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - console/src/**
@@ -10,6 +11,7 @@ related_docs:
   - README.md
   - server/README.md
 ---
+-->
 
 ### YTDB Gremlin Console
 

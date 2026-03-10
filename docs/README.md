@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - docs/*.md
@@ -5,6 +6,7 @@ source_files:
   - docs/internals/*.md
 related_docs: []
 ---
+-->
 
 # YouTrackDB Documentation
 

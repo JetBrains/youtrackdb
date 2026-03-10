@@ -1,3 +1,4 @@
+<!--
 ---
 source_files:
   - perf/**
@@ -5,6 +6,7 @@ source_files:
 related_docs:
   - docs/dev/ci-cd-diagram.md
 ---
+-->
 
 # LDBC SNB Benchmark (YouTrackDB)
 
