@@ -1058,7 +1058,7 @@ public class IndexHistogramManagerUnitTest {
     fixture.manager.setKeyStreamSupplier(
         () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
     // Set failure time to "just now"
-    fixture.manager.setLastRebalanceFailureTime(System.currentTimeMillis());
+    fixture.manager.setLastRebalanceFailureNanos(System.nanoTime());
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);

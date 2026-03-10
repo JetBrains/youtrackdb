@@ -126,7 +126,7 @@ public class IndexHistogramManager extends DurableComponent {
   private final double rebalanceMutationFraction;
   private final long maxRebalanceMutations;
   private final long minRebalanceMutations;
-  private final long rebalanceFailureCooldownMs;
+  private final long rebalanceFailureCooldownNs;
 
   /**
    * Committed mutations not yet persisted to the .ixs page. Accessed via
@@ -140,10 +140,11 @@ public class IndexHistogramManager extends DurableComponent {
   private final AtomicBoolean rebalanceInProgress = new AtomicBoolean(false);
 
   /**
-   * Timestamp (ms) of last rebalance failure. Prevents retry storms under
-   * persistent I/O errors (cooldown period).
+   * Monotonic timestamp ({@link System#nanoTime()}) of last rebalance failure.
+   * Prevents retry storms under persistent I/O errors (cooldown period).
+   * Uses nanoTime (not currentTimeMillis) to be immune to NTP clock adjustments.
    */
-  private volatile long lastRebalanceFailureTime;
+  private volatile long lastRebalanceFailureNanos;
 
   /**
    * Supplier for the engine's sorted key stream. Set by the engine after
@@ -220,9 +221,10 @@ public class IndexHistogramManager extends DurableComponent {
         GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS.getValueAsLong();
     this.minRebalanceMutations =
         GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS.getValueAsLong();
-    this.rebalanceFailureCooldownMs =
-        GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
-            .getValueAsLong();
+    this.rebalanceFailureCooldownNs =
+        java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
+            GlobalConfiguration.QUERY_STATS_REBALANCE_FAILURE_COOLDOWN
+                .getValueAsLong());
   }
 
   // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
@@ -1254,8 +1256,8 @@ public class IndexHistogramManager extends DurableComponent {
   private void scheduleRebalance(
       ExecutorService executor) {
     // Check cooldown
-    if (System.currentTimeMillis() - lastRebalanceFailureTime
-        < rebalanceFailureCooldownMs) {
+    if (System.nanoTime() - lastRebalanceFailureNanos
+        < rebalanceFailureCooldownNs) {
       return;
     }
     // At-most-one guard
@@ -1266,9 +1268,9 @@ public class IndexHistogramManager extends DurableComponent {
       executor.submit(() -> {
         try {
           doRebalance(false);
-          lastRebalanceFailureTime = 0;
+          lastRebalanceFailureNanos = 0;
         } catch (Exception e) {
-          lastRebalanceFailureTime = System.currentTimeMillis();
+          lastRebalanceFailureNanos = System.nanoTime();
           logger.warn("Histogram rebalance failed for {}", getName(), e);
         } finally {
           rebalanceInProgress.set(false);
@@ -1636,12 +1638,12 @@ public class IndexHistogramManager extends DurableComponent {
     return rebalanceInProgress.get();
   }
 
-  long getLastRebalanceFailureTime() {
-    return lastRebalanceFailureTime;
+  long getLastRebalanceFailureNanos() {
+    return lastRebalanceFailureNanos;
   }
 
-  void setLastRebalanceFailureTime(long time) {
-    this.lastRebalanceFailureTime = time;
+  void setLastRebalanceFailureNanos(long nanos) {
+    this.lastRebalanceFailureNanos = nanos;
   }
 
   void setFileIdForTest(long fileId) {
