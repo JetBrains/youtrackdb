@@ -200,17 +200,32 @@ Slot reads use **acquire** semantics to pair with the release write in `exit()`.
 This ensures that if the reclaimer sees `INACTIVE`, all the thread's prior
 critical section memory accesses are guaranteed to have completed.
 
+**Defensive guard against `INACTIVE` leak:** The `min` variable is initialized
+to `globalEpoch`, so it can only reach `Long.MAX_VALUE` (`INACTIVE`) if
+`globalEpoch` itself is `INACTIVE` — which should never happen. However, as a
+defensive measure, `computeSafeEpoch` explicitly checks for this case and
+returns `globalEpoch` instead of `Long.MAX_VALUE - 1`, which would
+catastrophically allow reclaiming nearly all retired entries.
+
 ```java
 long computeSafeEpoch() {
-  long min = GLOBAL_EPOCH_HANDLE.getOpaque(this);
+  long currentEpoch = (long) GLOBAL_EPOCH_HANDLE.getOpaque(this);
+  long min = currentEpoch;
   for (int i = 0; i < slotCount; i++) {
     long slotValue = (long) SLOTS_HANDLE.getAcquire(slots, i);
     if (slotValue < min) {
       min = slotValue;
     }
   }
-  // min is either globalEpoch (all slots INACTIVE, since INACTIVE = Long.MAX_VALUE)
-  // or the oldest active epoch. Entries retired strictly before min are safe.
+  // If min is INACTIVE, all slots are inactive and globalEpoch was not
+  // corrupted — safe epoch is the current global epoch. Guard against
+  // the pathological case where globalEpoch == INACTIVE (should never
+  // happen) to avoid returning Long.MAX_VALUE - 1.
+  if (min == INACTIVE) {
+    return currentEpoch;
+  }
+  // min is the oldest active epoch. Entries retired strictly before min
+  // are safe to reclaim.
   return min - 1;
 }
 ```
