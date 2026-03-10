@@ -390,9 +390,16 @@ public final class SelectivityEstimator {
 
     double matchingRows;
     if (bx == by) {
-      // X and Y in the same bucket — interpolate the sub-range
-      double fracX = fractionOf(fromKey, bx, h, FractionMode.RANGE);
-      double fracY = fractionOf(toKey, bx, h, FractionMode.RANGE);
+      // X and Y in the same bucket — pre-compute boundary scalars once
+      // and reuse for both endpoints (avoids redundant scalarize calls).
+      Object lo = h.boundaries()[bx];
+      Object hi = h.boundaries()[bx + 1];
+      double sLo = ScalarConversion.scalarize(lo, lo, hi);
+      double sHi = ScalarConversion.scalarize(hi, lo, hi);
+      double fracX =
+          fractionOf(fromKey, bx, h, FractionMode.RANGE, sLo, sHi);
+      double fracY =
+          fractionOf(toKey, bx, h, FractionMode.RANGE, sLo, sHi);
       double rangeFraction = fracY - fracX;
       matchingRows = rangeFraction * Math.max(h.frequencies()[bx], 0);
     } else {
@@ -547,29 +554,59 @@ public final class SelectivityEstimator {
     // Single-value bucket optimization: when distinctCounts[b] == 1,
     // the bucket contains duplicates of a single value. Use discrete logic.
     if (h.distinctCounts()[b] == 1 && h.frequencies()[b] > 0) {
-      Object bucketVal = h.boundaries()[b];
-      int cmp = COMPARATOR.compare(value, bucketVal);
-      if (cmp < 0) {
-        return 0.0; // value below the single value → everything is above
-      }
-      if (cmp > 0) {
-        return 1.0; // value above the single value → everything is below
-      }
-      // value equals the single value — behavior depends on mode
-      return switch (mode) {
-        case STRICT_ABOVE -> 1.0; // nothing strictly above
-        case STRICT_BELOW -> 0.0; // nothing strictly below
-        case RANGE -> 0.5; // discrete midpoint for interpolation
-      };
+      return discreteFraction(value, h.boundaries()[b], mode);
     }
 
-    double scaledV = ScalarConversion.scalarize(
-        value, h.boundaries()[b], h.boundaries()[b + 1]);
-    double scaledLo = ScalarConversion.scalarize(
-        h.boundaries()[b], h.boundaries()[b], h.boundaries()[b + 1]);
-    double scaledHi = ScalarConversion.scalarize(
-        h.boundaries()[b + 1], h.boundaries()[b], h.boundaries()[b + 1]);
+    Object lo = h.boundaries()[b];
+    Object hi = h.boundaries()[b + 1];
+    double scaledLo = ScalarConversion.scalarize(lo, lo, hi);
+    double scaledHi = ScalarConversion.scalarize(hi, lo, hi);
+    return continuousFraction(value, lo, hi, scaledLo, scaledHi);
+  }
 
+  /**
+   * Overload that accepts pre-computed boundary scalars, avoiding redundant
+   * {@link ScalarConversion#scalarize} calls when the same bucket is used
+   * for multiple values (e.g., both endpoints of a range query).
+   */
+  private static double fractionOf(
+      Object value, int b, EquiDepthHistogram h, FractionMode mode,
+      double scaledLo, double scaledHi) {
+    if (h.distinctCounts()[b] == 1 && h.frequencies()[b] > 0) {
+      return discreteFraction(value, h.boundaries()[b], mode);
+    }
+    return continuousFraction(
+        value, h.boundaries()[b], h.boundaries()[b + 1],
+        scaledLo, scaledHi);
+  }
+
+  /**
+   * Discrete fraction for single-value buckets (distinctCounts == 1).
+   */
+  private static double discreteFraction(
+      Object value, Object bucketVal, FractionMode mode) {
+    int cmp = COMPARATOR.compare(value, bucketVal);
+    if (cmp < 0) {
+      return 0.0; // value below the single value → everything is above
+    }
+    if (cmp > 0) {
+      return 1.0; // value above the single value → everything is below
+    }
+    // value equals the single value — behavior depends on mode
+    return switch (mode) {
+      case STRICT_ABOVE -> 1.0; // nothing strictly above
+      case STRICT_BELOW -> 0.0; // nothing strictly below
+      case RANGE -> 0.5; // discrete midpoint for interpolation
+    };
+  }
+
+  /**
+   * Continuous interpolation fraction using pre-computed boundary scalars.
+   */
+  private static double continuousFraction(
+      Object value, Object lo, Object hi,
+      double scaledLo, double scaledHi) {
+    double scaledV = ScalarConversion.scalarize(value, lo, hi);
     // Degenerate bucket (both boundaries scalarize to the same value).
     // This also handles the case where scalarize returns the same fallback
     // (e.g., 0.5) for all three inputs (unknown type).
