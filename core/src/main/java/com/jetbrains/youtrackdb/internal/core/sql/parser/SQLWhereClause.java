@@ -366,6 +366,10 @@ public class SQLWhereClause extends SimpleNode {
         return SelectivityEstimator.estimateIsNotNull(stats, histogram);
       }
     }
+    if (expr instanceof SQLInCondition ic) {
+      return estimateInConditionSelectivity(
+          ic, indexField, stats, histogram, ctx);
+    }
     if (expr instanceof SQLNotBlock nb && nb.negate) {
       var inner = estimatePredicateSelectivity(
           nb.sub, indexField, stats, histogram, ctx);
@@ -443,6 +447,38 @@ public class SQLWhereClause extends SimpleNode {
     }
     return SelectivityEstimator.estimateRange(
         stats, histogram, fromKey, toKey, true, true);
+  }
+
+  /**
+   * Estimates selectivity for {@code field IN (v1, v2, ..., vN)} expressed as
+   * an {@link SQLInCondition}. The right-hand side may be a math expression
+   * that evaluates to a collection, or a parameter.
+   */
+  private static double estimateInConditionSelectivity(
+      SQLInCondition ic, String indexField,
+      IndexStatistics stats, @Nullable EquiDepthHistogram histogram,
+      CommandContext ctx) {
+    if (ic.getLeft() == null || !matchesField(ic.getLeft(), indexField)) {
+      return -1;
+    }
+    // The right side can be a math expression ([1,2,3]), a parameter (:param),
+    // or a subquery. Only estimate when the value is early-calculable.
+    var rightExpr = ic.getRightMathExpression();
+    if (rightExpr == null || !rightExpr.isEarlyCalculated(ctx)) {
+      // Try input parameter fallback
+      if (ic.getRightParam() != null) {
+        var paramValue = ic.getRightParam().getValue(ctx.getInputParameters());
+        if (paramValue instanceof Collection<?> coll) {
+          return SelectivityEstimator.estimateIn(stats, histogram, coll);
+        }
+      }
+      return -1;
+    }
+    var value = rightExpr.execute((Result) null, ctx);
+    if (value instanceof Collection<?> coll) {
+      return SelectivityEstimator.estimateIn(stats, histogram, coll);
+    }
+    return -1;
   }
 
   /**

@@ -778,6 +778,78 @@ public class SQLWhereClauseHistogramEstimateTest {
     assertEquals(Math.min(expectedSum, count), estimate);
   }
 
+  // ── IN condition (SQLInCondition) ────────────────────────────
+
+  @Test
+  public void inCondition_usesHistogramEstimation() {
+    // Regression: SQLInCondition (standalone expression type) must be
+    // dispatched to SelectivityEstimator.estimateIn, not silently skipped.
+    // Given: WHERE age IN [10, 50, 90]
+    var where = buildWhereClause(
+        inCondition("age", List.of(10, 50, 90)));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateIn(stats, histogram, List.of(10, 50, 90));
+    assertEquals(Math.max(1, (long) (CLASS_COUNT * expectedSel)), estimate);
+  }
+
+  @Test
+  public void inCondition_singleValue_usesHistogramEstimation() {
+    // Given: WHERE age IN [42]
+    var where = buildWhereClause(
+        inCondition("age", List.of(42)));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateIn(stats, histogram, List.of(42));
+    assertEquals(Math.max(1, (long) (CLASS_COUNT * expectedSel)), estimate);
+  }
+
+  @Test
+  public void inCondition_wrongField_fallsBack() {
+    // Given: WHERE otherField IN [1, 2, 3] — does not match "age" index
+    var where = buildWhereClause(
+        inCondition("otherField", List.of(1, 2, 3)));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    // Falls back to count/2 (no histogram predicate matched)
+    assertEquals(CLASS_COUNT / 2, estimate);
+  }
+
+  @Test
+  public void inCondition_combinedWithEquality_multipliesSelectivities() {
+    // Given: WHERE age IN [10, 50] AND age = 30 (artificial but tests
+    // the independence-assumption multiplication)
+    var where = buildWhereClause(
+        inCondition("age", List.of(10, 50)),
+        binaryCondition("age", new SQLEqualsOperator(-1), 30));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    var inSel =
+        SelectivityEstimator.estimateIn(stats, histogram, List.of(10, 50));
+    var eqSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 30);
+    assertEquals(
+        Math.max(1, (long) (CLASS_COUNT * inSel * eqSel)), estimate);
+  }
+
+  @Test
+  public void inCondition_emptyCollection_returnsOne() {
+    // Given: WHERE age IN [] — empty collection
+    var where = buildWhereClause(
+        inCondition("age", List.of()));
+
+    var estimate = where.estimate(schemaClass, THRESHOLD, ctx);
+
+    // estimateIn with empty collection returns 0.0 → max(1, 0) = 1
+    assertEquals(1, estimate);
+  }
+
   // ── Helpers ──────────────────────────────────────────────────
 
   /**
@@ -838,6 +910,33 @@ public class SQLWhereClauseHistogramEstimateTest {
     // protected field; accessible from same package
     nnc.expression = fieldExpr(fieldName);
     return nnc;
+  }
+
+  /**
+   * Creates an IN condition: {@code fieldName IN values}.
+   * Uses {@link SQLInCondition} (the standalone expression type, not
+   * {@link SQLBinaryCondition} with {@link SQLInOperator}).
+   */
+  private SQLInCondition inCondition(String fieldName, List<?> values) {
+    var ic = new SQLInCondition(-1);
+    ic.setLeft(fieldExpr(fieldName));
+    ic.setRightMathExpression(valueMathExpr(values));
+    return ic;
+  }
+
+  /**
+   * Creates a mock {@link SQLMathExpression} that returns a constant value
+   * and reports itself as early-calculable.
+   */
+  private SQLMathExpression valueMathExpr(Object value) {
+    var expr = mock(SQLMathExpression.class);
+    when(expr.isEarlyCalculated(any())).thenReturn(true);
+    when(expr.execute(
+        nullable(Result.class), any(CommandContext.class))).thenReturn(value);
+    when(expr.execute(
+        nullable(Identifiable.class),
+        any(CommandContext.class))).thenReturn(value);
+    return expr;
   }
 
   /**
