@@ -453,7 +453,10 @@ long computeSafeEpoch() {
 /**
  * Reclaims a slot whose owning thread is dead. Uses a CAS on
  * slotReleased to prevent double-free with the Cleaner.
- * Called under evictionLock during computeSafeEpoch() scans.
+ * Called from computeSafeEpoch() scans, which may run under
+ * evictionLock (from reclaimRetired() or assistReclamation())
+ * or outside it (from waitForSafeEpoch()). In either case,
+ * this method only requires growLock for correctness.
  *
  * Acquires growLock to ensure the CAS targets the current
  * AtomicIntegerArray. Without this, a TOCTOU race exists: the
@@ -465,9 +468,11 @@ long computeSafeEpoch() {
  * offer the same index to the free list twice. Holding growLock makes
  * the read + CAS atomic w.r.t. grow()'s copy-and-publish sequence.
  *
- * Lock ordering: evictionLock → growLock (this is the only nesting
- * direction; grow() acquires growLock only, releaseSlot() acquires
- * growLock only — no cycles).
+ * Lock ordering: when evictionLock is held (reclaimRetired() /
+ * assistReclamation() path), the nesting is evictionLock → growLock.
+ * When called from waitForSafeEpoch() (outside evictionLock), only
+ * growLock is acquired. grow() acquires growLock only, releaseSlot()
+ * acquires growLock only — no cycles in either case.
  *
  * Cost: one uncontended lock acquisition per dead-thread slot during
  * scan — cold path only.
@@ -963,8 +968,22 @@ reclaims the pointer if freeze succeeds (`state == 0`). With EBR:
    `0` to `RETIRED`. This can **fail** if a writer holds the entry (`state > 0`),
    in which case eviction moves the entry back to eden and tries another victim
    (same as today's `freeze()` failure path).
-2. **Remove from CHM and LRU lists** (under `evictionLock`): `data.remove()` makes
-   the entry unreachable — no new thread can obtain it from the CHM.
+2. **Remove from CHM and LRU lists** (under `evictionLock`):
+   `data.remove(pageKey, entry)` (two-arg form) makes the entry unreachable — no
+   new thread can obtain it from the CHM. The two-arg variant ensures we only
+   remove the exact entry we just retired: `doLoadForRead()` runs without
+   `evictionLock`, so a concurrent `data.compute()` could theoretically replace
+   the retired entry between `retire()` (step 1) and `data.remove()`. In
+   practice this cannot happen today (compute returns the existing entry even if
+   retired), but the two-arg form is a defensive safeguard against future
+   changes to the compute lambda — same pattern as the current `purgeEden()`.
+   If `data.remove(pageKey, entry)` returns `false` (entry was replaced), skip
+   the `cacheSize` decrement and retired-list append — the replacement entry is
+   a live entry owned by whoever inserted it. Decrement
+   `cacheSize` (same as today's `purgeEden()` does after `data.remove()`). This
+   must happen at removal time, not at deferred reclamation time, because
+   `cacheSize` drives drain-cycle triggering (107% forced drain) and eviction
+   decisions — a stale high count would cause excessive eviction.
 3. **Record `retireEpoch`** (under `evictionLock`): Set `entry.retireEpoch` to the
    current `globalEpoch`. Add the entry to the **retired list** and increment
    `retiredListSize` (volatile write — visible to outside-lock backpressure check
@@ -1162,6 +1181,31 @@ failure. The retry loop in the current `doLoad()` exists solely because
 `acquireEntry()` can fail; with EBR protecting the read path, that loop is
 removed.
 
+**Reading a retired entry between `retire()` and `data.remove()`:** Eviction's
+`retire()` and `data.remove()` are sequential under `evictionLock`, but
+`doLoadForRead()` runs without `evictionLock`. A reader can call `data.get()`
+(or `data.compute()`) between these two steps and obtain a reference to an
+entry that is already retired (state = `RETIRED`) but still present in the CHM.
+This is safe for all the reasons listed above:
+
+- **Memory safety**: EBR prevents physical reclamation (point 1).
+- **Data correctness**: The retired entry's buffer contains the same page data
+  (point 2). No in-place mutation can occur because a writer calling
+  `acquireEntry()` on the retired entry would fail (state < 0), forcing the
+  writer's retry loop to wait until eviction removes the entry and the writer
+  creates or finds a fresh one.
+- **LRU tracking**: `afterRead()` posts the entry to the read buffer;
+  `onAccess()` checks `isRetired()` and skips it (point 3).
+- **`data.compute()` path**: If `data.compute()` finds a retired entry in the
+  CHM, the lambda returns it unchanged (the existing `else` branch). The reader
+  uses the retired entry's valid data. Eviction's subsequent
+  `data.remove(pageKey, entry)` (two-arg form) still matches and removes it.
+
+The window between `retire()` and `data.remove()` is tiny (sequential under
+`evictionLock`), so this race is infrequent. When it occurs, the reader simply
+uses slightly stale cache metadata (the entry will be removed momentarily) with
+no data correctness or safety impact.
+
 **Why `acquireEntry()` IS still needed on the write path (`loadForWrite()`):**
 
 The write path must prevent eviction from retiring an entry while a thread
@@ -1289,6 +1333,14 @@ lock the write path already acquires.
 entry has `state > 0`. With EBR, the `state` field still tracks write holders
 (see "Write Path" above), so `retire()` can still fail if `state > 0`.
 
+**API change:** The current `clearFile(long fileId, int filledUpTo, WriteCache
+writeCache)` iterates page indices `0..filledUpTo`, doing a CHM lookup for each
+page — many of which may not be in the cache (O(`filledUpTo`) lookups, sparse
+hits). With EBR, `clearFile(long fileId)` scans the CHM once and filters by
+file ID, visiting only entries that actually exist in the cache. The
+`filledUpTo` and `writeCache` parameters are no longer needed. Callers that
+pass these parameters must be updated accordingly.
+
 **Precondition — no concurrent writers on the file's pages:** `clearFile()` is
 called during file close or deletion, after the component's exclusive lock has
 been acquired (via `acquireExclusiveLock()` on `DurableComponent`) and all
@@ -1323,7 +1375,22 @@ from `0` to `RETIRED`) ensures `onAccess()` correctly skips these entries.
 
 The approach:
 
-1. **Retire each entry** — call `retire()` (CAS from `0` to `RETIRED`) on every
+1. **Flush the current thread's read batch** (`flushCurrentThreadReadBatch()`)
+   before acquiring `evictionLock` — ensures this thread's pending read-buffer
+   entries are visible to the drain in step 2.
+2. **Acquire `evictionLock`.**
+3. **Drain read and write buffers** (`emptyBuffers()`). The write buffer may
+   contain entries that have been inserted into the CHM (via `data.compute()`)
+   but not yet added to the policy's LRU lists. If not drained, these entries
+   would be found in the CHM during step 4 but would not be in any LRU list,
+   causing `retireAndRemoveEntriesForFile()` to skip their LRU removal. While
+   `WTinyLFUPolicy.onRemove()` handles missing entries gracefully (the
+   `contains()` checks fall through), draining first maintains consistency
+   with the current `clearFile()` behavior and ensures accurate LRU bookkeeping.
+   The read buffer is drained for the same reason: pending `onAccess()` calls
+   update LRU positions, and draining them before removal avoids processing
+   stale entries in future drain cycles.
+4. **Retire each entry** — call `retire()` (CAS from `0` to `RETIRED`) on every
    entry belonging to the file. The precondition guarantees `state == 0` for all
    of them, so the CAS always succeeds. If `retire()` fails on any entry, throw
    `IllegalStateException` — do **not** proceed with CHM removal (see "Error
@@ -1334,26 +1401,27 @@ The approach:
    the entry. Without this step, `onAccess()` would see `state == 0` and attempt
    to move the entry in the LRU lists — but the entry is no longer in any list,
    causing data structure corruption.
-2. Remove entries from CHM (making them unreachable) and from LRU lists.
-3. Record the current `globalEpoch` as `retireEpoch` for these entries.
-4. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
+5. Remove entries from CHM (making them unreachable) and from LRU lists.
+6. Record the current `globalEpoch` as `retireEpoch` for these entries.
+7. Advance the epoch (`globalEpoch++`) — this is safe because `clearFile()`
    holds `evictionLock`.
-5. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
+8. **Release `evictionLock`**, then call `waitForSafeEpoch(retireEpoch)` which
    **spins/parks outside the lock** until `computeSafeEpoch() >= retireEpoch`.
    Releasing the lock is essential: threads that are currently inside critical
    sections need to finish and call `exit()`, and threads that enter new
-   critical sections after step 4 will record an epoch > `retireEpoch` (so
+   critical sections after step 7 will record an epoch > `retireEpoch` (so
    they don't block reclamation). If `waitForSafeEpoch` were called under
    `evictionLock`, it would deadlock — no drain cycle could advance the epoch
    or make progress while the lock is held.
-6. Once `waitForSafeEpoch` returns, all threads that could have observed the
+9. Once `waitForSafeEpoch` returns, all threads that could have observed the
    removed entries have exited their critical sections. Physically reclaim
    the entries (release pointers back to `ByteBufferPool`).
-7. Proceed with file close/delete.
+10. Proceed with file close/delete.
 
 ```java
 // In LockFreeReadCache:
 void clearFile(long fileId) {
+  flushCurrentThreadReadBatch();
   long retireEpoch;
 
   // Two populations of entries to reclaim:
@@ -1367,6 +1435,9 @@ void clearFile(long fileId) {
 
   evictionLock.lock();
   try {
+    // Drain read/write buffers so that all pending entries are processed
+    // into the LRU lists before we retire and remove entries for this file.
+    emptyBuffers();
     // Retire entries first (CAS 0 → RETIRED) so that concurrent readers
     // who obtained a reference via data.get() before CHM removal will see
     // isRetired() == true in onAccess() and skip the LRU update.
@@ -1510,6 +1581,18 @@ The additional per-write CAS cost is negligible: the write path already
 acquires an exclusive lock (ReentrantReadWriteLock write lock on the
 CachePointer), which involves the same kind of CAS. One more CAS on top
 of that is not measurable.
+
+**Brief spin on retired entry:** A writer in `doLoadForWrite()` can encounter a
+retired entry between eviction's `retire()` and `data.remove()` (both sequential
+under `evictionLock`, but `doLoadForWrite()` runs without it). In this window,
+`data.get()` returns the retired entry, `acquireEntry()` fails (state < 0), and
+the retry loop iterates. On the next iteration, `data.get()` either returns the
+same retired entry (if `data.remove()` hasn't executed yet) or `null` (if it
+has). This is the same behavior as today's code with frozen entries — the writer
+briefly spins until eviction completes the removal. The window is tiny
+(sequential statements under `evictionLock`), so in practice the retry executes
+at most a few iterations. This is not a livelock risk: the eviction thread makes
+forward progress independently of the writer.
 
 For dirty-page tracking (`WritersListener`), we keep the writers count
 on `CachePointer` since it is only modified under the exclusive lock
@@ -1685,8 +1768,16 @@ slots are `INACTIVE`.
 
 The approach:
 
-1. **Acquire `evictionLock`.**
-2. **Retire and remove all entries from the CHM and LRU lists.** For each
+1. **Flush the current thread's read batch** (`flushCurrentThreadReadBatch()`)
+   before acquiring `evictionLock`.
+2. **Acquire `evictionLock`.**
+3. **Drain read and write buffers** (`emptyBuffers()`). Same rationale as
+   `clearFile()`: ensures all pending entries are processed into the LRU
+   lists before retirement, maintaining consistent LRU bookkeeping. Under
+   normal shutdown this is largely cosmetic (the cache is going away), but
+   it prevents stale buffer entries from interacting with the retirement
+   path in unexpected ways.
+4. **Retire and remove all entries from the CHM and LRU lists.** For each
    entry, call `retire()` (CAS from `0` to `RETIRED`) before removal —
    same as `clearFile()` — to protect against any straggling read-buffer
    drain (see `clearFile()` discussion above for rationale). The
@@ -1694,15 +1785,15 @@ The approach:
    every `retire()` CAS succeeds. If any `retire()` CAS fails, throw
    `IllegalStateException` without removing that entry from the CHM
    (precondition violation — see `clearFile()` error handling discussion).
-3. **Drain the retired list completely.** Previously retired entries (from
+5. **Drain the retired list completely.** Previously retired entries (from
    prior eviction cycles) are collected into a separate list. These entries
    have `retireEpoch` values from earlier epochs; waiting for the
-   `retireEpoch` recorded in step 4 (current epoch) is sufficient since it
+   `retireEpoch` recorded in step 6 (current epoch) is sufficient since it
    is ≥ all of their individual `retireEpoch` values.
-4. **Record `retireEpoch`** as the current global epoch.
-5. **Advance the epoch.**
-6. **Release `evictionLock`.**
-7. **Call `waitForSafeEpoch(retireEpoch)`.** Because the precondition
+6. **Record `retireEpoch`** as the current global epoch.
+7. **Advance the epoch.**
+8. **Release `evictionLock`.**
+9. **Call `waitForSafeEpoch(retireEpoch)`.** Because the precondition
    guarantees no threads are in critical sections, all slots are `INACTIVE`
    and `computeSafeEpoch()` returns `>= retireEpoch` immediately — the wait
    completes without spinning. This step is included for **defense in depth**:
@@ -1710,12 +1801,13 @@ The approach:
    the wait would block until that thread exits, preventing a use-after-free
    rather than silently corrupting memory. The bounded timeout (30 seconds)
    surfaces the violation as an `IllegalStateException`.
-8. **Physically reclaim all collected entries:** call
-   `decrementReadersReferrer()` and `clearCachePointer()` on each.
+10. **Physically reclaim all collected entries:** call
+    `decrementReadersReferrer()` and `clearCachePointer()` on each.
 
 ```java
 // In LockFreeReadCache:
 void close() {
+  flushCurrentThreadReadBatch();
   long retireEpoch;
 
   // Two populations of entries to reclaim:
@@ -1729,6 +1821,9 @@ void close() {
 
   evictionLock.lock();
   try {
+    // Drain read/write buffers so that all pending entries are processed
+    // into the LRU lists before we retire and remove all entries.
+    emptyBuffers();
     // Retire + remove all entries from CHM and LRU lists.
     // Throws IllegalStateException if any retire() CAS fails (precondition violation).
     liveEntries = retireAndRemoveAllEntries();
@@ -1774,6 +1869,88 @@ guarantees the EBR precondition (no active critical sections) without any
 coupling between the two mechanisms. EBR's `waitForSafeEpoch` is a redundant
 safety net — it adds no cost under normal shutdown (immediate return) and
 catches precondition violations under abnormal conditions.
+
+#### Cache Clear (`clear()`)
+
+`LockFreeReadCache.clear()` removes **all** entries from the cache without
+shutting it down — the cache remains usable afterwards. It is called during
+test cleanup and other non-shutdown scenarios.
+
+**Precondition — no concurrent component operations:** Same as `close()`.
+`clear()` is called after the component's exclusive lock has been acquired and
+all in-flight component operations have completed. This guarantees `state == 0`
+for all entries (no writers) and no thread is inside an EBR critical section.
+
+The approach is identical to `close()`:
+
+1. **Acquire `evictionLock`.**
+2. **Retire and remove all entries from the CHM and LRU lists.** For each
+   entry, call `retire()` (CAS from `0` to `RETIRED`) before removal —
+   same as `clearFile()` / `close()` — to protect against any straggling
+   read-buffer drain (see `clearFile()` discussion above for rationale). The
+   precondition guarantees `state == 0` for all entries, so every `retire()`
+   CAS succeeds. If any `retire()` CAS fails, throw `IllegalStateException`
+   without removing that entry from the CHM (precondition violation).
+3. **Drain the retired list completely.** Collect previously retired entries.
+4. **Record `retireEpoch`** as the current global epoch.
+5. **Advance the epoch.**
+6. **Reset `cacheSize` to 0.**
+7. **Release `evictionLock`.**
+8. **Call `waitForSafeEpoch(retireEpoch)`.** Same defense-in-depth rationale
+   as `close()` — under normal conditions all slots are `INACTIVE` and this
+   returns immediately.
+9. **Physically reclaim all collected entries:** call
+   `decrementReadersReferrer()` and `clearCachePointer()` on each.
+
+```java
+// In LockFreeReadCache:
+void clear() {
+  flushCurrentThreadReadBatch();
+  long retireEpoch;
+
+  List<CacheEntry> liveEntries;
+  List<CacheEntry> previouslyRetired;
+
+  evictionLock.lock();
+  try {
+    emptyBuffers();
+    // Retire + remove all entries from CHM and LRU lists.
+    // Throws IllegalStateException if any retire() CAS fails (precondition violation).
+    liveEntries = retireAndRemoveAllEntries();
+    // Drain the entire retired list.
+    previouslyRetired = drainRetiredList();
+    retireEpoch = epochTable.currentEpoch();
+    epochTable.advanceEpoch();
+    cacheSize.set(0);
+  } finally {
+    evictionLock.unlock();
+  }
+
+  // Defense in depth: wait for any (unexpected) in-flight critical sections.
+  epochTable.waitForSafeEpoch(retireEpoch);
+
+  // Physically reclaim all entries.
+  for (var entry : liveEntries) {
+    entry.getCachePointer().decrementReadersReferrer();
+    entry.clearCachePointer();
+  }
+  for (var entry : previouslyRetired) {
+    entry.getCachePointer().decrementReadersReferrer();
+    entry.clearCachePointer();
+  }
+}
+```
+
+**Difference from `close()`:** `clear()` resets `cacheSize` to 0 (the cache
+remains operational) and calls `flushCurrentThreadReadBatch()` +
+`emptyBuffers()` before retirement to ensure all pending read/write buffer
+entries are processed into the LRU lists first — matching the current
+`clear()` implementation's behavior. `close()` omits the buffer drain because
+the cache is shutting down and buffer contents are irrelevant.
+
+**Reuse of `retireAndRemoveAllEntries()` and `drainRetiredList()`:** Both
+`clear()` and `close()` share the same helper methods. The only differences
+are the buffer drain and `cacheSize` reset in `clear()`.
 
 ## Implementation Phases
 
@@ -1885,10 +2062,15 @@ knowing that EBR is already protecting all entries.
    (see "Outside-Cache Entries and `silentLoadForRead`" above).
 5. `purgeEden()`: Replace `freeze()` with `retire()` — CAS from `0` to `RETIRED`.
    If `state > 0` (a writer holds the entry), `retire()` fails and eviction moves the
-   entry back to eden, same as today's `freeze()` failure path. On success, remove
-   from CHM, add to retired list with current epoch, and increment `retiredListSize`
-   (volatile write). **Do not** call `decrementReadersReferrer()` here — it moves to
-   `reclaimRetired()`.
+   entry back to eden, same as today's `freeze()` failure path. On success, use
+   `data.remove(pageKey, entry)` (two-arg form, same as today) to remove from CHM,
+   decrement `cacheSize`, add to retired list with current epoch, and increment
+   `retiredListSize` (volatile write). If the two-arg `data.remove()` returns
+   `false` (entry was replaced — defensive guard), skip the `cacheSize` decrement
+   and retired-list append. The `cacheSize` decrement happens at CHM removal time
+   (not at deferred reclamation) because it drives drain-cycle triggering and
+   eviction decisions. **Do not** call `decrementReadersReferrer()` here — it
+   moves to `reclaimRetired()`.
 6. `drainBuffers()`: Add epoch increment + `reclaimRetired()` call.
 7. `reclaimRetired()`: For each reclaimable entry (retireEpoch <= safeEpoch), call
    `decrementReadersReferrer()` and `clearCachePointer()`. This is the structural
