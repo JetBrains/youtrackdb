@@ -27,6 +27,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Page accessor for the histogram statistics page (.ixs file, page 0).
@@ -60,6 +62,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
  * {@code (hllRegisterCount & 0x8000_0000) != 0} means page-1 spill.
  */
 final class HistogramStatsPage extends DurablePage {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(HistogramStatsPage.class);
 
   /**
    * High bit flag in the persisted hllRegisterCount field indicating
@@ -222,6 +227,9 @@ final class HistogramStatsPage extends DurablePage {
     // before EquiDepthHistogram.deserialize() gets to validate the blob.
     if (histogramDataLength < 0
         || VARIABLE_DATA_OFFSET + histogramDataLength > MAX_PAGE_SIZE_BYTES) {
+      logger.warn("Histogram stats page has invalid histogramDataLength {}"
+          + " (page capacity {}); treating as empty histogram",
+          histogramDataLength, MAX_PAGE_SIZE_BYTES);
       histogramDataLength = 0;
     }
 
@@ -242,6 +250,10 @@ final class HistogramStatsPage extends DurablePage {
       if (hllOffset + hllRegisterCount <= MAX_PAGE_SIZE_BYTES) {
         byte[] hllData = getBinaryValue(hllOffset, hllRegisterCount);
         hll = HyperLogLogSketch.readFrom(hllData, 0);
+      } else {
+        logger.warn("Histogram stats page has HLL registers at offset {}"
+            + " with count {} exceeding page capacity {}; skipping HLL",
+            hllOffset, hllRegisterCount, MAX_PAGE_SIZE_BYTES);
       }
     }
 
