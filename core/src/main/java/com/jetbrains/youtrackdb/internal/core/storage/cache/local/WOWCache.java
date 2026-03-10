@@ -1490,7 +1490,7 @@ public final class WOWCache extends AbstractWriteCache
 
     if (flushFuture != null) {
       try {
-        flushFuture.get();
+        flushFuture.get(shutdownTimeout, TimeUnit.MILLISECONDS);
       } catch (final java.lang.InterruptedException e) {
         Thread.currentThread().interrupt();
         throw BaseException.wrapException(
@@ -1503,6 +1503,11 @@ public final class WOWCache extends AbstractWriteCache
         throw BaseException.wrapException(
             new WriteCacheException(storageName,
                 "Error in execution of data flush for storage " + storageName),
+            e, storageName);
+      } catch (final TimeoutException e) {
+        throw BaseException.wrapException(
+            new WriteCacheException(storageName,
+                "Timed out waiting for flush pause in storage " + storageName),
             e, storageName);
       }
     }
