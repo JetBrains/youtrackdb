@@ -2051,21 +2051,40 @@ SQLFunctionCall FunctionCall():
 }
 {
     (
-    	(
-    	    (  jjtThis.name = Identifier() )
-    	    |
-    	    ( <DISTINCT> { jjtThis.name = new SQLIdentifier("distinct"); } )
-    	)
-    	<LPAREN>
-    	(
+        (
+            (  jjtThis.name = Identifier() )
+            |
+            ( <DISTINCT> { jjtThis.name = new SQLIdentifier("distinct"); } )
+        )
+        <LPAREN>
+        (
             [
-            lastExpression = Expression() {jjtThis.addParam(lastExpression);} ( <COMMA> lastExpression = Expression() {jjtThis.addParam(lastExpression);})*
+            lastExpression = FunctionParam() {jjtThis.addParam(lastExpression);} ( <COMMA> lastExpression = FunctionParam() {jjtThis.addParam(lastExpression);})*
             ]
 
-    	)
-    	<RPAREN>
+        )
+        <RPAREN>
     )
     { return jjtThis; }
+}
+
+SQLExpression FunctionParam() #void:
+{
+    SQLExpression exp = null;
+    SQLBooleanExpression boolExp = null;
+}
+{
+    (
+        LOOKAHEAD( OrBlock() ( <COMMA> | <RPAREN> ) )
+        boolExp = OrBlock() {
+            exp = new SQLExpression(-1);
+            exp.booleanExpression = boolExp;
+            exp.value = boolExp;
+        }
+        |
+        exp = Expression()
+    )
+    { return exp; }
 }
 
 SQLMethodCall MethodCall():
@@ -2728,7 +2747,7 @@ SQLContainsValueOperator ContainsValueOperator():
 ){return jjtThis;}
 }
 
-SQLEqualsCompareOperator EqualsCompareOperator():
+SQLEqualsOperator EqualsCompareOperator() #EqualsOperator:
 {}
 {
 (
