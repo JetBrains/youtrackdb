@@ -184,15 +184,23 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     assertEquals("totalCount after ANALYZE should match actual",
         actualCount, statsAnalyzed.totalCount());
 
-    if (histogramAnalyzed != null) {
-      long freqSum = 0;
-      for (int i = 0; i < histogramAnalyzed.bucketCount(); i++) {
-        freqSum += histogramAnalyzed.frequencies()[i];
-      }
-      assertEquals(
-          "Sum of bucket frequencies should equal nonNullCount",
-          histogramAnalyzed.nonNullCount(), freqSum);
+    // After ANALYZE with 200 entries, a histogram should exist
+    assertNotNull(
+        "Histogram should be built after ANALYZE with 200 entries",
+        histogramAnalyzed);
+
+    assertTrue("bucketCount should be > 0 after ANALYZE",
+        histogramAnalyzed.bucketCount() > 0);
+    assertTrue("distinctCount should be > 0 after ANALYZE",
+        statsAnalyzed.distinctCount() > 0);
+
+    long freqSum = 0;
+    for (int i = 0; i < histogramAnalyzed.bucketCount(); i++) {
+      freqSum += histogramAnalyzed.frequencies()[i];
     }
+    assertEquals(
+        "Sum of bucket frequencies should equal nonNullCount",
+        histogramAnalyzed.nonNullCount(), freqSum);
   }
 
   // ═══════════════════════════════════════════════════════════════
