@@ -1601,8 +1601,10 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Hashes a key value to a 64-bit long for HLL register update.
-   * Uses type-specific hashing for common fixed-size key types to avoid
-   * byte[] allocation via serialization on the hot rebalance path.
+   * Uses type-specific hashing for common key types to avoid byte[]
+   * allocation via serialization on the hot onPut/rebalance path.
+   * String keys use a two-round long hash (hashCode → MurmurHash3) to
+   * avoid allocating a serialized byte[] per key.
    */
   long hashKey(Object key) {
     if (key instanceof Long v) {
@@ -1614,8 +1616,15 @@ public class IndexHistogramManager extends DurableComponent {
           Double.doubleToLongBits(v), MURMUR_SEED);
     } else if (key instanceof java.util.Date v) {
       return MurmurHash3.murmurHash3_x64_64(v.getTime(), MURMUR_SEED);
+    } else if (key instanceof String v) {
+      // Two-round hash: String.hashCode() (32-bit, no allocation) fed
+      // through MurmurHash3 long mixer for good 64-bit distribution.
+      // The HLL only needs uniform bit distribution, not collision
+      // resistance — this is sufficient and avoids a byte[] allocation
+      // per key on the hot onPut path for multi-value string indexes.
+      return MurmurHash3.murmurHash3_x64_64(v.hashCode(), MURMUR_SEED);
     }
-    // Variable-length types (String, byte[], Decimal, CompositeKey):
+    // Remaining variable-length types (byte[], Decimal, CompositeKey):
     // fall back to serialization.
     byte[] bytes = keySerializer.serializeNativeAsWhole(
         serializerFactory, key);
