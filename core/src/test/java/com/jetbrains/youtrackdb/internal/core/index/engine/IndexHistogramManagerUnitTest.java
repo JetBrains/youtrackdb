@@ -322,6 +322,54 @@ public class IndexHistogramManagerUnitTest {
     // Then nullCount increases by 1
     assertEquals(6, fixture.manager.getStatistics().nullCount());
     assertEquals(101, fixture.manager.getStatistics().totalCount());
+    // Single-value: distinctCount excludes nulls
+    assertEquals(95, fixture.manager.getStatistics().distinctCount());
+  }
+
+  @Test
+  public void singleValue_distinctCountExcludesNulls_afterMixedInserts() {
+    // Given a single-value manager with no nulls
+    var fixture = new Fixture();
+    installSnapshot(fixture, 10, 10, 0, null);
+
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+
+    // When 3 non-null inserts and 2 null inserts are applied
+    fixture.manager.onPut(op, 1, true, true);
+    fixture.manager.onPut(op, 2, true, true);
+    fixture.manager.onPut(op, 3, true, true);
+    fixture.manager.onPut(op, null, true, true);
+    fixture.manager.onPut(op, null, true, true);
+    var delta = holder.getDeltas().get(fixture.engineId);
+    fixture.manager.applyDelta(delta);
+
+    // Then totalCount = 15, nullCount = 2, distinctCount = 15 - 2 = 13
+    var stats = fixture.manager.getStatistics();
+    assertEquals(15, stats.totalCount());
+    assertEquals(2, stats.nullCount());
+    assertEquals(13, stats.distinctCount());
+  }
+
+  @Test
+  public void singleValue_distinctCountExcludesNulls_afterRemovingNonNullKey() {
+    // Given a single-value manager with some nulls
+    var fixture = new Fixture();
+    installSnapshot(fixture, 100, 90, 10, null);
+
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+
+    // When a non-null key is removed
+    fixture.manager.onRemove(op, 42, true);
+    var delta = holder.getDeltas().get(fixture.engineId);
+    fixture.manager.applyDelta(delta);
+
+    // Then totalCount = 99, nullCount = 10, distinctCount = 99 - 10 = 89
+    var stats = fixture.manager.getStatistics();
+    assertEquals(99, stats.totalCount());
+    assertEquals(10, stats.nullCount());
+    assertEquals(89, stats.distinctCount());
   }
 
   @Test
